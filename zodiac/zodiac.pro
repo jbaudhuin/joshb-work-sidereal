@@ -13,6 +13,6 @@ include(zodiac.pri)
 
 # library dependencies
 LIBS += -L$$_PRO_FILE_PWD_/../bin
-LIBS += -lastroprocessor -lfileeditor -lplain -lchart -lplanets -ldetails
+LIBS += -lswe -lastroprocessor -lfileeditor -lplain -lchart -lplanets -ldetails
 
 CONFIG(release, debug|release):DEFINES += QT_NO_DEBUG_OUTPUT

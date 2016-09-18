@@ -113,6 +113,8 @@ class Chart : public AstroFileHandler
         void help(QString tag)    { requestHelp(tag); }    // called by circle item (because requestHelp() is protected)
         bool isClockwise()        { return clockwise; }
         CircleStart startPoint()  { return circleStart; }
+
+        friend class RotatingCircleItem;
 };
 
 #endif // CHART_H

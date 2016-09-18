@@ -20,7 +20,8 @@ QString Data::usedLang = QString();
 void Data :: load(QString language)
  {
   usedLang = language;
-  swe_set_ephe_path( "swe/" );
+  char ephePath[] = "swe/";
+  swe_set_ephe_path( ephePath );
   CsvFile f;
 
   f.setFileName("astroprocessor/aspect_sets.csv");
@@ -104,6 +105,13 @@ void Data :: load(QString language)
     zodiacs[s.zodiacId].signs << s;
     signs.insert(s.tag, s.id);
    }
+
+  // fill in sign data for 30deg sidereals
+  foreach (int z, zodiacs.keys()) {
+      if (zodiacs[z].signs.isEmpty()) {
+          zodiacs[z].signs = zodiacs[0].signs;
+      }
+  }
 
   f.close();
   f.setFileName("astroprocessor/planets.csv");
@@ -211,4 +219,26 @@ const AspectType& getAspect(AspectId id, const AspectsSet& set) { return Data::g
 QList<AspectsSet> getAspectSets() { return Data::getAspectSets(); }
 const AspectsSet& getAspectSet(AspectSetId set) { return Data::getAspectSet(set); }
 const AspectsSet& topAspectSet() { return Data::topAspectSet(); }
+
+
+/*static*/
+QDateTime
+Star::timeToDT(double t, bool greg/*=true*/)
+{
+    int yy, mo, dd;
+    double rest;
+    swe_revjul(t, greg? SE_GREG_CAL : SE_JUL_CAL,
+               &yy, &mo, &dd, &rest);
+    int hh = int(rest);
+    rest = (rest - hh)*60;
+    int mm = int(rest);
+    rest = (rest - mm)*60;
+    int ss = int(rest);
+    int ms = int((rest-ss)*1000);
+
+    QDateTime ret(QDate(yy,mo,dd),QTime(hh,mm,ss,ms),Qt::UTC);
+    std::string foo = ret.toLocalTime().toString().toStdString();
+    return ret;
+}
+
 }

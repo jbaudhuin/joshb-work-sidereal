@@ -18,6 +18,8 @@ Plain              :: Plain               ( QWidget* parent ) : AstroFileHandler
   describeHouses  = new QCheckBox(tr("houses;"));
   describeAspects = new QCheckBox(tr("aspects;"));
   describePower   = new QCheckBox(tr("affetic"));
+  describeParans  = new QCheckBox(tr("parans"));
+  describeSpeculum= new QCheckBox(tr("spec"));
   view            = new QTextBrowser();
 
   describeInput   -> setChecked(false);
@@ -25,6 +27,8 @@ Plain              :: Plain               ( QWidget* parent ) : AstroFileHandler
   describeHouses  -> setChecked(true);
   describeAspects -> setChecked(true);
   describePower   -> setChecked(false);
+  describeParans  -> setChecked(true);
+  describeSpeculum-> setChecked(true);
 
   describeInput   -> setStatusTip(tr("Show input data"));
   describePlanets -> setStatusTip(tr("Show planets"));
@@ -40,6 +44,8 @@ Plain              :: Plain               ( QWidget* parent ) : AstroFileHandler
     l->addWidget(describeHouses);
     l->addWidget(describeAspects);
     l->addWidget(describePower);
+    l->addWidget(describeParans);
+    l->addWidget(describeSpeculum);
 
   QVBoxLayout* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0,5,0,0);
@@ -53,6 +59,8 @@ Plain              :: Plain               ( QWidget* parent ) : AstroFileHandler
   connect(describeHouses,  SIGNAL(toggled(bool)), this, SLOT(refresh()));
   connect(describeAspects, SIGNAL(toggled(bool)), this, SLOT(refresh()));
   connect(describePower,   SIGNAL(toggled(bool)), this, SLOT(refresh()));
+  connect(describeParans,  SIGNAL(toggled(bool)), this, SLOT(refresh()));
+  connect(describeSpeculum,SIGNAL(toggled(bool)), this, SLOT(refresh()));
 
   QFile cssfile ( "plain/style.css" );
   cssfile.open  ( QIODevice::ReadOnly | QIODevice::Text );
@@ -76,10 +84,12 @@ void Plain         :: refresh()
  {
   qDebug() << "Plain::refresh";
   int articles = (A::Article_Input   * describeInput->isChecked())   |
-                 (A::Article_Planet  * describePlanets->isChecked()) |
-                 (A::Article_Houses  * describeHouses->isChecked())  |
-                 (A::Article_Aspects * describeAspects->isChecked())  |
-                 (A::Article_Power   * describePower->isChecked());
+          (A::Article_Planet  * describePlanets->isChecked()) |
+          (A::Article_Houses  * describeHouses->isChecked())  |
+          (A::Article_Aspects * describeAspects->isChecked())  |
+          (A::Article_Power   * describePower->isChecked())   |
+          (A::Article_Parans  * describeParans->isChecked())   |
+          (A::Article_Speculum* describeSpeculum->isChecked());
 
   view->setText(A::describe(file()->horoscope(), (A::Article)articles));
  }

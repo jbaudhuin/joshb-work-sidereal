@@ -256,11 +256,16 @@ Planet calculatePlanet ( PlanetId planet, const InputData& input, const Houses& 
   double  jd = getJulianDate(input.GMT);
   char    errStr[256] = "";
   double  xx[6];
+  unsigned int flags = ret.sweFlags;
+  if (zodiac.id > 1) {
+    flags |= SEFLG_SIDEREAL;
+    swe_set_sid_mode(zodiac.id - 2, 0,0);
+  }
 
   // TODO: wrong moon speed calculation
   // (flags: SEFLG_TRUEPOS|SEFLG_SPEED = 272)
   //         272|invertPositionFlag = 262416
-  if (swe_calc_ut( jd, ret.sweNum, ret.sweFlags, xx, errStr ) >= 0)
+  if (swe_calc_ut( jd, ret.sweNum, flags, xx, errStr ) >= 0)
    {
     if (!(ret.sweFlags & invertPositionFlag))
       ret.eclipticPos.setX ( xx[0] );
@@ -280,6 +285,33 @@ Planet calculatePlanet ( PlanetId planet, const InputData& input, const Houses& 
     swe_azalt( jd, SE_ECL2HOR, geopos, 0,0, xx, hor);
     ret.horizontalPos.setX(hor[0]);
     ret.horizontalPos.setY(hor[1]);
+
+    double rettm;
+    int eflg = SEFLG_SWIEPH;
+    if (swe_rise_trans(jd, ret.sweNum, NULL/*startname*/,
+                       eflg, SE_CALC_RISE, geopos, 1013.25, 10,
+                       &rettm, errStr) >= 0)
+    {
+        ret.rises = Planet::timeToDT(rettm);
+    }
+    if (swe_rise_trans(jd, ret.sweNum, NULL/*startname*/,
+                       eflg, SE_CALC_MTRANSIT, geopos, 1013.25, 10,
+                       &rettm, errStr) >= 0)
+    {
+        ret.culminates = Planet::timeToDT(rettm);
+    }
+    if (swe_rise_trans(jd, ret.sweNum, NULL/*startname*/,
+                       eflg, SE_CALC_SET, geopos, 1013.25, 10,
+                       &rettm, errStr) >= 0)
+    {
+        ret.sets = Planet::timeToDT(rettm);
+    }
+    if (swe_rise_trans(jd, ret.sweNum, NULL/*startname*/,
+                       eflg, SE_CALC_ITRANSIT, geopos, 1013.25, 10,
+                       &rettm, errStr) >= 0)
+    {
+        ret.anticulminates = Planet::timeToDT(rettm);
+    }
    }
   else
    {
@@ -300,11 +332,16 @@ Houses calculateHouses ( const InputData& input )
  {
   Houses ret;
   ret.system = &getHouseSystem(input.houseSystem);
+  unsigned int flags = 0;
+  if (input.zodiac > 1) {
+      flags |= SEFLG_SIDEREAL;
+      swe_set_sid_mode(input.zodiac - 2, 0, 0);
+  }
 
   double julianDay = getJulianDate(input.GMT);
   double hcusps[14], ascmc[11];
 
-  swe_houses_ex( julianDay, 0, input.location.y(), input.location.x(),
+  swe_houses_ex( julianDay, flags, input.location.y(), input.location.x(),
                   ret.system->sweCode, hcusps, ascmc );
 
   for (int i = 0; i < 12; i++)

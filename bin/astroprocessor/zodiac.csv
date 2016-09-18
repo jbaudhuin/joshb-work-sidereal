@@ -1,3 +1,5 @@
 ﻿zodiac id;name;name_ru
 0;Tropical;Тропический
 1;Sidereal;Сидерический
+2;Fagan-Bradley;Сидерический-Fagan-Bradley
+3;Lahiri;Сидерический-Lahiri

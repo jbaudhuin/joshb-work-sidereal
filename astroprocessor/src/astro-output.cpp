@@ -64,7 +64,7 @@ QString degreeToString       ( float deg, AnglePrecision precision )
   if (precision == HighPrecision)
    {
     s = (int)((deg - (d + m/60.0)) * 3600.0);
-    sprintf( str, "%s%i°%02i\'%02i\'\'", (polarity<0)?"-":"", d, m, s );
+    sprintf( str, "%s%i°%02i\'%02i\"", (polarity<0)?"-":"", d, m, s );
    }
   else
    {
@@ -160,6 +160,7 @@ QString     describeInput     ( const InputData& data )
   QString dayOfWeek = data.GMT.date().toString("ddd");
 
   ret += QObject::tr("Date: %1, %2 %3 GMT\n").arg(dayOfWeek).arg(date).arg(time);
+  ret += "\n";
   ret += QObject::tr("Location: %1N %2E").arg(degreeToString(data.location.y(), HighPrecision))
                                          .arg(degreeToString(data.location.x(), HighPrecision));
   return ret;
@@ -465,7 +466,42 @@ QString     describePowerInHtml ( const Planet& planet, const Horoscope& scope )
   return "<p>" + ret + "</p>";
  }
 
-QString     describe          ( const Horoscope& scope, Articles article )
+QString
+describeParans(const Horoscope &scope)
+{
+    return "";
+}
+
+QString
+describeSpeculum(const Horoscope &scope)
+{
+    short tz = scope.inputData.tz;
+    QString ret = QString("%1  %2  %3  %4  %5\n")
+            .arg("Planet",-12)
+            .arg("Rise",-9)
+            .arg("MC",-9)
+            .arg("Set",-9)
+            .arg("IC",-9);
+    foreach (const Planet& p, scope.planets) {
+        ret += QString("%1").arg(p.name,-12);
+        foreach (const QDateTime& dt,
+                 QList<QDateTime>()
+                 << p.rises << p.culminates
+                 << p.sets << p.anticulminates)
+        {
+            const char dow[] = "MtWTFsS";
+            QDateTime ldt = dt.addSecs(tz*3600);
+            ret += QString(" %2 %1")
+                    .arg(ldt.time().toString())
+                    .arg(dow[ldt.date().dayOfWeek()-1]);
+        }
+        ret += "\n";
+    }
+    return ret;
+}
+
+QString     describe          ( const Horoscope& scope,
+                                Articles article )
  {
   QString ret;
 
@@ -502,6 +538,14 @@ QString     describe          ( const Horoscope& scope, Articles article )
     foreach (const Planet& p, scope.planets)
       if (p.isReal)
         ret += p.name + "\n" + describePower(p, scope) + "\n\n";
+
+  if ((article & Article_Parans) && scope.planets.count()) {
+      ret += describeParans(scope) + "\n\n";
+  }
+
+  if ((article & Article_Speculum) && scope.planets.count()) {
+      ret += describeSpeculum(scope) + "\n\n";
+  }
 
   return ret;
  }

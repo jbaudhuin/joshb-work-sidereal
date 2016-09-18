@@ -19,7 +19,6 @@ AstroFile :: AstroFile (QObject* parent) : QObject(parent)
   while (QFile::exists(fileName()));
 
   type = TypeOther;
-  timezone = 0;
   unsavedChanges = false;
   holdUpdate = false;
   holdUpdateMembers = None;
@@ -186,9 +185,9 @@ void AstroFile :: setGMT      (const QDateTime& gmt)
 
 void AstroFile :: setTimezone (const short& zone)
  {
-  if (timezone != zone)
+  if (scope.inputData.tz != zone)
    {
-    timezone = zone;
+    scope.inputData.tz = zone;
     change(Timezone);
    }
  }

@@ -9,9 +9,13 @@
 7;Uranus;Уран;7;272;0.0337821;1;Aqr,Cap;Sco;Leo,Cnc;Tau;images/planets-mini/uranus.png;images/planets/uranus.png;111;#d3f2ec;#72827f
 8;Neptune;Нептун;8;272;0.0213086;1;Psc;Sgr;Vir;Gem;images/planets-mini/neptune.png;images/planets/neptune.png;114;#0280c4;#18353f
 9;Pluto;Плутон;9;272;0.015883;1;Sco,Ari;Leo;Tau,Lib;Aqr;images/planets-mini/pluto.png;images/planets/pluto.png;119;#0280c4;#18353f
-10;N. Pole;Сев. узел;11;272;;0;;;;;images/planets-mini/nnode.png;images/planets/nnode.png;8221;#6fb69f;#345349
-11;S. Pole;Южн. узел;11;262416;;0;;;;;images/planets-mini/snode.png;images/planets/snode.png;8211;#6fb69f;#345349
-12;Hiron;Хирон;15;272;;0;;;;;images/planets-mini/chiron.png;;120;;
-13;Proserpina;Прозерпина;57;272;;0;;;;;images/planets-mini/proserpina.png;;8482;;
-14;Selena;Селена;56;272;;0;;;;;images/planets-mini/selena.png;;732;;
-15;Lilith;Лилит;12;272;;0;;;;;images/planets-mini/lilith.png;;122;#883ae0;#391c60
+10;N. Node;Сев. узел;11;272;;0;;;;;images/planets-mini/nnode.png;images/planets/nnode.png;8221;#6fb69f;#345349
+11;S. Node;Южн. узел;11;262416;;0;;;;;images/planets-mini/snode.png;images/planets/snode.png;8211;#6fb69f;#345349
+12;Chiron;Хирон;15;272;;0;;;;;images/planets-mini/chiron.png;;120;;
+13;Ceres;Церера;17;272;;0;;;;;images/planets-mini/ceres.png;;122;;
+14;Pallas;Паллада;18;272;;0;;;;;images/planets-mini/pallas.png;;124;;
+15;Juno;Юнона;19;272;;0;;;;;images/planets-mini/juno.png;;123;;
+16;Vesta;Веста;20;272;;0;;;;;images/planets-mini/vesta.png;;125;;
+17;Proserpina;Прозерпина;57;272;;0;;;;;images/planets-mini/proserpina.png;;8482;;
+18;Selena;Селена;56;272;;0;;;;;images/planets-mini/selena.png;;732;;
+19;Lilith;Лилит;12;272;;0;;;;;images/planets-mini/lilith.png;;732;#883ae0;#391c60

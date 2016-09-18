@@ -65,12 +65,12 @@ class AstroFile : public QObject
         const QVector3D& getLocation()     const { return scope.inputData.location; }
         const QString&   getLocationName() const { return locationName; }
         const QDateTime& getGMT()          const { return scope.inputData.GMT; }
-        const short&     getTimezone()     const { return timezone; }
+        const short&     getTimezone()     const { return scope.inputData.tz; }
         const A::Horoscope& horoscope()    const { return scope; }
         A::HouseSystemId getHouseSystem()  const { return scope.inputData.houseSystem; }
         A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac; }
         const A::AspectsSet& getAspetSet()  const { return A::getAspectSet(scope.inputData.aspectSet); }
-        QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(timezone * 3600); }
+        QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(getTimezone() * 3600); }
 
     signals:
         void changed(AstroFile::Members);
@@ -86,7 +86,6 @@ class AstroFile : public QObject
         static int counter;
 
         QString name;
-        short timezone;
         QString comment;
         QString locationName;
         FileType type;

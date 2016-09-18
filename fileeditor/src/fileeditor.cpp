@@ -38,7 +38,17 @@ AstroFileEditor :: AstroFileEditor (QWidget *parent) : AstroFileHandler(parent)
   type     -> addItem(tr("undefined"), AstroFile::TypeOther);
   timeZone -> setRange(-12, 12);
   timeZone -> setDecimals(1);
+
   dateTime -> setCalendarPopup(true);
+  QString fmt = dateTime->displayFormat();
+  if (fmt.replace("h:mm ", "h:mm:ss ")
+          != dateTime->displayFormat())
+  {
+    // if we don't show seconds, they will be non-zero and
+    // the only way to edit it is hand-editing the .dat file.
+    dateTime->setDisplayFormat(fmt);
+  }
+
   comment  -> setMaximumHeight(70);
   this     -> setWindowTitle(tr("Edit entry"));
   this     -> setWindowFlags(Qt::Dialog |

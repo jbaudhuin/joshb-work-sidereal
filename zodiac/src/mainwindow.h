@@ -181,7 +181,8 @@ class FilesBar : public QTabBar
 
         void addFile(AstroFile* file);
         void setAskToSave(bool b) { askToSave = b; }
-        const AstroFileList& currentFiles()  { if (count() && currentIndex() < count()) return files[currentIndex()]; }
+        const AstroFileList& currentFiles()
+        { if (count() && currentIndex() < count()) return files[currentIndex()]; }
 };
 
 

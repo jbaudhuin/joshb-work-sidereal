@@ -19,6 +19,8 @@ class Plain : public AstroFileHandler
         QCheckBox* describeHouses;
         QCheckBox* describeAspects;
         QCheckBox* describePower;
+        QCheckBox* describeParans;
+        QCheckBox* describeSpeculum;
         QTextBrowser* view;
 
     private slots:

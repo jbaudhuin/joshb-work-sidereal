@@ -2,6 +2,7 @@
 #define A_OUTPUT_H
 
 #include "astro-data.h"
+#include "astro-gui.h"
 
 namespace A {
 
@@ -16,7 +17,9 @@ enum Article        { Article_All     = 0xFF,
                       Article_Houses  = 0x2,
                       Article_Aspects = 0x4,
                       Article_Planet  = 0x8,
-                      Article_Power   = 0x10 };
+                      Article_Power   = 0x10,
+                      Article_Parans  = 0x20,
+                      Article_Speculum = 0x40 };
 
 enum AnglePrecision { NormalPrecision,
                       HighPrecision };
@@ -41,10 +44,12 @@ QString     describeHouses      ( const Houses& houses, const Zodiac& zodiac );
 QString     describeAspect      (const Aspect &aspect, bool monospace = false);
 QString     describeAspectFull  (const Aspect &asp, QString tag1 = "", QString tag2 = "");
 QString     describePlanet      ( const Planet& planet, const Zodiac& zodiac );
-QString     describePlanetCoord  ( const Planet& planet );
+QString     describePlanetCoord ( const Planet& planet );
 QString     describePlanetCoordInHtml ( const Planet& planet );
 QString     describePower       ( const Planet& planet, const Horoscope& scope );
 QString     describePowerInHtml ( const Planet& planet, const Horoscope& scope );
+QString     describeParans      ( const Horoscope& scope );
+QString     describeSpeculum    ( const Horoscope& scope );
 QString     describe            ( const Horoscope& scope, Articles article = Article_All );
 
 }

@@ -223,6 +223,7 @@ void Details :: filesUpdated(MembersList m)
     foreach (const A::Planet& p, file(fileIndex)->horoscope().planets)
      {
       QString imgSrc = p.userData["icon"].toString();
+      std::string nom = imgSrc.toStdString();
       planetSelector->addItem(QIcon(imgSrc), p.name, p.id);
      }
    }

@@ -91,6 +91,33 @@ struct Houses
              system = 0; }
 };
 
+struct Star
+{
+  QString        name;
+  int            sweFlags;
+  QMap<QString, QVariant> userData;
+
+  QDateTime      rises, culminates, sets, anticulminates;
+  static QDateTime timeToDT(double t, bool greg=true);
+
+  QPointF        horizontalPos;       // x - azimuth (0... 360), y - height (0... 360)
+  QPointF        eclipticPos;         // x - longitude (0... 360), y - latitude (0... 360)
+  double         distance;            // A.U. (astronomical units)
+  int            house;
+
+  Star() {
+      horizontalPos = QPoint(0,0);
+      eclipticPos   = QPoint(0,0);
+      distance = 0;
+      house = 0;
+  }
+
+  bool operator==(const Star & other) const
+  { return name == other.name && this->eclipticPos == other.eclipticPos; }
+  bool operator!=(const Star & other) const
+  { return name != other.name || this->eclipticPos != other.eclipticPos; }
+};
+
 struct PlanetPower
 {
   int            dignity;
@@ -106,41 +133,30 @@ enum PlanetPosition { Position_Normal,
                       Position_Downfall,
                       Position_Exile };
 
-struct Planet
+struct Planet : public Star
 {
   PlanetId       id;
-  QString        name;
   int            sweNum;
-  int            sweFlags;
   bool           isReal;
   QVector2D      defaultEclipticSpeed;
   QList<ZodiacSignId> homeSigns,
                  exaltationSigns,
                  exileSigns,
                  downfallSigns;
-  QMap<QString, QVariant> userData;
 
-  QPointF        horizontalPos;       // x - azimuth (0... 360), y - height (0... 360)
-  QPointF        eclipticPos;         // x - longitude (0... 360), y - latitude (0... 360)
   QVector2D      eclipticSpeed;       // x - longitude speed (degree/day)
-  double         distance;            // A.U. (astronomical units)
   PlanetPosition position;
   PlanetPower    power;
   const ZodiacSign* sign;
-  int            house;
   int            houseRuler;
 
   Planet() { id = Planet_None;
              sweNum = 0;
              sweFlags = 0;
              isReal = false;
-             horizontalPos = QPoint(0,0);
-             eclipticPos   = QPoint(0,0);
              eclipticSpeed = QVector2D(0,0);
-             distance = 0;
              position = Position_Normal;
              sign = 0;
-             house = 0;
              houseRuler = 0; }
 
   bool operator==(const Planet & other) const { return this->id == other.id && this->eclipticPos == other.eclipticPos; }
@@ -245,13 +261,17 @@ struct InputData
   HouseSystemId  houseSystem;
   ZodiacId       zodiac;
   AspectSetId    aspectSet;
+  short          tz;
 
-  InputData() { GMT.setTimeSpec(Qt::UTC);
-                GMT.setTime_t(0);
-                location    = QVector3D(0,0,0);
-                houseSystem = Housesystem_Placidus;
-                zodiac      = Zodiac_Tropical;
-                aspectSet   = AspectSet_Default; }
+  InputData() {
+      GMT.setTimeSpec(Qt::UTC);
+      GMT.setTime_t(0);
+      location    = QVector3D(0,0,0);
+      houseSystem = Housesystem_Placidus;
+      zodiac      = Zodiac_Tropical;
+      aspectSet   = AspectSet_Default;
+      tz          = 0;
+  }
 };
 
 struct Horoscope
