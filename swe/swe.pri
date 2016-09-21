@@ -1,16 +1,17 @@
-SOURCES += swecl.c \
-swedate.c \
+SOURCES += swedate.c \
 swehouse.c \
 swejpl.c \
 swemmoon.c \
 swemplan.c \
-swemptab.c \
 swepcalc.c \
 swepdate.c \
 sweph.c \
-swephlib.c
+swephlib.c \
+swecl.c \
+swehel.c
 HEADERS += swedate.h \
 swedll.h \
+swemptab.h \
 swehouse.h \
 swejpl.h \
 swenut2000a.h \

@@ -1,30 +1,45 @@
 /*****************************************************
-$Header: /home/dieter/sweph/RCS/swepcalc.c,v 1.70 2006/03/08 12:53:11 dieter Exp $
+$Header: /home/dieter/sweph/RCS/swepcalc.c,v 1.74 2008/06/16 10:07:20 dieter Exp $
 Placalc compatibility interface for Swiss Ephemeris.
-*******************************************************/
 
-/* Copyright (C) 1997, 1998 Astrodienst AG, Switzerland.  All rights reserved.
+*******************************************************/
+/* Copyright (C) 1997 - 2008 Astrodienst AG, Switzerland.  All rights reserved.
   
-  This file is part of Swiss Ephemeris Free Edition.
-  
+  License conditions
+  ------------------
+
+  This file is part of Swiss Ephemeris.
+
   Swiss Ephemeris is distributed with NO WARRANTY OF ANY KIND.  No author
   or distributor accepts any responsibility for the consequences of using it,
   or for whether it serves any particular purpose or works at all, unless he
-  or she says so in writing.  Refer to the Swiss Ephemeris Public License
-  ("SEPL" or the "License") for full details.
-  
-  Every copy of Swiss Ephemeris must include a copy of the License,
-  normally in a plain ASCII text file named LICENSE.  The License grants you
-  the right to copy, modify and redistribute Swiss Ephemeris, but only
-  under certain conditions described in the License.  Among other things, the
-  License requires that the copyright notices and this notice be preserved on
-  all copies.
+  or she says so in writing.  
 
-  For uses of the Swiss Ephemeris which do not fall under the definitions
-  laid down in the Public License, the Swiss Ephemeris Professional Edition
-  must be purchased by the developer before he/she distributes any of his
-  software or makes available any product or service built upon the use of
-  the Swiss Ephemeris.
+  Swiss Ephemeris is made available by its authors under a dual licensing
+  system. The software developer, who uses any part of Swiss Ephemeris
+  in his or her software, must choose between one of the two license models,
+  which are
+  a) GNU public license version 2 or later
+  b) Swiss Ephemeris Professional License
+
+  The choice must be made before the software developer distributes software
+  containing parts of Swiss Ephemeris to others, and before any public
+  service using the developed software is activated.
+
+  If the developer choses the GNU GPL software license, he or she must fulfill
+  the conditions of that license, which includes the obligation to place his
+  or her whole software project under the GNU GPL or a compatible license.
+  See http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+  If the developer choses the Swiss Ephemeris Professional license,
+  he must follow the instructions as found in http://www.astro.com/swisseph/ 
+  and purchase the Swiss Ephemeris Professional Edition from Astrodienst
+  and sign the corresponding license contract.
+
+  The License grants you the right to use, copy, modify and redistribute
+  Swiss Ephemeris, but only under certain conditions described in the License.
+  Among other things, the License requires that the copyright notices and
+  this notice be preserved on all copies.
 
   Authors of the Swiss Ephemeris: Dieter Koch and Alois Treindl
 
@@ -65,13 +80,13 @@ Placalc compatibility interface for Swiss Ephemeris.
 local globals, not exported 
 ************************************************************/
 
-static int plac2swe[] = {SE_SUN, SE_MOON, SE_MERCURY, SE_VENUS, SE_MARS, SE_JUPITER, SE_SATURN, SE_URANUS, SE_NEPTUNE, SE_PLUTO, SE_MEAN_NODE, SE_TRUE_NODE, SE_CHIRON, SE_MEAN_APOG, SE_CERES, SE_PALLAS, SE_JUNO, SE_VESTA,};
+static const int plac2swe[] = {SE_SUN, SE_MOON, SE_MERCURY, SE_VENUS, SE_MARS, SE_JUPITER, SE_SATURN, SE_URANUS, SE_NEPTUNE, SE_PLUTO, SE_MEAN_NODE, SE_TRUE_NODE, SE_CHIRON, SE_MEAN_APOG, SE_CERES, SE_PALLAS, SE_JUNO, SE_VESTA,};
 
 /* If there occurs an internal error in placalc, a message is 
  * written into the string variable perrtx.
  * The message can be read with placalc_get_errtext();
  */
-static char perrtx[AS_MAXCH];
+static TLS char perrtx[AS_MAXCH];
 static double ekl, nut;
 
 /*
@@ -79,7 +94,7 @@ static double ekl, nut;
  * required for relative distances rgeo, where the distance is given
  * as 100 when a planet is closest and as 0 when farthest from earth.
  */
-static double rmima[CALC_N][2] = {	
+static const double rmima[CALC_N][2] = {	
 	{ 0.98296342,  1.01704665},
 	{ 0.00238267,  0.00271861},
 	{ 0.54900496,  1.45169607},
@@ -418,9 +433,71 @@ int planet2afl(int planet)
     return -1;
 }
 
+/*
+ * get the 2-letter abbreviation for a planet
+ * returns ?? if not defined
+ */
+char *planet2abbr2(int planet)
+{
+  switch (planet) {
+    case SUN:		return "su";
+    case MOON:		return "mo";
+    case MERCURY:	return "me";
+    case VENUS:		return "ve";
+    case MARS:		return "ma";
+    case JUPITER:	return "ju";
+    case SATURN:	return "sa";
+    case URANUS:	return "ur";
+    case NEPTUNE:	return "ne";
+    case PLUTO:		return "pl";
+    case MEAN_NODE:	return "mn";
+    case TRUE_NODE:	return "tn";
+    case CHIRON:	return "ch";
+    case LILITH:	return "li";
+    case CERES:		return "ce";
+    case PALLAS:	return "pa";
+    case JUNO:		return "jn";
+    case VESTA:		return "vs";
+    case AC:		return "ac";
+    case MC:		return "mc";
+  }  
+  return "??";
+}
+
+/*
+ * get the 3-letter abbreviation for a planet
+ * returns ??? if not defined
+ */
+char *planet2abbr3(int planet)
+{
+  switch (planet) {
+    case SUN:		return "sun";
+    case MOON:		return "mon";
+    case MERCURY:	return "mer";
+    case VENUS:		return "ven";
+    case MARS:		return "mar";
+    case JUPITER:	return "jup";
+    case SATURN:	return "sat";
+    case URANUS:	return "ura";
+    case NEPTUNE:	return "nep";
+    case PLUTO:		return "plu";
+    case MEAN_NODE:	return "mno";
+    case TRUE_NODE:	return "tno";
+    case CHIRON:	return "chi";
+    case LILITH:	return "lil";
+    case CERES:		return "cer";
+    case PALLAS:	return "pal";
+    case JUNO:		return "jun";
+    case VESTA:		return "ves";
+    case AC:		return "asc";
+    case MC:		return "mc ";
+  }  
+  return "???";
+}
+
 char *placalc_set_ephepath(char *path)
 {
-  static char *epath;
+  static TLS char *epath;
   if (path == NULL) return epath;
   if (epath != NULL)
     free((void *) epath);

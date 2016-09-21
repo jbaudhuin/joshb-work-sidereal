@@ -1,3 +1,5 @@
+
+#include <set>
 #include <swephexp.h>
 #undef MSDOS     // undef macroses that made by SWE library
 #undef UCHAR
@@ -6,12 +8,14 @@
 #include <QDebug>
 #include "csvreader.h"
 #include "astro-data.h"
+#include "astro-calc.h"
 
 namespace A {
 
 
 QMap<AspectSetId, AspectsSet> Data::aspectSets = QMap<AspectSetId, AspectsSet>();
 QMap<PlanetId, Planet> Data::planets = QMap<PlanetId, Planet>();
+QMap<QString, Star> Data::stars;
 QMap<HouseSystemId, HouseSystem> Data::houseSystems = QMap<HouseSystemId, HouseSystem>();
 QMap<ZodiacId, Zodiac> Data::zodiacs = QMap<ZodiacId, Zodiac>();
 AspectSetId Data::topAspSet = AspectSetId();
@@ -136,6 +140,37 @@ void Data :: load(QString language)
     planets[p.id] = p;
    }
 
+  int i = 1;
+  char buf[256], errStr[256];
+  double xx[6];
+  std::set<std::string> seen;
+  seen.insert("GPol");
+  seen.insert("ICRS");
+  seen.insert("GP1958");
+  seen.insert("GPPlan");
+  seen.insert("ZE200");
+  QDateTime now(QDateTime::currentDateTimeUtc());
+  double jd = A::getJulianDate(now);
+  while (strcpy(buf, QString::number(i++).toAscii().constData()),
+         swe_fixstar_ut(buf,jd,SEFLG_SWIEPH,xx,errStr) != ERR)
+  {
+      char* p = strchr(buf,',');
+      if (p && (!*(p+1) || *(p+1)==' ' || seen.count(p+1) == 1)) {
+          continue;
+      }
+      if (p && p > buf) {
+          seen.insert(p+1);
+          *p = '\0';
+          QString name(buf);
+          double mag;
+          if (swe_fixstar_mag(buf,&mag,errStr) != ERR
+                  && mag <= 2.0)
+          {
+              stars[name].name = name;
+          }
+      }
+  }
+
   qDebug() << "Astroprocessor: initialized";
  }
 
@@ -151,6 +186,21 @@ QList<PlanetId> Data :: getPlanets()
  {
   return planets.keys();
  }
+
+const Star& Data::getStar(const QString& name)
+{
+    if (stars.contains(name)) {
+        return stars[name];
+    }
+
+    static Star dummy;
+    return dummy;
+}
+
+QList<QString> Data::getStars()
+{
+    return stars.keys();
+}
 
 const HouseSystem& Data :: getHouseSystem(HouseSystemId id)
  {
@@ -209,7 +259,9 @@ const AspectsSet& Data :: getAspectSet(AspectSetId set)
 void load(QString language) { Data::load(language); }
 QString usedLanguage()      { return Data::usedLanguage(); }
 const Planet& getPlanet(PlanetId id) { return Data::getPlanet(id); }
+const Star& getStar(const QString& name) { return Data::getStar(name); }
 QList<PlanetId> getPlanets() { return Data::getPlanets(); }
+QList<QString> getStars() { return Data::getStars(); }
 const HouseSystem& getHouseSystem(HouseSystemId id) { return Data::getHouseSystem(id); }
 const Zodiac& getZodiac(ZodiacId id) { return Data::getZodiac(id); }
 const QList<HouseSystem> getHouseSystems() { return Data::getHouseSystems(); }
@@ -225,6 +277,17 @@ const AspectsSet& topAspectSet() { return Data::topAspectSet(); }
 QDateTime
 Star::timeToDT(double t, bool greg/*=true*/)
 {
+#if 1
+    int32 yy, mo, dd, hh, mm;
+    double sec;
+    swe_jdut1_to_utc(t, greg,
+                     &yy, &mo, &dd, &hh, &mm,
+                     &sec);
+    int32 ss = int32(sec);
+    sec -= ss;
+    int32 ms = sec*1000;
+    QDateTime ret(QDate(yy,mo,dd),QTime(hh,mm,ss,ms),Qt::UTC);
+#else
     int yy, mo, dd;
     double rest;
     swe_revjul(t, greg? SE_GREG_CAL : SE_JUL_CAL,
@@ -235,8 +298,8 @@ Star::timeToDT(double t, bool greg/*=true*/)
     rest = (rest - mm)*60;
     int ss = int(rest);
     int ms = int((rest-ss)*1000);
-
     QDateTime ret(QDate(yy,mo,dd),QTime(hh,mm,ss,ms),Qt::UTC);
+#endif
     std::string foo = ret.toLocalTime().toString().toStdString();
     return ret;
 }

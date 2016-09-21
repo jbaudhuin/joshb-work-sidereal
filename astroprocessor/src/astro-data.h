@@ -4,6 +4,7 @@
 #include <QString>
 #include <QDateTime>
 #include <QPointF>
+#include <QVector>
 #include <QVector3D>
 #include <QVector2D>
 #include <QVariant>
@@ -31,6 +32,7 @@ const PlanetId      Planet_Uranus        =  7;
 const PlanetId      Planet_Neptune       =  8;
 const PlanetId      Planet_Pluto         =  9;
 const PlanetId      Planet_NorthNode     = 10;
+const PlanetId      Planet_SouthNode     = 11;
 
 const AspectId      Aspect_None          = -1;
 const AspectId      Aspect_Conjunction   =  0;
@@ -84,11 +86,14 @@ struct HouseSystem {
 
 struct Houses
 {
-  float          cusp[12];            // angles of cuspides (0... 360)
+  double         cusp[12];            // angles of cuspides (0... 360)
+  double         Asc, MC, RAMC, Vx, EA, sunrise, sunset;
   const HouseSystem* system;
 
   Houses() { for (int i = 0; i < 12; i++) cusp[i] = 0;
-             system = 0; }
+             system = 0;
+             Asc = MC = RAMC = Vx = EA = sunrise = sunset = 0;
+           }
 };
 
 struct Star
@@ -97,20 +102,32 @@ struct Star
   int            sweFlags;
   QMap<QString, QVariant> userData;
 
-  QDateTime      rises, culminates, sets, anticulminates;
+  enum angleTransitMode { atAsc, atDesc, atMC, atIC, numAngles };
+  static int     angleTransitFlag(unsigned int mode) { return 1<<mode; }
+  QVector<QDateTime> angleTransit;
+
   static QDateTime timeToDT(double t, bool greg=true);
+
+  virtual PlanetId getPlanetId() const { return Planet_None; }
 
   QPointF        horizontalPos;       // x - azimuth (0... 360), y - height (0... 360)
   QPointF        eclipticPos;         // x - longitude (0... 360), y - latitude (0... 360)
+  QPointF        equatorialPos;       // x - rectascension, y - declination
   double         distance;            // A.U. (astronomical units)
   int            house;
 
-  Star() {
+  Star() : angleTransit(4) {
       horizontalPos = QPoint(0,0);
       eclipticPos   = QPoint(0,0);
+      equatorialPos = QPoint(0,0);
       distance = 0;
       house = 0;
   }
+
+  virtual ~Star() { }
+
+  operator Star*() { return this; }
+  operator const Star*() const { return this; }
 
   bool operator==(const Star & other) const
   { return name == other.name && this->eclipticPos == other.eclipticPos; }
@@ -159,8 +176,15 @@ struct Planet : public Star
              sign = 0;
              houseRuler = 0; }
 
-  bool operator==(const Planet & other) const { return this->id == other.id && this->eclipticPos == other.eclipticPos; }
-  bool operator!=(const Planet & other) const { return this->id != other.id || this->eclipticPos != other.eclipticPos; }
+  operator Planet*() { return this; }
+  operator const Planet*() const { return this; }
+
+  PlanetId       getPlanetId() const { return id; }
+
+  bool operator==(const Planet & other) const
+  { return this->id == other.id && this->eclipticPos == other.eclipticPos; }
+  bool operator!=(const Planet & other) const
+  { return this->id != other.id || this->eclipticPos != other.eclipticPos; }
 };
 
 //struct AspectsSet;
@@ -207,6 +231,7 @@ struct AspectsSet {
 typedef QList<Aspect> AspectList;
 typedef QList<Planet> PlanetList;
 typedef QMap<PlanetId, Planet> PlanetMap;
+typedef QMap<QString, Star> StarMap;
 
 class Data
 {
@@ -215,7 +240,8 @@ class Data
         static QMap<AspectSetId, AspectsSet> aspectSets;
         static QMap<HouseSystemId, HouseSystem> houseSystems;
         static QMap<ZodiacId, Zodiac> zodiacs;
-        static QMap<PlanetId, Planet> planets;
+        static PlanetMap planets;
+        static StarMap stars;
         static AspectSetId topAspSet;
 
     public:
@@ -224,6 +250,9 @@ class Data
 
         static const Planet& getPlanet(PlanetId id);
         static QList<PlanetId> getPlanets();
+
+        static const Star& getStar(const QString& name);
+        static QList<QString> getStars();
 
         static const HouseSystem& getHouseSystem(HouseSystemId id);
         static const QList<HouseSystem> getHouseSystems();
@@ -243,6 +272,8 @@ void load(QString language);
 QString usedLanguage();
 const Planet& getPlanet(PlanetId id);
 QList<PlanetId> getPlanets();
+const Star& getStar(const QString& name);
+QList<QString> getStars();
 const HouseSystem& getHouseSystem(HouseSystemId id);
 const Zodiac& getZodiac(ZodiacId id);
 const QList<HouseSystem> getHouseSystems();
@@ -292,6 +323,7 @@ struct Horoscope
              neptune,
              pluto,
              northNode;
+  StarMap    stars;
 };
 
 }

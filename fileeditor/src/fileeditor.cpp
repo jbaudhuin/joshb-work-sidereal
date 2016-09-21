@@ -193,7 +193,9 @@ void AstroFileEditor :: applyToFile()
   dst->setLocationName(geoSearch->locationName());
   dst->setLocation(geoSearch->location());
   dst->setTimezone(timeZone->value());
-  dst->setGMT(dateTime->dateTime().addSecs(timeZone->value() * -3600));
+  QString ugh = dateTime->dateTime().addSecs(timeZone->value()*-3600)
+          .toString(Qt::ISODate) + "Z";
+  dst->setGMT(QDateTime::fromString(ugh,Qt::ISODate));
   dst->setComment(comment->document()->toPlainText());
   dst->resumeUpdate();
  }

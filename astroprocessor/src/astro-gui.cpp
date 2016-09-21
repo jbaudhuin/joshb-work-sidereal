@@ -101,7 +101,8 @@ void AstroFile :: load(QString name/*, bool recalculate*/)
   file.setIniCodec(QTextCodec::codecForName ("UTF-8"));
 
   setType     ( typeFromString(file.value("type").toString()) );
-  setGMT      ( QDateTime::fromString(file.value("GMT").toString(), Qt::ISODate) );
+  setGMT      ( QDateTime::fromString(file.value("GMT").toString()+"Z",
+                                      Qt::ISODate) );
   setTimezone ( file.value("timezone").toFloat() );
   setLocation ( QVector3D(file.value("lon").toFloat(),
                          file.value("lat").toFloat(),

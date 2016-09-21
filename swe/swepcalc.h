@@ -1,5 +1,5 @@
 /************************************************************
-   $Header: /home/dieter/sweph/RCS/swepcalc.h,v 1.70 2006/03/08 12:53:11 dieter Exp $
+   $Header: /home/dieter/sweph/RCS/swepcalc.h,v 1.74 2008/06/16 10:07:20 dieter Exp $
    Definitions and constants for Placalc interface to SwissEph
 
    This should only be used for porting older Placalc applications.
@@ -15,28 +15,43 @@
    Swiss Ephemeris.
 ************************************************************/
 
-/* Copyright (C) 1997, 1998 Astrodienst AG, Switzerland.  All rights reserved.
-  
-  This file is part of Swiss Ephemeris Free Edition.
-  
+/* Copyright (C) 1997 - 2008 Astrodienst AG, Switzerland.  All rights reserved.
+
+  License conditions
+  ------------------
+
+  This file is part of Swiss Ephemeris.
+
   Swiss Ephemeris is distributed with NO WARRANTY OF ANY KIND.  No author
   or distributor accepts any responsibility for the consequences of using it,
   or for whether it serves any particular purpose or works at all, unless he
-  or she says so in writing.  Refer to the Swiss Ephemeris Public License
-  ("SEPL" or the "License") for full details.
-  
-  Every copy of Swiss Ephemeris must include a copy of the License,
-  normally in a plain ASCII text file named LICENSE.  The License grants you
-  the right to copy, modify and redistribute Swiss Ephemeris, but only
-  under certain conditions described in the License.  Among other things, the
-  License requires that the copyright notices and this notice be preserved on
-  all copies.
+  or she says so in writing.  
 
-  For uses of the Swiss Ephemeris which do not fall under the definitions
-  laid down in the Public License, the Swiss Ephemeris Professional Edition
-  must be purchased by the developer before he/she distributes any of his
-  software or makes available any product or service built upon the use of
-  the Swiss Ephemeris.
+  Swiss Ephemeris is made available by its authors under a dual licensing
+  system. The software developer, who uses any part of Swiss Ephemeris
+  in his or her software, must choose between one of the two license models,
+  which are
+  a) GNU public license version 2 or later
+  b) Swiss Ephemeris Professional License
+
+  The choice must be made before the software developer distributes software
+  containing parts of Swiss Ephemeris to others, and before any public
+  service using the developed software is activated.
+
+  If the developer choses the GNU GPL software license, he or she must fulfill
+  the conditions of that license, which includes the obligation to place his
+  or her whole software project under the GNU GPL or a compatible license.
+  See http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+  If the developer choses the Swiss Ephemeris Professional license,
+  he must follow the instructions as found in http://www.astro.com/swisseph/ 
+  and purchase the Swiss Ephemeris Professional Edition from Astrodienst
+  and sign the corresponding license contract.
+
+  The License grants you the right to use, copy, modify and redistribute
+  Swiss Ephemeris, but only under certain conditions described in the License.
+  Among other things, the License requires that the copyright notices and
+  this notice be preserved on all copies.
 
   Authors of the Swiss Ephemeris: Dieter Koch and Alois Treindl
 
@@ -139,6 +154,8 @@ extern int afl2planet(int afl);
  * returns -1 if planet has no letter.
  */
 extern int planet2afl(int p);
+extern char *planet2abbr2(int planet);
+extern char *planet2abbr3(int planet);
 
 /*************************************************************
 	exported variables
@@ -154,7 +171,7 @@ extern int planet2afl(int p);
  * planet index numbers, used to identify a planet in calc() and
  * other related functions.
  */
-#define CALC_ONLY_ECL_NUT -1	/* pseudo planet index for calls to calc */
+#define CALC_ONLY_ECL_NUT (-1)	/* pseudo planet index for calls to calc */
 #define SUN	0		/* used synonymously for earth too */
 #define EARTH	0
 #define MOON	1
@@ -171,15 +188,31 @@ extern int planet2afl(int p);
 #define TRUE_NODE  11
 #define CHIRON	   12
 #define LILITH	   13	
-#define CALC_N	   14	/* number of planets in placalc module */
+#define CALC_N	  14	/* number of planets in placalc module */
 
 #define CERES     14
 #define PALLAS    15
 #define JUNO      16
 #define VESTA     17
+#define EARTHHEL  18	/* heliocentric earth */
+#define PFORTUNAE 19
 
 #define MAXPL_NACALC	(LILITH)	/* nacalc computes SUN..LILITH */
-# define PROG_PLANET_OFFSET  50      /* progressed sun */
+
+/*
+ * progressed planets have the same index (up to MC)
+ * but with offset 50
+ */
+# define PROG_PLANET_OFFSET	50	/* progressed sun */
+# define PROG_OFF	50	
+# define PROG_SUN	(SUN + PROG_OFF)
+# define PROG_MOON	(MOON + PROG_OFF)
+# define PROG_MERCURY	(MERCURY + PROG_OFF)
+# define PROG_VENUS	(VENUS + PROG_OFF)
+# define PROG_MARS	(MARS + PROG_OFF)
+# define PROG_AC	(AC + PROG_OFF)
+# define PROG_ASC	(AC + PROG_OFF)
+# define PROG_MC	(MC + PROG_OFF)
 
 /*
  * houses and axes get also a 'planet' index number, but they
@@ -189,15 +222,15 @@ extern int planet2afl(int p);
  * Axes and houses cannot be computed with calls to calc(); they must
  * be computed with the housasp module functions.
  */
-# define AC	   19
-# define ASC	   19
-# define MC	   20
-# define CALC_N_MC  21	/* number of normal natal factors */
+# define AC	   20
+# define ASC	   20
+# define MC	   21
+# define CALC_N_MC  22	/* number of normal natal factors */
 
-# define FIRST_HSNR 21
-# define LAST_HSNR 32
+# define FIRST_HSNR 22
+# define LAST_HSNR 33
 # define NO_OF_HOUSES 12
-#define MAX_PL_INDEX 32
+#define MAX_PL_INDEX 34
 /*
  * in a bitlist flag each planet is represented by a bit;
  * all 14 defined planets can be called at once with
@@ -267,6 +300,8 @@ extern int planet2afl(int p);
 # define CALC_BIT_RAU	128	/* without/with real radius */
 # define CALC_BIT_MUST_USE_EPHE	256	/* epheserv may not use calc */
 # define CALC_BIT_MAY_USE_EPHE	512	/* calcserv may use ephread */
+# define CALC_BIT_MUST_CALC	1024	/* ephread must calc  */
+
 
 /*
  * stuff from astrolib.h
@@ -356,6 +391,8 @@ extern int day_of_week(double t);
  * and so on. asp_bit(asp) deleivers the mask.
  */
 #define ALL_ASP_BITS	1022	/* bit mask with all aspect bits set */
+#define ALL_ASP_BITSQ	(1022|bit(ASP_QINT)|bit(ASP_BQIN))	/* bit mask with all aspect bits incl. quintiles/biquint. */
+#define ALL_ASP_NO30	(HARD_ASP_BITS | asp_bit(ASP_SEXT)|asp_bit(ASP_QCNX)|asp_bit(ASP_SMSQ)|asp_bit(ASP_SQSQ))
 #define STRONG_ASP_BITS	62	/* bit mask with strong aspect bits set */
 #define HARD_ASP_BITS	14	/* bit mask with hard aspect bits set */
 

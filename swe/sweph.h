@@ -1,32 +1,47 @@
 /************************************************************
-   $Header: /home/dieter/sweph/RCS/sweph.h,v 1.70 2006/03/08 12:53:11 dieter Exp $
+   $Header: /home/dieter/sweph/RCS/sweph.h,v 1.74 2008/06/16 10:07:20 dieter Exp $
    definitions and constants SWISSEPH
 
-  Authors: Dieter Koch and Alois Treindl, Astrodienst Z�rich
+  Authors: Dieter Koch and Alois Treindl, Astrodienst Zurich
 
 ************************************************************/
-/* Copyright (C) 1997, 1998 Astrodienst AG, Switzerland.  All rights reserved.
-  
-  This file is part of Swiss Ephemeris Free Edition.
-  
+/* Copyright (C) 1997 - 2008 Astrodienst AG, Switzerland.  All rights reserved.
+
+  License conditions
+  ------------------
+
+  This file is part of Swiss Ephemeris.
+
   Swiss Ephemeris is distributed with NO WARRANTY OF ANY KIND.  No author
   or distributor accepts any responsibility for the consequences of using it,
   or for whether it serves any particular purpose or works at all, unless he
-  or she says so in writing.  Refer to the Swiss Ephemeris Public License
-  ("SEPL" or the "License") for full details.
-  
-  Every copy of Swiss Ephemeris must include a copy of the License,
-  normally in a plain ASCII text file named LICENSE.  The License grants you
-  the right to copy, modify and redistribute Swiss Ephemeris, but only
-  under certain conditions described in the License.  Among other things, the
-  License requires that the copyright notices and this notice be preserved on
-  all copies.
+  or she says so in writing.  
 
-  For uses of the Swiss Ephemeris which do not fall under the definitions
-  laid down in the Public License, the Swiss Ephemeris Professional Edition
-  must be purchased by the developer before he/she distributes any of his
-  software or makes available any product or service built upon the use of
-  the Swiss Ephemeris.
+  Swiss Ephemeris is made available by its authors under a dual licensing
+  system. The software developer, who uses any part of Swiss Ephemeris
+  in his or her software, must choose between one of the two license models,
+  which are
+  a) GNU public license version 2 or later
+  b) Swiss Ephemeris Professional License
+
+  The choice must be made before the software developer distributes software
+  containing parts of Swiss Ephemeris to others, and before any public
+  service using the developed software is activated.
+
+  If the developer choses the GNU GPL software license, he or she must fulfill
+  the conditions of that license, which includes the obligation to place his
+  or her whole software project under the GNU GPL or a compatible license.
+  See http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+  If the developer choses the Swiss Ephemeris Professional license,
+  he must follow the instructions as found in http://www.astro.com/swisseph/ 
+  and purchase the Swiss Ephemeris Professional Edition from Astrodienst
+  and sign the corresponding license contract.
+
+  The License grants you the right to use, copy, modify and redistribute
+  Swiss Ephemeris, but only under certain conditions described in the License.
+  Among other things, the License requires that the copyright notices and
+  this notice be preserved on all copies.
 
   Authors of the Swiss Ephemeris: Dieter Koch and Alois Treindl
 
@@ -47,6 +62,8 @@
 /*
  * move over from swephexp.h
  */
+
+#define SE_VERSION      "2.05.01"
 
 #define J2000           2451545.0  	/* 2000 January 1.5 */
 #define B1950           2433282.42345905  	/* 1950 January 0.923 */
@@ -101,16 +118,6 @@
 #define SE_NAME_PLUTO_PICKERING "Pickering"
 #define SE_NAME_VULCAN          "Vulcan"
 #define SE_NAME_WHITE_MOON      "White Moon"
-
-/* for delta t: tidal acceleration in the mean motion of the moon */
-#define SE_TIDAL_DE403          (-25.8)
-#define SE_TIDAL_DE404          (-25.8)
-#define SE_TIDAL_DE405          (-25.7376)
-#define SE_TIDAL_DE406          (-25.7376)
-#define SE_TIDAL_DE200          (-23.8946)
-#define SE_TIDAL_26             (-26.0)
-
-#define SE_TIDAL_DEFAULT        SE_TIDAL_DE406
 
 /*
  * earlier content
@@ -185,13 +192,18 @@
 
 #define SEI_NEPHFILES   7
 #define SEI_CURR_FPOS   -1
+#define SEI_NMODELS 20
+
+#define SEI_ECL_GEOALT_MAX   25000.0
+#define SEI_ECL_GEOALT_MIN   (-500.0)
 
 /* Chiron's orbit becomes chaotic 
  * before 720 AD and after 4606 AD, because of close encounters
  * with Saturn. Accepting a maximum error of 5 degrees, 
  * the ephemeris is good between the following dates:
  */
-#define CHIRON_START    1958470.5  	/* 1.1.650 */
+/*#define CHIRON_START    1958470.5  	* 1.1.650 old limit until v. 2.00 */
+#define CHIRON_START    1967601.5  	/* 1.1.675 */
 #define CHIRON_END      3419437.5  	/* 1.1.4650 */
 
 /* Pholus's orbit is unstable as well, because he sometimes
@@ -199,20 +211,27 @@
  * Accepting a maximum error of 5 degrees,
  * the ephemeris is good after the following date:
  */
-#define PHOLUS_START    314845.5  	/* 1.1.-3850 */
+/* #define PHOLUS_START    314845.5  	* 1.1.-3850  old limit until v. 2.00 */
+#define PHOLUS_START    640648.5	/* 1.1.-2958 jul */
+#define PHOLUS_END      4390617.5  	/* 1.1.7309 */
 
 #define MOSHPLEPH_START	 625000.5
 #define MOSHPLEPH_END  	2818000.5
 #define MOSHLUEPH_START	 625000.5
 #define MOSHLUEPH_END  	2818000.5
-#define MOSHNDEPH_START	-254900.5	/* 14 Feb -5410 00:00 ET jul.cal.*/
-#define MOSHNDEPH_END  	3697000.5	/* 11 Dec 5409 00:00 ET, greg. cal */
+/*#define MOSHNDEPH_START	-254900.5 */	/* 14 Feb -5410 00:00 ET jul.cal.*/
+/*#define MOSHNDEPH_END  	3697000.5 */	/* 11 Dec 5409 00:00 ET, greg. cal */
+#define MOSHNDEPH_START	-3100015.5	/* 15 Aug -13200 00:00 ET jul.cal.*/
+#define MOSHNDEPH_END  	8000016.5       /* 15 Mar 17191 00:00 ET, greg. cal */
 /*
 #define MOSHPLEPH_START	 -225000.5
 #define MOSHPLEPH_END  	3600000.5
 #define MOSHLUEPH_START	 -225000.5
 #define MOSHLUEPH_END  	3600000.5
 */
+#define JPL_DE431_START -3027215.5 
+#define JPL_DE431_END    7930192.5
+
 #if FALSE	/*	Alois commented out, not used anywhere  */
 #define JPLEPH_START	 625307.5	/* about -3000 (DE406) */
 #define JPLEPH_END	2816848.5	/* about  3000 (DE406) */
@@ -243,6 +262,9 @@
 /* #define SUN_EARTH_MRAT  328900.561400           Su/(Ea+Mo) AA 2006 K7 */
 #define SUN_EARTH_MRAT  332946.050895           /* Su / (Ea only) AA 2006 K7 */   
 #define EARTH_MOON_MRAT (1 / 0.0123000383)	/* AA 2006, K7 */
+#if 0
+#define EARTH_MOON_MRAT 81.30056907419062	/* de431 */
+#endif
 #if 0
 #define EARTH_MOON_MRAT 81.30056		/* de406 */
 #endif
@@ -278,10 +300,12 @@
 #define NUT_SPEED_INTV   0.0001
 #define DEFL_SPEED_INTV  0.0000005
 
+#define SE_LAPSE_RATE        0.0065  /* deg K / m, for refraction */
+
 #define square_sum(x)   (x[0]*x[0]+x[1]*x[1]+x[2]*x[2])
 #define dot_prod(x,y)   (x[0]*y[0]+x[1]*y[1]+x[2]*y[2])
 
-#define PNOINT2JPL {J_EARTH, J_MOON, J_MERCURY, J_VENUS, J_MARS, J_JUPITER, J_SATURN, J_URANUS, J_NEPTUNE, J_PLUTO, J_SUN,}
+#define PNOINT2JPL {J_EARTH, J_MOON, J_MERCURY, J_VENUS, J_MARS, J_JUPITER, J_SATURN, J_URANUS, J_NEPTUNE, J_PLUTO, J_SUN, }
 
 /* planetary radii in meters */
 #define NDIAM  (SE_VESTA + 1)
@@ -306,33 +330,83 @@ static const double pla_diam[NDIAM] = {1392000000.0, /* Sun */
                         };
 
 
-/* Ayanamsas */
-struct aya_init {double t0, ayan_t0;};
+/* Ayanamsas 
+ * For each ayanamsa, there are two values:
+ * t0       epoch of ayanamsa, TDT (can be ET or UT)
+ * t0_is_UT true, if t0 is UT
+ * ayan_t0  ayanamsa value at epoch
+ */
+struct aya_init {double t0, ayan_t0; AS_BOOL t0_is_UT;};
 static const struct aya_init ayanamsa[] = {
-    {2433282.5, 24.042044444},	/* 0: Fagan/Bradley (Default) */
-    {J1900, 360 - 337.53953},   /* 1: Lahiri (Robert Hand) */
-    {J1900, 360 - 333.58695},   /* 2: De Luce (Robert Hand) */
-    {J1900, 360 - 338.98556},   /* 3: Raman (Robert Hand) */
-    {J1900, 360 - 341.33904},   /* 4: Ushashashi (Robert Hand) */
-    {J1900, 360 - 337.636111},  /* 5: Krishnamurti (Robert Hand) */
-    {J1900, 360 - 333.0369024}, /* 6: Djwhal Khool; (Graham Dawson)  
-                                 *    Aquarius entered on 1 July 2117 */
-    {J1900, 360 - 338.917778},  /* 7: Yukteshwar; (David Cochrane) */
-    {J1900, 360 - 338.634444},  /* 8: JN Bhasin; (David Cochrane) */
-    {1684532.5, -3.36667},      /* 9: Babylonian, Kugler 1 */
-    {1684532.5, -4.76667},      /*10: Babylonian, Kugler 2 */
-    {1684532.5, -5.61667},      /*11: Babylonian, Kugler 3 */
-    {1684532.5, -4.56667},      /*12: Babylonian, Huber */
-    {1673941, -5.079167},       /*13: Babylonian, Mercier;
-                                 *    eta Piscium culminates with zero point */
-    {1684532.5, -4.44088389},   /*14: t0 is defined by Aldebaran at 15 Taurus */
-    {1674484, -9.33333},        /*15: Hipparchos */
-    {1927135.8747793, 0},       /*16: Sassanian */
-    {1746443.513, 0},           /*17: Galactic Center at 0 Sagittarius */
-    {J2000, 0},	                /*18: J2000 */
-    {J1900, 0},	                /*19: J1900 */
-    {B1950, 0},	                /*20: B1950 */
-	};
+{2433282.5, 24.042044444, FALSE},    /* 0: Fagan/Bradley (Default) */
+/*{J1900, 360 - 337.53953},   * 1: Lahiri (Robert Hand) */
+{2435553.5, 23.250182778 - 0.004660222, FALSE}, 
+                                     /* 1: Lahiri (derived from: Indian
+				      * Astronomical Ephemeris 1989, p. 556;
+				      * the subtracted value is nutation) */
+{J1900, 360 - 333.58695, FALSE},     /* 2: Robert DeLuce (Constellational Astrology ... p. 5 */
+{J1900, 360 - 338.98556, FALSE},     /* 3: B.V. Raman (Robert Hand) */
+{J1900, 360 - 341.33904, FALSE},     /* 4: Usha/Shashi (Robert Hand) */
+{J1900, 360 - 337.636111, FALSE},    /* 5: Krishnamurti (Robert Hand) */
+{J1900, 360 - 333.0369024, FALSE},   /* 6: Djwhal Khool; (Graham Dawson)  
+                                      *    Aquarius entered on 1 July 2117 */
+{J1900, 360 - 338.917778, FALSE},    /* 7: Shri Yukteshwar; (David Cochrane) */
+//{2412543.5, 20.91, TRUE},          /* 7: Shri Yukteshwar; (Holy Science, p. xx) */
+{J1900, 360 - 338.634444, FALSE},    /* 8: J.N. Bhasin; (David Cochrane) */
+{1684532.5, -3.36667, TRUE},         /* 9: Babylonian, Kugler 1 */
+{1684532.5, -4.76667, TRUE},         /*10: Babylonian, Kugler 2 */
+{1684532.5, -5.61667, TRUE},         /*11: Babylonian, Kugler 3 */
+{1684532.5, -4.46667, TRUE},         /*12: Babylonian, Huber */
+/*{1684532.5, -4.56667, TRUE},         *12: Babylonian, Huber (Swisseph has been wrong for many years!) */
+{1673941, -5.079167, TRUE},          /*13: Babylonian, Mercier;
+                                      *    eta Piscium culminates with zero point */
+{1684532.5, -4.44088389, TRUE},      /*14: t0 is defined by Aldebaran at 15 Taurus */
+{1674484, -9.33333, TRUE},           /*15: Hipparchos */
+{1927135.8747793, 0, TRUE},          /*16: Sassanian */
+//{1746412.236, 0, FALSE},             /*17: Galactic Center at 0 Sagittarius */
+{0, 0, FALSE},                       /*17: Galactic Center at 0 Sagittarius */
+{J2000, 0, FALSE},	             /*18: J2000 */
+{J1900, 0, FALSE},	             /*19: J1900 */
+{B1950, 0, FALSE},	             /*20: B1950 */
+{1903396.8128654, 0, TRUE},	     /*21: Suryasiddhanta, assuming
+                                       ingress of mean Sun into Aries at point
+				       of mean equinox of date on
+				       21.3.499, noon, Ujjain (75.7684565 E)
+                                       = 7:30:31.57 UT */
+{1903396.8128654,-0.21463395, TRUE}, /*22: Suryasiddhanta, assuming
+				       ingress of mean Sun into Aries at
+				       true position of mean Sun at same epoch */
+{1903396.7895321, 0, TRUE},	     /*23: Aryabhata, same date, but UT 6:56:55.57
+				       analogous 21 */
+{1903396.7895321,-0.23763238, TRUE}, /*24: Aryabhata, analogous 22 */
+{1903396.8128654,-0.79167046, TRUE}, /*25: SS, Revati/zePsc at polar long. 359°50'*/
+{1903396.8128654, 2.11070444, TRUE}, /*26: SS, Citra/Spica at polar long. 180° */
+{0, 0, FALSE},	                     /*27: True Citra (Spica exactly at 0 Libra) */
+{0, 0, FALSE},	                     /*28: True Revati (zeta Psc exactly at 29°50' Pisces) */
+{0, 0, FALSE},			     /*29: True Pushya (delta Cnc exactly a 16 Cancer */
+{0, 0, FALSE},                       /*30: R. Gil Brand; Galactic Center at golden section
+                                       between 0 Sco and 0 Aqu; note: 0° Aqu/Leo is
+				       the symmetric axis of rulerships */
+{0, 0, FALSE},	                     /*31: Galactic Equator IAU 1958, i.e. galactic/ecliptic
+                                       intersection point based on galactic coordinate system */
+{0, 0, FALSE},	                     /*32: Galactic Equator True, i.e. galactic/ecliptic 
+                                       intersection point based on the galactic pole as given in:
+				       Liu/Zhu/Zhang, „Reconsidering the galactic 
+				       coordinate system“, A & A No. AA2010, Oct. 2010 */
+{0, 0, FALSE},	                     /*33: Galactic Equator Mula, i.e. galactic/ecliptic 
+                                       intersection point in the middle of lunar mansion Mula */
+{2451079.734892000, 30, FALSE},	     /*34: Skydram/Galactic Alignment (R. Mardyks); 
+                                       autumn equinox aligned with Galactic Equator/Pole */
+{0, 0, FALSE},	                     /*35: Chandra Hari */
+{0, 0, FALSE},	                     /*36: Dhruva Galactic Centre Middle of Mula (Ernst Wilhelm) */
+{1911797.740782065, 0, TRUE},	     /*37: Kali 3623 = 522 CE, Ujjain (75.7684565), 
+                                      *    based on Kali midnight and SS year length */
+{1721057.5, -3.2, TRUE},             /*38: Babylonian (Britton 2010) */
+/*{2061539.789532065, 6.83333333, TRUE}, *38: Manjula's Laghumanasa, 10 March 932,
+                                      *    12 PM LMT Ujjain (75.7684565 E),
+				      *    ayanamsha = 6°50' */
+{0, 0, FALSE},	                     /*39: - */
+    };
 
 #define PLAN_DATA struct plan_data
 
@@ -413,7 +487,11 @@ extern int swi_moshplan(double tjd, int ipli, AS_BOOL do_save, double *xpret, do
 extern int swi_moshplan2(double J, int iplm, double *pobj);
 extern int swi_osc_el_plan(double tjd, double *xp, int ipl, int ipli, double *xearth, double *xsun, char *serr);
 extern FILE *swi_fopen(int ifno, char *fname, char *ephepath, char *serr);
-extern double swi_dot_prod_unit(double *x, double *y);
+extern int32 swi_init_swed_if_start(void);
+extern int32 swi_set_tid_acc(double tjd_ut, int32 iflag, int32 denum, char *serr);
+extern int32 swi_get_tid_acc(double tjd_ut, int32 iflag, int32 denum, int32 *denumret, double *tid_acc, char *serr);
+
+double swi_armc_to_mc(double armc, double eps);
 
 /* nutation */
 struct nut {
@@ -494,17 +572,35 @@ struct sid_data {
   int32 sid_mode;
   double ayan_t0;
   double t0;
+  AS_BOOL t0_is_UT;
 };
 
+/* dpsi and deps loaded for 100 years after 1962 */
+#define SWE_DATA_DPSI_DEPS  36525   
+
+/* if this is changed, then also update initialisation in sweph.c */
 struct swe_data {
   AS_BOOL ephe_path_is_set;
   short jpl_file_is_open;
   FILE *fixfp;		/* fixed stars file pointer */
   char ephepath[AS_MAXCH];
   char jplfnam[AS_MAXCH];
-  short jpldenum;
+  int32 jpldenum;
+  int32 last_epheflag;
   AS_BOOL geopos_is_set;
   AS_BOOL ayana_is_set;
+  AS_BOOL is_old_starfile;
+  double eop_tjd_beg;
+  double eop_tjd_beg_horizons;
+  double eop_tjd_end;
+  double eop_tjd_end_add;
+  int eop_dpsi_loaded;
+  double tid_acc;
+  AS_BOOL is_tid_acc_manual;
+  AS_BOOL init_dt_done;
+  AS_BOOL swed_is_initialised;
+  AS_BOOL delta_t_userdef_is_set;
+  double delta_t_userdef;
   struct file_data fidat[SEI_NEPHFILES];
   struct gen_const gcdat;
   struct plan_data pldat[SEI_NPLANETS];
@@ -527,6 +623,12 @@ struct swe_data {
   double ast_diam;
   int i_saved_planet_name;
   char saved_planet_name[80];
+  //double dpsi[36525];  /* works for 100 years after 1962 */
+  //double deps[36525];
+  double *dpsi;
+  double *deps;
+  int32 astro_models[SEI_NMODELS];
+  int32 timeout;
 };
 
-extern struct swe_data FAR swed;
+extern TLS struct swe_data swed;

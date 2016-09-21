@@ -32,6 +32,7 @@ PlanetId receptionWith           ( const Planet& planet, const Horoscope& scope 
 
 
 Planet      calculatePlanet      ( PlanetId planet, const InputData& input, const Houses& houses, const Zodiac& zodiac );
+Star calculateStar(const QString&, const InputData& input, const Houses& houses, const Zodiac& zodiac);
 PlanetPower calculatePlanetPower ( const Planet& planet, const Horoscope& scope );
 Houses      calculateHouses      ( const InputData& input );
 Aspect      calculateAspect      ( const AspectsSet& aspectSet, const Planet& planet1, const Planet& planet2 );

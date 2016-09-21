@@ -1,5 +1,5 @@
 /************************************************************
-   $Header: /home/dieter/sweph/RCS/sweodef.h,v 1.70 2006/03/08 12:53:11 dieter Exp $
+   $Header: /home/dieter/sweph/RCS/sweodef.h,v 1.74 2008/06/16 10:07:20 dieter Exp $
    definitions and constants for all Swiss Ephemeris source files,
    only required for compiling the libraries, not for the external
    interface of the libraries.
@@ -8,34 +8,49 @@
    and must be kept compatible. Everything not used in SwissEph
    has been deleted.
 
-   Does auto-detection of MSDOS (TURBO_C or MS_C) or HPUNIX.
+   Does auto-detection of MSDOS (TURBO_C or MS_C),  HPUNIX, Linux.
    Must be extended for more portability; there should be a way
    to detect byte order and file system type.
    
 ************************************************************/
 
-/* Copyright (C) 1997, 1998 Astrodienst AG, Switzerland.  All rights reserved.
-  
-  This file is part of Swiss Ephemeris Free Edition.
-  
+/* Copyright (C) 1997 - 2008 Astrodienst AG, Switzerland.  All rights reserved.
+
+  License conditions
+  ------------------
+
+  This file is part of Swiss Ephemeris.
+
   Swiss Ephemeris is distributed with NO WARRANTY OF ANY KIND.  No author
   or distributor accepts any responsibility for the consequences of using it,
   or for whether it serves any particular purpose or works at all, unless he
-  or she says so in writing.  Refer to the Swiss Ephemeris Public License
-  ("SEPL" or the "License") for full details.
-  
-  Every copy of Swiss Ephemeris must include a copy of the License,
-  normally in a plain ASCII text file named LICENSE.  The License grants you
-  the right to copy, modify and redistribute Swiss Ephemeris, but only
-  under certain conditions described in the License.  Among other things, the
-  License requires that the copyright notices and this notice be preserved on
-  all copies.
+  or she says so in writing.  
 
-  For uses of the Swiss Ephemeris which do not fall under the definitions
-  laid down in the Public License, the Swiss Ephemeris Professional Edition
-  must be purchased by the developer before he/she distributes any of his
-  software or makes available any product or service built upon the use of
-  the Swiss Ephemeris.
+  Swiss Ephemeris is made available by its authors under a dual licensing
+  system. The software developer, who uses any part of Swiss Ephemeris
+  in his or her software, must choose between one of the two license models,
+  which are
+  a) GNU public license version 2 or later
+  b) Swiss Ephemeris Professional License
+
+  The choice must be made before the software developer distributes software
+  containing parts of Swiss Ephemeris to others, and before any public
+  service using the developed software is activated.
+
+  If the developer choses the GNU GPL software license, he or she must fulfill
+  the conditions of that license, which includes the obligation to place his
+  or her whole software project under the GNU GPL or a compatible license.
+  See http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+  If the developer choses the Swiss Ephemeris Professional license,
+  he must follow the instructions as found in http://www.astro.com/swisseph/ 
+  and purchase the Swiss Ephemeris Professional Edition from Astrodienst
+  and sign the corresponding license contract.
+
+  The License grants you the right to use, copy, modify and redistribute
+  Swiss Ephemeris, but only under certain conditions described in the License.
+  Among other things, the License requires that the copyright notices and
+  this notice be preserved on all copies.
 
   Authors of the Swiss Ephemeris: Dieter Koch and Alois Treindl
 
@@ -52,19 +67,28 @@
   The trademarks 'Swiss Ephemeris' and 'Swiss Ephemeris inside' may be used
   for promoting such software, products or services.
 */
+
 #ifndef _OURDEF_INCLUDED	/* ourdef.h is a superset of sweodef.h */
 #ifndef _SWEODEF_INCLUDED /* allow multiple #includes */
 #define _SWEODEF_INCLUDED
  
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-
 # define MY_TRUE 1	/* for use in other defines, before TRUE is defined */
 # define MY_FALSE 0	/* for use in other defines, before TRUE is defined */
 
+/* TLS support
+ *
+ * Sun Studio C/C++, IBM XL C/C++, GNU C and Intel C/C++ (Linux systems) -> __thread
+ * Borland, VC++ -> __declspec(thread)
+ */
+#if !defined(TLSOFF) && !defined( __APPLE__ ) && !defined(WIN32) && !defined(DOS32)
+#if defined( __GNUC__ )
+#define TLS     __thread
+#else
+#define TLS     __declspec(thread)
+#endif
+#else
+#define TLS
+#endif
 
 #ifdef _WIN32		/* Microsoft VC 5.0 does not define MSDOS anymore */
 # undef MSDOS
@@ -119,18 +143,16 @@ extern "C" {
 # endif
 #endif
 
-#if MSDOS
+#ifdef MSDOS
 #  define HPUNIX MY_FALSE
 #  define INTEL_BYTE_ORDER 1
 #  ifndef TURBO_C
 #    define MS_C	/* assume Microsoft C compiler */
 #  endif
-# define MYFAR far
 # define UNIX_FS MY_FALSE
 #else
 # ifdef MACOS
 #  define HPUNIX MY_FALSE
-#  define MYFAR
 #  define UNIX_FS MY_FALSE
 # else
 #  define MSDOS MY_FALSE
@@ -138,7 +160,6 @@ extern "C" {
 #  ifndef _HPUX_SOURCE
 #    define _HPUX_SOURCE
 #  endif
-#  define MYFAR
 #  define UNIX_FS MY_TRUE
 # endif
 #endif
@@ -230,17 +251,7 @@ typedef unsigned char UCHAR;
 #define UCP	(UCHAR*)
 #define SCP	(char*)
 
-# define CHARSET_ISO_LATIN_1 TRUE	/* used by ctype256 */
-
-#ifdef DOS_DEGREE		/* use compiler switch to get DOS character! */
-# define ODEGREE_CHAR	248	/* DOS degree character */
-#else
-# ifdef MACOS
-#  define ODEGREE_CHAR	161	/* Macintosh degree character */
-# else
-#  define ODEGREE_CHAR	176	/* Latin1 degree character */
-# endif
-#endif
+# define ODEGREE_STRING "°"	/* degree as string, utf8 encoding */
  
 
 
@@ -251,12 +262,16 @@ typedef unsigned char UCHAR;
 #  define M_PI 3.14159265358979323846
 #endif
  
-#define forward static
+/* #define forward static  obsolete */
 
 #define AS_MAXCH 256    /* used for string declarations, allowing 255 char+\0 */
  
+/*
 #define DEGTORAD 0.0174532925199433
 #define RADTODEG 57.2957795130823
+*/
+#define RADTODEG (180.0 / M_PI)
+#define DEGTORAD (M_PI / 180.0)
  
 typedef int32    centisec;       /* centiseconds used for angles and times */
 #define CS	(centisec)	/* use for casting */
@@ -275,8 +290,10 @@ typedef int32    centisec;       /* centiseconds used for angles and times */
 #define DEG270  (270 * DEG)
 #define DEG360  (360 * DEG)
  
-#define CSTORAD  4.84813681109536E-08 /* centisec to rad: pi / 180 /3600/100 */
-#define RADTOCS  2.06264806247096E+07 /* rad to centisec 180*3600*100/pi */
+/* #define CSTORAD  4.84813681109536E-08  centisec to rad: pi / 180 /3600/100 */
+/* #define RADTOCS  2.06264806247096E+07  rad to centisec 180*3600*100/pi */
+#define CSTORAD	(DEGTORAD / 360000.0)
+#define RADTOCS (RADTODEG * 360000.0)
  
 #define CS2DEG	(1.0/360000.0)	/* centisec to degree */
 
@@ -320,12 +337,6 @@ typedef int32    centisec;       /* centiseconds used for angles and times */
 
 #include <string.h>
 #include <ctype.h>
-
-
-#ifdef __cplusplus
-}
-#endif
-
 
 #endif /* _SWEODEF_INCLUDED */
 #endif /* _OURDEF_INCLUDED */

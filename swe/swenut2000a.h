@@ -1,33 +1,48 @@
 /************************************************************
-   $Header: /home/dieter/sweph/RCS/swenut2000a.h,v 1.70 2006/03/08 12:53:11 dieter Exp dieter $
+   $Header: /home/dieter/sweph/RCS/swenut2000a.h,v 1.74 2008/06/16 10:07:20 dieter Exp $
    definitions for nutation theory IAU 2000a
    derived from public sources
 
-  Compilation Authors: Dieter Koch and Alois Treindl, Astrodienst Zürich
+  Compilation Authors: Dieter Koch and Alois Treindl, Astrodienst Zurich
 
 ************************************************************/
-/* Copyright (C) 1997, 1998 Astrodienst AG, Switzerland.  All rights reserved.
-  
-  This file is part of Swiss Ephemeris Free Edition.
-  
+/* Copyright (C) 1997 - 2008 Astrodienst AG, Switzerland.  All rights reserved.
+
+  License conditions
+  ------------------
+
+  This file is part of Swiss Ephemeris.
+
   Swiss Ephemeris is distributed with NO WARRANTY OF ANY KIND.  No author
   or distributor accepts any responsibility for the consequences of using it,
   or for whether it serves any particular purpose or works at all, unless he
-  or she says so in writing.  Refer to the Swiss Ephemeris Public License
-  ("SEPL" or the "License") for full details.
-  
-  Every copy of Swiss Ephemeris must include a copy of the License,
-  normally in a plain ASCII text file named LICENSE.  The License grants you
-  the right to copy, modify and redistribute Swiss Ephemeris, but only
-  under certain conditions described in the License.  Among other things, the
-  License requires that the copyright notices and this notice be preserved on
-  all copies.
+  or she says so in writing.  
 
-  For uses of the Swiss Ephemeris which do not fall under the definitions
-  laid down in the Public License, the Swiss Ephemeris Professional Edition
-  must be purchased by the developer before he/she distributes any of his
-  software or makes available any product or service built upon the use of
-  the Swiss Ephemeris.
+  Swiss Ephemeris is made available by its authors under a dual licensing
+  system. The software developer, who uses any part of Swiss Ephemeris
+  in his or her software, must choose between one of the two license models,
+  which are
+  a) GNU public license version 2 or later
+  b) Swiss Ephemeris Professional License
+
+  The choice must be made before the software developer distributes software
+  containing parts of Swiss Ephemeris to others, and before any public
+  service using the developed software is activated.
+
+  If the developer choses the GNU GPL software license, he or she must fulfill
+  the conditions of that license, which includes the obligation to place his
+  or her whole software project under the GNU GPL or a compatible license.
+  See http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+  If the developer choses the Swiss Ephemeris Professional license,
+  he must follow the instructions as found in http://www.astro.com/swisseph/ 
+  and purchase the Swiss Ephemeris Professional Edition from Astrodienst
+  and sign the corresponding license contract.
+
+  The License grants you the right to use, copy, modify and redistribute
+  Swiss Ephemeris, but only under certain conditions described in the License.
+  Among other things, the License requires that the copyright notices and
+  this notice be preserved on all copies.
 
   Authors of the Swiss Ephemeris: Dieter Koch and Alois Treindl
 
@@ -54,7 +69,7 @@
 #define NPL 687
 /* Luni-Solar argument multipliers
 L L' F D Om */
-static int16 nls[] = {
+static const int16 nls[] = {
 0, 0, 0, 0, 1,
 0, 0, 2, -2, 2,
 0, 0, 2, 0, 2,
@@ -737,7 +752,7 @@ static int16 nls[] = {
 
 /* Luni-Solar nutation coefficients, unit 1e-7 arcsec
  * longitude (sin, t*sin, cos), obliquity (cos, t*cos, sin) */
-static int32 cls[] = {
+static const int32 cls[] = {
 -172064161, -174666, 33386, 92052331, 9086, 15377,
 -13170906, -1675, -13696, 5730336, -3015, -4587,
 -2276413, -234, 2796, 978459, -485, 1374,
@@ -1418,10 +1433,10 @@ static int32 cls[] = {
 -3, 0, 0, 2, 0, 0,
 };
 
-#if NUT_IAU_2000A
+/*#if NUT_IAU_2000A*/
 /* Planetary argument multipliers
  * L L' F D Om Me Ve E Ma Ju Sa Ur Ne pre */
-static int16 npl[] = {
+static const int16 npl[] = {
 0, 0, 0, 0, 0, 0, 0, 8,-16, 4, 5, 0, 0, 0,
 0, 0, 0, 0, 0, 0, 0, -8, 16, -4, -5, 0, 0, 2,
 0, 0, 0, 0, 0, 0, 0, 8,-16, 4, 5, 0, 0, 2,
@@ -2113,7 +2128,7 @@ static int16 npl[] = {
 
 /* Planetary nutation coefficients, unit 1e-7 arcsec
  * longitude (sin, cos), obliquity (sin, cos) */
-static int16 icpl[] = {
+static const int16 icpl[] = {
 1440, 0, 0, 0,
 56, -117, -42, -40,
 125, -43, 0, -54,
@@ -2802,4 +2817,4 @@ static int16 icpl[] = {
 3, 0, 0, -1,
 3, 0, 0, -1,
 };
-#endif /* NUT_IAU_2000A */
+/*#endif  * NUT_IAU_2000A */

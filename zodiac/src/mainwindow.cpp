@@ -184,7 +184,7 @@ void AstroWidget :: setupFile (AstroFile* file, bool suspendUpdate)
   if (file->getGMT() == QDateTime::fromTime_t(0))  // set current date, time, timezone
    {
     QDateTime current = QDateTime::currentDateTime();
-    QDateTime currentUTC = QDateTime(current.toUTC().date(), current.toUTC().time());
+    QDateTime currentUTC = QDateTime(current.toUTC().date(), current.toUTC().time(),Qt::UTC);
     file->setGMT(currentUTC);
     file->setTimezone(currentUTC.secsTo(current) / 3600);
    }

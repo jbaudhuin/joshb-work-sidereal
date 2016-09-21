@@ -11,6 +11,18 @@ namespace A {
 
 double getJulianDate ( QDateTime GMT )
  {
+#if 1
+  char serr[256];
+  double ret[2];
+  swe_utc_to_jd(GMT.date().year(),
+                GMT.date().month(),
+                GMT.date().day(),
+                GMT.time().hour(),
+                GMT.time().minute(),
+                GMT.time().second()+GMT.time().msec()/1000,
+                1/*gregorian*/, ret, serr);
+  return ret[1];    // UT1
+#else
   int m     = GMT.date().month();
   int y     = GMT.date().year();
   int d     = GMT.date().day();
@@ -20,6 +32,7 @@ double getJulianDate ( QDateTime GMT )
 
   if (m <= 2) { m = m + 12; y = y - 1; }
   return (int)(365.25*(y+4716)) + (int)(30.6001*(m+1)) + d - 13 - 1524.5 + (double)ut/24.0;
+#endif
  }
 
 float roundDegree  ( float deg )
@@ -246,9 +259,10 @@ PlanetId receptionWith   ( const Planet& planet, const Horoscope& scope )
  }
 
 
-
-
-Planet calculatePlanet ( PlanetId planet, const InputData& input, const Houses& houses, const Zodiac& zodiac )
+Planet calculatePlanet ( PlanetId planet,
+                         const InputData& input,
+                         const Houses& houses,
+                         const Zodiac& zodiac )
  {
   Planet ret = getPlanet(planet);
 
@@ -265,7 +279,7 @@ Planet calculatePlanet ( PlanetId planet, const InputData& input, const Houses& 
   // TODO: wrong moon speed calculation
   // (flags: SEFLG_TRUEPOS|SEFLG_SPEED = 272)
   //         272|invertPositionFlag = 262416
-  if (swe_calc_ut( jd, ret.sweNum, flags, xx, errStr ) >= 0)
+  if (swe_calc_ut( jd, ret.sweNum, flags | SEFLG_SWIEPH, xx, errStr ) >= 0)
    {
     if (!(ret.sweFlags & invertPositionFlag))
       ret.eclipticPos.setX ( xx[0] );
@@ -288,29 +302,29 @@ Planet calculatePlanet ( PlanetId planet, const InputData& input, const Houses& 
 
     double rettm;
     int eflg = SEFLG_SWIEPH;
-    if (swe_rise_trans(jd, ret.sweNum, NULL/*startname*/,
-                       eflg, SE_CALC_RISE, geopos, 1013.25, 10,
-                       &rettm, errStr) >= 0)
+#if 1
+    double startjd =
+            (jd - houses.sunrise > jd - houses.sunset)?
+                houses.sunrise : houses.sunset;
+#else
+    double sidt = houses.RAMC / 15 / 24; // degrees to hours to fraction of day;
+    double startjd = jd - sidt; // gets us to 00:00 sid time
+#endif
+    for (Star::angleTransitMode m = Star::atAsc;
+         m < Star::numAngles;
+         m = Star::angleTransitMode(m+1))
     {
-        ret.rises = Planet::timeToDT(rettm);
+        if (swe_rise_trans(startjd, ret.sweNum, NULL/*startname*/,
+                           eflg, Star::angleTransitFlag(m),
+                           geopos, 1013.25, 10,
+                           &rettm, errStr) >= 0)
+        {
+            ret.angleTransit[m] = Planet::timeToDT(rettm);
+        }
     }
-    if (swe_rise_trans(jd, ret.sweNum, NULL/*startname*/,
-                       eflg, SE_CALC_MTRANSIT, geopos, 1013.25, 10,
-                       &rettm, errStr) >= 0)
-    {
-        ret.culminates = Planet::timeToDT(rettm);
-    }
-    if (swe_rise_trans(jd, ret.sweNum, NULL/*startname*/,
-                       eflg, SE_CALC_SET, geopos, 1013.25, 10,
-                       &rettm, errStr) >= 0)
-    {
-        ret.sets = Planet::timeToDT(rettm);
-    }
-    if (swe_rise_trans(jd, ret.sweNum, NULL/*startname*/,
-                       eflg, SE_CALC_ITRANSIT, geopos, 1013.25, 10,
-                       &rettm, errStr) >= 0)
-    {
-        ret.anticulminates = Planet::timeToDT(rettm);
+    if (ret.id == Planet_SouthNode) {
+        qSwap(ret.angleTransit[Star::atAsc],ret.angleTransit[Star::atDesc]);
+        qSwap(ret.angleTransit[Star::atMC],ret.angleTransit[Star::atIC]);
     }
    }
   else
@@ -324,6 +338,83 @@ Planet calculatePlanet ( PlanetId planet, const InputData& input, const Houses& 
   ret.position      = getPosition(ret, ret.sign->id);
   if (ret.homeSigns.count())
     ret.houseRuler = getHouse(ret.homeSigns.first(), houses, zodiac);
+
+  return ret;
+ }
+
+
+Star calculateStar( const QString& name,
+                    const InputData& input,
+                    const Houses& houses,
+                    const Zodiac& zodiac )
+ {
+  Star ret = getStar(name);
+
+  uint    invertPositionFlag = 256 * 1024;
+  double  jd = getJulianDate(input.GMT);
+  char    errStr[256] = "";
+  double  xx[6];
+  unsigned int flags = ret.sweFlags;
+  if (zodiac.id > 1) {
+    flags |= SEFLG_SIDEREAL;
+    swe_set_sid_mode(zodiac.id - 2, 0,0);
+  }
+
+  // TODO: wrong moon speed calculation
+  // (flags: SEFLG_TRUEPOS|SEFLG_SPEED = 272)
+  //         272|invertPositionFlag = 262416
+  char starName[256];
+  strcpy(starName, ret.name.toAscii().constData());
+  if (swe_fixstar_ut( starName, jd, flags | SEFLG_SWIEPH, xx, errStr ) != ERR
+          && strlen(errStr)==0)
+   {
+    if (!(ret.sweFlags & invertPositionFlag))
+      ret.eclipticPos.setX ( xx[0] );
+    else                               // found 'inverted position' flag
+      ret.eclipticPos.setX ( roundDegree(xx[0]-180) );
+
+    ret.eclipticPos.setY ( xx[1] );
+    ret.distance = xx[2];
+
+    double geopos[3];                  // calculate horizontal coordinates
+    double hor[3];
+    geopos[0] = input.location.x();
+    geopos[1] = input.location.y();
+    geopos[2] = input.location.z();
+    swe_azalt( jd, SE_ECL2HOR, geopos, 0,0, xx, hor);
+    ret.horizontalPos.setX(hor[0]);
+    ret.horizontalPos.setY(hor[1]);
+
+    double rettm;
+    int eflg = SEFLG_SWIEPH;
+#if 1
+    double startjd =
+            (jd - houses.sunrise > jd - houses.sunset)?
+                houses.sunrise : houses.sunset;
+#else
+    double sidt = houses.RAMC / 15 / 24; // degrees to hours to fraction of day;
+    double startjd = jd - sidt; // gets us to 00:00 sid time
+#endif
+    for (Star::angleTransitMode m = Star::atAsc;
+         m < Star::numAngles;
+         m = Star::angleTransitMode(m+1))
+    {
+        if (swe_rise_trans(startjd, -1, starName,
+                           eflg, Star::angleTransitFlag(m),
+                           geopos, 1013.25, 10,
+                           &rettm, errStr) >= 0)
+        {
+            ret.angleTransit[m] = Planet::timeToDT(rettm);
+        }
+    }
+   }
+  else
+   {
+    qDebug( "A: can't calculate position of '%s' at julian day %f: %s",
+            qPrintable(ret.name), jd, errStr );
+   }
+
+  ret.house         = getHouse(houses, ret.eclipticPos.x());
 
   return ret;
  }
@@ -347,8 +438,27 @@ Houses calculateHouses ( const InputData& input )
   for (int i = 0; i < 12; i++)
     ret.cusp[i] = hcusps[i+1];
 
+  ret.Asc   = ascmc[0];
+  ret.MC    = ascmc[1];
+  ret.RAMC  = ascmc[2];
+  ret.Vx    = ascmc[3];
+  ret.EA    = ascmc[4];
+
+  double geopos[3] = {
+      input.location.x(),
+      input.location.y(),
+      input.location.z()
+  };
+  char errStr[256];
+  swe_rise_trans(julianDay - 1, SE_SUN, NULL, SEFLG_SWIEPH,
+                 SE_CALC_RISE, geopos, 1013.25, 10,
+                 &ret.sunrise, errStr);
+  swe_rise_trans(julianDay - 1, SE_SUN, NULL, SEFLG_SWIEPH,
+                 SE_CALC_SET, geopos, 1013.25, 10,
+                 &ret.sunset, errStr);
+
   return ret;
- }
+}
 
 PlanetPower calculatePlanetPower ( const Planet& planet, const Horoscope& scope )
  {
@@ -545,6 +655,9 @@ Horoscope calculateAll ( const InputData& input )
 
   foreach (PlanetId id, getPlanets())
     scope.planets[id] = calculatePlanet(id, input, scope.houses, scope.zodiac);
+  foreach (const QString& name, getStars()) {
+      scope.stars[name] = calculateStar(name, input, scope.houses, scope.zodiac);
+  }
 
   scope.sun        = scope.planets[Planet_Sun];
   scope.moon       = scope.planets[Planet_Moon];

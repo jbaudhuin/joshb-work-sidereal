@@ -467,33 +467,182 @@ QString     describePowerInHtml ( const Planet& planet, const Horoscope& scope )
  }
 
 QString
+_formatTime(const QDateTime& dt, short tz)
+{
+    QString dow(QObject::tr("MtWTFsS"));
+    QDateTime ldt = dt.addSecs(tz*3600);
+    return QString("%2 %1")
+            .arg(ldt.time().toString())
+            .arg(dow[ldt.date().dayOfWeek()-1]);
+}
+
+namespace {
+struct event {
+    QDateTime _dt;
+    const Star* _star;
+    unsigned _bend;
+    static int _maxWidth;
+
+    event() : _star(NULL), _bend(0) { }
+
+    event(const QDateTime& dt,
+          const Star* planet,
+          unsigned bend) :
+        _dt(dt), _star(planet), _bend(bend)
+    { }
+
+    event(const event& other) :
+        _dt(other._dt), _star(other._star), _bend(other._bend)
+    { }
+
+    event& operator=(const event& other)
+    {
+        _dt = other._dt;
+        _star = other._star;
+        _bend = other._bend;
+        return *this;
+    }
+
+    bool operator<(const event& other) const
+    {
+#if 0
+        double jda = getJulianDate(_dt), jdo = getJulianDate(other._dt);
+        std::string dta(_dt.toString(Qt::ISODate).toStdString()), dto(other._dt.toString(Qt::ISODate).toStdString());
+        bool pluton = _star && _star->getPlanetId()==Planet_Pluto
+                || other._star && other._star->getPlanetId()==Planet_Pluto;
+#endif
+        if (_dt > other._dt) return false;
+        if (_dt < other._dt) return true;
+        if (_bend >= other._bend) return false;
+        return true;
+    }
+
+    QString fmt(short tz) const
+    {
+        return QString("%1  %2  %3\n")
+                .arg(_star? _star->name : QObject::tr("*Radix*"),-_maxWidth)
+                .arg((QStringList()
+                      << QObject::tr("Rise")
+                      << QObject::tr("Set")
+                      << QObject::tr("MC")
+                      << QObject::tr("IC")
+                      << "").at(_bend),-6)
+                .arg(_formatTime(_dt, tz),-9);
+    }
+};
+
+int event::_maxWidth = 0;
+}
+
+QString
 describeParans(const Horoscope &scope)
 {
-    return "";
+    short tz = scope.inputData.tz;
+
+    QVector<event> events;
+    events << event(scope.inputData.GMT,NULL,4);
+
+    int& maxWidth(event::_maxWidth);
+    maxWidth = 0;
+
+    foreach (const Planet& p, scope.planets) {
+        unsigned u = 0;
+        foreach (const QDateTime& dt, p.angleTransit) {
+            if (p.name.length()>maxWidth) {
+                maxWidth = p.name.length();
+            }
+            events << event(dt, p, u++);
+        }
+    }
+
+    foreach (const Star& s, scope.stars) {
+        unsigned u = 0;
+        foreach (const QDateTime& dt, s.angleTransit) {
+            if (s.name.length()>maxWidth) {
+                maxWidth = s.name.length();
+            }
+            events << event(dt, s, u++);
+        }
+    }
+
+    std::sort(events.begin(),events.end());
+
+    QString ret = QString("%1  %2  %3\n")
+            .arg(QObject::tr("Planet"),-maxWidth)
+            .arg(QObject::tr("Event"),-6)
+            .arg(QObject::tr("LT"),-9);
+
+    QList<const event*> prev;
+    bool printedPrev = false;
+    bool printedAny = false;
+    foreach (const event& ev, events) {
+        if (!prev.isEmpty()) {
+            const Planet* p1 =
+                    dynamic_cast<const Planet*>(prev.last()->_star);
+            const Planet* p2 =
+                    dynamic_cast<const Planet*>(ev._star);
+            if (p1 && p2
+                    && (p1->id == Planet_NorthNode
+                        || p1->id == Planet_SouthNode)
+                    && (p2->id == Planet_NorthNode
+                        || p2->id == Planet_SouthNode))
+            {
+                prev.append(&ev);
+                continue;
+            }
+
+            int dist = qAbs(prev.last()->_dt.secsTo(ev._dt));
+            if (dist <= 4*60/*four mins*/) {
+                if (p1 || p2 || !ev._star || printedPrev) {
+                    if (!printedPrev) {
+                        if (printedAny) {
+                            ret += "\n";
+                        }
+                        foreach (const event* pv, prev) {
+                            printedAny = true;
+                            ret += pv->fmt(tz);
+                        }
+                        prev.clear();
+                    }
+                    ret += ev.fmt(tz);
+                    printedAny = printedPrev = true;
+                }
+            } else {
+                prev.clear();
+                printedPrev = false;
+            }
+
+            static bool printRadix = !getenv("zod_nodump_radix");
+            if ( !ev._star && printRadix && !printedPrev) {
+                if (printedAny) {
+                    ret += "\n";
+                }
+                ret += ev.fmt(tz);
+                printedAny = printedPrev = true;
+            }
+
+        }
+        prev.append(&ev);
+    }
+
+    return ret;
 }
+
 
 QString
 describeSpeculum(const Horoscope &scope)
 {
     short tz = scope.inputData.tz;
     QString ret = QString("%1  %2  %3  %4  %5\n")
-            .arg("Planet",-12)
-            .arg("Rise",-9)
-            .arg("MC",-9)
-            .arg("Set",-9)
-            .arg("IC",-9);
+            .arg(QObject::tr("Planet"),-12)
+            .arg(QObject::tr("Rise"),-9)
+            .arg(QObject::tr("MC"),-9)
+            .arg(QObject::tr("Set"),-9)
+            .arg(QObject::tr("IC"),-9);
     foreach (const Planet& p, scope.planets) {
         ret += QString("%1").arg(p.name,-12);
-        foreach (const QDateTime& dt,
-                 QList<QDateTime>()
-                 << p.rises << p.culminates
-                 << p.sets << p.anticulminates)
-        {
-            const char dow[] = "MtWTFsS";
-            QDateTime ldt = dt.addSecs(tz*3600);
-            ret += QString(" %2 %1")
-                    .arg(ldt.time().toString())
-                    .arg(dow[ldt.date().dayOfWeek()-1]);
+        foreach (int i, QList<int>() << 0 << 2 << 1 << 3) {
+            ret += " " + _formatTime(p.angleTransit.at(i), tz);
         }
         ret += "\n";
     }
@@ -505,7 +654,7 @@ QString     describe          ( const Horoscope& scope,
  {
   QString ret;
 
-  ret += QObject::tr("%1 sign").arg(scope.zodiac.name) + "\n";
+  ret += QObject::tr("%1 sign").arg(scope.zodiac.name) + "\n\n";
 
   if (article & Article_Input)
     ret += describeInput(scope.inputData) + "\n\n";
