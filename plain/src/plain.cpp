@@ -29,6 +29,7 @@ Plain              :: Plain               ( QWidget* parent ) : AstroFileHandler
   describePower   -> setChecked(false);
   describeParans  -> setChecked(true);
   describeSpeculum-> setChecked(true);
+  showAllDiurnalEvents = false;
 
   describeInput   -> setStatusTip(tr("Show input data"));
   describePlanets -> setStatusTip(tr("Show planets"));
@@ -83,14 +84,68 @@ void Plain         :: filesUpdated(MembersList m)
 void Plain         :: refresh()
  {
   qDebug() << "Plain::refresh";
+  if (!file()) {
+      return;
+  }
   int articles = (A::Article_Input   * describeInput->isChecked())   |
           (A::Article_Planet  * describePlanets->isChecked()) |
           (A::Article_Houses  * describeHouses->isChecked())  |
-          (A::Article_Aspects * describeAspects->isChecked())  |
+          (A::Article_Aspects * describeAspects->isChecked()) |
           (A::Article_Power   * describePower->isChecked())   |
-          (A::Article_Parans  * describeParans->isChecked())   |
+          (A::Article_Parans  * describeParans->isChecked())  |
+          (A::Article_DiurnalEvents * showAllDiurnalEvents)   |
           (A::Article_Speculum* describeSpeculum->isChecked());
 
   view->setText(A::describe(file()->horoscope(), (A::Article)articles));
  }
 
+AppSettings
+Plain::defaultSettings()
+{
+    AppSettings s;
+    s.setValue("Text/describeInput", false);
+    s.setValue("Text/describePlanets", true);
+    s.setValue("Text/describeHouses", true);
+    s.setValue("Text/describeAspects", true);
+    s.setValue("Text/describePower", false);
+    s.setValue("Text/describeParans", true);
+    s.setValue("Text/describeSpeculum", false);
+    s.setValue("Text/showAllDiurnalEvents", false);
+    return s;
+}
+
+AppSettings
+Plain::currentSettings()
+{
+    AppSettings s;
+    s.setValue("Text/describeInput", describeInput->isChecked());
+    s.setValue("Text/describePlanets", describePlanets->isChecked());
+    s.setValue("Text/describeHouses", describeHouses->isChecked());
+    s.setValue("Text/describeAspects", describeAspects->isChecked());
+    s.setValue("Text/describePower", describePower->isChecked());
+    s.setValue("Text/describeParans", describeParans->isChecked());
+    s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
+    s.setValue("Text/showAllDiurnalEvents", showAllDiurnalEvents);
+    return s;
+}
+
+void
+Plain::applySettings(const AppSettings& s)
+{
+    describeInput->setChecked(s.value("Text/describeInput").toBool());
+    describePlanets->setChecked(s.value("Text/describePlanets").toBool());
+    describeHouses->setChecked(s.value("Text/describeHouses").toBool());
+    describeAspects->setChecked(s.value("Text/describeAspects").toBool());
+    describePower->setChecked(s.value("Text/describePower").toBool());
+    describeParans->setChecked(s.value("Text/describeParans").toBool());
+    describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
+    showAllDiurnalEvents = s.value("Text/showAllDiurnalEvents").toBool();
+    //refreshAll();
+}
+
+void
+Plain::setupSettingsEditor(AppSettingsEditor* ed)
+{
+    ed->addTab(tr("Text"));
+    ed->addCheckBox("Text/showAllDiurnalEvents", tr("Show all planetary diurnal events"));
+}

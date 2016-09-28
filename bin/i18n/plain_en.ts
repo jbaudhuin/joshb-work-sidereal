@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="en_US">
+<TS version="2.0" language="en_US">
 <context>
     <name>Plain</name>
     <message>
@@ -34,33 +34,43 @@
         <translation>affetic</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="29"/>
+        <location filename="../../plain/src/plain.cpp" line="21"/>
+        <source>parans</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../plain/src/plain.cpp" line="22"/>
+        <source>spec</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../plain/src/plain.cpp" line="33"/>
         <source>Show input data</source>
         <translation>Show input data</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="30"/>
+        <location filename="../../plain/src/plain.cpp" line="34"/>
         <source>Show planets</source>
         <translation>Show planets</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="31"/>
+        <location filename="../../plain/src/plain.cpp" line="35"/>
         <source>Show houses</source>
         <translation>Show houses</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="32"/>
+        <location filename="../../plain/src/plain.cpp" line="36"/>
         <source>Show aspects</source>
         <translation>Show aspects</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="33"/>
+        <location filename="../../plain/src/plain.cpp" line="37"/>
         <source>Show dignity and deficient points for each planet</source>
         <translation>Show dignity and deficient points for each planet</translation>
     </message>
     <message>
         <source>(empty data)</source>
-        <translation type="vanished">(empty data)</translation>
+        <translation type="obsolete">(empty data)</translation>
     </message>
 </context>
 </TS>

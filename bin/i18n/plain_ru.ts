@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="ru_RU">
+<TS version="2.0" language="ru_RU">
 <context>
     <name>Plain</name>
     <message>
@@ -34,27 +34,37 @@
         <translation>аффетика</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="29"/>
+        <location filename="../../plain/src/plain.cpp" line="21"/>
+        <source>parans</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../plain/src/plain.cpp" line="22"/>
+        <source>spec</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../plain/src/plain.cpp" line="33"/>
         <source>Show input data</source>
         <translation>Показывать исходные данные</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="30"/>
+        <location filename="../../plain/src/plain.cpp" line="34"/>
         <source>Show planets</source>
         <translation>Показывать планеты</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="31"/>
+        <location filename="../../plain/src/plain.cpp" line="35"/>
         <source>Show houses</source>
         <translation>Показывать дома</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="32"/>
+        <location filename="../../plain/src/plain.cpp" line="36"/>
         <source>Show aspects</source>
         <translation>Показывать аспекты</translation>
     </message>
     <message>
-        <location filename="../../plain/src/plain.cpp" line="33"/>
+        <location filename="../../plain/src/plain.cpp" line="37"/>
         <source>Show dignity and deficient points for each planet</source>
         <translation>Показывать очки достоинств и слабостей планет</translation>
     </message>
@@ -64,7 +74,7 @@
     </message>
     <message>
         <source>(empty data)</source>
-        <translation type="vanished">(нет данных)</translation>
+        <translation type="obsolete">(нет данных)</translation>
     </message>
 </context>
 </TS>

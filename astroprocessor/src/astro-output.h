@@ -19,7 +19,8 @@ enum Article        { Article_All     = 0xFF,
                       Article_Planet  = 0x8,
                       Article_Power   = 0x10,
                       Article_Parans  = 0x20,
-                      Article_Speculum = 0x40 };
+                      Article_DiurnalEvents = 0x40,
+                      Article_Speculum = 0x80 };
 
 enum AnglePrecision { NormalPrecision,
                       HighPrecision };
@@ -34,7 +35,7 @@ QString houseNum             ( const Planet& planet );
 QString getPositionName      ( PlanetPosition p );
 QString degreeToString       ( float deg, AnglePrecision precision = NormalPrecision );
 QString zodiacPosition       ( float deg, const Zodiac& zodiac, AnglePrecision precision = NormalPrecision );
-QString zodiacPosition       ( const Planet& planet, const Zodiac& zodiac, AnglePrecision precision = NormalPrecision );
+QString zodiacPosition       ( const Star& planet, const Zodiac& zodiac, AnglePrecision precision = NormalPrecision );
 void    sortPlanets          ( PlanetList &planets, PlanetsOrder order );
 
 
@@ -48,7 +49,7 @@ QString     describePlanetCoord ( const Planet& planet );
 QString     describePlanetCoordInHtml ( const Planet& planet );
 QString     describePower       ( const Planet& planet, const Horoscope& scope );
 QString     describePowerInHtml ( const Planet& planet, const Horoscope& scope );
-QString     describeParans      ( const Horoscope& scope );
+QString     describeParans      ( const Horoscope& scope, bool showAll=false );
 QString     describeSpeculum    ( const Horoscope& scope );
 QString     describe            ( const Horoscope& scope, Articles article = Article_All );
 

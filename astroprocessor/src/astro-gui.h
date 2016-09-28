@@ -2,6 +2,7 @@
 #define ASTRO_GUI_H
 
 #include "astro-data.h"
+#include "astro-calc.h"
 #include "appsettings.h"
 
 /* =========================== ASTRO FILE =========================================== */
@@ -26,7 +27,8 @@ class AstroFile : public QObject
                       HouseSystem   = 0x80,
                       Zodiac        = 0x100,
                       AspectSet     = 0x200,
-                      ChangedState  = 0x400,
+                      AspectMode    = 0x400,
+                      ChangedState  = 0x800,
                       All           = 0xFFF };
 
         Q_DECLARE_FLAGS(Members, Member)
@@ -58,6 +60,7 @@ class AstroFile : public QObject
         void setHouseSystem  (A::HouseSystemId system);
         void setZodiac       (A::ZodiacId zod);
         void setAspectSet    (A::AspectSetId set);
+        void setAspectMode   (const A::aspectModeType& mode);
 
         const QString&   getName()         const { return name; }
         const QString&   getComment()      const { return comment; }
@@ -70,6 +73,7 @@ class AstroFile : public QObject
         A::HouseSystemId getHouseSystem()  const { return scope.inputData.houseSystem; }
         A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac; }
         const A::AspectsSet& getAspetSet()  const { return A::getAspectSet(scope.inputData.aspectSet); }
+        A::aspectModeEnum getAspectMode()  const { return A::aspectMode; }
         QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(getTimezone() * 3600); }
 
     signals:

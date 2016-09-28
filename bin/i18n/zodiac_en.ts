@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="en_US">
+<TS version="2.0" language="en_US">
 <context>
     <name>AstroDatabase</name>
     <message>
@@ -58,7 +58,7 @@
     </message>
     <message>
         <source>No data represented.</source>
-        <translation type="vanished">No data represented.</translation>
+        <translation type="obsolete">No data represented.</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="66"/>
@@ -86,7 +86,7 @@
     </message>
     <message>
         <source>Circle</source>
-        <translation type="vanished">Chart</translation>
+        <translation type="obsolete">Chart</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="169"/>
@@ -101,7 +101,7 @@
     <message>
         <source>Zodiac</source>
         <translatorcomment>Do you mean &quot;Sign&quot; here?</translatorcomment>
-        <translation type="vanished">Zodiac</translation>
+        <translation type="obsolete">Zodiac</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="157"/>
@@ -137,11 +137,11 @@
     <message>
         <source>Aspects and orbs level
 (by A.Podvodny)</source>
-        <translation type="vanished">Aspects and orb levels\n(by A.Podvodny)</translation>
+        <translation type="obsolete">Aspects and orb levels\n(by A.Podvodny)</translation>
     </message>
     <message>
         <source>%1 initiation</source>
-        <translation type="vanished">%1 initiation</translation>
+        <translation type="obsolete">%1 initiation</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="474"/>
@@ -187,7 +187,7 @@
     </message>
     <message>
         <source>Open</source>
-        <translation type="vanished">Open</translation>
+        <translation type="obsolete">Open</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="894"/>
@@ -206,7 +206,7 @@
     </message>
     <message>
         <source>Open data</source>
-        <translation type="vanished">Open data</translation>
+        <translation type="obsolete">Open data</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="904"/>
@@ -215,7 +215,7 @@
     </message>
     <message>
         <source>Info +/-</source>
-        <translation type="vanished">Info +/-</translation>
+        <translation type="obsolete">Info +/-</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="824"/>

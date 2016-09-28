@@ -82,6 +82,7 @@ class Chart : public AstroFileHandler
         QGraphicsItem* getCircleMarker(const A::Planet* p);
 
         void drawPlanets(int fileIndex);
+        void drawStars(int fileIndex);
         void drawCuspides(int fileIndex);
         void updatePlanetsAndCusps(int fileIndex);
         void updateAspects();

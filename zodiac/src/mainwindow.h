@@ -64,6 +64,7 @@ class AstroWidget : public QWidget
         QComboBox*        zodiacSelector;
         QComboBox*        hsystemSelector;
         QComboBox*        aspectsSelector;
+        QComboBox*        aspectModeSelector;
         QList<QComboBox*> horoscopeControls;
         QList<AstroFileHandler*> handlers;
         QList<AstroFileHandler*> dockHandlers;
@@ -182,7 +183,13 @@ class FilesBar : public QTabBar
         void addFile(AstroFile* file);
         void setAskToSave(bool b) { askToSave = b; }
         const AstroFileList& currentFiles()
-        { if (count() && currentIndex() < count()) return files[currentIndex()]; }
+        {
+            if (count() && currentIndex() < count()) return files[currentIndex()];
+#if 0
+            static AstroFileList dummy;
+            return dummy;
+#endif
+        }
 };
 
 

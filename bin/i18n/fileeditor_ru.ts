@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="ru_RU">
+<TS version="2.0" language="ru_RU">
 <context>
     <name>AstroFileEditor</name>
     <message>
@@ -39,37 +39,37 @@
         <translation>не задано</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="43"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="53"/>
         <source>Edit entry</source>
         <translation>Изменить данные</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="54"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="64"/>
         <source>Gender:</source>
         <translation>Пол:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="59"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="69"/>
         <source>Time zone:</source>
         <translation>Часовой пояс:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="63"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="73"/>
         <source>Name:</source>
         <translation>Имя:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="64"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="74"/>
         <source>Local time:</source>
         <translation>Местное время:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="65"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="75"/>
         <source>Location:</source>
         <translation>Место:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="67"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="77"/>
         <source>Comment:</source>
         <translation>Комментарий:</translation>
     </message>

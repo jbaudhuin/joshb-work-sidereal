@@ -94,9 +94,9 @@ QString zodiacPosition       (float deg, const Zodiac& zodiac, AnglePrecision pr
    }
  }
 
-QString zodiacPosition       (const Planet& planet, const Zodiac& zodiac, AnglePrecision precision )
+QString zodiacPosition       (const Star& star, const Zodiac& zodiac, AnglePrecision precision )
  {
-  return zodiacPosition(planet.eclipticPos.x(), zodiac, precision);
+  return zodiacPosition(star.eclipticPos.x(), zodiac, precision);
  }
 
 void sortPlanets             ( PlanetList &planets, PlanetsOrder order )
@@ -174,7 +174,7 @@ QString     describeHouses    ( const Houses& houses, const Zodiac& zodiac )
   for (int i = 0; i < 12; i++)
    {
     ret += houseTag(i + 1).rightJustified(4, ' ') + " -" +
-           zodiacPosition(houses.cusp[i], zodiac).rightJustified(10,' ');
+           zodiacPosition(houses.cusp[i], zodiac, HighPrecision).rightJustified(14,' ');
 
     if (i < 11) ret += '\n';
    }
@@ -220,8 +220,9 @@ QString     describePlanet    ( const Planet& planet, const Zodiac& zodiac )
  {
   QString ret;
 
-  QString name      = planet.name.leftJustified(10,' ',true);
-  QString longitude = zodiacPosition(planet, zodiac).rightJustified(10,' ',true);
+  QString name      = planet.name.leftJustified(14,' ',true);
+  QString longitude = zodiacPosition(planet, zodiac,HighPrecision)
+      .rightJustified(14,' ',true);
 
   ret = name + " " + longitude + " " + houseNum(planet).leftJustified(4, ' ');
 
@@ -259,6 +260,8 @@ QString     describePlanetCoord ( const Planet& planet )
 
   ret += QObject::tr("Longitude: %1\n").arg(degreeToString(planet.eclipticPos.x(), HighPrecision));
   ret += QObject::tr("Latitude: %1\n").arg(degreeToString(planet.eclipticPos.y(), HighPrecision));
+  ret += QObject::tr("Rectascension: %1\n").arg(degreeToString(planet.equatorialPos.x(), HighPrecision));
+  ret += QObject::tr("Declination: %1\n").arg(degreeToString(planet.equatorialPos.y(), HighPrecision));
   ret += QObject::tr("Distance: %1a.u.\n").arg(planet.distance);
   ret += QObject::tr("Azimuth: %1\n").arg(degreeToString(planet.horizontalPos.x(), HighPrecision));
   ret += QObject::tr("Height: %1\n").arg(degreeToString(planet.horizontalPos.y(), HighPrecision));
@@ -419,13 +422,13 @@ QString     describePower     ( const Planet& planet, const Horoscope& scope)
    }
 
 
-  if (aspect(planet, QPointF(149.833, 0.45), topAspectSet()) == Aspect_Conjunction)
+  if (aspect(planet, QPointF(149.833, 0.45), tightConjunction()) == Aspect_Conjunction)
     ret << QObject::tr("+6: Planet is in conjunction with Regulus");
 
-  if (aspect(planet, QPointF(203.833, -2.05), topAspectSet()) == Aspect_Conjunction)
+  if (aspect(planet, QPointF(203.833, -2.05), tightConjunction()) == Aspect_Conjunction)
     ret << QObject::tr("+5: Planet is in conjunction with Spica");
 
-  if (aspect(planet, QPointF(56.166, 22.416), topAspectSet()) == Aspect_Conjunction)
+  if (aspect(planet, QPointF(56.166, 22.416), tightConjunction()) == Aspect_Conjunction)
     ret << QObject::tr("-5: Planet is in conjunction with Algol");
 
 
@@ -480,26 +483,28 @@ namespace {
 struct event {
     QDateTime _dt;
     const Star* _star;
-    unsigned _bend;
-    static int _maxWidth;
+    unsigned _pivot;
 
-    event() : _star(NULL), _bend(0) { }
+    static int _maxWidth;
+    static QDateTime _radix;
+
+    event() : _star(NULL), _pivot(0) { }
 
     event(const QDateTime& dt,
           const Star* planet,
-          unsigned bend) :
-        _dt(dt), _star(planet), _bend(bend)
+          unsigned pivot) :
+        _dt(dt), _star(planet), _pivot(pivot)
     { }
 
     event(const event& other) :
-        _dt(other._dt), _star(other._star), _bend(other._bend)
+        _dt(other._dt), _star(other._star), _pivot(other._pivot)
     { }
 
     event& operator=(const event& other)
     {
         _dt = other._dt;
         _star = other._star;
-        _bend = other._bend;
+        _pivot = other._pivot;
         return *this;
     }
 
@@ -513,37 +518,48 @@ struct event {
 #endif
         if (_dt > other._dt) return false;
         if (_dt < other._dt) return true;
-        if (_bend >= other._bend) return false;
+        if (_pivot >= other._pivot) return false;
         return true;
     }
 
     QString fmt(short tz) const
     {
-        return QString("%1  %2  %3\n")
+        QString ret = QString("%1  %2  %3")
                 .arg(_star? _star->name : QObject::tr("*Radix*"),-_maxWidth)
                 .arg((QStringList()
                       << QObject::tr("Rise")
                       << QObject::tr("Set")
                       << QObject::tr("MC")
                       << QObject::tr("IC")
-                      << "").at(_bend),-6)
+                      << "----").at(_pivot),-6)
                 .arg(_formatTime(_dt, tz),-9);
+        if (_star) { // i.e., not radix
+            double dist = qAbs(_radix.secsTo(_dt));
+            int dayDiff = dist*(365.25/240.0);
+            QDateTime newDate = _radix.addDays(dayDiff);
+            ret += QString(" --> %1")
+                    .arg( newDate.toString("yyyy/MM/dd") );
+        }
+        return ret+"\n";
     }
 };
 
 int event::_maxWidth = 0;
+QDateTime event::_radix;
 }
 
 QString
-describeParans(const Horoscope &scope)
+describeParans(const Horoscope &scope,
+               bool showAll)
 {
     short tz = scope.inputData.tz;
-
     QVector<event> events;
     events << event(scope.inputData.GMT,NULL,4);
 
     int& maxWidth(event::_maxWidth);
     maxWidth = 0;
+
+    event::_radix = scope.inputData.GMT;
 
     foreach (const Planet& p, scope.planets) {
         unsigned u = 0;
@@ -613,7 +629,9 @@ describeParans(const Horoscope &scope)
             }
 
             static bool printRadix = !getenv("zod_nodump_radix");
-            if ( !ev._star && printRadix && !printedPrev) {
+            if ( (!ev._star? printRadix :(p2 && showAll))
+                 && !printedPrev)
+            {
                 if (printedAny) {
                     ret += "\n";
                 }
@@ -689,7 +707,7 @@ QString     describe          ( const Horoscope& scope,
         ret += p.name + "\n" + describePower(p, scope) + "\n\n";
 
   if ((article & Article_Parans) && scope.planets.count()) {
-      ret += describeParans(scope) + "\n\n";
+      ret += describeParans(scope, bool(article & Article_DiurnalEvents)) + "\n\n";
   }
 
   if ((article & Article_Speculum) && scope.planets.count()) {

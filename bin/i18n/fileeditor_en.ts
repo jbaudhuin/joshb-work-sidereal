@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="en_US">
+<TS version="2.0" language="en_US">
 <context>
     <name>AstroFileEditor</name>
     <message>
@@ -39,37 +39,37 @@
         <translation>undefined</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="43"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="53"/>
         <source>Edit entry</source>
         <translation>Edit entry</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="54"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="64"/>
         <source>Gender:</source>
         <translation>Gender:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="59"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="69"/>
         <source>Time zone:</source>
         <translation>Time zone:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="63"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="73"/>
         <source>Name:</source>
         <translation>Name:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="64"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="74"/>
         <source>Local time:</source>
         <translation>Local time:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="65"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="75"/>
         <source>Location:</source>
         <translation>Location:</translation>
     </message>
     <message>
-        <location filename="../../fileeditor/src/fileeditor.cpp" line="67"/>
+        <location filename="../../fileeditor/src/fileeditor.cpp" line="77"/>
         <source>Comment:</source>
         <translation>Comment:</translation>
     </message>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="en_US">
+<TS version="2.0" language="en_US">
 <context>
     <name>Planets</name>
     <message>
@@ -30,19 +30,19 @@
     </message>
     <message>
         <source>Astronomic data</source>
-        <translation type="vanished">Astronomic data</translation>
+        <translation type="obsolete">Astronomic data</translation>
     </message>
     <message>
         <source>Aspects</source>
-        <translation type="vanished">Aspects</translation>
+        <translation type="obsolete">Aspects</translation>
     </message>
     <message>
         <source>Affetic</source>
-        <translation type="vanished">Affetic</translation>
+        <translation type="obsolete">Affetic</translation>
     </message>
     <message>
         <source>Select a planet</source>
-        <translation type="vanished">Select a planet</translation>
+        <translation type="obsolete">Select a planet</translation>
     </message>
     <message>
         <location filename="../../planets/src/planets.cpp" line="112"/>
@@ -63,7 +63,7 @@
     </message>
     <message>
         <source>Almuthen</source>
-        <translation type="vanished">Almuten</translation>
+        <translation type="obsolete">Almuten</translation>
     </message>
     <message>
         <location filename="../../planets/src/planets.cpp" line="158"/>
@@ -73,24 +73,24 @@
     </message>
     <message>
         <source>Doriforius</source>
-        <translation type="vanished">Doriforius</translation>
+        <translation type="obsolete">Doriforius</translation>
     </message>
     <message>
         <source>Acceptable orb: %1 (%2)
 </source>
-        <translation type="vanished">Acceptable orb: %1 (%2)\n</translation>
+        <translation type="obsolete">Acceptable orb: %1 (%2)\n</translation>
     </message>
     <message>
         <source>Convergent</source>
-        <translation type="vanished">Applying</translation>
+        <translation type="obsolete">Applying</translation>
     </message>
     <message>
         <source>Divergent</source>
-        <translation type="vanished">Seperating</translation>
+        <translation type="obsolete">Seperating</translation>
     </message>
     <message>
         <source>more</source>
-        <translation type="vanished">more</translation>
+        <translation type="obsolete">more</translation>
     </message>
 </context>
 </TS>

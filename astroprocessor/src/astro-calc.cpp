@@ -9,7 +9,9 @@
 
 namespace A {
 
-double getJulianDate ( QDateTime GMT )
+aspectModeType aspectMode(amcEcliptic);
+
+double getJulianDate ( QDateTime GMT, bool ephemerisTime/*=false*/ )
  {
 #if 1
   char serr[256];
@@ -21,7 +23,7 @@ double getJulianDate ( QDateTime GMT )
                 GMT.time().minute(),
                 GMT.time().second()+GMT.time().msec()/1000,
                 1/*gregorian*/, ret, serr);
-  return ret[1];    // UT1
+  return ret[ephemerisTime? 0 : 1]; // ET or UT
 #else
   int m     = GMT.date().month();
   int y     = GMT.date().year();
@@ -71,23 +73,56 @@ int getHouse ( ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac )
   return 0;
  }
 
-float   angle ( const Planet& planet1, const Planet& planet2 )
- {
-  float a = angle(planet1.eclipticPos.x(), planet2.eclipticPos.x());
-  float b = angle(planet1.eclipticPos.y(), planet2.eclipticPos.y());
-  return sqrt(pow(a, 2) + pow(b, 2));
+float  angle( const Star& body1, const Star& body2 )
+{
+    switch (aspectMode) {
+    case amcGreatCircle:
+        {
+            float a = angle(body1.eclipticPos.x(), body2.eclipticPos.x());
+            float b = angle(body1.eclipticPos.y(), body2.eclipticPos.y());
+            return sqrt(pow(a, 2) + pow(b, 2));
+        }
+    case amcEcliptic:
+        return angle(body1.eclipticPos.x(), body2.eclipticPos.x());
+    case amcEquatorial:
+        return angle(body1.equatorialPos.x(), body2.equatorialPos.x());
+    case amcPrimeVertical:
+        break;
+    }
+    return 0;
+}
+
+float   angle ( const Star& body, float deg )
+{
+    switch (aspectMode) {
+    case amcGreatCircle:
+    case amcEcliptic:
+        return angle(body.eclipticPos.x(), deg);
+    case amcEquatorial:
+        return angle(body.equatorialPos.x(), deg);
+    case amcPrimeVertical:
+        break;
+    }
+    return 0;
  }
 
-float   angle ( const Planet& planet, float deg )
+float   angle ( const Star& body, QPointF coordinate )
  {
-  return angle(planet.eclipticPos.x(), deg);
- }
-
-float   angle ( const Planet& planet, QPointF coordinate )
- {
-  float a = angle(planet.eclipticPos.x(), coordinate.x());
-  float b = angle(planet.eclipticPos.y(), coordinate.y());
-  return sqrt(pow(a, 2) + pow(b, 2));
+    switch (aspectMode) {
+    case amcGreatCircle:
+        {
+            float a = angle(body.eclipticPos.x(), coordinate.x());
+            float b = angle(body.eclipticPos.y(), coordinate.y());
+            return sqrt(pow(a, 2) + pow(b, 2));
+        }
+    case amcEcliptic:
+        return angle(body.eclipticPos.x(), coordinate.x());
+    case amcEquatorial:
+        return angle(body.equatorialPos.x(), coordinate.x());
+    case amcPrimeVertical:
+        break;
+    }
+    return 0;
  }
 
 float   angle ( float deg1, float deg2 )
@@ -97,20 +132,21 @@ float   angle ( float deg1, float deg2 )
   return ret;
  }
 
-AspectId aspect ( const Planet& planet1, const Planet& planet2, const AspectsSet& aspectSet )
+AspectId aspect ( const Star& planet1, const Star& planet2, const AspectsSet& aspectSet )
  {
-  if ( planet1.sweNum == planet2.sweNum )
+  if ( planet1.isPlanet() && planet2.isPlanet()
+       && planet1.getSWENum() == planet2.getSWENum() )
    return Aspect_None;
 
   return aspect(angle(planet1,planet2), aspectSet);
  }
 
-AspectId aspect ( const Planet& planet1, float degree, const AspectsSet& aspectSet )
+AspectId aspect ( const Star& planet1, float degree, const AspectsSet& aspectSet )
  {
   return aspect(angle(planet1,degree), aspectSet);
  }
 
-AspectId aspect ( const Planet& planet, QPointF coordinate, const AspectsSet& aspectSet )
+AspectId aspect ( const Star& planet, QPointF coordinate, const AspectsSet& aspectSet )
  {
   return aspect(angle(planet,coordinate), aspectSet);
  }
@@ -270,7 +306,7 @@ Planet calculatePlanet ( PlanetId planet,
   double  jd = getJulianDate(input.GMT);
   char    errStr[256] = "";
   double  xx[6];
-  unsigned int flags = ret.sweFlags;
+  unsigned int flags = ret.sweFlags & ~SEFLG_TRUEPOS; // turn off true pos
   if (zodiac.id > 1) {
     flags |= SEFLG_SIDEREAL;
     swe_set_sid_mode(zodiac.id - 2, 0,0);
@@ -291,6 +327,13 @@ Planet calculatePlanet ( PlanetId planet,
     ret.eclipticSpeed.setX( xx[3] );
     ret.eclipticSpeed.setY( xx[4] );
 
+    if (swe_calc_ut(jd, ret.sweNum, flags | SEFLG_SWIEPH | SEFLG_EQUATORIAL,
+                xx, errStr) >= 0)
+    {
+        ret.equatorialPos.setX(xx[0]);
+        ret.equatorialPos.setY(xx[1]);
+    }
+
     double geopos[3];                  // calculate horizontal coordinates
     double hor[3];
     geopos[0] = input.location.x();
@@ -302,19 +345,12 @@ Planet calculatePlanet ( PlanetId planet,
 
     double rettm;
     int eflg = SEFLG_SWIEPH;
-#if 1
-    double startjd =
-            (jd - houses.sunrise > jd - houses.sunset)?
-                houses.sunrise : houses.sunset;
-#else
-    double sidt = houses.RAMC / 15 / 24; // degrees to hours to fraction of day;
-    double startjd = jd - sidt; // gets us to 00:00 sid time
-#endif
+
     for (Star::angleTransitMode m = Star::atAsc;
          m < Star::numAngles;
          m = Star::angleTransitMode(m+1))
     {
-        if (swe_rise_trans(startjd, ret.sweNum, NULL/*startname*/,
+        if (swe_rise_trans(houses.startSpeculum, ret.sweNum, NULL/*starname*/,
                            eflg, Star::angleTransitFlag(m),
                            geopos, 1013.25, 10,
                            &rettm, errStr) >= 0)
@@ -354,7 +390,7 @@ Star calculateStar( const QString& name,
   double  jd = getJulianDate(input.GMT);
   char    errStr[256] = "";
   double  xx[6];
-  unsigned int flags = ret.sweFlags;
+  unsigned int flags = ret.sweFlags & ~SEFLG_TRUEPOS; // turn off true pos
   if (zodiac.id > 1) {
     flags |= SEFLG_SIDEREAL;
     swe_set_sid_mode(zodiac.id - 2, 0,0);
@@ -376,6 +412,14 @@ Star calculateStar( const QString& name,
     ret.eclipticPos.setY ( xx[1] );
     ret.distance = xx[2];
 
+    if (swe_fixstar_ut(starName, jd, flags | SEFLG_SWIEPH | SEFLG_EQUATORIAL,
+                xx, errStr) != ERR
+            && strlen(errStr)==0)
+    {
+        ret.equatorialPos.setX(xx[0]);
+        ret.equatorialPos.setY(xx[1]);
+    }
+
     double geopos[3];                  // calculate horizontal coordinates
     double hor[3];
     geopos[0] = input.location.x();
@@ -387,19 +431,12 @@ Star calculateStar( const QString& name,
 
     double rettm;
     int eflg = SEFLG_SWIEPH;
-#if 1
-    double startjd =
-            (jd - houses.sunrise > jd - houses.sunset)?
-                houses.sunrise : houses.sunset;
-#else
-    double sidt = houses.RAMC / 15 / 24; // degrees to hours to fraction of day;
-    double startjd = jd - sidt; // gets us to 00:00 sid time
-#endif
+
     for (Star::angleTransitMode m = Star::atAsc;
          m < Star::numAngles;
          m = Star::angleTransitMode(m+1))
     {
-        if (swe_rise_trans(startjd, -1, starName,
+        if (swe_rise_trans(houses.startSpeculum, -1, starName,
                            eflg, Star::angleTransitFlag(m),
                            geopos, 1013.25, 10,
                            &rettm, errStr) >= 0)
@@ -420,44 +457,52 @@ Star calculateStar( const QString& name,
  }
 
 Houses calculateHouses ( const InputData& input )
- {
-  Houses ret;
-  ret.system = &getHouseSystem(input.houseSystem);
-  unsigned int flags = 0;
-  if (input.zodiac > 1) {
-      flags |= SEFLG_SIDEREAL;
-      swe_set_sid_mode(input.zodiac - 2, 0, 0);
-  }
+{
+    Houses ret;
+    ret.system = &getHouseSystem(input.houseSystem);
+    unsigned int flags = SEFLG_SWIEPH;
+    if (input.zodiac > 1) {
+        flags |= SEFLG_SIDEREAL;
+        swe_set_sid_mode(input.zodiac - 2, 0, 0);
+    }
 
-  double julianDay = getJulianDate(input.GMT);
-  double hcusps[14], ascmc[11];
+    double julianDay = getJulianDate(input.GMT, false/*need UT*/);
+    double hcusps[14], ascmc[11];
 
-  swe_houses_ex( julianDay, flags, input.location.y(), input.location.x(),
-                  ret.system->sweCode, hcusps, ascmc );
+    swe_houses_ex( julianDay, flags, input.location.y(), input.location.x(),
+                   ret.system->sweCode, hcusps, ascmc );
 
-  for (int i = 0; i < 12; i++)
-    ret.cusp[i] = hcusps[i+1];
+    for (int i = 0; i < 12; i++)
+        ret.cusp[i] = hcusps[i+1];
 
-  ret.Asc   = ascmc[0];
-  ret.MC    = ascmc[1];
-  ret.RAMC  = ascmc[2];
-  ret.Vx    = ascmc[3];
-  ret.EA    = ascmc[4];
+    ret.Asc   = ascmc[0];
+    ret.MC    = ascmc[1];
+    ret.RAMC  = ascmc[2];
+    ret.Vx    = ascmc[3];
+    ret.EA    = ascmc[4];
 
-  double geopos[3] = {
-      input.location.x(),
-      input.location.y(),
-      input.location.z()
-  };
-  char errStr[256];
-  swe_rise_trans(julianDay - 1, SE_SUN, NULL, SEFLG_SWIEPH,
-                 SE_CALC_RISE, geopos, 1013.25, 10,
-                 &ret.sunrise, errStr);
-  swe_rise_trans(julianDay - 1, SE_SUN, NULL, SEFLG_SWIEPH,
-                 SE_CALC_SET, geopos, 1013.25, 10,
-                 &ret.sunset, errStr);
+    double geopos[3] = {
+        input.location.x(),
+        input.location.y(),
+        input.location.z()
+    };
 
-  return ret;
+    char errStr[256];
+    double xx[6];
+    swe_calc_ut(julianDay, SE_ECL_NUT, 0, xx, errStr);
+    double eps = xx[0];
+    swe_calc_ut(julianDay,SE_SUN,SEFLG_SWIEPH|flags, xx, errStr);
+
+    double housePos =
+            swe_house_pos(ret.RAMC,geopos[1],eps,ret.system->sweCode,
+            xx, errStr);
+
+    int which = (housePos>=4 and housePos<10)? SE_CALC_RISE : SE_CALC_SET;
+    swe_rise_trans(julianDay - 1, SE_SUN, NULL, SEFLG_SWIEPH,
+                   which, geopos, 1013.25, 10,
+                   &ret.startSpeculum, errStr);
+
+    return ret;
 }
 
 PlanetPower calculatePlanetPower ( const Planet& planet, const Horoscope& scope )
@@ -580,13 +625,13 @@ PlanetPower calculatePlanetPower ( const Planet& planet, const Horoscope& scope 
    }
 
 
-  if (aspect(planet, QPointF(149.833, 0.45), topAspectSet()) == Aspect_Conjunction)
+  if (aspect(planet, scope.stars["Regulus"], tightConjunction()) == Aspect_Conjunction)
     ret.dignity += 6;                  // Regulus coordinates at 2000year: 29LEO50, +00.27'
 
-  if (aspect(planet, QPointF(203.833, -2.05), topAspectSet()) == Aspect_Conjunction)
+  if (aspect(planet, scope.stars["Spica"], tightConjunction()) == Aspect_Conjunction)
     ret.dignity += 5;                  // Spica coordinates at 2000year: 23LIB50, -02.03'
 
-  if (aspect(planet, QPointF(56.166, 22.416), topAspectSet()) == Aspect_Conjunction)
+  if (aspect(planet, scope.stars["Algol"], tightConjunction()) == Aspect_Conjunction)
     ret.deficient -= 5;                // Algol coordinates at 2000year: 26TAU10, +22.25'
 
   return ret;
@@ -626,7 +671,9 @@ AspectList calculateAspects ( const AspectsSet& aspectSet, const PlanetMap &plan
   return ret;
  }
 
-AspectList calculateAspects ( const AspectsSet& aspectSet, const PlanetMap& planets1, const PlanetMap& planets2 )
+AspectList calculateAspects ( const AspectsSet& aspectSet,
+                              const PlanetMap& planets1,
+                              const PlanetMap& planets2 )
  {
   AspectList ret;
 
@@ -645,6 +692,21 @@ AspectList calculateAspects ( const AspectsSet& aspectSet, const PlanetMap& plan
 
   return ret;
  }
+
+void findPlanetStarConfigs(const PlanetMap& planets, StarMap& stars)
+{
+    modalize<aspectModeType> aspects(aspectMode, amcGreatCircle);
+
+    foreach (PlanetId pid, planets.keys()) {
+        const Planet& p(planets[pid]);
+        foreach (const QString& name, stars.keys()) {
+            Star& s(stars[name]);
+            if (aspect(p, s, tightConjunction()) != Aspect_None) {
+                s.configuredWithPlanet = p.id;
+            }
+        }
+    }
+}
 
 Horoscope calculateAll ( const InputData& input )
  {
@@ -675,6 +737,7 @@ Horoscope calculateAll ( const InputData& input )
     scope.planets[id].power = calculatePlanetPower(scope.planets[id], scope);
 
   scope.aspects = calculateAspects(getAspectSet(input.aspectSet), scope.planets);
+  findPlanetStarConfigs(scope.planets, scope.stars);
 
   return scope;
  }

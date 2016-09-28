@@ -87,52 +87,60 @@ struct HouseSystem {
 struct Houses
 {
   double         cusp[12];            // angles of cuspides (0... 360)
-  double         Asc, MC, RAMC, Vx, EA, sunrise, sunset;
+  double         Asc, MC, RAMC, Vx, EA, startSpeculum;
   const HouseSystem* system;
 
   Houses() { for (int i = 0; i < 12; i++) cusp[i] = 0;
              system = 0;
-             Asc = MC = RAMC = Vx = EA = sunrise = sunset = 0;
+             Asc = MC = RAMC = Vx = EA = startSpeculum = 0;
            }
 };
 
 struct Star
 {
-  QString        name;
-  int            sweFlags;
-  QMap<QString, QVariant> userData;
+    PlanetId       id;
+    QString        name;
+    int            sweFlags;
+    PlanetId       configuredWithPlanet;
+    QMap<QString, QVariant> userData;
 
-  enum angleTransitMode { atAsc, atDesc, atMC, atIC, numAngles };
-  static int     angleTransitFlag(unsigned int mode) { return 1<<mode; }
-  QVector<QDateTime> angleTransit;
+    enum angleTransitMode { atAsc, atDesc, atMC, atIC, numAngles };
+    static int     angleTransitFlag(unsigned int mode) { return 1<<mode; }
+    QVector<QDateTime> angleTransit;
 
-  static QDateTime timeToDT(double t, bool greg=true);
+    static QDateTime timeToDT(double t, bool greg=true);
 
-  virtual PlanetId getPlanetId() const { return Planet_None; }
+    virtual PlanetId getPlanetId() const { return Planet_None; }
+    virtual int     getSWENum() const { return -10; }
+    virtual bool    isStar() const { return true; }
+    virtual bool    isAsteroid() const { return false; }
+    virtual bool    isPlanet() const { return false; }
 
-  QPointF        horizontalPos;       // x - azimuth (0... 360), y - height (0... 360)
-  QPointF        eclipticPos;         // x - longitude (0... 360), y - latitude (0... 360)
-  QPointF        equatorialPos;       // x - rectascension, y - declination
-  double         distance;            // A.U. (astronomical units)
-  int            house;
+    QPointF        horizontalPos;       // x - azimuth (0... 360), y - height (0... 360)
+    QPointF        eclipticPos;         // x - longitude (0... 360), y - latitude (0... 360)
+    QPointF        equatorialPos;       // x - rectascension, y - declination
+    double         distance;            // A.U. (astronomical units)
+    int            house;
 
-  Star() : angleTransit(4) {
-      horizontalPos = QPoint(0,0);
-      eclipticPos   = QPoint(0,0);
-      equatorialPos = QPoint(0,0);
-      distance = 0;
-      house = 0;
-  }
+    Star() : angleTransit(4) {
+        id = Planet_None;
+        configuredWithPlanet = false;
+        horizontalPos = QPoint(0,0);
+        eclipticPos   = QPoint(0,0);
+        equatorialPos = QPoint(0,0);
+        distance = 0;
+        house = 0;
+    }
 
-  virtual ~Star() { }
+    virtual ~Star() { }
 
-  operator Star*() { return this; }
-  operator const Star*() const { return this; }
+    operator Star*() { return this; }
+    operator const Star*() const { return this; }
 
-  bool operator==(const Star & other) const
-  { return name == other.name && this->eclipticPos == other.eclipticPos; }
-  bool operator!=(const Star & other) const
-  { return name != other.name || this->eclipticPos != other.eclipticPos; }
+    bool operator==(const Star & other) const
+    { return name == other.name && this->eclipticPos == other.eclipticPos; }
+    bool operator!=(const Star & other) const
+    { return name != other.name || this->eclipticPos != other.eclipticPos; }
 };
 
 struct PlanetPower
@@ -152,7 +160,6 @@ enum PlanetPosition { Position_Normal,
 
 struct Planet : public Star
 {
-  PlanetId       id;
   int            sweNum;
   bool           isReal;
   QVector2D      defaultEclipticSpeed;
@@ -167,8 +174,7 @@ struct Planet : public Star
   const ZodiacSign* sign;
   int            houseRuler;
 
-  Planet() { id = Planet_None;
-             sweNum = 0;
+  Planet() { sweNum = 0;
              sweFlags = 0;
              isReal = false;
              eclipticSpeed = QVector2D(0,0);
@@ -179,7 +185,11 @@ struct Planet : public Star
   operator Planet*() { return this; }
   operator const Planet*() const { return this; }
 
-  PlanetId       getPlanetId() const { return id; }
+  PlanetId      getPlanetId() const { return id; }
+  virtual int   getSWENum() const { return sweNum; }
+  virtual bool  isStar() const { return false; }
+  virtual bool  isAsteroid() const { return false; }
+  virtual bool  isPlanet() const { return true; }
 
   bool operator==(const Planet & other) const
   { return this->id == other.id && this->eclipticPos == other.eclipticPos; }
@@ -223,6 +233,7 @@ struct AspectsSet {
   AspectSetId id;
   QString name;
   QMap<AspectId, AspectType> aspects;
+  bool isEmpty() const { return aspects.isEmpty(); }
 
   AspectsSet() { id = AspectSet_Default; }
 };
@@ -266,6 +277,7 @@ class Data
         static QList<AspectsSet> getAspectSets() { return aspectSets.values(); }
         static const AspectsSet& getAspectSet(AspectSetId set);
         static const AspectsSet& topAspectSet() { return aspectSets[topAspSet]; }
+        static const AspectsSet& tightConjunction();
 };
 
 void load(QString language);
@@ -283,6 +295,7 @@ const AspectType& getAspect(AspectId id, const AspectsSet& set);
 QList<AspectsSet> getAspectSets();
 const AspectsSet& getAspectSet(AspectSetId set);
 const AspectsSet&  topAspectSet();
+const AspectsSet& tightConjunction();
 
 
 struct InputData

@@ -133,7 +133,7 @@ void AstroFile :: change(AstroFile::Members members, bool affectChangedState)
 
   if (!holdUpdate)
    {
-    if (members & (GMT|Location|HouseSystem|Zodiac|AspectSet))
+    if (members & (GMT|Location|HouseSystem|Zodiac|AspectSet|AspectMode))
       recalculate();
 
     emit changed(members);
@@ -246,6 +246,14 @@ void AstroFile :: setAspectSet  (A::AspectSetId set)
     change(AspectSet);
    }
  }
+
+void AstroFile :: setAspectMode(const A::aspectModeType& mode)
+{
+    if (getAspectMode() != mode) {
+        A::aspectMode = mode;
+        change(AspectMode);
+    }
+}
 
 void AstroFile :: recalculate()
  {

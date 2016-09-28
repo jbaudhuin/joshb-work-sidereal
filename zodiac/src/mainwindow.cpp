@@ -16,6 +16,7 @@
 #include <QDebug>
 #include "../plain/src/plain.h"
 #include "../chart/src/chart.h"
+#include "../astroprocessor/src/astro-calc.h"
 #include "../fileeditor/src/fileeditor.h"
 #include "../fileeditor/src/geosearch.h"
 #include "../planets/src/planets.h"
@@ -198,6 +199,7 @@ void AstroWidget :: setupFile (AstroFile* file, bool suspendUpdate)
   file->setZodiac      (zodiacSelector->itemData(zodiacSelector->currentIndex()).toInt());   // set zodiac
   file->setHouseSystem (hsystemSelector->itemData(hsystemSelector->currentIndex()).toInt()); // set house system
   file->setAspectSet   (aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt()); // set aspect set
+  file->setAspectMode(A::aspectModeEnum(aspectModeSelector->currentIndex()));    // aspect mode
 
   if (!hasChanges) file->clearUnsavedState();
   if (!suspendUpdate) file->resumeUpdate();
@@ -345,10 +347,12 @@ void AstroWidget :: addHoroscopeControls()
   zodiacSelector  = new QComboBox;
   hsystemSelector = new QComboBox;
   aspectsSelector   = new QComboBox;
+  aspectModeSelector = new QComboBox;
 
   zodiacSelector  -> setToolTip(tr("Sign"));
   hsystemSelector -> setToolTip(tr("House system"));
   aspectsSelector -> setToolTip(tr("Aspect sets\n(by A.Podvodny)"));
+  aspectModeSelector->setToolTip(tr("Aspect computation"));
 
   foreach (const A::Zodiac& z, A::getZodiacs())
     zodiacSelector->addItem(z.name, z.id);                  // create combo box with zodiacs
@@ -359,7 +363,12 @@ void AstroWidget :: addHoroscopeControls()
   foreach (const A::AspectsSet& s, A::getAspectSets())
     aspectsSelector->addItem(s.name, s.id);                 // create combo box with aspect sets
 
-  horoscopeControls << zodiacSelector << hsystemSelector << aspectsSelector;
+  for (int i = A::amcGreatCircle; i < A::amcEND; ++i) {
+      aspectModeSelector->addItem(A::aspectModeType::toUserString(i), i);
+  }
+
+  horoscopeControls << zodiacSelector << hsystemSelector
+                    << aspectsSelector << aspectModeSelector;
 
   foreach (QComboBox* c, horoscopeControls)
    {
@@ -423,6 +432,7 @@ AppSettings AstroWidget :: defaultSettings ()
   s.setValue("Scope/zodiac",              0);          // indexes of ComboBox items, not values itself
   s.setValue("Scope/houseSystem",         0);
   s.setValue("Scope/aspectSet",           0);
+  s.setValue("Scope/aspectMode",          1);   // ecliptic
   s.setValue("slide", slides->currentIndex());    // чтобы не возвращалась к первому слайду после сброса настроек
   return s;
  }
@@ -441,6 +451,7 @@ AppSettings AstroWidget :: currentSettings ()
   s.setValue("Scope/zodiac",      zodiacSelector  -> currentIndex());
   s.setValue("Scope/houseSystem", hsystemSelector -> currentIndex());
   s.setValue("Scope/aspectSet",   aspectsSelector -> currentIndex());
+  s.setValue("Scope/aspectMode",  aspectModeSelector->currentIndex());
   s.setValue("slide",             slides          -> currentIndex());
   return s;
  }
@@ -453,6 +464,7 @@ void AstroWidget :: applySettings      ( const AppSettings& s )
   zodiacSelector  -> setCurrentIndex (s.value("Scope/zodiac").toInt());
   hsystemSelector -> setCurrentIndex (s.value("Scope/houseSystem").toInt());
   aspectsSelector -> setCurrentIndex (s.value("Scope/aspectSet").toUInt());
+  aspectModeSelector->setCurrentIndex(s.value("Scope/aspectMode").toInt());
   slides          -> setSlide        (s.value("slide").toInt() );
   toolBar         -> actions()[slides->currentIndex()]->setChecked(true);
 

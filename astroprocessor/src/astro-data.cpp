@@ -140,7 +140,7 @@ void Data :: load(QString language)
     planets[p.id] = p;
    }
 
-  int i = 1;
+  int i = 1, j = 0;
   char buf[256], errStr[256];
   double xx[6];
   std::set<std::string> seen;
@@ -167,6 +167,7 @@ void Data :: load(QString language)
                   && mag <= 2.0)
           {
               stars[name].name = name;
+              stars[name].id = --j; // use negative numbers to index the stars
           }
       }
   }
@@ -255,6 +256,21 @@ const AspectsSet& Data :: getAspectSet(AspectSetId set)
   return aspectSets.values();
  }*/
 
+const AspectsSet &
+Data::tightConjunction()
+{
+    static AspectsSet ret;
+    if (ret.isEmpty()) {
+        AspectType at;
+        at.set = NULL;
+        at.id = 0;
+        at.name = QObject::tr("Conjunction");
+        at.angle = 0;
+        at.orb = 1.5;
+        ret.aspects[0] = at;
+    }
+    return ret;
+}
 
 void load(QString language) { Data::load(language); }
 QString usedLanguage()      { return Data::usedLanguage(); }
@@ -271,6 +287,7 @@ const AspectType& getAspect(AspectId id, const AspectsSet& set) { return Data::g
 QList<AspectsSet> getAspectSets() { return Data::getAspectSets(); }
 const AspectsSet& getAspectSet(AspectSetId set) { return Data::getAspectSet(set); }
 const AspectsSet& topAspectSet() { return Data::topAspectSet(); }
+const AspectsSet& tightConjunction() { return Data::tightConjunction(); }
 
 
 /*static*/

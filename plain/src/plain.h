@@ -22,12 +22,18 @@ class Plain : public AstroFileHandler
         QCheckBox* describeParans;
         QCheckBox* describeSpeculum;
         QTextBrowser* view;
+        bool showAllDiurnalEvents;
 
     private slots:
         void refresh();
 
     protected:                            // AstroFileHandler implementations
         void filesUpdated(MembersList m);
+
+        AppSettings defaultSettings();
+        AppSettings currentSettings();
+        void applySettings(const AppSettings &);
+        void setupSettingsEditor(AppSettingsEditor*);
 
     public:
         Plain  ( QWidget* parent = 0 );

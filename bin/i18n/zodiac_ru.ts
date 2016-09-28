@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="ru_RU">
+<TS version="2.0" language="ru_RU">
 <context>
     <name>AstroDatabase</name>
     <message>
@@ -58,7 +58,7 @@
     </message>
     <message>
         <source>No data represented.</source>
-        <translation type="vanished">Нет данных для отображения.</translation>
+        <translation type="obsolete">Нет данных для отображения.</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="66"/>
@@ -86,7 +86,7 @@
     </message>
     <message>
         <source>Circle</source>
-        <translation type="vanished">Круг</translation>
+        <translation type="obsolete">Круг</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="169"/>
@@ -100,7 +100,7 @@
     </message>
     <message>
         <source>Zodiac</source>
-        <translation type="vanished">Зодиак</translation>
+        <translation type="obsolete">Зодиак</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="157"/>
@@ -137,12 +137,12 @@
     <message>
         <source>Aspects and orbs level
 (by A.Podvodny)</source>
-        <translation type="vanished">Уровень космического посвящения по А.Подводному
+        <translation type="obsolete">Уровень космического посвящения по А.Подводному
 Настройка влияет на показываемые аспекты</translation>
     </message>
     <message>
         <source>%1 initiation</source>
-        <translation type="vanished">%1 посвящение</translation>
+        <translation type="obsolete">%1 посвящение</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="474"/>
@@ -174,7 +174,7 @@
     </message>
     <message>
         <source>Article</source>
-        <translation type="vanished">Подсказка</translation>
+        <translation type="obsolete">Подсказка</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="833"/>
@@ -193,7 +193,7 @@
     </message>
     <message>
         <source>Open</source>
-        <translation type="vanished">Открыть</translation>
+        <translation type="obsolete">Открыть</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="894"/>
@@ -212,7 +212,7 @@
     </message>
     <message>
         <source>Open data</source>
-        <translation type="vanished">Открыть данные</translation>
+        <translation type="obsolete">Открыть данные</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="904"/>
@@ -221,7 +221,7 @@
     </message>
     <message>
         <source>Info +/-</source>
-        <translation type="vanished">Инфо +/-</translation>
+        <translation type="obsolete">Инфо +/-</translation>
     </message>
     <message>
         <location filename="../../zodiac/src/mainwindow.cpp" line="824"/>

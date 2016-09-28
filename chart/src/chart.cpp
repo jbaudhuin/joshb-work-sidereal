@@ -243,8 +243,10 @@ void Chart :: createScene()
     signIcons << text;
    }
 
-  for(int i = 0; i < filesCount(); i++)
+  for(int i = 0; i < filesCount(); i++) {
     drawPlanets(i);
+    drawStars(i);
+  }
 
   /*if (viewport.center() != QPointF(0,0)) */fitInView();
   chartsCount = filesCount();
@@ -289,8 +291,11 @@ void Chart :: updatePlanetsAndCusps(int fileIndex)
     foreach (QGraphicsItem* other, planets[fileIndex])              // avoid intersection of planets
      {
       if (other == planet) break;
-      if (qAbs(planet->rotation() - other->rotation()) < 10)
+      if (other->isVisible()
+              && qAbs(planet->rotation() - other->rotation()) < 10)
+      {
         planet->moveBy(-other->boundingRect().width(), 0);
+      }
      }
 
     QString toolTip = QString("%1 %2, %3").arg(p.name)
@@ -300,6 +305,44 @@ void Chart :: updatePlanetsAndCusps(int fileIndex)
     marker -> setToolTip(toolTip);
     circle->setHelpTag(planet, p.name + "+" + p.sign->name);
     circle->setHelpTag(marker, p.name);
+   }
+
+  foreach (const A::Star& s, file(fileIndex)->horoscope().stars) // update planets
+   {
+    QGraphicsItem* marker = planetMarkers[fileIndex][s.id];
+    QGraphicsItem* star = planets[fileIndex][s.id];
+
+    star->setVisible(s.configuredWithPlanet);
+    marker->setVisible(s.configuredWithPlanet);
+    if (!s.configuredWithPlanet) {
+        continue;
+    }
+
+    float angle = s.eclipticPos.x();
+    if (clockwise) angle = 180 - angle;
+
+    star -> setPos(normalPlanetPosX(star, marker),star->pos().y());
+    star -> setRotation(angle - rotate);
+    marker -> setRotation(rotate - angle);
+
+    foreach (QGraphicsItem* other, planets[fileIndex])              // avoid intersection of planets
+     {
+      if (other == star) break;
+      if (other->isVisible()
+              && qAbs(star->rotation() - other->rotation()) < 10)
+      {
+        star->moveBy(-other->boundingRect().width(), 0);
+      }
+     }
+
+    QString toolTip = QString("%1 %2")
+            .arg(s.name)
+            .arg(A::zodiacPosition(s, file()->horoscope().zodiac,
+                                   A::HighPrecision));
+    star -> setToolTip(toolTip);
+    marker -> setToolTip(toolTip);
+    circle->setHelpTag(star, s.name);
+    circle->setHelpTag(marker, s.name);
    }
 
   for (int i = 0; i < 12; i++)                           // update cuspides && labels
@@ -446,6 +489,42 @@ void Chart :: drawPlanets(int fileIndex)
 
     planets[fileIndex][planet.id]       = text;
     planetMarkers[fileIndex][planet.id] = marker;
+   }
+ }
+
+void Chart :: drawStars(int fileIndex)
+ {
+  QFont planetFont("Almagest", 17, QFont::Bold);
+  QFont planetFontSmall("Almagest", 15, QFont::Bold);
+
+  QGraphicsScene* s = view->scene();
+
+  foreach(const A::Star& star, file(fileIndex)->horoscope().stars)
+   {
+    int radius = 2;
+
+    QGraphicsSimpleTextItem* text = s->addSimpleText("*",planetFont);
+    QGraphicsEllipseItem* marker = s->addEllipse(-innerRadius(fileIndex) - radius, -radius,
+                                               radius * 2, radius * 2,
+                                                 planetMarkerPen(A::Planet(), fileIndex));
+
+    if (filesCount() > 1)
+      s->addEllipse(-innerRadius(0) - radius, -radius, radius * 2, radius * 2,       // duplicate on circle
+                    planetMarkerPen(A::Planet(), fileIndex))->setParentItem(marker);
+
+    text   -> setPos(normalPlanetPosX(text, marker), -text->boundingRect().height() / 2);
+    text   -> setBrush(planetColor(A::Planet(), fileIndex));
+    text   -> setPen(planetShapeColor(A::Planet(), fileIndex));
+    //text   -> setOpacity(opacity);
+    text   -> setTransformOriginPoint(text->boundingRect().center());
+    text   -> setParentItem(marker);
+    text   -> setData(1, star.name);    // remember PlanetId for clicking on item
+    text   -> setData(2, fileIndex);    // remember fileIndex
+    marker -> setTransformOriginPoint (circle->boundingRect().center());
+    marker -> setZValue(1);
+
+    planets[fileIndex][star.id]       = text;
+    planetMarkers[fileIndex][star.id] = marker;
    }
  }
 
@@ -617,9 +696,10 @@ void Chart :: filesUpdated(MembersList m)
     justCreated = true;
    }
 
-  AstroFile::Members updateFlags = AstroFile::GMT       | AstroFile::Timezone |
-                                   AstroFile::Location  | AstroFile::HouseSystem |
-                                   AstroFile::AspectSet | AstroFile::Zodiac;
+  AstroFile::Members updateFlags = AstroFile::GMT
+          | AstroFile::Timezone    | AstroFile::Location
+          | AstroFile::HouseSystem | AstroFile::AspectSet
+          | AstroFile::Zodiac;
 
   if (filesCount() && (justCreated ||
                        m[0] & updateFlags))
@@ -628,6 +708,12 @@ void Chart :: filesUpdated(MembersList m)
     updatePlanetsAndCusps(0);
     updAspects = true;
    }
+
+  if (!updAspects && filesCount() && (m[0] & AstroFile::AspectMode)) {
+      // aspect mode changed
+      updatePlanetsAndCusps(0);
+      updAspects = true;
+  }
 
   if (filesCount() > 1 && (justCreated ||
                            (m[1] & updateFlags) ||

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1" language="ru_RU">
+<TS version="2.0" language="ru_RU">
 <context>
     <name>Planets</name>
     <message>
@@ -30,19 +30,19 @@
     </message>
     <message>
         <source>Astronomic data</source>
-        <translation type="vanished">Астрономические данные</translation>
+        <translation type="obsolete">Астрономические данные</translation>
     </message>
     <message>
         <source>Aspects</source>
-        <translation type="vanished">Аспекты</translation>
+        <translation type="obsolete">Аспекты</translation>
     </message>
     <message>
         <source>Affetic</source>
-        <translation type="vanished">Аффетика</translation>
+        <translation type="obsolete">Аффетика</translation>
     </message>
     <message>
         <source>Select a planet</source>
-        <translation type="vanished">Выберите планету</translation>
+        <translation type="obsolete">Выберите планету</translation>
     </message>
     <message>
         <location filename="../../planets/src/planets.cpp" line="112"/>
@@ -63,15 +63,15 @@
     </message>
     <message>
         <source>Applying</source>
-        <translation type="vanished">Сходящийся</translation>
+        <translation type="obsolete">Сходящийся</translation>
     </message>
     <message>
         <source>Seperating</source>
-        <translation type="vanished">Расходящийся</translation>
+        <translation type="obsolete">Расходящийся</translation>
     </message>
     <message>
         <source>Almuthen</source>
-        <translation type="vanished">Альмутен</translation>
+        <translation type="obsolete">Альмутен</translation>
     </message>
     <message>
         <location filename="../../planets/src/planets.cpp" line="158"/>
@@ -81,21 +81,21 @@
     </message>
     <message>
         <source>Doriforius</source>
-        <translation type="vanished">Дорифорий</translation>
+        <translation type="obsolete">Дорифорий</translation>
     </message>
     <message>
         <source>Acceptable orb: %1 (%2)
 </source>
-        <translation type="vanished">Допустимый орб: %1 (%2)
+        <translation type="obsolete">Допустимый орб: %1 (%2)
 </translation>
     </message>
     <message>
         <source>Convergent</source>
-        <translation type="vanished">Сходящийся</translation>
+        <translation type="obsolete">Сходящийся</translation>
     </message>
     <message>
         <source>Divergent</source>
-        <translation type="vanished">Расходящийся</translation>
+        <translation type="obsolete">Расходящийся</translation>
     </message>
     <message>
         <source>%1
@@ -105,7 +105,7 @@
     </message>
     <message>
         <source>more</source>
-        <translation type="vanished">еще</translation>
+        <translation type="obsolete">еще</translation>
     </message>
 </context>
 </TS>

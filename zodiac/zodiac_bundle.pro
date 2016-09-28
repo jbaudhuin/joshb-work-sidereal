@@ -2,6 +2,9 @@ QT += widgets network declarative
 DESTDIR = $$_PRO_FILE_PWD_/../bin
 TARGET = zodiac
 TEMPLATE = app
+CONFIG += debug_and_release
+
+unix:LIBS += -ldl
 
 VPATH += ../swe ../astroprocessor ../chart ../fileeditor ../plain ../planets ../details
 
