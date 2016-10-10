@@ -550,11 +550,12 @@ QDateTime event::_radix;
 
 QString
 describeParans(const Horoscope &scope,
-               bool showAll)
+               bool showAll,
+	       double paranOrb)
 {
     short tz = scope.inputData.tz;
     QVector<event> events;
-    events << event(scope.inputData.GMT,NULL,4);
+    events << event(scope.inputData.GMT,NULL,4);    // radix
 
     int& maxWidth(event::_maxWidth);
     maxWidth = 0;
@@ -574,6 +575,7 @@ describeParans(const Horoscope &scope,
     foreach (const Star& s, scope.stars) {
         unsigned u = 0;
         foreach (const QDateTime& dt, s.angleTransit) {
+            if (!dt.isValid()) continue;
             if (s.name.length()>maxWidth) {
                 maxWidth = s.name.length();
             }
@@ -588,59 +590,47 @@ describeParans(const Horoscope &scope,
             .arg(QObject::tr("Event"),-6)
             .arg(QObject::tr("LT"),-9);
 
-    QList<const event*> prev;
-    bool printedPrev = false;
-    bool printedAny = false;
-    foreach (const event& ev, events) {
-        if (!prev.isEmpty()) {
-            const Planet* p1 =
-                    dynamic_cast<const Planet*>(prev.last()->_star);
-            const Planet* p2 =
-                    dynamic_cast<const Planet*>(ev._star);
-            if (p1 && p2
-                    && (p1->id == Planet_NorthNode
-                        || p1->id == Planet_SouthNode)
-                    && (p2->id == Planet_NorthNode
-                        || p2->id == Planet_SouthNode))
-            {
-                prev.append(&ev);
-                continue;
-            }
-
-            int dist = qAbs(prev.last()->_dt.secsTo(ev._dt));
-            if (dist <= 4*60/*four mins*/) {
-                if (p1 || p2 || !ev._star || printedPrev) {
-                    if (!printedPrev) {
-                        if (printedAny) {
-                            ret += "\n";
-                        }
-                        foreach (const event* pv, prev) {
-                            printedAny = true;
-                            ret += pv->fmt(tz);
-                        }
-                        prev.clear();
-                    }
-                    ret += ev.fmt(tz);
-                    printedAny = printedPrev = true;
-                }
-            } else {
-                prev.clear();
-                printedPrev = false;
-            }
-
-            static bool printRadix = !getenv("zod_nodump_radix");
-            if ( (!ev._star? printRadix :(p2 && showAll))
-                 && !printedPrev)
-            {
-                if (printedAny) {
-                    ret += "\n";
-                }
-                ret += ev.fmt(tz);
-                printedAny = printedPrev = true;
-            }
-
+    double orb = paranOrb * 240;
+    bool anyPrinted = false;
+    for (QVector<event>::ConstIterator it = events.constBegin();
+         it != events.constEnd(); ++it)
+    {
+        if (showAll) {
+            ret += it->fmt(tz);
+            continue;
         }
-        prev.append(&ev);
+        const Planet* p = dynamic_cast<const Planet*>(it->_star);
+        if (p || !it->_star /*radix*/) {
+            int j = 1;
+            QVector<event>::ConstIterator bit = it;
+            while (bit != events.constBegin()
+                   && qAbs((*(bit-1))._dt.secsTo(it->_dt))<=orb)
+            {
+                ++j, --bit;
+            }
+            QVector<event>::ConstIterator lastPlanet = it;
+            QVector<event>::ConstIterator nit;
+            for (nit = it + 1;
+                 nit != events.constEnd()
+                 && qAbs(nit->_dt.secsTo(lastPlanet->_dt))<=orb;
+                 ++nit)
+            {
+                if (dynamic_cast<const Planet*>(nit->_star)) {
+                    lastPlanet = nit;
+                }
+                ++j;
+            }
+            if (anyPrinted) {
+                ret += "\n";
+            }
+            it = nit;
+            while (bit != events.constEnd() && j-- > 0) {
+                ret += bit->fmt(tz);
+                it = bit;
+                ++bit;
+                anyPrinted = true;
+            }
+        }
     }
 
     return ret;
@@ -668,7 +658,8 @@ describeSpeculum(const Horoscope &scope)
 }
 
 QString     describe          ( const Horoscope& scope,
-                                Articles article )
+                                Articles article /*=All*/,
+				double paranOrb /*=1.0*/ )
  {
   QString ret;
 
@@ -707,7 +698,9 @@ QString     describe          ( const Horoscope& scope,
         ret += p.name + "\n" + describePower(p, scope) + "\n\n";
 
   if ((article & Article_Parans) && scope.planets.count()) {
-      ret += describeParans(scope, bool(article & Article_DiurnalEvents)) + "\n\n";
+      ret += describeParans(scope, 
+			    bool(article & Article_DiurnalEvents),
+			    paranOrb) + "\n\n";
   }
 
   if ((article & Article_Speculum) && scope.planets.count()) {

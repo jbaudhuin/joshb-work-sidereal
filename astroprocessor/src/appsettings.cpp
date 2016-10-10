@@ -234,6 +234,28 @@ void AppSettingsEditor :: addSpinBox  ( QString valueName, QString label, int mi
   connect (edit, SIGNAL(valueChanged(int)), this, SLOT(change()));
  }
 
+void AppSettingsEditor :: addDoubleSpinBox  ( QString valueName, 
+					      QString label, 
+					      double minValue, 
+                                              double maxValue )
+ {
+  if (valueName.isEmpty()) return;
+  QVariant s = settings.value(valueName);
+
+  QDoubleSpinBox* edit = new QDoubleSpinBox;
+  edit->setMinimum(minValue);
+  edit->setMaximum(maxValue);
+  edit->setValue(s.toDouble());
+  edit->setMaximumWidth(90);
+  edit->setSingleStep(0.1);
+  edit->setSuffix(" deg");
+
+  lastLayout()->addRow(label, edit);
+
+  bindedControls[valueName] = edit;
+  connect (edit, SIGNAL(valueChanged(double)), this, SLOT(change()));
+ }
+
 void AppSettingsEditor :: addComboBox ( QString valueName, QString label, QMap<QString, QVariant> values)
  {
   if (valueName.isEmpty()) return;
@@ -291,6 +313,11 @@ void AppSettingsEditor :: applySettings ()
     else if (className == "QSpinBox")
       value = ((QSpinBox*)w)->value();
 
+    else if (className == "QDoubleSpinBox") {
+        double v = ((QDoubleSpinBox*)w)->value();
+        value = v;
+    }
+
     else if (className == "QComboBox")
       value = ((QComboBox*)w)->itemData(((QComboBox*)w)->currentIndex());
 
@@ -322,6 +349,10 @@ void AppSettingsEditor :: updateControls ()
 
     else if (className == "QSpinBox")
       ((QSpinBox*)w)->setValue(value.toInt());
+
+    else if (className == "QDoubleSpinBox") {
+        ((QDoubleSpinBox*)w)->setValue(value.toDouble());
+    }
 
     else if (className == "QComboBox")
       ((QComboBox*)w)->setCurrentIndex(((QComboBox*)w)->findData(value));

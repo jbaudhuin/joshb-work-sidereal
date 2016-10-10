@@ -15,7 +15,7 @@ namespace A {
 
 QMap<AspectSetId, AspectsSet> Data::aspectSets = QMap<AspectSetId, AspectsSet>();
 QMap<PlanetId, Planet> Data::planets = QMap<PlanetId, Planet>();
-QMap<QString, Star> Data::stars;
+QMap<std::string, Star> Data::stars;
 QMap<HouseSystemId, HouseSystem> Data::houseSystems = QMap<HouseSystemId, HouseSystem>();
 QMap<ZodiacId, Zodiac> Data::zodiacs = QMap<ZodiacId, Zodiac>();
 AspectSetId Data::topAspSet = AspectSetId();
@@ -161,13 +161,30 @@ void Data :: load(QString language)
       if (p && p > buf) {
           seen.insert(p+1);
           *p = '\0';
-          QString name(buf);
-          double mag;
+          std::string name(QString(buf).trimmed().toStdString());
+          QString constellar(p+1);
+
+          double mag = 10;
           if (swe_fixstar_mag(buf,&mag,errStr) != ERR
                   && mag <= 2.0)
           {
-              stars[name].name = name;
+              //fprintf(stderr,"Star %s with magnitude %g\n", buf, mag);
+              stars[name].name = name.c_str();
               stars[name].id = --j; // use negative numbers to index the stars
+              continue;
+          }
+
+          if (getenv("foo")) {
+          static const QString ecl("AriTauGemCncLeoVirLibScoSgrCapAqrPsc");
+          if (ecl.indexOf(constellar.right(3),0)!=-1) {
+//              fprintf(stderr,"Ecliptic star %s in %s with magnitude %g\n",
+//                      name.c_str(),
+//                      constellar.right(3).toAscii().constData(),
+//                      mag);
+              //stars[name].name = (name + " (" + constellar.right(3).toStdString() + ")").c_str();
+              stars[name].name = name.c_str();
+              stars[name].id = --j; // use negative numbers to index the stars
+          }
           }
       }
   }
@@ -190,8 +207,9 @@ QList<PlanetId> Data :: getPlanets()
 
 const Star& Data::getStar(const QString& name)
 {
-    if (stars.contains(name)) {
-        return stars[name];
+    std::string stdName = name.toStdString();
+    if (stars.contains(stdName)) {
+        return stars[stdName];
     }
 
     static Star dummy;
@@ -200,7 +218,11 @@ const Star& Data::getStar(const QString& name)
 
 QList<QString> Data::getStars()
 {
-    return stars.keys();
+    QList<QString> ret;
+    foreach (const std::string str, stars.keys()) {
+        ret << str.c_str();
+    }
+    return ret;
 }
 
 const HouseSystem& Data :: getHouseSystem(HouseSystemId id)
@@ -294,7 +316,6 @@ const AspectsSet& tightConjunction() { return Data::tightConjunction(); }
 QDateTime
 Star::timeToDT(double t, bool greg/*=true*/)
 {
-#if 1
     int32 yy, mo, dd, hh, mm;
     double sec;
     swe_jdut1_to_utc(t, greg,
@@ -304,20 +325,6 @@ Star::timeToDT(double t, bool greg/*=true*/)
     sec -= ss;
     int32 ms = sec*1000;
     QDateTime ret(QDate(yy,mo,dd),QTime(hh,mm,ss,ms),Qt::UTC);
-#else
-    int yy, mo, dd;
-    double rest;
-    swe_revjul(t, greg? SE_GREG_CAL : SE_JUL_CAL,
-               &yy, &mo, &dd, &rest);
-    int hh = int(rest);
-    rest = (rest - hh)*60;
-    int mm = int(rest);
-    rest = (rest - mm)*60;
-    int ss = int(rest);
-    int ms = int((rest-ss)*1000);
-    QDateTime ret(QDate(yy,mo,dd),QTime(hh,mm,ss,ms),Qt::UTC);
-#endif
-    std::string foo = ret.toLocalTime().toString().toStdString();
     return ret;
 }
 

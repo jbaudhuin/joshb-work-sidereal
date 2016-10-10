@@ -49,9 +49,11 @@ QString     describePlanetCoord ( const Planet& planet );
 QString     describePlanetCoordInHtml ( const Planet& planet );
 QString     describePower       ( const Planet& planet, const Horoscope& scope );
 QString     describePowerInHtml ( const Planet& planet, const Horoscope& scope );
-QString     describeParans      ( const Horoscope& scope, bool showAll=false );
+QString     describeParans      ( const Horoscope& scope, bool showAll=false, double orb=1.0 );
 QString     describeSpeculum    ( const Horoscope& scope );
-QString     describe            ( const Horoscope& scope, Articles article = Article_All );
+QString     describe            ( const Horoscope& scope, 
+				  Articles article = Article_All,
+				  double paranOrb = 1.0 );
 
 }
 

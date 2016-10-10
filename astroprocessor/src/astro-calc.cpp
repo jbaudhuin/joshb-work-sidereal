@@ -13,7 +13,6 @@ aspectModeType aspectMode(amcEcliptic);
 
 double getJulianDate ( QDateTime GMT, bool ephemerisTime/*=false*/ )
  {
-#if 1
   char serr[256];
   double ret[2];
   swe_utc_to_jd(GMT.date().year(),
@@ -24,17 +23,6 @@ double getJulianDate ( QDateTime GMT, bool ephemerisTime/*=false*/ )
                 GMT.time().second()+GMT.time().msec()/1000,
                 1/*gregorian*/, ret, serr);
   return ret[ephemerisTime? 0 : 1]; // ET or UT
-#else
-  int m     = GMT.date().month();
-  int y     = GMT.date().year();
-  int d     = GMT.date().day();
-  double ut = GMT.time().hour()
-            + GMT.time().minute() * 1.0 / 60
-            + GMT.time().second() * 1.0 / 3600;
-
-  if (m <= 2) { m = m + 12; y = y - 1; }
-  return (int)(365.25*(y+4716)) + (int)(30.6001*(m+1)) + d - 13 - 1524.5 + (double)ut/24.0;
-#endif
  }
 
 float roundDegree  ( float deg )
@@ -315,7 +303,7 @@ Planet calculatePlanet ( PlanetId planet,
   // TODO: wrong moon speed calculation
   // (flags: SEFLG_TRUEPOS|SEFLG_SPEED = 272)
   //         272|invertPositionFlag = 262416
-  if (swe_calc_ut( jd, ret.sweNum, flags | SEFLG_SWIEPH, xx, errStr ) >= 0)
+  if (swe_calc_ut( jd, ret.sweNum, flags | SEFLG_SWIEPH, xx, errStr ) != ERR)
    {
     if (!(ret.sweFlags & invertPositionFlag))
       ret.eclipticPos.setX ( xx[0] );
@@ -328,7 +316,7 @@ Planet calculatePlanet ( PlanetId planet,
     ret.eclipticSpeed.setY( xx[4] );
 
     if (swe_calc_ut(jd, ret.sweNum, flags | SEFLG_SWIEPH | SEFLG_EQUATORIAL,
-                xx, errStr) >= 0)
+                xx, errStr) != ERR)
     {
         ret.equatorialPos.setX(xx[0]);
         ret.equatorialPos.setY(xx[1]);
@@ -402,7 +390,7 @@ Star calculateStar( const QString& name,
   char starName[256];
   strcpy(starName, ret.name.toAscii().constData());
   if (swe_fixstar_ut( starName, jd, flags | SEFLG_SWIEPH, xx, errStr ) != ERR
-          && strlen(errStr)==0)
+          && strlen(errStr) != ERR)
    {
     if (!(ret.sweFlags & invertPositionFlag))
       ret.eclipticPos.setX ( xx[0] );
@@ -699,7 +687,7 @@ void findPlanetStarConfigs(const PlanetMap& planets, StarMap& stars)
 
     foreach (PlanetId pid, planets.keys()) {
         const Planet& p(planets[pid]);
-        foreach (const QString& name, stars.keys()) {
+        foreach (const std::string& name, stars.keys()) {
             Star& s(stars[name]);
             if (aspect(p, s, tightConjunction()) != Aspect_None) {
                 s.configuredWithPlanet = p.id;
@@ -718,7 +706,8 @@ Horoscope calculateAll ( const InputData& input )
   foreach (PlanetId id, getPlanets())
     scope.planets[id] = calculatePlanet(id, input, scope.houses, scope.zodiac);
   foreach (const QString& name, getStars()) {
-      scope.stars[name] = calculateStar(name, input, scope.houses, scope.zodiac);
+      scope.stars[name.toStdString()] =
+              calculateStar(name, input, scope.houses, scope.zodiac);
   }
 
   scope.sun        = scope.planets[Planet_Sun];

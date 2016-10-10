@@ -100,6 +100,7 @@ class AppSettingsEditor : public QDialog
         void addLineEdit ( QString valueName, QString label );
         void addCheckBox ( QString valueName, QString label );
         void addSpinBox  ( QString valueName, QString label, int minValue, int MaxValue );
+        void addDoubleSpinBox  ( QString valueName, QString label, double minValue, double maxValue );
         void addComboBox ( QString valueName, QString label, QMap<QString, QVariant> values);
         void addLabel    ( QString label );
 

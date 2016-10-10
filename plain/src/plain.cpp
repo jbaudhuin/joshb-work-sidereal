@@ -96,7 +96,7 @@ void Plain         :: refresh()
           (A::Article_DiurnalEvents * showAllDiurnalEvents)   |
           (A::Article_Speculum* describeSpeculum->isChecked());
 
-  view->setText(A::describe(file()->horoscope(), (A::Article)articles));
+  view->setText(A::describe(file()->horoscope(), (A::Article)articles, paranOrb));
  }
 
 AppSettings
@@ -111,6 +111,7 @@ Plain::defaultSettings()
     s.setValue("Text/describeParans", true);
     s.setValue("Text/describeSpeculum", false);
     s.setValue("Text/showAllDiurnalEvents", false);
+    s.setValue("Text/paranOrb", 1.0);
     return s;
 }
 
@@ -126,6 +127,7 @@ Plain::currentSettings()
     s.setValue("Text/describeParans", describeParans->isChecked());
     s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
     s.setValue("Text/showAllDiurnalEvents", showAllDiurnalEvents);
+    s.setValue("Text/paranOrb", paranOrb);
     return s;
 }
 
@@ -140,6 +142,7 @@ Plain::applySettings(const AppSettings& s)
     describeParans->setChecked(s.value("Text/describeParans").toBool());
     describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
     showAllDiurnalEvents = s.value("Text/showAllDiurnalEvents").toBool();
+    paranOrb = s.value("Text/paranOrb").toDouble();
     //refreshAll();
 }
 
@@ -148,4 +151,6 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
 {
     ed->addTab(tr("Text"));
     ed->addCheckBox("Text/showAllDiurnalEvents", tr("Show all planetary diurnal events"));
+    ed->addDoubleSpinBox("Text/paranOrb", tr("Orb for paranatellontas"),
+			 1./60. /*1 minute*/, 3.0 /*3 degrees*/);
 }

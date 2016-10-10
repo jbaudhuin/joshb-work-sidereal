@@ -242,7 +242,7 @@ struct AspectsSet {
 typedef QList<Aspect> AspectList;
 typedef QList<Planet> PlanetList;
 typedef QMap<PlanetId, Planet> PlanetMap;
-typedef QMap<QString, Star> StarMap;
+typedef QMap<std::string, Star> StarMap;
 
 class Data
 {
