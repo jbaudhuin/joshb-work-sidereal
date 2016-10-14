@@ -120,6 +120,7 @@ struct Star
     QPointF        eclipticPos;         // x - longitude (0... 360), y - latitude (0... 360)
     QPointF        equatorialPos;       // x - rectascension, y - declination
     double         distance;            // A.U. (astronomical units)
+    double         pvPos;
     int            house;
 
     Star() : angleTransit(4) {
@@ -128,6 +129,7 @@ struct Star
         horizontalPos = QPoint(0,0);
         eclipticPos   = QPoint(0,0);
         equatorialPos = QPoint(0,0);
+        pvPos = 0;
         distance = 0;
         house = 0;
     }

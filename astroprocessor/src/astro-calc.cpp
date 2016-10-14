@@ -75,6 +75,7 @@ float  angle( const Star& body1, const Star& body2 )
     case amcEquatorial:
         return angle(body1.equatorialPos.x(), body2.equatorialPos.x());
     case amcPrimeVertical:
+        return angle(body1.pvPos, body2.pvPos);
         break;
     }
     return 0;
@@ -89,6 +90,7 @@ float   angle ( const Star& body, float deg )
     case amcEquatorial:
         return angle(body.equatorialPos.x(), deg);
     case amcPrimeVertical:
+        return angle(body.pvPos, deg);
         break;
     }
     return 0;
@@ -108,6 +110,7 @@ float   angle ( const Star& body, QPointF coordinate )
     case amcEquatorial:
         return angle(body.equatorialPos.x(), coordinate.x());
     case amcPrimeVertical:
+        return angle(body.pvPos, coordinate.x());
         break;
     }
     return 0;
@@ -294,16 +297,22 @@ Planet calculatePlanet ( PlanetId planet,
   double  jd = getJulianDate(input.GMT);
   char    errStr[256] = "";
   double  xx[6];
-  unsigned int flags = ret.sweFlags & ~SEFLG_TRUEPOS; // turn off true pos
+
+  // turn off true pos
+  unsigned int flags = (SEFLG_SWIEPH | ret.sweFlags) & ~SEFLG_TRUEPOS;
+
   if (zodiac.id > 1) {
     flags |= SEFLG_SIDEREAL;
     swe_set_sid_mode(zodiac.id - 2, 0,0);
   }
 
+  swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
+  double eps = xx[0];
+
   // TODO: wrong moon speed calculation
   // (flags: SEFLG_TRUEPOS|SEFLG_SPEED = 272)
   //         272|invertPositionFlag = 262416
-  if (swe_calc_ut( jd, ret.sweNum, flags | SEFLG_SWIEPH, xx, errStr ) != ERR)
+  if (swe_calc_ut( jd, ret.sweNum, flags, xx, errStr ) != ERR)
    {
     if (!(ret.sweFlags & invertPositionFlag))
       ret.eclipticPos.setX ( xx[0] );
@@ -315,21 +324,36 @@ Planet calculatePlanet ( PlanetId planet,
     ret.eclipticSpeed.setX( xx[3] );
     ret.eclipticSpeed.setY( xx[4] );
 
-    if (swe_calc_ut(jd, ret.sweNum, flags | SEFLG_SWIEPH | SEFLG_EQUATORIAL,
+    double geopos[3];
+    geopos[0] = input.location.x();
+    geopos[1] = input.location.y();
+    geopos[2] = input.location.z();
+
+    // A hack to calculate prime vertical longitude from the campanus house position
+    if (zodiac.id <= 1
+            || swe_calc_ut( jd, ret.sweNum, flags & ~SEFLG_SIDEREAL, xx, errStr ) != ERR)
+    {
+        // We may have had to get tropical position to get the
+        // house position -- this API wants tropical longitude.
+        // From there we fudge a prime vertical coordinate.
+        double housePos =
+                swe_house_pos(houses.RAMC, geopos[1], eps,
+                'C', xx, errStr);
+        ret.pvPos = (housePos-1)/12*360;
+    }
+
+    // calculate horizontal coordinates
+    double hor[3];
+    swe_azalt( jd, SE_ECL2HOR, geopos, 0,0, xx, hor);
+    ret.horizontalPos.setX(hor[0]);
+    ret.horizontalPos.setY(hor[1]);
+
+    if (swe_calc_ut(jd, ret.sweNum, flags | SEFLG_EQUATORIAL,
                 xx, errStr) != ERR)
     {
         ret.equatorialPos.setX(xx[0]);
         ret.equatorialPos.setY(xx[1]);
     }
-
-    double geopos[3];                  // calculate horizontal coordinates
-    double hor[3];
-    geopos[0] = input.location.x();
-    geopos[1] = input.location.y();
-    geopos[2] = input.location.z();
-    swe_azalt( jd, SE_ECL2HOR, geopos, 0,0, xx, hor);
-    ret.horizontalPos.setX(hor[0]);
-    ret.horizontalPos.setY(hor[1]);
 
     double rettm;
     int eflg = SEFLG_SWIEPH;
@@ -475,14 +499,16 @@ Houses calculateHouses ( const InputData& input )
         input.location.z()
     };
 
+    // compute house position of sun so we can see
+    // whether it's closer to sunset or sunrise.
     char errStr[256];
     double xx[6];
     swe_calc_ut(julianDay, SE_ECL_NUT, 0, xx, errStr);
     double eps = xx[0];
-    swe_calc_ut(julianDay,SE_SUN,SEFLG_SWIEPH|flags, xx, errStr);
+    swe_calc_ut(julianDay,SE_SUN,flags & ~SEFLG_SIDEREAL, xx, errStr);
 
     double housePos =
-            swe_house_pos(ret.RAMC,geopos[1],eps,ret.system->sweCode,
+            swe_house_pos(ret.RAMC,geopos[1],eps, 'C',
             xx, errStr);
 
     int which = (housePos>=4 and housePos<10)? SE_CALC_RISE : SE_CALC_SET;

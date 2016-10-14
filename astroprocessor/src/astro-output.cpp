@@ -261,6 +261,7 @@ QString     describePlanetCoord ( const Planet& planet )
   ret += QObject::tr("Longitude: %1\n").arg(degreeToString(planet.eclipticPos.x(), HighPrecision));
   ret += QObject::tr("Latitude: %1\n").arg(degreeToString(planet.eclipticPos.y(), HighPrecision));
   ret += QObject::tr("Rectascension: %1\n").arg(degreeToString(planet.equatorialPos.x(), HighPrecision));
+  ret += QObject::tr("Prime Vertical: %1\n").arg(degreeToString(planet.pvPos, HighPrecision));
   ret += QObject::tr("Declination: %1\n").arg(degreeToString(planet.equatorialPos.y(), HighPrecision));
   ret += QObject::tr("Distance: %1a.u.\n").arg(planet.distance);
   ret += QObject::tr("Azimuth: %1\n").arg(degreeToString(planet.horizontalPos.x(), HighPrecision));
