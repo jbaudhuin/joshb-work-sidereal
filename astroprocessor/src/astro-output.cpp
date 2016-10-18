@@ -593,6 +593,7 @@ describeParans(const Horoscope &scope,
 
     double orb = paranOrb * 240;
     bool anyPrinted = false;
+    QVector<event>::ConstIterator lastPrinted = events.constEnd();
     for (QVector<event>::ConstIterator it = events.constBegin();
          it != events.constEnd(); ++it)
     {
@@ -607,6 +608,10 @@ describeParans(const Horoscope &scope,
             while (bit != events.constBegin()
                    && qAbs((*(bit-1))._dt.secsTo(it->_dt))<=orb)
             {
+		if (bit-1 == lastPrinted) {
+		    anyPrinted = false;
+		    break;
+		}
                 ++j, --bit;
             }
             QVector<event>::ConstIterator lastPlanet = it;
@@ -627,8 +632,7 @@ describeParans(const Horoscope &scope,
             it = nit;
             while (bit != events.constEnd() && j-- > 0) {
                 ret += bit->fmt(tz);
-                it = bit;
-                ++bit;
+		lastPrinted = it = bit++;
                 anyPrinted = true;
             }
         }
