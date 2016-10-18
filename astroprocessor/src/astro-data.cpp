@@ -151,6 +151,7 @@ void Data :: load(QString language)
   seen.insert("ZE200");
   QDateTime now(QDateTime::currentDateTimeUtc());
   double jd = A::getJulianDate(now);
+  bool loadEcliptic = getenv("foo");
   while (strcpy(buf, QString::number(i++).toAscii().constData()),
          swe_fixstar_ut(buf,jd,SEFLG_SWIEPH,xx,errStr) != ERR)
   {
@@ -159,33 +160,27 @@ void Data :: load(QString language)
           continue;
       }
       if (p && p > buf) {
-          seen.insert(p+1);
-          *p = '\0';
-          std::string name(QString(buf).trimmed().toStdString());
-          QString constellar(p+1);
+	  seen.insert(p+1);
+	  *p = '\0';
+	  std::string name(QString(buf).trimmed().toStdString());
+	  QString constellar(p+1);
 
-          double mag = 10;
-          if (swe_fixstar_mag(buf,&mag,errStr) != ERR
-                  && mag <= 2.0)
-          {
-              //fprintf(stderr,"Star %s with magnitude %g\n", buf, mag);
-              stars[name].name = name.c_str();
-              stars[name].id = --j; // use negative numbers to index the stars
-              continue;
-          }
-
-          if (getenv("foo")) {
-          static const QString ecl("AriTauGemCncLeoVirLibScoSgrCapAqrPsc");
-          if (ecl.indexOf(constellar.right(3),0)!=-1) {
-//              fprintf(stderr,"Ecliptic star %s in %s with magnitude %g\n",
-//                      name.c_str(),
-//                      constellar.right(3).toAscii().constData(),
-//                      mag);
-              //stars[name].name = (name + " (" + constellar.right(3).toStdString() + ")").c_str();
-              stars[name].name = name.c_str();
-              stars[name].id = --j; // use negative numbers to index the stars
-          }
-          }
+	  double mag = 10;
+	  bool get = (swe_fixstar_mag(buf,&mag,errStr) != ERR
+		      && mag <= 2.0);
+	  if (!get) {
+	      static const QString ecl("AriTauGemCncLeoVirLibScoSgrCapAqrPsc");
+	      get = ecl.indexOf(constellar.right(3),0)!=-1;
+	  }
+	  if (get) {
+	      //              fprintf(stderr,"Ecliptic star %s in %s with magnitude %g\n",
+	      //                      name.c_str(),
+	      //                      constellar.right(3).toAscii().constData(),
+	      //                      mag);
+	      //stars[name].name = (name + " (" + constellar.right(3).toStdString() + ")").c_str();
+	      stars[name].name = name.c_str();
+	      stars[name].id = --j; // use negative numbers to index the stars
+	  }
       }
   }
 

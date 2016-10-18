@@ -129,6 +129,7 @@ struct Star
         horizontalPos = QPoint(0,0);
         eclipticPos   = QPoint(0,0);
         equatorialPos = QPoint(0,0);
+	sweFlags = 0;
         pvPos = 0;
         distance = 0;
         house = 0;
@@ -177,7 +178,6 @@ struct Planet : public Star
   int            houseRuler;
 
   Planet() { sweNum = 0;
-             sweFlags = 0;
              isReal = false;
              eclipticSpeed = QVector2D(0,0);
              position = Position_Normal;
