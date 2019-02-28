@@ -1,0 +1,10 @@
+[General]
+name=Eric Burdon
+type=Male
+GMT=1941-05-10T22:00:00Z
+timezone=2
+lon=@Variant(\0\0\0\x87\xbf\xces\x82)
+lat=@Variant(\0\0\0\x87\x42[\xe9\x44)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag=
+comment=Newcastle Upon Tyne

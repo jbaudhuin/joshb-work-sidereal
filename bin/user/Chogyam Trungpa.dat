@@ -1,0 +1,10 @@
+[General]
+name=Chogyam Trungpa
+type=Male
+GMT=1939-02-27T23:23:00Z
+timezone=6
+lon=@Variant(\0\0\0\x87\x42\xb6G\xf6)
+lat="@Variant(\0\0\0\x87\x41\xed=\x1c)"
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Chengguan, Lhasa, Tibet, China"
+comment=Source note: from http://ambientastrology.com/articles/2015/12/3/crazy-wisdom

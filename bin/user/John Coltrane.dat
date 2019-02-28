@@ -1,0 +1,10 @@
+[General]
+name=John Coltrane
+type=Male
+GMT=1926-09-23T22:00:00Z
+timezone=-5
+lon=@Variant(\0\0\0\x87\xc2\x9f\x63q)
+lat=@Variant(\0\0\0\x87\x42\v\x8a\x1d)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Hamlet, NC 28345, USA"
+comment=

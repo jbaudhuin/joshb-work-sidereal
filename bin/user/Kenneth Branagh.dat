@@ -1,0 +1,10 @@
+[General]
+name=Kenneth Branagh
+type=Male
+GMT=1960-12-10T16:50:00Z
+timezone=0
+lon=@Variant(\0\0\0\x87\xc0\xbd\xc3\x8b)
+lat=@Variant(\0\0\0\x87\x42Zc\x9f)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Belfast, UK"
+comment=

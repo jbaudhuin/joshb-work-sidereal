@@ -1,0 +1,10 @@
+[General]
+name=Ram Dass
+type=Male
+GMT=1931-04-06T15:40:00Z
+timezone=-5
+lon=@Variant(\0\0\0\x87\xc2\x8e\x1e&)
+lat=@Variant(\0\0\0\x87\x42)p\xb9)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Boston, MA, USA"
+comment=

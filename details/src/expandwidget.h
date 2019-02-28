@@ -36,6 +36,9 @@ class ExpandWidget : public QFrame
 
         void constructor();
 
+signals:
+        void toggled(bool);
+
     private slots:
         void transitionDone();
 

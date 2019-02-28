@@ -1,0 +1,10 @@
+[General]
+name=Elvis Presley
+type=Male
+GMT=1935-01-08T10:35:00Z
+timezone=-6
+lon=@Variant(\0\0\0\x87\xc2\xb1h\")
+lat=@Variant(\0\0\0\x87\x42\t\a\xca)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Tupelo, MS, USA"
+comment=

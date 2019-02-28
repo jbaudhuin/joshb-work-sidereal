@@ -1,11 +1,14 @@
 ﻿id;name;name_ru
 0;Basic aspects;Простые аспекты
-1;Reasonable;Простые аспекты
-3;Aspects for I initiation;Аспекты I посвящения
-5;Aspects for II initiation;Аспекты II посвящения
-6;Aspects for III initiation;Аспекты III посвящения
-7;Aspects for IV initiation;Аспекты IV посвящения
-9;Synastry aspects for I initiation;Синастр. аспекты I посвящения
-25;Synastry aspects for II initiation;Синастр. аспекты II посвящения
-36;Synastry aspects for III initiation;Синастр. аспекты III посвящения
-49;Synastry aspects for IV initiation;Синастр. аспекты IV посвящения
+1;Reasonable;Простые reasonable аспекты
+2;Harmonic;Простые harmonic аспекты
+3;Harmonic w/ minor;Простые harmonic-more аспекты
+4;Harmonic w/ very minor;Простые harmonic-all аспекты
+10;Aspects for I initiation;Аспекты I посвящения
+11;Aspects for II initiation;Аспекты II посвящения
+12;Aspects for III initiation;Аспекты III посвящения
+13;Aspects for IV initiation;Аспекты IV посвящения
+20;Synastry aspects for I initiation;Синастр. аспекты I посвящения
+21;Synastry aspects for II initiation;Синастр. аспекты II посвящения
+22;Synastry aspects for III initiation;Синастр. аспекты III посвящения
+23;Synastry aspects for IV initiation;Синастр. аспекты IV посвящения

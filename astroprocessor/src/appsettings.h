@@ -31,6 +31,11 @@
 class QTabWidget;
 class Customizable;
 class QFormLayout;
+class QLineEdit;
+class QComboBox;
+class QSpinBox;
+class QDoubleSpinBox;
+class QCheckBox;
 
 
 /* =========================== APP SETTINGS ========================================= */
@@ -43,14 +48,17 @@ class AppSettings
     public:
         AppSettings ();
 
-        void setValue (QString name, QVariant value);
-        const QVariant value (QString name, QVariant defaultValue = QVariant()) const;
+        void setValue (const QString& name,
+                       const QVariant& value);
+        const QVariant value (const QString& name,
+                              const QVariant& defaultValue = QVariant()) const;
+        bool contains(const QString& name) const { return vals.contains(name); }
 
         const QMap<QString, QVariant>& values() const { return vals; }
         void setValues (const AppSettings&);
 
-        void load (QString fileName);
-        void save (QString fileName);
+        void load (const QString& fileName);
+        void save (const QString& fileName);
 
         AppSettings& operator<< (const AppSettings& s) { this->setValues(s); return *this; }
 };
@@ -62,49 +70,49 @@ class AppSettingsEditor : public QDialog
 {
     Q_OBJECT
 
-    private:
-        Customizable* customObj;
-        AppSettings settings;
-        AppSettings defaultSettings;  // нужен для восстановления значений, а также проверки типов
-        QMap <QString, QWidget*> bindedControls;
-        QList<QWidget*> customWidgets;  // widgets added by addCustomWidget() method
-        bool changed;
+private:
+    Customizable* customObj;
+    AppSettings settings;
+    AppSettings defaultSettings;  // нужен для восстановления значений, а также проверки типов
+    QMap <QString, QWidget*> bindedControls;
+    QList<QWidget*> customWidgets;  // widgets added by addCustomWidget() method
+    bool changed;
 
-        QTabWidget* tabs;
-        QPushButton* ok;
-        QPushButton* cancel;
-        QPushButton* bApply;
-        QPushButton* setDefault;
+    QTabWidget* tabs;
+    QPushButton* ok;
+    QPushButton* cancel;
+    QPushButton* bApply;
+    QPushButton* setDefault;
 
-        void updateControls ();
-        QFormLayout* lastLayout();
+    void updateControls();
+    QFormLayout* lastLayout();
 
     private slots:
-        void change ();         // помечает текущие настройки как несохранённые
-        void applySettings ();
-        void restoreDefaults ();
+    void change();         // помечает текущие настройки как несохранённые
+    void applySettings();
+    void restoreDefaults();
 
-    signals:
-        void apply (AppSettings&);
+signals:
+    void apply(AppSettings&);
 
-    public:
-        AppSettingsEditor();
-        ~AppSettingsEditor();
+public:
+    AppSettingsEditor();
+    ~AppSettingsEditor();
 
-        void addTab    ( QString tabName );
-        //void beginGroup  ( QString groupName );
-        void endGroup    ( );
-        void addSpacing  ( int spacing );
-        void addControl  ( QString valueName, QString label );
-        void addCustomWidget ( QWidget* wdg, QString label, const char* changeSignal );
-        void addLineEdit ( QString valueName, QString label );
-        void addCheckBox ( QString valueName, QString label );
-        void addSpinBox  ( QString valueName, QString label, int minValue, int MaxValue );
-        void addDoubleSpinBox  ( QString valueName, QString label, double minValue, double maxValue );
-        void addComboBox ( QString valueName, QString label, QMap<QString, QVariant> values);
-        void addLabel    ( QString label );
+    void addTab(QString tabName);
+    //void beginGroup  ( QString groupName );
+    void endGroup();
+    void addSpacing(int spacing);
+    QWidget* addControl(QString valueName, QString label);
+    void addCustomWidget(QWidget* wdg, QString label, const char* changeSignal);
+    QLineEdit* addLineEdit(QString valueName, QString label);
+    QCheckBox* addCheckBox(QString valueName, QString label);
+    QSpinBox* addSpinBox(QString valueName, QString label, int minValue, int MaxValue);
+    QDoubleSpinBox* addDoubleSpinBox(QString valueName, QString label, double minValue, double maxValue, double step = 0.1);
+    QComboBox* addComboBox(QString valueName, QString label, QMap<QString, QVariant> values);
+    void addLabel(QString label);
 
-        void setObject(Customizable* obj);
+    void setObject(Customizable* obj);
 
 };
 

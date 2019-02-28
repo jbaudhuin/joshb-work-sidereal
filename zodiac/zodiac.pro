@@ -4,7 +4,7 @@
 #
 #-------------------------------------------------
 
-QT += widgets network declarative
+QT += widgets network
 
 TARGET = zodiac_part
 TEMPLATE = app
@@ -15,4 +15,4 @@ include(zodiac.pri)
 LIBS += -L$$_PRO_FILE_PWD_/../bin
 LIBS += -lswe -lastroprocessor -lfileeditor -lplain -lchart -lplanets -ldetails
 
-CONFIG(release, debug|release):DEFINES += QT_NO_DEBUG_OUTPUT
+#CONFIG(release, debug|release):DEFINES += QT_NO_DEBUG_OUTPUT

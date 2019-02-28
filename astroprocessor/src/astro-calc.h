@@ -38,6 +38,8 @@ public:
     aspectModeType(aspectModeEnum e = amcUnknown) : _value(e) { }
     aspectModeType(const QString& val) : _value(fromString(val)) { }
 
+    static const aspectModeType& current();
+
     aspectModeType(const QVariant& var) :
         _value(amcUnknown)
     {
@@ -132,6 +134,10 @@ bool    isEarlier                ( const Planet& planet, const Planet& sun );
 //const Planet& ruler          ( int house, const Horoscope& scope );
 PlanetId receptionWith           ( const Planet& planet, const Horoscope& scope );
 
+uintSet getAllFactors(unsigned h);
+uintSet getPrimeFactors(unsigned h);
+void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
+void calculateBaseChartHarmonic(Horoscope& scope);
 
 Planet      calculatePlanet      ( PlanetId planet, const InputData& input, const Houses& houses, const Zodiac& zodiac );
 Star calculateStar(const QString&, const InputData& input, const Houses& houses, const Zodiac& zodiac);

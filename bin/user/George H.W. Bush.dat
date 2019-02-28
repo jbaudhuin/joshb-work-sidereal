@@ -1,0 +1,10 @@
+[General]
+name=George H.W. Bush
+type=Male
+GMT=1924-06-12T14:30:00Z
+timezone=-4
+lon=@Variant(\0\0\0\x87\xc2\x8e!\xe5)
+lat=@Variant(\0\0\0\x87\x42(\xff})
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag=
+comment="Milton, MA"

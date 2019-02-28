@@ -30,6 +30,8 @@ class AstroFileEditor : public AstroFileHandler
         GeoSearchWidget* geoSearch;
         QPlainTextEdit* comment;
 
+        bool _inUpdate;
+
         void update(AstroFile::Members);
         void updateTabs();
 
@@ -49,11 +51,13 @@ class AstroFileEditor : public AstroFileHandler
         void removeTab(int);
         void applyToFile();
         void timezoneChanged();
+        void updateTimezone();
 
     public:
-        AstroFileEditor(QWidget *parent = 0);
+        AstroFileEditor(QWidget *parent = nullptr);
         void setCurrentFile(int index);
 
+        bool& inUpdate() { return _inUpdate; }
 };
 
 

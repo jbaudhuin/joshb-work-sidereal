@@ -1,0 +1,10 @@
+[General]
+name=Bill Gates
+type=Male
+GMT=1955-10-29T06:00:00Z
+timezone=-8
+lon=@Variant(\0\0\0\x87\xc2\xf4\xaa\x5)
+lat=@Variant(\0\0\0\x87\x42>l\xc2)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Seattle, WA, USA"
+comment=

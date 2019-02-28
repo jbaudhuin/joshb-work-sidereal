@@ -2,28 +2,36 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QRadioButton>
-#include <QDeclarativeContext>
-#include <QDeclarativeItem>
+#include <QQmlContext>
+#include <QQuickItem>
 #include <Astroprocessor/Calc>
 #include <QDir>
+#include <qqmlfile.h>
 #include "planets.h"
 
 /* =========================== ASTRO QML VIEW ======================================= */
 
-AstroQmlView :: AstroQmlView (QWidget *parent) : QDeclarativeView(parent)
+AstroQmlView :: AstroQmlView (QWindow* parent) : QQuickView(parent)
  {
   rootContext()->setContextProperty("view", this);       // enables calling setHelpTag() procedure from qml;
-  setResizeMode(QDeclarativeView::SizeRootObjectToView); // prevent unnecessary resizing of widget
+  setResizeMode(QQuickView::SizeRootObjectToView); // prevent unnecessary resizing of widget
  }
 
 void AstroQmlView :: fitSceneInView()
- {
-  fitInView(QRect(QPoint(0,0), initialSize()), Qt::KeepAspectRatio);
- }
+{
+    //fitInView(QRect(QPoint(0, 0), initialSize()), Qt::KeepAspectRatio);
+    QSizeF newSize(initialSize());
+    qreal hscale = size().width() / newSize.width();
+    qreal vscale = size().height() / newSize.height();
+    rootObject()->setTransformOrigin(QQuickItem::TopLeft);
+    rootObject()->setSize(newSize);
+    rootObject()->setScale(qMin(hscale, vscale));
+    //setResizeMode(QQuickView::SizeViewToRootObject);
+}
 
 void AstroQmlView :: setSource(const QUrl& url)
  {
-  ((QDeclarativeView*)this)->setSource(url);
+  QQuickView::setSource(url);
   fitSceneInView();                             // update content size after loading scene
  }
 
@@ -39,7 +47,7 @@ Planets :: Planets(QWidget *parent) : AstroFileHandler(parent)
   sortByElement  = new QRadioButton(tr("element"));
   view           = new AstroQmlView;
 
-  view          -> setAlignment(Qt::AlignTop);
+  //view          -> setAlignment(Qt::AlignTop);
   sortByPlanets -> setChecked(true);
 
   QHBoxLayout* l1 = new QHBoxLayout();
@@ -54,7 +62,7 @@ Planets :: Planets(QWidget *parent) : AstroFileHandler(parent)
   QVBoxLayout* l3 = new QVBoxLayout(this);
     l3->setContentsMargins(0,5,0,0);
     l3->addLayout(l1);
-    l3->addWidget(view);
+    l3->addWidget(QWidget::createWindowContainer(view));
 
   connect(sortByPlanets,  SIGNAL(released()), this, SLOT(orderChanged()));
   connect(sortByHouses,   SIGNAL(released()), this, SLOT(orderChanged()));
@@ -74,9 +82,16 @@ void Planets :: drawPlanets()
   qDebug() << "Planets::drawPlanets";
   if (view->source().isEmpty())
    {
-    view->setSource(QUrl::fromLocalFile("planets/Planets.qml"));
-    cardItems  = view->rootObject()->findChildren<QDeclarativeItem*>(QRegExp("card*"));   // select all items where
-    labelItems = view->rootObject()->findChildren<QDeclarativeItem*>(QRegExp("label*"));  // objectName = "card..." and "label..."
+      QString abs(QDir::current().absoluteFilePath("planets/Planets.qml"));
+      QUrl url(QUrl::fromLocalFile(abs));
+      bool urlIsRel = url.isRelative();
+      auto ulf = QQmlFile::urlToLocalFileOrQrc(url);
+      bool qfEmpty = ulf.isEmpty();
+      bool qdIsRel = QDir::isRelativePath(ulf);
+    view->setSource(url);
+    //auto items = view->rootObject()->findChildren<QQuickItem*>();
+    cardItems  = view->rootObject()->findChildren<QQuickItem*>(QRegExp("card*"));   // select all items where
+    labelItems = view->rootObject()->findChildren<QQuickItem*>(QRegExp("label*"));  // objectName = "card..." and "label..."
    }
 
   A::PlanetList planets = file()->horoscope().planets.values();   // create list of planets
@@ -84,17 +99,17 @@ void Planets :: drawPlanets()
   A::sortPlanets(planets, order);
 
   int i = 0;
-  foreach (QDeclarativeItem* item, cardItems)
+  foreach (QQuickItem* item, cardItems)
    {
-    if (i >= planets.count())
+    if (i >= planets.count() || planets[i].getPlanetId() < A::Planet_Sun)
      {
-      item->hide();                                  // ensure item hide
+		item->setVisible(false);	// ensure item hide
       continue;
      }
 
     const A::Planet& planet = planets[i];
 
-    item->show();                                  // ensure item visible
+    item->setVisible(true);	// ensure item visible
     item->setProperty("objectName",   QString("card_%1").arg(planet.id));
     item->setProperty("title",        planet.name.toUpper());
     item->setProperty("house",        A::houseNum(planet));
@@ -197,7 +212,7 @@ void Planets :: orderChanged()
 
 void Planets :: objectClicked(QString name)
  {
-  foreach (QDeclarativeItem* item, cardItems)   // highlight selected item
+  foreach (QQuickItem* item, cardItems)   // highlight selected item
    {
     if (item->objectName() == name)
       item->setScale(1.07);

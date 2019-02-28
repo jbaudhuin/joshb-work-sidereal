@@ -1,4 +1,4 @@
-QT += widgets network declarative
+QT += widgets network quick concurrent
 DESTDIR = $$_PRO_FILE_PWD_/../bin
 TARGET = zodiac
 TEMPLATE = app
@@ -18,3 +18,11 @@ include(../details/details.pri)
 include(zodiac.pri)
 
 #CONFIG(release, debug|release): DEFINES += QT_NO_DEBUG_OUTPUT
+#CONFIG(release, debug|release): DEFINES += _CRT_SECURE_NO_WARNINGS
+DEFINES += _CRT_SECURE_NO_WARNINGS
+
+CONFIG(release): DEFINES += NDEBUG
+
+HEADERS +=
+
+SOURCES +=

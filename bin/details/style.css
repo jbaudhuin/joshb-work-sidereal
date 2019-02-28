@@ -42,6 +42,11 @@ ExpandWidget > Title:checked {
 	image: url(details/arrow-down.png);
 }
 
+QTreeWidget {
+	color: #b5bfdf;
+    background: #717b88;
+	font: 8pt Verdana, "DejaVu Sans";
+}
 
 /* =========================== QComboBox ========================================== */
 

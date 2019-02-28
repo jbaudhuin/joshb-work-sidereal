@@ -1,0 +1,10 @@
+[General]
+name=Grace Kelly
+type=Female
+GMT=1929-11-12T10:31:00Z
+timezone=-5
+lon=@Variant(\0\0\0\x87\xc2\x96T\x98)
+lat=@Variant(\0\0\0\x87\x42\x1f\xcfq)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag=
+comment=

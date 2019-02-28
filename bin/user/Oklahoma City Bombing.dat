@@ -1,0 +1,10 @@
+[General]
+name=Oklahoma City Bombing
+type=Other
+GMT=1995-04-19T14:02:00Z
+timezone=-5
+lon=@Variant(\0\0\0\x87\xc2\xc3\bi)
+lat=@Variant(\0\0\0\x87\x42\r\xde\xc8)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Oklahoma City, OK, USA"
+comment=

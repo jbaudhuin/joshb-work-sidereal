@@ -1,0 +1,10 @@
+[General]
+name=Bjork
+type=Female
+GMT=1965-11-21T07:50:00Z
+timezone=0
+lon=@Variant(\0\0\0\x87\x41\xaf\x8ar)
+lat=@Variant(\0\0\0\x87\x42\x82K\xf)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag=
+comment=

@@ -1,7 +1,7 @@
 
 #include <set>
 #include <swephexp.h>
-#undef MSDOS     // undef macroses that made by SWE library
+//#undef MSDOS     // undef macroses that made by SWE library
 #undef UCHAR
 #undef forward
 
@@ -21,171 +21,182 @@ QMap<ZodiacId, Zodiac> Data::zodiacs = QMap<ZodiacId, Zodiac>();
 AspectSetId Data::topAspSet = AspectSetId();
 QString Data::usedLang = QString();
 
-void Data :: load(QString language)
- {
-  usedLang = language;
-  char ephePath[] = "swe/";
-  swe_set_ephe_path( ephePath );
-  CsvFile f;
+void Data::load(QString language)
+{
+    usedLang = language;
+#if MSDOS
+    char ephePath[] = "swe\\";
+#else
+    char ephePath[] = "swe/";
+#endif
+    swe_set_ephe_path(ephePath);
+    CsvFile f;
 
-  f.setFileName("astroprocessor/aspect_sets.csv");
-  if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
-  topAspSet = 0;
-  while (f.readRow())
-   {
-    AspectsSet s;
-    s.id   = f.row(0).toInt();
-    s.name = language == "ru" ? f.row(2) : f.row(1);
+    f.setFileName("astroprocessor/aspect_sets.csv");
+    if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
+    topAspSet = 0;
+    while (f.readRow())
+    {
+        AspectsSet s;
+        s.id = f.row(0).toInt();
+        s.name = language == "ru" ? f.row(2) : f.row(1);
 
-    //for (int i = 3; i < f.columnsCount(); i++)
-    //  s.userData[f.header(i)] = f.row(i);
+        //for (int i = 3; i < f.columnsCount(); i++)
+        //  s.userData[f.header(i)] = f.row(i);
 
-    aspectSets[s.id] = s;
-    topAspSet = qMax(topAspSet, s.id);         // update top set
-   }
+        aspectSets[s.id] = s;
+        topAspSet = qMax(topAspSet, s.id);         // update top set
+    }
 
-  f.close();
-  f.setFileName("astroprocessor/aspects.csv");
-  if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
-  while (f.readRow())
-   {
-    AspectType a;
-    AspectSetId setId = f.row(0).toUInt();
-    a.set   = &aspectSets[setId];
-    a.id    = f.row(1).toInt();
-    a.name  = language == "ru" ? f.row(3) : f.row(2);
-    a.angle = f.row(4).toFloat();
-    a.orb   = f.row(5).toFloat();
+    f.close();
+    f.setFileName("astroprocessor/aspects.csv");
+    if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
+    while (f.readRow())
+    {
+        AspectType a;
+        AspectSetId setId = f.row(0).toUInt();
+        a.set = &aspectSets[setId];
+        a.id = f.row(1).toInt();
+        a.name = language == "ru" ? f.row(3) : f.row(2);
+        a.angle = f.row(4).toFloat();
+        a.orb = f.row(5).toFloat();
 
-    for (int i = 6; i < f.columnsCount(); i++)
-      a.userData[f.header(i)] = f.row(i);
+        for (int i = 6; i < f.columnsCount(); i++)
+            a.userData[f.header(i)] = f.row(i);
 
-    aspectSets[setId].aspects[a.id] = a;
-   }
+        aspectSets[setId].aspects[a.id] = a;
+    }
 
-  f.close();
-  f.setFileName("astroprocessor/hsystems.csv");
-  if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
-  while (f.readRow())
-   {
-    HouseSystem h;
-    h.id      = f.row(0).toInt();
-    h.name    = language == "ru" ? f.row(2) : f.row(1);
-    h.sweCode = f.row(3)[0].toLatin1();
+    f.close();
+    f.setFileName("astroprocessor/hsystems.csv");
+    if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
+    while (f.readRow())
+    {
+        HouseSystem h;
+        h.id = f.row(0).toInt();
+        h.name = language == "ru" ? f.row(2) : f.row(1);
+        h.sweCode = f.row(3)[0].toLatin1();
 
-    houseSystems[h.id] = h;
-   }
+        houseSystems[h.id] = h;
+    }
 
-  f.close();
-  f.setFileName("astroprocessor/zodiac.csv");
-  if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
-  while (f.readRow())
-   {
-    Zodiac z;
-    z.id       = f.row(0).toInt();
-    z.name     = language == "ru" ? f.row(2) : f.row(1);
+    f.close();
+    f.setFileName("astroprocessor/zodiac.csv");
+    if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
+    while (f.readRow())
+    {
+        Zodiac z;
+        z.id = f.row(0).toInt();
+        z.name = language == "ru" ? f.row(2) : f.row(1);
 
-    zodiacs[z.id] = z;
-   }
+        zodiacs[z.id] = z;
+    }
 
-  f.close();
-  f.setFileName("astroprocessor/signs.csv");
-  if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
-  QHash<QString, ZodiacSignId> signs;            // collect and find signs by tag
-  while (f.readRow())
-   {
-    ZodiacSign s;
-    s.zodiacId  = f.row(0).toInt();
-    s.id        = f.row(1).toInt();
-    s.tag       = f.row(2);
-    s.name      = language == "ru" ? f.row(4) : f.row(3);
-    s.startAngle = f.row(5).toFloat();
-    s.endAngle   = f.row(6).toFloat() + s.startAngle;
-    if (s.endAngle > 360) s.endAngle -= 360;
+    f.close();
+    f.setFileName("astroprocessor/signs.csv");
+    if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
+    QHash<QString, ZodiacSignId> signs;            // collect and find signs by tag
+    while (f.readRow())
+    {
+        ZodiacSign s;
+        s.zodiacId = f.row(0).toInt();
+        s.id = f.row(1).toInt();
+        s.tag = f.row(2);
+        s.name = language == "ru" ? f.row(4) : f.row(3);
+        s.startAngle = f.row(5).toFloat();
+        s.endAngle = f.row(6).toFloat() + s.startAngle;
+        if (s.endAngle > 360) s.endAngle -= 360;
 
-    for (int i = 7; i < f.columnsCount(); i++)
-      s.userData[f.header(i)] = f.row(i);
+        for (int i = 7; i < f.columnsCount(); i++)
+            s.userData[f.header(i)] = f.row(i);
 
-    zodiacs[s.zodiacId].signs << s;
-    signs.insert(s.tag, s.id);
-   }
+        zodiacs[s.zodiacId].signs << s;
+        signs.insert(s.tag, s.id);
+    }
 
-  // fill in sign data for 30deg sidereals
-  foreach (int z, zodiacs.keys()) {
-      if (zodiacs[z].signs.isEmpty()) {
-          zodiacs[z].signs = zodiacs[0].signs;
-      }
-  }
+    // fill in sign data for 30deg sidereals
+    foreach(int z, zodiacs.keys())
+    {
+        if (zodiacs[z].signs.isEmpty()) {
+            zodiacs[z].signs = zodiacs[0].signs;
+        }
+    }
 
-  f.close();
-  f.setFileName("astroprocessor/planets.csv");
-  if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
-  while (f.readRow())
-   {
-    Planet p;
-    p.id       = f.row(0).toInt();
-    p.name     = language == "ru" ? f.row(2) : f.row(1);
-    p.sweNum   = f.row(3).toInt();
-    p.sweFlags = f.row(4).toInt();
-    p.defaultEclipticSpeed.setX(f.row(5).toFloat());
-    p.isReal   = f.row(6).toInt();
-    foreach (QString s, f.row(7).split(',')) p.homeSigns       << signs.values(s);
-    foreach (QString s, f.row(8).split(',')) p.exaltationSigns << signs.values(s);
-    foreach (QString s, f.row(9).split(',')) p.exileSigns      << signs.values(s);
-    foreach (QString s, f.row(10).split(',')) p.downfallSigns   << signs.values(s);
+    f.close();
+    f.setFileName("astroprocessor/planets.csv");
+    if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
+    while (f.readRow())
+    {
+        Planet p;
+        p.id = f.row(0).toInt();
+        p.name = language == "ru" ? f.row(2) : f.row(1);
+        p.sweNum = f.row(3).toInt();
+        p.sweFlags = f.row(4).toInt();
+        p.defaultEclipticSpeed.setX(f.row(5).toFloat());
+        p.isReal = f.row(6).toInt();
+        foreach(QString s, f.row(7).split(',')) p.homeSigns << signs.values(s);
+        foreach(QString s, f.row(8).split(',')) p.exaltationSigns << signs.values(s);
+        foreach(QString s, f.row(9).split(',')) p.exileSigns << signs.values(s);
+        foreach(QString s, f.row(10).split(',')) p.downfallSigns << signs.values(s);
 
-    for (int i = 11; i < f.columnsCount(); i++)
-      p.userData[f.header(i)] = f.row(i);
+        for (int i = 11; i < f.columnsCount(); i++)
+            p.userData[f.header(i)] = f.row(i);
 
-    planets[p.id] = p;
-   }
+        planets[p.id] = p;
+    }
+    Planet asc;
+    asc.id = Planet_Asc; 
+    asc.name = "Asc";
+    asc.userData["fontChar"] = 402;  // "As"
+    planets[Planet_Asc] = asc;
 
-  int i = 1, j = 0;
-  char buf[256], errStr[256];
-  double xx[6];
-  std::set<std::string> seen;
-  seen.insert("GPol");
-  seen.insert("ICRS");
-  seen.insert("GP1958");
-  seen.insert("GPPlan");
-  seen.insert("ZE200");
-  QDateTime now(QDateTime::currentDateTimeUtc());
-  double jd = A::getJulianDate(now);
-  bool loadEcliptic = getenv("foo");
-  while (strcpy(buf, QString::number(i++).toAscii().constData()),
-         swe_fixstar_ut(buf,jd,SEFLG_SWIEPH,xx,errStr) != ERR)
-  {
-      char* p = strchr(buf,',');
-      if (p && (!*(p+1) || *(p+1)==' ' || seen.count(p+1) == 1)) {
-          continue;
-      }
-      if (p && p > buf) {
-	  seen.insert(p+1);
-	  *p = '\0';
-	  std::string name(QString(buf).trimmed().toStdString());
-	  QString constellar(p+1);
+    Planet mc;
+    mc.id = Planet_MC; 
+    mc.name = "MC"; 
+    mc.userData["fontChar"] = 77;  // "M" -- no Mc available :(
+    planets[Planet_MC] = mc;
 
-	  double mag = 10;
-	  bool get = (swe_fixstar_mag(buf,&mag,errStr) != ERR
-		      && mag <= 2.0);
-	  if (!get) {
-	      static const QString ecl("AriTauGemCncLeoVirLibScoSgrCapAqrPsc");
-	      get = ecl.indexOf(constellar.right(3),0)!=-1;
-	  }
-	  if (get) {
-	      //              fprintf(stderr,"Ecliptic star %s in %s with magnitude %g\n",
-	      //                      name.c_str(),
-	      //                      constellar.right(3).toAscii().constData(),
-	      //                      mag);
-	      //stars[name].name = (name + " (" + constellar.right(3).toStdString() + ")").c_str();
-	      stars[name].name = name.c_str();
-	      stars[name].id = --j; // use negative numbers to index the stars
-	  }
-      }
-  }
+    int i = 1, j = 0;
+    char buf[256], errStr[256];
+    double xx[6];
+    std::set<std::string> seen { "GPol", "ICRS", "GP1958", "GPPlan", "ZE200" };
+    QDateTime now(QDateTime::currentDateTimeUtc());
+    double jd = A::getJulianDate(now);
+    bool loadEcliptic = getenv("foo");
+    while (strcpy(buf, QString::number(i++).toStdString().c_str()),
+           swe_fixstar_ut(buf, jd, SEFLG_SWIEPH, xx, errStr) != ERR)
+    {
+        char* p = strchr(buf, ',');
+        if (p && (!*(p + 1) || *(p + 1) == ' ' || seen.count(p + 1) == 1)) {
+            continue;
+        }
+        if (p && p > buf) {
+            seen.insert(p + 1);
+            *p = '\0';
+            std::string name(QString(buf).trimmed().toStdString());
+            QString constellar(p + 1);
 
-  qDebug() << "Astroprocessor: initialized";
- }
+            double mag = 10;
+            bool get = (swe_fixstar_mag(buf, &mag, errStr) != ERR
+                        && mag <= 2.0);
+            if (!get) {
+                static const QString ecl("AriTauGemCncLeoVirLibScoSgrCapAqrPsc");
+                get = ecl.indexOf(constellar.right(3), 0) != -1;
+            }
+            if (get) {
+                //              fprintf(stderr,"Ecliptic star %s in %s with magnitude %g\n",
+                //                      name.c_str(),
+                //                      constellar.right(3).toAscii().constData(),
+                //                      mag);
+                //stars[name].name = (name + " (" + constellar.right(3).toStdString() + ")").c_str();
+                stars[name].name = name.c_str();
+                stars[name].id = --j; // use negative numbers to index the stars
+            }
+        }
+    }
+
+    qDebug() << "Astroprocessor: initialized";
+}
 
 const Planet& Data :: getPlanet(PlanetId id)
  {
@@ -289,9 +300,29 @@ Data::tightConjunction()
     return ret;
 }
 
+QString
+ChartPlanetId::glyph() const
+{
+    if (!isMidpt())
+        return QString(Data::getPlanet(pid).userData["fontChar"].toInt());
+    return QString(oppMidpt? 0xD1 : 0xC9)
+        + QString(Data::getPlanet(pid).userData["fontChar"].toInt())
+        + QString(Data::getPlanet(pid2).userData["fontChar"].toInt());
+}
+
+QString
+ChartPlanetId::name() const
+{
+    if (!isMidpt()) return Data::getPlanet(pid).name;
+    return Data::getPlanet(pid).name.left(3)
+        + "/" + Data::getPlanet(pid2).name.left(3);
+}
+
 void load(QString language) { Data::load(language); }
 QString usedLanguage()      { return Data::usedLanguage(); }
-const Planet& getPlanet(PlanetId id) { return Data::getPlanet(id); }
+const Planet& getPlanet(PlanetId pid) { return Data::getPlanet(pid); }
+QString getPlanetName(const ChartPlanetId& id) { return Data::getPlanet(id).name; }
+QString getPlanetGlyph(const ChartPlanetId& id) { return id.name(); }
 const Star& getStar(const QString& name) { return Data::getStar(name); }
 QList<PlanetId> getPlanets() { return Data::getPlanets(); }
 QList<QString> getStars() { return Data::getStars(); }
@@ -322,5 +353,104 @@ Star::timeToDT(double t, bool greg/*=true*/)
     QDateTime ret(QDate(yy,mo,dd),QTime(hh,mm,ss,ms),Qt::UTC);
     return ret;
 }
+
+void
+PlanetGroups::insert(const PlanetQueue & planets,
+                     unsigned minQuorum)
+{
+    PlanetSet plist;
+    getPlanetSet(planets, plist);
+
+    PlanetSet pl, plcat;
+    PlanetRange r;
+    bool anySolo = false;
+    for (const auto& p : planets) {
+        if (!p.planet.isSolo()
+            && (plist.containsSolo(p.planet.chartPlanetId1())
+                || plist.containsSolo(p.planet.chartPlanetId2()))) {
+            continue;
+        }
+        if (p.planet.isSolo()) {
+            anySolo = true;
+        } else if (!anySolo) {
+            plcat.insert(p.planet.chartPlanetId1());
+            plcat.insert(p.planet.chartPlanetId2());
+        }
+        pl.insert(p.planet);
+        r.insert(p);
+    }
+    if (!anySolo && plcat.size() == 3 && pl.size() == 2) {
+        // Prune a/b=a/c because b is conjunct with c
+        return;
+    }
+    if (pl.size() > 1
+        && (anySolo || (!requireAnchor()
+                        && (!pl.empty() && !pl.begin()->isOppMidpt())))
+        && pl.pop() >= minQuorum) {
+        insert(value_type(pl, r));
+    }
+}
+
+bool _filterFew, _includeMidpoints, _requireAnchor;
+bool _includeAscMC, _includeChiron, _includeNodes;
+
+void setFilterFew(bool b/*=true*/) { _filterFew = b; }
+bool filterFew() { return _filterFew; }
+
+void setIncludeMidpoints(bool b/*=true*/) { _includeMidpoints = b; }
+bool includeMidpoints() { return _includeMidpoints; }
+
+void setIncludeAscMC(bool b/*=true*/) { _includeAscMC = b; }
+bool includeAscMC() { return _includeAscMC; }
+
+void setIncludeChiron(bool b/*=true*/) { _includeChiron = b; }
+bool includeChiron() { return _includeChiron; }
+
+void setIncludeNodes(bool b/*=true*/) { _includeNodes = b; }
+bool includeNodes() { return _includeNodes; }
+
+void setRequireAnchor(bool b/*=true*/) { _requireAnchor = b; }
+bool requireAnchor() { return _requireAnchor; }
+
+unsigned _minQuorum, _maxQuorum;
+unsigned _maxHarmonic;
+
+unsigned _pfl = 32;
+QMap<unsigned, bool> _pflCache;
+
+void resetPrimeFactorLimit(unsigned pfl /*= 0*/)
+{ 
+    if (pfl != _pfl) resetPFLCache();
+    _pfl = pfl;
+}
+
+unsigned primeFactorLimit() { return _pfl; }
+
+bool isWithinPrimeFactorLimit(unsigned h)
+{
+    if (_pfl == 0 || h <= _pfl) return true;
+    if (_pflCache.contains(h)) return _pflCache[h];
+    uintSet pf = getPrimeFactors(h);
+    return (_pflCache[h] = (!pf.empty() && *pf.rbegin() <= int(_pfl)));
+}
+
+void resetPFLCache() { _pflCache.clear(); }
+
+void setHarmonicsMinQuorum(unsigned q) { _minQuorum = q;  }
+unsigned harmonicsMinQuorum() { return _minQuorum; }
+
+void setHarmonicsMaxQuorum(unsigned q) { _maxQuorum = q; }
+unsigned harmonicsMaxQuorum() { return _maxQuorum;  }
+
+double _minQOrb, _maxQOrb;
+
+void setHarmonicsMinQOrb(double o) { _minQOrb = o; }
+double harmonicsMinQOrb() { return _minQOrb; }
+
+void setHarmonicsMaxQOrb(double o) { _maxQOrb = o; }
+double harmonicsMaxQOrb() { return _maxQOrb; }
+
+void setMaxHarmonic(int m) { _maxHarmonic = m; }
+unsigned maxHarmonic() { return _maxHarmonic; }
 
 }

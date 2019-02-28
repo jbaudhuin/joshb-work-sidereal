@@ -16,20 +16,24 @@ class AstroFile : public QObject
                         TypeFemale  = 2,
                         TypeOther   = 0 };
 
-        enum Member { None          = 0x0,
-                      Name          = 0x1,
-                      Type          = 0x2,
-                      GMT           = 0x4,
-                      Timezone      = 0x8,
-                      Location      = 0x10,
-                      LocationName  = 0x20,
-                      Comment       = 0x40,
-                      HouseSystem   = 0x80,
-                      Zodiac        = 0x100,
-                      AspectSet     = 0x200,
-                      AspectMode    = 0x400,
-                      ChangedState  = 0x800,
-                      All           = 0xFFF };
+        enum Member {
+            None = 0x0,
+            Name = 0x1,
+            Type = 0x2,
+            GMT = 0x4,
+            Timezone = 0x8,
+            Location = 0x10,
+            LocationName = 0x20,
+            Comment = 0x40,
+            HouseSystem = 0x80,
+            Zodiac = 0x100,
+            AspectSet = 0x200,
+            AspectMode = 0x400,
+            Harmonic = 0x800,
+            HarmonicOpts = 0x1000,
+            ChangedState = 0x2000,
+            All = 0x3FFF
+        };
 
         Q_DECLARE_FLAGS(Members, Member)
 
@@ -61,6 +65,7 @@ class AstroFile : public QObject
         void setZodiac       (A::ZodiacId zod);
         void setAspectSet    (A::AspectSetId set);
         void setAspectMode   (const A::aspectModeType& mode);
+        void setHarmonic     (double harmonic);
 
         const QString&   getName()         const { return name; }
         const QString&   getComment()      const { return comment; }
@@ -69,11 +74,13 @@ class AstroFile : public QObject
         const QString&   getLocationName() const { return locationName; }
         const QDateTime& getGMT()          const { return scope.inputData.GMT; }
         const short&     getTimezone()     const { return scope.inputData.tz; }
+        //A::Horoscope& horoscope() { return scope; }
         const A::Horoscope& horoscope()    const { return scope; }
         A::HouseSystemId getHouseSystem()  const { return scope.inputData.houseSystem; }
         A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac; }
-        const A::AspectsSet& getAspetSet()  const { return A::getAspectSet(scope.inputData.aspectSet); }
+        const A::AspectsSet& getAspectSet()  const { return A::getAspectSet(scope.inputData.aspectSet); }
         A::aspectModeEnum getAspectMode()  const { return A::aspectMode; }
+        double           getHarmonic()     const { return scope.inputData.harmonic; }
         QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(getTimezone() * 3600); }
 
     signals:
@@ -96,6 +103,8 @@ class AstroFile : public QObject
         A::Horoscope scope;
 
         void recalculate();
+        void recalculateBaseChart();
+        void recalculateHarmonics();
         void change(AstroFile::Members, bool affectChangedState = true);
 
 };

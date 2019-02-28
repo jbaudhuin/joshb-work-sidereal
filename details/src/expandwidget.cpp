@@ -39,6 +39,7 @@ void ExpandWidget :: constructor()
    layout->addWidget(title, 0, Qt::AlignTop);
 
   connect(title, SIGNAL(toggled(bool)), this, SLOT(setExpanded(bool)));
+  connect(title, SIGNAL(toggled(bool)), this, SIGNAL(toggled(bool)));
  }
 
 void ExpandWidget :: setTitle(QString t)

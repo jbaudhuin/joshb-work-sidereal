@@ -1,7 +1,7 @@
 #ifndef PLANETS_H
 #define PLANETS_H
 
-#include <QDeclarativeView>
+#include <QQuickView>
 #include <Astroprocessor/Gui>
 #include <Astroprocessor/Output>
 
@@ -11,7 +11,7 @@ class QDeclarativeItem;
 
 /* =========================== ASTRO QML VIEW ======================================= */
 
-class AstroQmlView : public QDeclarativeView
+class AstroQmlView : public QQuickView
 {
     Q_OBJECT
 
@@ -28,8 +28,8 @@ class AstroQmlView : public QDeclarativeView
         void requestHelp(QString tag);
 
     public:
-        AstroQmlView(QWidget *parent = 0);
-        void setSource(const QUrl& url);
+		AstroQmlView(QWindow * parent = NULL);
+		void setSource(const QUrl& url);
 
 };
 
@@ -44,7 +44,7 @@ class Planets : public AstroFileHandler
         A::PlanetsOrder order;
 
         AstroQmlView* view;
-        QList<QDeclarativeItem*> cardItems, labelItems;
+        QList<QQuickItem*> cardItems, labelItems;
 
         QRadioButton* sortByPlanets;
         QRadioButton* sortByHouses;

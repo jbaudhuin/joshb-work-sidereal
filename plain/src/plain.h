@@ -23,6 +23,7 @@ class Plain : public AstroFileHandler
         QCheckBox* describeSpeculum;
         QTextBrowser* view;
         bool showAllDiurnalEvents;
+	bool includeFixedStars;
 	double paranOrb;
 
     private slots:

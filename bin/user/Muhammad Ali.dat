@@ -1,0 +1,10 @@
+[General]
+name=Muhammad Ali
+type=Male
+GMT=1942-01-18T00:35:00Z
+timezone=-6
+lon=@Variant(\0\0\0\x87\xc2\xab\x84T)
+lat=@Variant(\0\0\0\x87\x42\x19\x2\xbb)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Louisville, KY, USA"
+comment=

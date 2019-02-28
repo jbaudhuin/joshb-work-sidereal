@@ -30,6 +30,7 @@ Plain              :: Plain               ( QWidget* parent ) : AstroFileHandler
   describeParans  -> setChecked(true);
   describeSpeculum-> setChecked(true);
   showAllDiurnalEvents = false;
+  includeFixedStars = true;
 
   describeInput   -> setStatusTip(tr("Show input data"));
   describePlanets -> setStatusTip(tr("Show planets"));
@@ -94,7 +95,8 @@ void Plain         :: refresh()
           (A::Article_Power   * describePower->isChecked())   |
           (A::Article_Parans  * describeParans->isChecked())  |
           (A::Article_DiurnalEvents * showAllDiurnalEvents)   |
-          (A::Article_Speculum* describeSpeculum->isChecked());
+          (A::Article_Speculum* describeSpeculum->isChecked()) |
+	  (A::Article_FixedStars * includeFixedStars);
 
   view->setText(A::describe(file()->horoscope(), (A::Article)articles, paranOrb));
  }
@@ -112,6 +114,7 @@ Plain::defaultSettings()
     s.setValue("Text/describeSpeculum", false);
     s.setValue("Text/showAllDiurnalEvents", false);
     s.setValue("Text/paranOrb", 1.0);
+    s.setValue("Text/includeFixedStars", true);
     return s;
 }
 
@@ -128,6 +131,7 @@ Plain::currentSettings()
     s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
     s.setValue("Text/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Text/paranOrb", paranOrb);
+    s.setValue("Text/includeFixedStars", includeFixedStars);
     return s;
 }
 
@@ -143,14 +147,17 @@ Plain::applySettings(const AppSettings& s)
     describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
     showAllDiurnalEvents = s.value("Text/showAllDiurnalEvents").toBool();
     paranOrb = s.value("Text/paranOrb").toDouble();
+    includeFixedStars = s.value("Text/includeFixedStars").toBool();
     //refreshAll();
 }
 
 void
 Plain::setupSettingsEditor(AppSettingsEditor* ed)
 {
-    ed->addTab(tr("Text"));
+    ed->addTab(tr("Parans"));
     ed->addCheckBox("Text/showAllDiurnalEvents", tr("Show all planetary diurnal events"));
     ed->addDoubleSpinBox("Text/paranOrb", tr("Orb for paranatellontas"),
-			 1./60. /*1 minute*/, 3.0 /*3 degrees*/);
+			 1./60. /*1 minute*/, 5.0 /*5 degrees*/);
+    ed->addCheckBox("Text/includeFixedStars", tr("Include fixed stars"));
 }
+

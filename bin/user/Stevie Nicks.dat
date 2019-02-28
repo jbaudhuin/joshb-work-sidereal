@@ -1,0 +1,10 @@
+[General]
+name=Stevie Nicks
+type=Female
+GMT=1948-05-26T10:02:00Z
+timezone=-7
+lon=@Variant(\0\0\0\x87\xc2\xe0%\xe8)
+lat=@Variant(\0\0\0\x87\x42\x5\xcb#)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Phoenix, AZ, USA"
+comment=ADB/Steinbrecher/RR: A

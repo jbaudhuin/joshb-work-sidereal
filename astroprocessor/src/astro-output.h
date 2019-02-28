@@ -20,10 +20,14 @@ enum Article        { Article_All     = 0xFF,
                       Article_Power   = 0x10,
                       Article_Parans  = 0x20,
                       Article_DiurnalEvents = 0x40,
-                      Article_Speculum = 0x80 };
+		      Article_FixedStars = 0x80,
+                      Article_Speculum = 0x100 };
 
-enum AnglePrecision { NormalPrecision,
-                      HighPrecision };
+enum AnglePrecision { 
+    LowPrecision,
+    NormalPrecision,
+    HighPrecision
+};
 
 Q_DECLARE_FLAGS(Articles, Article)
 

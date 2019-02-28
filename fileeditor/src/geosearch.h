@@ -5,6 +5,7 @@
 #include <QNetworkAccessManager>
 #include <QStackedLayout>
 #include <QVector3D>
+#include <QTimeZone>
 
 class QLineEdit;
 class QNetworkReply;
@@ -13,7 +14,12 @@ class QTreeWidget;
 class QDoubleSpinBox;
 class GeoSearchBox;
 class QLabel;
+class QDateTime;
 
+namespace A {
+extern const QString googAPIKey;
+extern const QString googMapURL;
+}
 
 class GeoSuggestCompletion : public QObject
 {
@@ -22,7 +28,7 @@ class GeoSuggestCompletion : public QObject
     public:
         enum Sources { Google, Yandex };
 
-        GeoSuggestCompletion(GeoSearchBox *parent = 0);
+        GeoSuggestCompletion(GeoSearchBox *parent = nullptr);
         ~GeoSuggestCompletion();
         bool eventFilter(QObject *obj, QEvent *ev);
         void showCompletion(const QStringList &cities, const QStringList &descr, const QStringList &pos);
@@ -52,16 +58,26 @@ class GeoSearchBox: public QLineEdit
         QVector3D coord;
         QString associatedText;
 
+    signals:
+        void coordinateUpdated() const;
+
     protected slots:
         void doSearch();
 
     public:
-        GeoSearchBox(QWidget *parent = 0);
-        void setSource(GeoSuggestCompletion::Sources src){ completer->setSource(src); }
-        void setCoordinate(QVector3D coord, QString tag){this->coord = coord; associatedText = tag; setText(tag);}
-        void setCoordinate(QVector3D coord)              { this->coord = coord; }
-        QVector3D coordinate()                           { return coord; }
-        bool isValid()                                   { return associatedText == text() && !text().isEmpty(); }
+        GeoSearchBox(QWidget *parent = nullptr);
+
+        void setSource(GeoSuggestCompletion::Sources src)
+        { completer->setSource(src); }
+
+        void setCoordinate(QVector3D coord, QString tag)
+        { this->coord = coord; associatedText = tag; setText(tag); }
+
+        void setCoordinate(QVector3D coord) { this->coord = coord; }
+        QVector3D coordinate()              { return coord; }
+
+        bool isValid()
+        { return associatedText == text() && !text().isEmpty(); }
 
 };
 
@@ -87,17 +103,16 @@ class GeoSearchWidget : public QWidget
        void proofCoordinates();
 
     signals:
-       void locationChanged();
+       void locationChanged() const;
 
     public:
-       GeoSearchWidget(QWidget* parent = 0);
+       GeoSearchWidget(QWidget* parent = nullptr);
        QVector3D location() const;
        QString locationName() const;
+
        void setLocation(const QVector3D& coord);
        void setLocation(const QVector3D& coord, const QString& name);
        void setLocationName(const QString& name);
-
-
 };
 
 #endif // GeoSearchBox_H

@@ -1,0 +1,10 @@
+[General]
+name=Michael Moore
+type=Male
+GMT=1954-04-23T17:45:00Z
+timezone=-5
+lon=@Variant(\0\0\0\x87\xc2\xa7_\xfa)
+lat="@Variant(\0\0\0\x87\x42,\f\xd4)"
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Flint, MI, USA"
+comment=

@@ -1,0 +1,10 @@
+[General]
+name=Christopher McCandless
+type=Male
+GMT=1968-02-13T00:14:00Z
+timezone=-8
+lon=@Variant(\0\0\0\x87\xc2\xec\xb6\xa1)
+lat=@Variant(\0\0\0\x87\x42\a\xd8\xdd)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag=
+comment=

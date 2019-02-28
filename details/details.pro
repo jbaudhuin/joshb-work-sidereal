@@ -8,6 +8,12 @@ include(details.pri)
 LIBS += -L$$_PRO_FILE_PWD_/../bin
 LIBS += -lastroprocessor
 
+HEADERS += \
+    src/harmonics.h
+
+SOURCES += \
+    src/harmonics.cpp
+
 
 
 

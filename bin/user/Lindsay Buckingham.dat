@@ -1,0 +1,10 @@
+[General]
+name=Lindsay Buckingham
+type=Male
+GMT=1949-10-03T09:53:00Z
+timezone=-8
+lon=@Variant(\0\0\0\x87\xc2\xf4I:)
+lat=@Variant(\0\0\0\x87\x42\x15\xc4})
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Palo Alto, CA, USA"
+comment=ADB/Clifford/RR: AA

@@ -1,0 +1,10 @@
+[General]
+name=Total Solar Eclipse 7-2-19
+type=Other
+GMT=2019-07-02T19:16:06Z
+timezone=-7
+lon=@Variant(\0\0\0\x87\xc2\xf5Z\x1d)
+lat=@Variant(\0\0\0\x87\x42\x36\x17\xa8)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Portland, OR, USA"
+comment=
