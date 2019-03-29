@@ -38,6 +38,10 @@ static bool s_showDegreeSpread = true;
 
 namespace {
 
+bool _includeOvertones = true;
+bool includeOvertones() { return _includeOvertones; }
+void setIncludeOvertones(bool b = true) { _includeOvertones = b; }
+
 qreal
 getSpread(const A::PlanetRange& range)
 {
@@ -311,6 +315,8 @@ Harmonics::updateHarmonics()
                     }
                 }
 
+                if (!includeOvertones()) continue;
+
                 if (divs.empty()) getDivs(ph.first, divs);
                 if (divs.empty()) continue;
 
@@ -528,8 +534,7 @@ Harmonics::doubleClickedCell(const QModelIndex& inx)
     if (var.isValid() && var.canConvert<QString>()) {
         headerDoubleClicked(inx.column());
         QString val(var.toString());
-        int col = inx.column();
-        QTimer::singleShot(250, [this, col, val]() {
+        QTimer::singleShot(250, [this, val]() {
             emit needToFindIt(val);
         });
     }
@@ -606,6 +611,7 @@ Harmonics::defaultSettings()
     s.setValue("Harmonics/includeAscMC", false);
     s.setValue("Harmonics/includeChiron", true);
     s.setValue("Harmonics/includeNodes", true);
+    s.setValue("Harmonics/includeOvertones", true);
     s.setValue("Harmonics/includeMidpoints", false);
     s.setValue("Harmonics/requireMidpointAnchor", true);
     s.setValue("Harmonics/filterFew", true);
@@ -625,6 +631,7 @@ AppSettings Harmonics::currentSettings()
     s.setValue("Harmonics/includeAscMC", A::includeAscMC());
     s.setValue("Harmonics/includeChiron", A::includeChiron());
     s.setValue("Harmonics/includeNodes", A::includeNodes());
+    s.setValue("Harmonics/includeOvertones", includeOvertones());
     s.setValue("Harmonics/includeMidpoints", A::includeMidpoints());
     s.setValue("Harmonics/requireMidpointAnchor", A::requireAnchor());
     s.setValue("Harmonics/filterFew", A::filterFew());
@@ -646,6 +653,7 @@ void Harmonics::applySettings(const AppSettings& s)
     bool ascMC = s.value("Harmonics/includeAscMC").toBool();
     bool chiron = s.value("Harmonics/includeChiron").toBool();
     bool nodes = s.value("Harmonics/includeNodes").toBool();
+    bool over = s.value("Harmonics/includeOvertones").toBool();
     bool mp = s.value("Harmonics/includeMidpoints").toBool();
     bool amp = s.value("Harmonics/requireMidpointAnchor").toBool();
     unsigned pfl = s.value("Harmonics/primeFactorLimit").toUInt();
@@ -659,6 +667,7 @@ void Harmonics::applySettings(const AppSettings& s)
         || A::includeAscMC() != ascMC
         || A::includeChiron() != chiron
         || A::includeNodes() != nodes
+        || includeOvertones() != over
         || A::includeMidpoints() != mp
         || A::requireAnchor() != amp
         || A::primeFactorLimit() != pfl
@@ -671,6 +680,7 @@ void Harmonics::applySettings(const AppSettings& s)
     A::setIncludeAscMC(ascMC);
     A::setIncludeChiron(chiron);
     A::setIncludeNodes(nodes);
+    setIncludeOvertones(over);
     A::setIncludeMidpoints(mp);
     A::setRequireAnchor(amp);
     A::setFilterFew(ff);
@@ -703,6 +713,9 @@ Harmonics::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Harmonics/includeAscMC", tr("Include Asc & MC"));
     ed->addCheckBox("Harmonics/includeChiron", tr("Include Chiron"));
     ed->addCheckBox("Harmonics/includeNodes", tr("Include Nodes"));
+
+    auto over = ed->addCheckBox("Harmonics/includeOvertones",
+                                tr("Include Overtones"));
 
     auto mpt = ed->addCheckBox("Harmonics/includeMidpoints", 
                                tr("Include Midpoints"));

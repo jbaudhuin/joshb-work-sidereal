@@ -343,7 +343,7 @@ void Chart::updatePlanetsAndCusps(int fileIndex)
         QGraphicsItem* planet = planets[fileIndex][p.id];
 
         if (p.id == A::Planet_MC) {
-            if (file(fileIndex)->getHarmonic() <= 1) {
+            if (file(fileIndex)->getHarmonic() == 1) {
                 marker->setVisible(false);
                 planet->setVisible(false);
                 continue;

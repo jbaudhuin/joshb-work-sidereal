@@ -9,14 +9,22 @@
 *.so
 *.dll
 *.dylib
+*.obj
+*.lib
+*.res
+*.pdb
 
 # Qt-es
 
+*.qmlc
+*.stash
 *.pro.user
 *.pro.user.*
 moc_*.cpp
+moc_*.h
 qrc_*.cpp
 Makefile
+Makefile.*
 *-build-*
 /_build
 /bin/*.dll
@@ -28,5 +36,18 @@ Makefile
 /nsis/*.psd
 /nsis/*.exe
 *.user
-/build-zodiac_bundle-Desktop_Qt_5_2_1_MinGW_32bit-Release/*.Release
-/build-zodiac_bundle-Desktop_Qt_5_2_1_MinGW_32bit-Release/*.Debug
+/build-Qt*/*
+/build-Qt*/*
+
+# VIM
+
+*.swp
+*.suo
+
+# Other
+
+Thumbs.db
+*VC.db
+*.tlog
+resource*.h
+*.log

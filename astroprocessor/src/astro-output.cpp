@@ -538,11 +538,10 @@ describeParans(const Horoscope &scope,
 
     event::_radix = scope.inputData.GMT;
 
-    foreach(const Planet& p, scope.planets)
-    {
+    for (const Planet& p: scope.planets) {
+        if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         unsigned u = 0;
-        foreach(const QDateTime& dt, p.angleTransit)
-        {
+        for (const QDateTime& dt: p.angleTransit) {
             if (p.name.length() > maxWidth) {
                 maxWidth = p.name.length();
             }
@@ -551,11 +550,9 @@ describeParans(const Horoscope &scope,
     }
 
     if (showFixedStars) {
-        foreach(const Star& s, scope.stars)
-        {
+        for (const Star& s: scope.stars) {
             unsigned u = 0;
-            foreach(const QDateTime& dt, s.angleTransit)
-            {
+            for (const QDateTime& dt: s.angleTransit) {
                 if (!dt.isValid()) continue;
                 if (s.name.length() > maxWidth) {
                     maxWidth = s.name.length();
@@ -576,7 +573,8 @@ describeParans(const Horoscope &scope,
     bool anyPrinted = false;
     QVector<event>::ConstIterator lastPrinted = events.constEnd();
     for (QVector<event>::ConstIterator it = events.constBegin();
-         it != events.constEnd(); ++it) {
+         it != events.constEnd(); ++it)
+    {
         if (showAll) {
             ret += it->fmt(tz);
             continue;
@@ -627,14 +625,15 @@ describeSpeculum(const Horoscope &scope,
     short tz = scope.inputData.tz;
     int& maxWidth(event::_maxWidth);
     if (maxWidth == 0) {
-        foreach(const Planet& p, scope.planets)
-        {
-            if (p.name.length() > maxWidth) {
+        for (const Planet& p: scope.planets) {
+            if (p.id != Planet_MC
+                    && p.id != Planet_Asc
+                    && p.name.length() > maxWidth)
+            {
                 maxWidth = p.name.length();
             }
         }
-        foreach(const Star& s, scope.stars)
-        {
+        for (const Star& s: scope.stars) {
             if (s.name.length() > maxWidth) {
                 maxWidth = s.name.length();
             }
@@ -646,11 +645,10 @@ describeSpeculum(const Horoscope &scope,
         .arg(QObject::tr("MC"), -9)
         .arg(QObject::tr("Set"), -9)
         .arg(QObject::tr("IC"), -9);
-    foreach(const Planet& p, scope.planets)
-    {
+    for (const Planet& p: scope.planets) {
+        if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         ret += QString("%1").arg(p.name, -maxWidth);
-        foreach(int i, QList<int>() << 0 << 2 << 1 << 3)
-        {
+        for (int i : QList<int>({0, 2, 1, 3})) {
             ret += " " + _formatTime(p.angleTransit.at(i), tz);
         }
         ret += "\n";
@@ -658,11 +656,9 @@ describeSpeculum(const Horoscope &scope,
     if (!showFixedStars) {
         return ret;
     }
-    foreach(const Star& s, scope.stars)
-    {
+    for (const Star& s: scope.stars) {
         ret += QString("%1").arg(s.name, -maxWidth);
-        foreach(int i, QList<int>() << 0 << 2 << 1 << 3)
-        {
+        for (int i : QList<int>({0, 2, 1, 3})) {
             ret += " " + _formatTime(s.angleTransit.at(i), tz);
         }
         ret += "\n";
@@ -671,9 +667,10 @@ describeSpeculum(const Horoscope &scope,
     return ret;
 }
 
-QString     describe(const Horoscope& scope,
-                     Articles article /*=All*/,
-                     double paranOrb /*=1.0*/)
+QString
+describe(const Horoscope& scope,
+         Articles article /*=All*/,
+         double paranOrb /*=1.0*/)
 {
     QString ret;
 

@@ -112,6 +112,8 @@ public:
     AppSettings currentSettings();
     void applySettings(const AppSettings&);
     void setupSettingsEditor(AppSettingsEditor*);
+
+    friend class FilesBar;
 };
 
 
@@ -129,12 +131,15 @@ protected:
     virtual void keyPressEvent(QKeyEvent*);
     virtual bool eventFilter(QObject *, QEvent *);
 
-    private slots:
+private slots:
     void showContextMenu(QPoint);
     void openSelected();
     void openSelectedInNewTab();
     void openSelectedWithTransits();
     void openSelectedAsSecond();
+    void openSelectedWithSolarReturn();
+    void openSelectedSolarReturnInNewTab();
+    void openSelectedComposite();
     void deleteSelected();
     void searchFilter(QString);
 
@@ -147,6 +152,9 @@ signals:
     void openFileInNewTab(const QString&);
     void openFileInNewTabWithTransits(const QString&);
     void openFileAsSecond(const QString&);
+    void openFilesComposite(const QStringList&);
+    void openFileReturn(const QString&, const QString& = "Sun");
+    void openFileInNewTabWithReturn(const QString&, const QString& = "Sun");
 
 public:
     AstroDatabase(QWidget *parent = 0);
@@ -161,6 +169,7 @@ class FilesBar : public QTabBar
 
 private:
     bool askToSave;
+    AstroWidget* _aw;
     QList<AstroFileList> files;
 
     void updateTab(int index);
@@ -180,12 +189,16 @@ public slots:
     void openFileInNewTabWithTransits(const QString& name);
     void openTransits(int);
     void openFileAsSecond(const QString& name = "");
+    void openFileComposite(const QStringList& names);
+    void openFileReturn(const QString& name, const QString& body);
+    void openFileInNewTabWithReturn(const QString& name, const QString& body);
     void nextTab() { setCurrentIndex((currentIndex() + 1) % count()); }
     bool closeTab(int);
 
 public:
     FilesBar(QWidget *parent = 0);
 
+    void setAW(AstroWidget* aw) { _aw = aw; }
     void addFile(AstroFile* file);
     void setAskToSave(bool b) { askToSave = b; }
     const AstroFileList& currentFiles()

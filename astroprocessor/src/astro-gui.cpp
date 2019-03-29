@@ -12,8 +12,7 @@ int AstroFile::counter = 0;
 
 AstroFile::AstroFile(QObject* parent) : QObject(parent)
 {
-    do
-    {
+    do {
         name = tr("Untitled %1").arg(++counter);
     } while (QFile::exists(fileName()));
 
@@ -24,12 +23,14 @@ AstroFile::AstroFile(QObject* parent) : QObject(parent)
     qDebug() << "Created file" << getName();
 }
 
-QString AstroFile::fileName() const
+QString
+AstroFile::fileName() const
 {
     return "user/" + getName() + ".dat";
 }
 
-QString AstroFile::typeToString(FileType type) const
+QString
+AstroFile::typeToString(FileType type) const
 {
     switch (type)
     {
@@ -40,14 +41,16 @@ QString AstroFile::typeToString(FileType type) const
     return "";
 }
 
-AstroFile::FileType AstroFile::typeFromString(QString str) const
+AstroFile::FileType
+AstroFile::typeFromString(QString str) const
 {
     if (str == "Male")   return TypeMale;
     if (str == "Female") return TypeFemale;
     return TypeOther;
 }
 
-AstroFile::Members AstroFile::diff(AstroFile* other) const
+AstroFile::Members
+AstroFile::diff(AstroFile* other) const
 {
     if (!other) return AstroFile::All;
     if (this == other) return 0;
@@ -68,7 +71,8 @@ AstroFile::Members AstroFile::diff(AstroFile* other) const
     return flags;
 }
 
-void AstroFile::save()
+void
+AstroFile::save()
 {
     QSettings file(fileName(), QSettings::IniFormat);
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
@@ -88,7 +92,8 @@ void AstroFile::save()
     clearUnsavedState();
 }
 
-void AstroFile::load(QString name/*, bool recalculate*/)
+void
+AstroFile::load(QString name/*, bool recalculate*/)
 {
     if (name.isEmpty()) return;
     qDebug() << "Loading file" << getName() << "from" << name;
@@ -114,7 +119,8 @@ void AstroFile::load(QString name/*, bool recalculate*/)
     //resumeUpdate();
 }
 
-void AstroFile::resumeUpdate()
+void
+AstroFile::resumeUpdate()
 {
     if (!holdUpdate) return;
     holdUpdate = false;
@@ -122,7 +128,9 @@ void AstroFile::resumeUpdate()
     holdUpdateMembers = None;
 }
 
-void AstroFile::change(AstroFile::Members members, bool affectChangedState)
+void
+AstroFile::change(AstroFile::Members members,
+                  bool affectChangedState)
 {
     if (members == None) return;
 
@@ -130,8 +138,7 @@ void AstroFile::change(AstroFile::Members members, bool affectChangedState)
     if (affectChangedState && !(members & ChangedState)) unsavedChanges = true;
     if (unsavedBefore != unsavedChanges) members |= ChangedState;
 
-    if (!holdUpdate)
-    {
+    if (!holdUpdate) {
         if (members & (GMT | Location | HouseSystem | Zodiac | AspectSet | AspectMode))
             recalculate();
         else if (members & Harmonic) {
@@ -139,16 +146,15 @@ void AstroFile::change(AstroFile::Members members, bool affectChangedState)
         }
 
         emit changed(members);
-    } else
-    {
+    } else {
         holdUpdateMembers |= members;
     }
 }
 
-void AstroFile::clearUnsavedState()
+void
+AstroFile::clearUnsavedState()
 {
-    if (hasUnsavedChanges())
-    {
+    if (hasUnsavedChanges()) {
         unsavedChanges = false;
         if (!holdUpdate)
             change(ChangedState);
@@ -157,7 +163,8 @@ void AstroFile::clearUnsavedState()
     }
 }
 
-void AstroFile::setName(const QString&   name)
+void
+AstroFile::setName(const QString&   name)
 {
     if (this->name != name)
     {
@@ -167,7 +174,8 @@ void AstroFile::setName(const QString&   name)
     }
 }
 
-void AstroFile::setType(const FileType   type)
+void
+AstroFile::setType(const FileType   type)
 {
     if (this->type != type)
     {
@@ -176,7 +184,8 @@ void AstroFile::setType(const FileType   type)
     }
 }
 
-void AstroFile::setGMT(const QDateTime& gmt)
+void
+AstroFile::setGMT(const QDateTime& gmt)
 {
     if (scope.inputData.GMT != gmt) {
         scope.inputData.GMT = gmt;
@@ -184,7 +193,8 @@ void AstroFile::setGMT(const QDateTime& gmt)
     }
 }
 
-void AstroFile::setTimezone(const short& zone)
+void
+AstroFile::setTimezone(const short& zone)
 {
     if (scope.inputData.tz != zone) {
         scope.inputData.tz = zone;
@@ -192,7 +202,8 @@ void AstroFile::setTimezone(const short& zone)
     }
 }
 
-void AstroFile::setLocation(const QVector3D location)
+void
+AstroFile::setLocation(const QVector3D location)
 {
     if (scope.inputData.location != location) {
         scope.inputData.location = location;
@@ -200,7 +211,8 @@ void AstroFile::setLocation(const QVector3D location)
     }
 }
 
-void AstroFile::setLocationName(const QString &location)
+void
+AstroFile::setLocationName(const QString &location)
 {
     if (this->locationName != location) {
         this->locationName = location;
@@ -208,16 +220,17 @@ void AstroFile::setLocationName(const QString &location)
     }
 }
 
-void AstroFile::setComment(const QString& comment)
+void
+AstroFile::setComment(const QString& comment)
 {
-    if (this->comment != comment)
-    {
+    if (this->comment != comment) {
         this->comment = comment;
         change(Comment);
     }
 }
 
-void AstroFile::setHouseSystem(A::HouseSystemId system)
+void
+AstroFile::setHouseSystem(A::HouseSystemId system)
 {
     if (getHouseSystem() != system)
     {
@@ -226,7 +239,8 @@ void AstroFile::setHouseSystem(A::HouseSystemId system)
     }
 }
 
-void AstroFile::setZodiac(A::ZodiacId zod)
+void
+AstroFile::setZodiac(A::ZodiacId zod)
 {
     if (getZodiac() != zod)
     {
@@ -235,7 +249,8 @@ void AstroFile::setZodiac(A::ZodiacId zod)
     }
 }
 
-void AstroFile::setAspectSet(A::AspectSetId set)
+void
+AstroFile::setAspectSet(A::AspectSetId set)
 {
     if (getAspectSet().id != set)
     {
@@ -244,7 +259,8 @@ void AstroFile::setAspectSet(A::AspectSetId set)
     }
 }
 
-void AstroFile::setAspectMode(const A::aspectModeType& mode)
+void
+AstroFile::setAspectMode(const A::aspectModeType& mode)
 {
     if (getAspectMode() != mode) {
         A::aspectMode = mode;
@@ -252,7 +268,8 @@ void AstroFile::setAspectMode(const A::aspectModeType& mode)
     }
 }
 
-void AstroFile::setHarmonic(double harmonic)
+void
+AstroFile::setHarmonic(double harmonic)
 {
     if (getHarmonic() != harmonic) {
         scope.inputData.harmonic = harmonic;
@@ -260,25 +277,29 @@ void AstroFile::setHarmonic(double harmonic)
     }
 }
 
-void AstroFile::recalculate()
+void
+AstroFile::recalculate()
 {
     qDebug() << "Calculating file" << getName() << "...";
     scope = A::calculateAll(scope.inputData);
 }
 
-void AstroFile::recalculateBaseChart()
+void
+AstroFile::recalculateBaseChart()
 {
     qDebug() << "Calculating base harmonic chart for file" << getName() << "...";
     A::calculateBaseChartHarmonic(scope);
 }
 
-void AstroFile::recalculateHarmonics()
+void
+AstroFile::recalculateHarmonics()
 {
     qDebug() << "Calculating harmonics for file" << getName() << "...";
     //A::findHarmonics(scope);
 }
 
-void AstroFile::destroy()
+void
+AstroFile::destroy()
 {
     if (getName().section(" ", -1).toInt() == counter)   // latest file
         --counter;                                         // decrement file counter
@@ -300,21 +321,22 @@ void AstroFile::destroy()
 
  /* =========================== ABSTRACT FILE HANDLER ================================ */
 
-AstroFileHandler::AstroFileHandler(QWidget *parent) : QWidget(parent), Customizable()
+AstroFileHandler::AstroFileHandler(QWidget *parent) :
+    QWidget(parent), Customizable()
 {
     delayUpdate = false;
 }
 
-void AstroFileHandler::setFiles(const AstroFileList& files)
+void
+AstroFileHandler::setFiles(const AstroFileList& files)
 {
     MembersList flags;
     int i = 0;
 
-    foreach(AstroFile* file, files)
-    {
-        AstroFile* old = (f.count() >= i + 1) ? f[i] : 0;
+    for (AstroFile* file: files) {
+        AstroFile* old = (f.count() >= i + 1) ? f[i] : nullptr;
         if (file == old) {
-            flags << 0;
+            flags << 0; //flags.clear();  // ??
         } else {
             if (old) {
                 old->disconnect(this, SLOT(fileUpdatedSlot(AstroFile::Members)));
@@ -322,11 +344,13 @@ void AstroFileHandler::setFiles(const AstroFileList& files)
             }
 
             if (file) {
-                connect(file, SIGNAL(changed(AstroFile::Members)), this, SLOT(fileUpdatedSlot(AstroFile::Members)));
-                connect(file, SIGNAL(destroyRequested()), this, SLOT(fileDestroyedSlot()));
+                connect(file, SIGNAL(changed(AstroFile::Members)),
+                        this, SLOT(fileUpdatedSlot(AstroFile::Members)));
+                connect(file, SIGNAL(destroyRequested()),
+                        this, SLOT(fileDestroyedSlot()));
                 flags << file->diff(old);
             } else {
-                flags << 0;
+                flags << 0; //flags.clear();  // ??
             }
         }
 
@@ -345,7 +369,8 @@ void AstroFileHandler::setFiles(const AstroFileList& files)
 
 }
 
-A::AspectList AstroFileHandler::calculateSynastryAspects()
+A::AspectList
+AstroFileHandler::calculateSynastryAspects()
 {
     qDebug() << "Calculate synatry apects" << file(0)->getAspectSet().id;
     return A::calculateAspects(file(0)->getAspectSet(), 
@@ -353,7 +378,8 @@ A::AspectList AstroFileHandler::calculateSynastryAspects()
                                file(1)->horoscope().planets);
 }
 
-MembersList AstroFileHandler::blankMembers()
+MembersList
+AstroFileHandler::blankMembers()
 {
     MembersList ret;
     for (int i = 0; i < f.count(); i++)
@@ -361,14 +387,15 @@ MembersList AstroFileHandler::blankMembers()
     return ret;
 }
 
-bool AstroFileHandler::isAnyFileSuspended()
+bool
+AstroFileHandler::isAnyFileSuspended()
 {
-    foreach(AstroFile* file, f)
-        if (file->isSuspendedUpdate()) return true;
+    for (AstroFile* file: f) if (file->isSuspendedUpdate()) return true;
     return false;
 }
 
-void AstroFileHandler::fileUpdatedSlot(AstroFile::Members m)
+void
+AstroFileHandler::fileUpdatedSlot(AstroFile::Members m)
 {
     int i = f.indexOf((AstroFile*)sender());
     if (isVisible() && !isAnyFileSuspended()) {
@@ -389,7 +416,8 @@ void AstroFileHandler::fileUpdatedSlot(AstroFile::Members m)
     }
 }
 
-void AstroFileHandler::fileDestroyedSlot()
+void
+AstroFileHandler::fileDestroyedSlot()
 {
     int i = f.indexOf((AstroFile*)sender());
     if (i == -1) return;                  // ignore if destroying file not in list (e.g. in other tab)
@@ -402,7 +430,8 @@ void AstroFileHandler::fileDestroyedSlot()
     filesUpdated(mList);
 }
 
-void AstroFileHandler::resumeUpdate()
+void
+AstroFileHandler::resumeUpdate()
 {
     if (delayUpdate) {
         filesUpdated(delayMembers);
@@ -447,7 +476,8 @@ QStringList AstroTreeView :: getTopicNames()
   return ret;
  }
 
-void AstroTreeView :: setTopic(Topics topic)
+void
+AstroTreeView :: setTopic(Topics topic)
  {
   this->topic = topic;
 
@@ -457,7 +487,8 @@ void AstroTreeView :: setTopic(Topics topic)
     updateIfVisible = true;
  }
 
-void AstroTreeView :: setFile(AstroFile* file)
+void
+AstroTreeView :: setFile(AstroFile* file)
  {
   this->file = file;
 
@@ -467,7 +498,8 @@ void AstroTreeView :: setFile(AstroFile* file)
     updateIfVisible = true;
  }
 
-void AstroTreeView :: updateItems()
+void
+AstroTreeView :: updateItems()
  {
   clear();
   updateIfVisible = false;
@@ -486,7 +518,8 @@ void AstroTreeView :: updateItems()
   expandAll();
  }
 
-void AstroTreeView :: addTopLevelItem(const QString& text)
+void
+AstroTreeView :: addTopLevelItem(const QString& text)
  {
   QTreeWidgetItem* item = new QTreeWidgetItem;
   item->setText(0, text);
@@ -498,7 +531,8 @@ void AstroTreeView :: addTopLevelItem(const QString& text)
   ((QTreeWidget*)this)->addTopLevelItem(item);
  }
 
-void AstroTreeView :: addChildItem(const QString& text, bool active)
+void
+AstroTreeView :: addChildItem(const QString& text, bool active)
  {
   QTreeWidgetItem* item = topLevelItem(topLevelItemCount() - 1);
   QTreeWidgetItem* child = new QTreeWidgetItem;
@@ -510,7 +544,8 @@ void AstroTreeView :: addChildItem(const QString& text, bool active)
   item->addChild(child);
  }
 
-void AstroTreeView :: addPersonalLifeItems()
+void
+AstroTreeView :: addPersonalLifeItems()
  {
   if (file->getType() != AstroFile::TypeMale &&
       file->getType() != AstroFile::TypeFemale) return;
@@ -560,7 +595,8 @@ void AstroTreeView :: addPersonalLifeItems()
                A::aspect(h.venus, h.neptune) == A::Aspect_Opposition);
  }
 
-void AstroTreeView :: addMarriageItems()
+void
+AstroTreeView :: addMarriageItems()
  {
   if (file->getType() != AstroFile::TypeMale &&
       file->getType() != AstroFile::TypeFemale) return;
@@ -833,14 +869,16 @@ void AstroTreeView :: addMarriageItems()
                A::rulerDisposition(8, 5, h));
  }
 
-void AstroTreeView :: addHealthItems()
+void
+AstroTreeView :: addHealthItems()
  {
   //const A::Horoscope& h = file->horoscope();
 
   addTopLevelItem("sdfsdfsdf");
  }
 
-void AstroTreeView :: addFinancialItems()
+void
+AstroTreeView :: addFinancialItems()
  {
   //const A::Horoscope& h = file->horoscope();
 
@@ -923,12 +961,14 @@ bool AstroTreeView :: hasHarmonicAspects (const A::Planet& planet, const A::Horo
     layout->addWidget(tabs);
  }
 
-void AstrotTopicsShow :: resetToDefault()
+void
+AstrotTopicsShow :: resetToDefault()
  {
   fileUpdated(AstroFile::All);
  }
 
-void AstrotTopicsShow :: fileUpdated(AstroFile::Members)
+void
+AstrotTopicsShow :: fileUpdated(AstroFile::Members)
  {
   for (int i = 0; i < tabs->count(); i++)
    {

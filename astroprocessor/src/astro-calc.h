@@ -146,6 +146,11 @@ Houses      calculateHouses      ( const InputData& input );
 Aspect      calculateAspect      ( const AspectsSet& aspectSet, const Planet& planet1, const Planet& planet2 );
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets );
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets1, const PlanetMap& planets2 );   // synastry
+
+QDateTime calculateReturnTime(PlanetId pid,
+                              const InputData& native,
+                              const InputData& locale);
+
 Horoscope   calculateAll         ( const InputData& input );
 
 }

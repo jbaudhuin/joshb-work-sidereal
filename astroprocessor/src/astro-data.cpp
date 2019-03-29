@@ -198,20 +198,23 @@ void Data::load(QString language)
     qDebug() << "Astroprocessor: initialized";
 }
 
-const Planet& Data :: getPlanet(PlanetId id)
- {
-  if (Data::planets.contains(id))
-    return Data::planets[id];
+const Planet&
+Data::getPlanet(PlanetId id)
+{
+    if (Data::planets.contains(id))
+        return Data::planets[id];
 
-  return planets[Planet_None];
- }
+    return planets[Planet_None];
+}
 
-QList<PlanetId> Data :: getPlanets()
- {
-  return planets.keys();
- }
+QList<PlanetId>
+Data::getPlanets()
+{
+    return planets.keys();
+}
 
-const Star& Data::getStar(const QString& name)
+const Star&
+Data::getStar(const QString& name)
 {
     std::string stdName = name.toStdString();
     if (stars.contains(stdName)) {
@@ -321,6 +324,18 @@ ChartPlanetId::name() const
 void load(QString language) { Data::load(language); }
 QString usedLanguage()      { return Data::usedLanguage(); }
 const Planet& getPlanet(PlanetId pid) { return Data::getPlanet(pid); }
+
+
+PlanetId
+getPlanet(const QString& name)
+{
+    for (auto && it : getPlanets()) {
+        if (getPlanet(it).name == name) return it;
+    }
+    return Planet_None;
+}
+
+
 QString getPlanetName(const ChartPlanetId& id) { return Data::getPlanet(id).name; }
 QString getPlanetGlyph(const ChartPlanetId& id) { return id.name(); }
 const Star& getStar(const QString& name) { return Data::getStar(name); }

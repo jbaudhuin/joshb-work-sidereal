@@ -187,6 +187,7 @@ struct Planet : public Star
                  downfallSigns;
 
   QVector2D      eclipticSpeed;       // x - longitude speed (degree/day)
+  QVector2D      equatorialSpeed;
   PlanetPosition position;
   PlanetPower    power;
   const ZodiacSign* sign;
@@ -194,7 +195,7 @@ struct Planet : public Star
 
   Planet() { sweNum = 0;
              isReal = false;
-             eclipticSpeed = QVector2D(0,0);
+             eclipticSpeed = equatorialSpeed = QVector2D(0,0);
              position = Position_Normal;
              sign = 0;
              houseRuler = 0; }
@@ -302,6 +303,7 @@ class ChartPlanetId;
 void load(QString language);
 QString usedLanguage();
 const Planet& getPlanet(PlanetId pid);
+PlanetId getPlanet(const QString& name);
 QString getPlanetName(const ChartPlanetId& id);
 QString getPlanetGlyph(const ChartPlanetId& id);
 QList<PlanetId> getPlanets();
@@ -376,12 +378,36 @@ public:
     bool operator==(const ChartPlanetId& cpid) const
     { return fid == cpid.fid && pid == cpid.pid && pid2 == cpid.pid2; }
 
+    bool operator!=(const ChartPlanetId& cpid) const
+    { return fid != cpid.fid || pid != cpid.pid || pid2 != cpid.pid2; }
+
     bool operator<(const ChartPlanetId& cpid) const
     {
+#if 0
+        // this version sorts by file and the first and then second planet
         return fid < cpid.fid || (fid == cpid.fid && pid < cpid.pid)
             || (fid == cpid.fid && pid == cpid.pid && pid2 < cpid.pid2)
             || (fid == cpid.fid && pid == cpid.pid && pid2 == cpid.pid2
                 && oppMidpt < cpid.oppMidpt);
+#else
+        // this version sorts by file, single planets, conjoined midpoints,
+        // and lastly opposing midpoints.
+        if (fid < cpid.fid) return true;
+        if (fid > cpid.fid) return false;
+        if (isMidpt() < cpid.isMidpt()) return true;
+        if (isMidpt() > cpid.isMidpt()) return false;
+        if (isMidpt()) {
+            if (oppMidpt < cpid.oppMidpt) return true;
+            if (oppMidpt > cpid.oppMidpt) return false;
+        }
+        if (pid < cpid.pid) return true;
+        if (pid > cpid.pid) return false;
+        if (isMidpt()) {
+            if (pid2 < cpid.pid2) return true;
+            if (pid2 > cpid.pid2) return false;
+        }
+        return false;
+#endif
     }
 
     bool operator<=(const ChartPlanetId& cpid) const 

@@ -590,17 +590,19 @@ AstroDatabase::AstroDatabase(QWidget *parent) : QFrame(parent)
 
 
     connect(refresh, SIGNAL(clicked()), this, SLOT(updateList()));
-    connect(this, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(showContextMenu(QPoint)));
-    connect(fileList, SIGNAL(doubleClicked(QModelIndex)), this, SLOT(openSelected()));
-    connect(search, SIGNAL(textChanged(QString)), this, SLOT(searchFilter(QString)));
+    connect(this, SIGNAL(customContextMenuRequested(QPoint)),
+            this, SLOT(showContextMenu(QPoint)));
+    connect(fileList, SIGNAL(doubleClicked(QModelIndex)),
+            this, SLOT(openSelected()));
+    connect(search, SIGNAL(textChanged(QString)),
+            this, SLOT(searchFilter(QString)));
 
     updateList();
 }
 
 void AstroDatabase::searchFilter(QString s)
 {
-    for (int i = 0; i < fileList->count(); i++)
-    {
+    for (int i = 0; i < fileList->count(); i++) {
         QListWidgetItem* item = fileList->item(i);
         item->setHidden(!item->text().contains(s, Qt::CaseInsensitive));
     }
@@ -610,24 +612,22 @@ void AstroDatabase::updateList()
 {
     QDir dir("user/");
 
-    QStringList list = dir.entryList(QStringList("*.dat"), QDir::Files, QDir::Name | QDir::IgnoreCase);
+    QStringList list = dir.entryList(QStringList("*.dat"),
+                                     QDir::Files, QDir::Name | QDir::IgnoreCase);
     list.replaceInStrings(".dat", "");
 
     QStringList selectedItems;
-    for (QListWidgetItem* item : fileList->selectedItems())
-    {
+    for (QListWidgetItem* item : fileList->selectedItems()) {
         if (item->isSelected()) selectedItems << item->text();
     }
 
     fileList->clear();
 
-    for (QString itemString : list)
-    {
+    for (QString itemString : list) {
         QListWidgetItem* item = new QListWidgetItem(itemString, fileList);
         if (selectedItems.contains(itemString))
             item->setSelected(true);
     }
-
 
     searchFilter(search->text());
 }
@@ -650,8 +650,7 @@ void AstroDatabase::deleteSelected()
     int ret = msgBox.exec();
     if (ret == QMessageBox::Cancel) return;
 
-    for (QListWidgetItem* item : fileList->selectedItems())
-    {
+    for (QListWidgetItem* item : fileList->selectedItems()) {
         QString file = "user/" + item->text() + ".dat";
         QFile::remove(file);
         emit fileRemoved(item->text());
@@ -660,19 +659,23 @@ void AstroDatabase::deleteSelected()
     }
 }
 
-void AstroDatabase::openSelected()
+void
+AstroDatabase::openSelected()
 {
     int count = fileList->selectedItems().count();
     if (!count) return;
 
-    if (count == 1)
+    if (count == 1) {
         emit openFile(fileList->selectedItems()[0]->text());
-    else
-        for (QListWidgetItem* item : fileList->selectedItems())
-        emit openFileInNewTab(item->text());
+    } else {
+        for (QListWidgetItem* item : fileList->selectedItems()) {
+            emit openFileInNewTab(item->text());
+        }
+    }
 }
 
-void AstroDatabase::openSelectedInNewTab()
+void
+AstroDatabase::openSelectedInNewTab()
 {
     for (QListWidgetItem* item : fileList->selectedItems())
         emit openFileInNewTab(item->text());
@@ -691,6 +694,35 @@ void AstroDatabase::openSelectedAsSecond()
     emit openFileAsSecond(item->text());
 }
 
+void AstroDatabase::openSelectedComposite()
+{
+    QStringList items;
+    for (auto item : fileList->selectedItems()) items << item->text();
+    emit openFilesComposite(items);
+}
+
+void AstroDatabase::openSelectedWithSolarReturn()
+{
+    int count = fileList->selectedItems().count();
+    if (!count) return;
+
+    if (count == 1) {
+        QString file(fileList->selectedItems().first()->text());
+        emit openFileInNewTabWithReturn(file);
+    } else {
+        for (QListWidgetItem* item : fileList->selectedItems()) {
+            emit openFileInNewTabWithReturn(item->text());
+        }
+    }
+}
+
+void AstroDatabase::openSelectedSolarReturnInNewTab()
+{
+    for (auto item : fileList->selectedItems()) {
+        emit openFileReturn(item->text());
+    }
+}
+
 void AstroDatabase::showContextMenu(QPoint p)
 {
     QMenu* mnu = new QMenu(this);
@@ -700,8 +732,16 @@ void AstroDatabase::showContextMenu(QPoint p)
     mnu->addAction(tr("Open in new tab"), this, SLOT(openSelectedInNewTab()));
     mnu->addAction(tr("Open with Transits"), this, SLOT(openSelectedWithTransits()));
     mnu->addAction(tr("Synastry view"), this, SLOT(openSelectedAsSecond()));
+
+    mnu->addAction(tr("Composite"), this, SLOT(openSelectedComposite()));
+    mnu->addAction(tr("Open Solar Return in new tab"),
+                   this, SLOT(openSelectedSolarReturnInNewTab()));
+    mnu->addAction(tr("Open with Solar Return"),
+                   this, SLOT(openSelectedWithSolarReturn()));
+
     mnu->addSeparator();
-    mnu->addAction(QIcon("style/delete.png"), tr("Delete"), this, SLOT(deleteSelected()));
+    mnu->addAction(QIcon("style/delete.png"), tr("Delete"),
+                   this, SLOT(deleteSelected()));
 
     mnu->exec(pos);
     mnu->deleteLater();
@@ -907,19 +947,105 @@ void FilesBar::openFileAsSecond(const QString& name)
 }
 
 void
+FilesBar::openFileComposite(const QStringList& names)
+{
+    AstroFile* file = new AstroFile;
+    file->load(names.first());
+    addFile(file);
+
+}
+
+void
+FilesBar::openFileReturn(const QString& name, const QString& body)
+{
+    AstroFile* native = new AstroFile;
+    _aw->setupFile(native, true);
+    native->load(name);
+
+    QString planet = body=="Sun"? "Solar"
+                                : body=="Moon"? "Lunar"
+                                              : body;
+    if (native->data().harmonic != 1.0) {
+        planet += " H" + QString::number(native->data().harmonic);
+    }
+
+    A::PlanetId pid = A::getPlanet(body);
+
+    AstroFile* planetReturn = new AstroFile;
+    _aw->setupFile(planetReturn, true);
+
+    //planetReturn->setParent(this);
+    planetReturn->setName("Return");
+    //planetReturn->setGMT(QDateTime::currentDateTime());
+
+    auto dt = A::calculateReturnTime(pid, native->data(),
+                                     planetReturn->data());
+    delete native;
+
+    planetReturn->setGMT(dt);
+
+    planetReturn->setName(QString("%1 %2 Return %3")
+                          .arg(name)
+                          .arg(planet)
+                          .arg(dt.toLocalTime().date().year()));
+    addFile(planetReturn);
+}
+
+void
+FilesBar::openFileInNewTabWithReturn(const QString& name,
+                                     const QString& body)
+{
+    AstroFile* native = new AstroFile;
+    _aw->setupFile(native);
+    native->load(name);
+    addFile(native);
+
+    QString planet = body=="Sun"? "Solar" : body=="Moon"? "Lunar" : body;
+    if (native->data().harmonic != 1.0) {
+        planet += " H" + QString::number(native->data().harmonic);
+    }
+
+    A::PlanetId pid = A::getPlanet(body);
+
+    AstroFile* planetReturn = new AstroFile;
+    _aw->setupFile(planetReturn, true);
+
+    auto dt = A::calculateReturnTime(pid, native->data(),
+                                     planetReturn->data());
+    planetReturn->setGMT(dt);
+
+    planetReturn->setName(QString("%1 %2 Return %3")
+                          .arg(name)
+                          .arg(planet)
+                          .arg(dt.toLocalTime().date().year()));
+
+    planetReturn->setParent(this);
+
+    files[currentIndex()] << planetReturn;
+    updateTab(currentIndex());
+
+    connect(planetReturn, SIGNAL(changed(AstroFile::Members)), this, SLOT(fileUpdated(AstroFile::Members)));
+    connect(planetReturn, SIGNAL(destroyRequested()), this, SLOT(fileDestroyed()));
+    emit currentChanged(currentIndex());
+}
+
+void
 FilesBar::openTransits(int i)
 {
 Q_UNUSED(i);
 }
 
-/* =========================== MAIN WINDOW ========================================== */
+/* =========================== MAIN WINDOW ================================== */
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), Customizable()
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    Customizable()
 {
     HelpWidget* help = new HelpWidget("text/" + A::usedLanguage(), this);
 
     filesBar = new FilesBar(this);
     astroWidget = new AstroWidget(this);
+    filesBar->setAW(astroWidget);
     databaseDockWidget = new QDockWidget(this);
     astroDatabase = new AstroDatabase();
     toolBar = new QToolBar(tr("File"), this);
@@ -959,8 +1085,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), Customizable()
     addToolBar(Qt::TopToolBarArea, helpToolBar);
     addDockWidget(Qt::LeftDockWidgetArea, databaseDockWidget);
 
-    for (QDockWidget* w : astroWidget->getDockPanels())
-    {
+    for (QDockWidget* w : astroWidget->getDockPanels()) {
         addDockWidget(Qt::RightDockWidgetArea, w);
         w->hide();
         createActionForPanel(w);
@@ -969,17 +1094,32 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), Customizable()
     for (QWidget* w : astroWidget->getHoroscopeControls())
         statusBar()->addPermanentWidget(w);
 
-    connect(wdg, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(contextMenu(QPoint)));
-    connect(filesBar, SIGNAL(currentChanged(int)), this, SLOT(currentTabChanged()));
-    connect(astroDatabase, SIGNAL(openFile(const QString&)), filesBar, SLOT(openFile(const QString&)));
-    connect(astroDatabase, SIGNAL(openFileInNewTab(const QString&)), filesBar, SLOT(openFileInNewTab(const QString&)));
-    connect(astroDatabase, SIGNAL(openFileInNewTabWithTransits(const QString&)), filesBar, SLOT(openFileInNewTabWithTransits(const QString&)));
-    connect(astroDatabase, SIGNAL(openFileAsSecond(const QString&)), filesBar, SLOT(openFileAsSecond(const QString&)));
-    connect(astroWidget, SIGNAL(appendFileRequested()), filesBar, SLOT(openFileAsSecond()));
-    connect(astroWidget, SIGNAL(helpRequested(QString)), help, SLOT(searchFor(QString)));
-    connect(astroWidget, SIGNAL(swapFilesRequested(int, int)), filesBar, SLOT(swapCurrentFiles(int, int)));
-    connect(statusBar(), SIGNAL(messageChanged(QString)), help, SLOT(searchFor(QString)));
-    connect(new QShortcut(QKeySequence("CTRL+TAB"), this), SIGNAL(activated()), filesBar, SLOT(nextTab()));
+    connect(wdg, SIGNAL(customContextMenuRequested(QPoint)),
+            this, SLOT(contextMenu(QPoint)));
+    connect(filesBar, SIGNAL(currentChanged(int)),
+            this, SLOT(currentTabChanged()));
+    connect(astroDatabase, SIGNAL(openFile(const QString&)),
+            filesBar, SLOT(openFile(const QString&)));
+    connect(astroDatabase, SIGNAL(openFileInNewTab(const QString&)),
+            filesBar, SLOT(openFileInNewTab(const QString&)));
+    connect(astroDatabase, SIGNAL(openFileInNewTabWithTransits(const QString&)),
+            filesBar, SLOT(openFileInNewTabWithTransits(const QString&)));
+    connect(astroDatabase, SIGNAL(openFileAsSecond(const QString&)),
+            filesBar, SLOT(openFileAsSecond(const QString&)));
+    connect(astroWidget, SIGNAL(appendFileRequested()),
+            filesBar, SLOT(openFileAsSecond()));
+    connect(astroWidget, SIGNAL(helpRequested(QString)),
+            help, SLOT(searchFor(QString)));
+    connect(astroWidget, SIGNAL(swapFilesRequested(int, int)),
+            filesBar, SLOT(swapCurrentFiles(int, int)));
+    connect(statusBar(), SIGNAL(messageChanged(QString)),
+            help, SLOT(searchFor(QString)));
+    connect(new QShortcut(QKeySequence("CTRL+TAB"), this),
+            SIGNAL(activated()), filesBar, SLOT(nextTab()));
+    connect(astroDatabase, SIGNAL(openFileReturn(const QString&, const QString&)),
+            filesBar, SLOT(openFileReturn(const QString&, const QString&)));
+    connect(astroDatabase, SIGNAL(openFileInNewTabWithReturn(const QString&, const QString&)),
+            filesBar, SLOT(openFileInNewTabWithReturn(const QString&, const QString&)));
 
     loadSettings();
     filesBar->addNewFile();
@@ -989,7 +1129,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), Customizable()
 MainWindow*
 MainWindow::instance()
 {
-    static MainWindow* theMainWindow = NULL;
+    static MainWindow* theMainWindow = nullptr;
     if (!theMainWindow) {
         theMainWindow = new MainWindow;
     }

@@ -83,6 +83,10 @@ class AstroFile : public QObject
         double           getHarmonic()     const { return scope.inputData.harmonic; }
         QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(getTimezone() * 3600); }
 
+        void                calculate() { recalculate(); }
+
+        const A::InputData& data() const { return scope.inputData; }
+
     signals:
         void changed(AstroFile::Members);
         void destroyRequested();
