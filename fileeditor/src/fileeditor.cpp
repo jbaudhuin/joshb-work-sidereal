@@ -18,7 +18,7 @@
 
 /* =========================== ASTRO FILE EDITOR ==================================== */
 
-AstroFileEditor::AstroFileEditor (QWidget *parent) :
+AstroFileEditor::AstroFileEditor(QWidget *parent) :
     AstroFileHandler(parent),
     _inUpdate(false)
 {

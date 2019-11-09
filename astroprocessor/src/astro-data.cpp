@@ -307,18 +307,18 @@ QString
 ChartPlanetId::glyph() const
 {
     if (!isMidpt())
-        return QString(Data::getPlanet(pid).userData["fontChar"].toInt());
-    return QString(oppMidpt? 0xD1 : 0xC9)
-        + QString(Data::getPlanet(pid).userData["fontChar"].toInt())
-        + QString(Data::getPlanet(pid2).userData["fontChar"].toInt());
+        return QString(Data::getPlanet(_pid).userData["fontChar"].toInt());
+    return QString(_oppMidpt? 0xD1 : 0xC9)
+        + QString(Data::getPlanet(_pid).userData["fontChar"].toInt())
+        + QString(Data::getPlanet(_pid2).userData["fontChar"].toInt());
 }
 
 QString
 ChartPlanetId::name() const
 {
-    if (!isMidpt()) return Data::getPlanet(pid).name;
-    return Data::getPlanet(pid).name.left(3)
-        + "/" + Data::getPlanet(pid2).name.left(3);
+    if (!isMidpt()) return Data::getPlanet(_pid).name;
+    return Data::getPlanet(_pid).name.left(3)
+        + "/" + Data::getPlanet(_pid2).name.left(3);
 }
 
 void load(QString language) { Data::load(language); }

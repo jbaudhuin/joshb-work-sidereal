@@ -1,0 +1,10 @@
+[General]
+name=Olof Palme
+type=Male
+GMT=1927-01-30T04:15:00Z
+timezone=1
+lon=@Variant(\0\0\0\x87\x41\x90\x8ct)
+lat=@Variant(\0\0\0\x87\x42mQ:)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Stockholm, Sweden"
+comment=

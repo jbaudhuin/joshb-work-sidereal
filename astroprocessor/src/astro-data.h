@@ -15,6 +15,46 @@
 
 namespace A {
 
+// FIXME: move all these to Data or config or something?
+void setIncludeAscMC(bool = true);
+bool includeAscMC();
+
+void setIncludeChiron(bool = true);
+bool includeChiron();
+
+void setIncludeNodes(bool = true);
+bool includeNodes();
+
+void setIncludeMidpoints(bool = true);
+bool includeMidpoints();
+
+void setRequireAnchor(bool = true);
+bool requireAnchor();
+
+void resetPrimeFactorLimit(unsigned = 0);
+unsigned primeFactorLimit();
+
+bool isWithinPrimeFactorLimit(unsigned);
+void resetPFLCache();
+
+void setFilterFew(bool = true);
+bool filterFew();
+
+void setHarmonicsMinQuorum(unsigned);
+unsigned harmonicsMinQuorum();
+
+void setHarmonicsMinQOrb(double);
+double harmonicsMinQOrb();
+
+void setHarmonicsMaxQuorum(unsigned);
+unsigned harmonicsMaxQuorum();
+
+void setHarmonicsMaxQOrb(double);
+double harmonicsMaxQOrb();
+
+void setMaxHarmonic(int);
+unsigned maxHarmonic();
+
 
 typedef int ZodiacSignId;
 typedef int ZodiacId;
@@ -83,29 +123,57 @@ struct Zodiac {
 };
 
 struct HouseSystem {
-  HouseSystemId id;
-  QString  name;
-  char     sweCode;
-  QMap<QString, QVariant> userData;
+    HouseSystemId id;
+    QString  name;
+    char     sweCode;
+    QMap<QString, QVariant> userData;
 
-  HouseSystem() { id = Housesystem_None; }
+    HouseSystem() { id = Housesystem_None; }
+};
+
+
+struct InputData
+{
+    QDateTime      GMT;      // greenwich time & date
+    QVector3D      location; // x - longitude (-180...180);
+                             // y - latitude (-180...180), z - height
+    HouseSystemId  houseSystem;
+    ZodiacId       zodiac;
+    AspectSetId    aspectSet;
+    short          tz;
+    double         harmonic;
+
+    InputData()
+    {
+        GMT.setTimeSpec(Qt::UTC);
+        GMT.setTime_t(0);
+        location    = QVector3D(0,0,0);
+        houseSystem = Housesystem_Placidus;
+        zodiac      = Zodiac_Tropical;
+        aspectSet   = AspectSet_Default;
+        tz          = 0;
+        harmonic    = 1;
+    }
 };
 
 struct Houses
 {
-    double         cusp[12];            // angles of cuspides (0... 360)
-    double         Asc, MC, RAMC, RAAC, RADC, OAAC, ODDC, Vx, EA, startSpeculum;
-    double         halfMedium, halfImum;
+    double  cusp[12];            // angles of cuspides (0... 360)
+    double  Asc, MC, RAMC, RAAC, RADC, OAAC, ODDC;
+    double  Vx, EA, startSpeculum;
+    double  halfMedium, halfImum;
     const HouseSystem* system;
 
     Houses()
     {
         for (auto& c : cusp) c = 0;
-        system = NULL;
+        system = nullptr;
         Asc = MC = RAMC = RAAC = RADC = OAAC = ODDC, Vx = EA =
             startSpeculum = 0;
         halfMedium = halfImum = 0;
     }
+
+    Houses(const InputData& id);
 };
 
 struct Star
@@ -131,14 +199,15 @@ struct Star
     bool            isConfiguredWithPlanet() const
     { return configuredWithPlanet != Planet_None; }
 
-    QPointF        horizontalPos;       // x - azimuth (0... 360), y - height (0... 360)
-    QPointF        eclipticPos;         // x - longitude (0... 360), y - latitude (0... 360)
-    QPointF        equatorialPos;       // x - rectascension, y - declination
-    double         distance;            // A.U. (astronomical units)
-    qreal          pvPos;
-    int            house;
+    QPointF horizontalPos;       // x - azimuth (0... 360), y - height (0... 360)
+    QPointF eclipticPos;         // x - longitude (0... 360), y - latitude (0... 360)
+    QPointF equatorialPos;       // x - rectascension, y - declination
+    double  distance;            // A.U. (astronomical units)
+    qreal   pvPos;
+    int     house;
 
-    Star() : angleTransit(4) {
+    Star() : angleTransit(4)
+    {
         id = Planet_None;
         configuredWithPlanet = Planet_None;
         horizontalPos = QPoint(0,0);
@@ -163,97 +232,97 @@ struct Star
 
 struct PlanetPower
 {
-  int            dignity;
-  int            deficient;
+  int            dignity = 0;
+  int            deficient = 0;
 
-  PlanetPower() { dignity = 0;
-                  deficient = 0; }
+  PlanetPower() { }
 };
 
-enum PlanetPosition { Position_Normal,
-                      Position_Exaltation,
-                      Position_Dwelling,
-                      Position_Downfall,
-                      Position_Exile };
+enum PlanetPosition {
+    Position_Normal,
+    Position_Exaltation,
+    Position_Dwelling,
+    Position_Downfall,
+    Position_Exile
+};
 
 struct Planet : public Star
 {
-  int            sweNum;
-  bool           isReal;
-  QVector2D      defaultEclipticSpeed;
-  QList<ZodiacSignId> homeSigns,
-                 exaltationSigns,
-                 exileSigns,
-                 downfallSigns;
+    int                 sweNum = 0;
+    bool                isReal = false;
+    QVector2D           defaultEclipticSpeed = QVector2D(0,0);
+    QList<ZodiacSignId> homeSigns, exaltationSigns, exileSigns, downfallSigns;
 
-  QVector2D      eclipticSpeed;       // x - longitude speed (degree/day)
-  QVector2D      equatorialSpeed;
-  PlanetPosition position;
-  PlanetPower    power;
-  const ZodiacSign* sign;
-  int            houseRuler;
+    QVector2D           eclipticSpeed = QVector2D(0,0);  // dx - (degree/day)
+    QVector2D           equatorialSpeed = QVector2D(0,0);
 
-  Planet() { sweNum = 0;
-             isReal = false;
-             eclipticSpeed = equatorialSpeed = QVector2D(0,0);
-             position = Position_Normal;
-             sign = 0;
-             houseRuler = 0; }
+    double              elongation = 0.0;
+    double              phaseAngle = 0.0;
+    PlanetPosition      position = Position_Normal;
+    PlanetPower         power;
+    const ZodiacSign  * sign = nullptr;
+    int                 houseRuler = 0;
 
-  operator Planet*() { return this; }
-  operator const Planet*() const { return this; }
+    Planet() { }
 
-  PlanetId      getPlanetId() const { return id; }
-  virtual int   getSWENum() const { return sweNum; }
-  virtual bool  isStar() const { return false; }
-  //virtual bool  isAsteroid() const { return false; }
-  virtual bool  isPlanet() const { return true; }
+    operator Planet*() { return this; }
+    operator const Planet*() const { return this; }
 
-  bool operator==(const Planet & other) const
-  { return this->id == other.id && this->eclipticPos == other.eclipticPos; }
-  bool operator!=(const Planet & other) const
-  { return this->id != other.id || this->eclipticPos != other.eclipticPos; }
+    PlanetId            getPlanetId() const { return id; }
+    virtual int         getSWENum() const { return sweNum; }
+    virtual bool        isStar() const { return false; }
+    //virtual bool      isAsteroid() const { return false; }
+    virtual bool        isPlanet() const { return true; }
+
+    bool operator==(const Planet & other) const
+    { return this->id == other.id && this->eclipticPos == other.eclipticPos; }
+    bool operator!=(const Planet & other) const
+    { return this->id != other.id || this->eclipticPos != other.eclipticPos; }
 };
 
 //struct AspectsSet;
 
 struct AspectType {
-  AspectId id;
-  const struct AspectsSet* set;
-  QString  name;
-  float    angle;
-  float    orb;
-  QMap<QString, QVariant> userData;
+    AspectId id;
+    const struct AspectsSet* set;
+    QString  name;
+    float    angle;
+    float    orb;
+    QMap<QString, QVariant> userData;
 
-  AspectType() { id = Aspect_None;
-                 set = 0;
-                 angle = 0;
-                 orb = 0; }
+    AspectType() :
+        id(Aspect_None),
+        set(nullptr),
+        angle(0),
+        orb(0)
+    { }
 };
 
 struct Aspect {
-  const AspectType* d;
-  const Planet* planet1;
-  const Planet* planet2;
-  float         angle;
-  float         orb;
-  bool          applying;
+    const AspectType* d;
+    const Planet* planet1;
+    const Planet* planet2;
+    float         angle;
+    float         orb;
+    bool          applying;
 
-  Aspect()    { planet1 = nullptr;
-                planet2 = nullptr;
-                angle   = 0;
-                orb     = 0;
-                d       = nullptr;
-                applying  = false; }
+    Aspect() :
+        d(nullptr),
+        planet1(nullptr),
+        planet2(nullptr),
+        angle(0),
+        orb(0),
+        applying(false)
+    { }
 };
 
 struct AspectsSet {
-  AspectSetId id;
-  QString name;
-  QMap<AspectId, AspectType> aspects;
-  bool isEmpty() const { return aspects.isEmpty(); }
+    AspectSetId id;
+    QString name;
+    QMap<AspectId, AspectType> aspects;
+    bool isEmpty() const { return aspects.isEmpty(); }
 
-  AspectsSet() { id = AspectSet_Default; }
+    AspectsSet() { id = AspectSet_Default; }
 };
 
 
@@ -298,88 +367,43 @@ public:
     static const AspectsSet& tightConjunction();
 };
 
-class ChartPlanetId;
-
-void load(QString language);
-QString usedLanguage();
-const Planet& getPlanet(PlanetId pid);
-PlanetId getPlanet(const QString& name);
-QString getPlanetName(const ChartPlanetId& id);
-QString getPlanetGlyph(const ChartPlanetId& id);
-QList<PlanetId> getPlanets();
-const Star& getStar(const QString& name);
-QList<QString> getStars();
-const HouseSystem& getHouseSystem(HouseSystemId id);
-const Zodiac& getZodiac(ZodiacId id);
-const QList<HouseSystem> getHouseSystems();
-const QList<Zodiac> getZodiacs();
-//const QList<AspectType> getAspects(AspectSetId set);
-const AspectType& getAspect(AspectId id, const AspectsSet& set);
-QList<AspectsSet> getAspectSets();
-const AspectsSet& getAspectSet(AspectSetId set);
-const AspectsSet&  topAspectSet();
-const AspectsSet& tightConjunction();
-
-
-struct InputData
-{
-  QDateTime      GMT;                 // greenwich time & date
-  QVector3D      location;            // x - longitude (-180...180); y - latitude (-180...180), z - height
-  HouseSystemId  houseSystem;
-  ZodiacId       zodiac;
-  AspectSetId    aspectSet;
-  short          tz;
-  double         harmonic;
-
-  InputData() {
-      GMT.setTimeSpec(Qt::UTC);
-      GMT.setTime_t(0);
-      location    = QVector3D(0,0,0);
-      houseSystem = Housesystem_Placidus;
-      zodiac      = Zodiac_Tropical;
-      aspectSet   = AspectSet_Default;
-      tz          = 0;
-      harmonic    = 1;
-  }
-};
-
 class ChartPlanetId {
-    int fid;
-    bool oppMidpt;
-    PlanetId pid, pid2;
+    int _fid;
+    PlanetId _pid, _pid2;
+    bool _oppMidpt;
 
 public:
     ChartPlanetId(PlanetId planetId = Planet_None,
                   PlanetId planetId2 = Planet_None) :
-        fid(0), pid(planetId), pid2(planetId2), oppMidpt(false)
+        _fid(0), _pid(planetId), _pid2(planetId2), _oppMidpt(false)
     {
-        if (pid2 != Planet_None && pid > pid2) {
-            oppMidpt = true;
-            std::swap(pid, pid2);
+        if (_pid2 != Planet_None && _pid > _pid2) {
+            _oppMidpt = true;
+            std::swap(_pid, _pid2);
         }
     }
 
     ChartPlanetId(int fileId, PlanetId planetId, PlanetId planetId2) :
-        fid(fileId), pid(planetId), pid2(planetId2), oppMidpt(false)
+        _fid(fileId), _pid(planetId), _pid2(planetId2), _oppMidpt(false)
     {
-        if (pid2 != Planet_None && pid > pid2) {
-            oppMidpt = true;
-            std::swap(pid, pid2);
+        if (_pid2 != Planet_None && _pid > _pid2) {
+            _oppMidpt = true;
+            std::swap(_pid, _pid2);
         }
     }
 
     QString name() const;
     QString glyph() const;
 
-    bool isMidpt() const { return pid2 != Planet_None; }
-    bool isOppMidpt() const { return isMidpt() && oppMidpt; }
+    bool isMidpt() const { return _pid2 != Planet_None; }
+    bool isOppMidpt() const { return isMidpt() && _oppMidpt; }
     bool isSolo() const { return !isMidpt(); }
 
     bool operator==(const ChartPlanetId& cpid) const
-    { return fid == cpid.fid && pid == cpid.pid && pid2 == cpid.pid2; }
+    { return _fid == cpid._fid && _pid == cpid._pid && _pid2 == cpid._pid2; }
 
     bool operator!=(const ChartPlanetId& cpid) const
-    { return fid != cpid.fid || pid != cpid.pid || pid2 != cpid.pid2; }
+    { return _fid != cpid._fid || _pid != cpid._pid || _pid2 != cpid._pid2; }
 
     bool operator<(const ChartPlanetId& cpid) const
     {
@@ -392,19 +416,19 @@ public:
 #else
         // this version sorts by file, single planets, conjoined midpoints,
         // and lastly opposing midpoints.
-        if (fid < cpid.fid) return true;
-        if (fid > cpid.fid) return false;
+        if (_fid < cpid._fid) return true;
+        if (_fid > cpid._fid) return false;
         if (isMidpt() < cpid.isMidpt()) return true;
         if (isMidpt() > cpid.isMidpt()) return false;
         if (isMidpt()) {
-            if (oppMidpt < cpid.oppMidpt) return true;
-            if (oppMidpt > cpid.oppMidpt) return false;
+            if (_oppMidpt < cpid._oppMidpt) return true;
+            if (_oppMidpt > cpid._oppMidpt) return false;
         }
-        if (pid < cpid.pid) return true;
-        if (pid > cpid.pid) return false;
+        if (_pid < cpid._pid) return true;
+        if (_pid > cpid._pid) return false;
         if (isMidpt()) {
-            if (pid2 < cpid.pid2) return true;
-            if (pid2 > cpid.pid2) return false;
+            if (_pid2 < cpid._pid2) return true;
+            if (_pid2 > cpid._pid2) return false;
         }
         return false;
 #endif
@@ -413,20 +437,36 @@ public:
     bool operator<=(const ChartPlanetId& cpid) const 
     { return operator==(cpid) || operator<(cpid); }
 
-    int fileId() const { return fid; }
-    PlanetId planetId() const { return pid; }
-    ChartPlanetId chartPlanetId1() const { return ChartPlanetId(fid, pid, Planet_None); }
-    PlanetId planetId2() const { return pid2; }
-    ChartPlanetId chartPlanetId2() const { return ChartPlanetId(fid, pid2, Planet_None); }
+    int fileId() const { return _fid; }
+    PlanetId planetId() const { return _pid; }
 
-    bool operator==(PlanetId p) const { return pid == p && (isSolo() || pid2 == p); }
-    bool operator!=(PlanetId p) const { return pid != p && (isSolo() || pid2 != p); }
-    bool operator<(PlanetId p) const { return pid < p && (isSolo() || pid2 < p); }
-    bool operator>(PlanetId p) const { return pid > p && (isSolo() || pid2 > p); }
-    bool operator<=(PlanetId p) const { return pid <= p && (isSolo() || pid2 <= p); }
-    bool operator>=(PlanetId p) const { return pid >= p && (isSolo() || pid2 >= p); }
+    ChartPlanetId chartPlanetId1() const
+    { return ChartPlanetId(_fid, _pid, Planet_None); }
 
-    operator PlanetId() const { return pid; }
+    PlanetId planetId2() const { return _pid2; }
+
+    ChartPlanetId chartPlanetId2() const
+    { return ChartPlanetId(_fid, _pid2, Planet_None); }
+
+    bool operator==(PlanetId p) const
+    { return _pid == p && (isSolo() || _pid2 == p); }
+
+    bool operator!=(PlanetId p) const
+    { return _pid != p && (isSolo() || _pid2 != p); }
+
+    bool operator<(PlanetId p) const
+    { return _pid < p && (isSolo() || _pid2 < p); }
+
+    bool operator>(PlanetId p) const
+    { return _pid > p && (isSolo() || _pid2 > p); }
+
+    bool operator<=(PlanetId p) const
+    { return _pid <= p && (isSolo() || _pid2 <= p); }
+
+    bool operator>=(PlanetId p) const
+    { return _pid >= p && (isSolo() || _pid2 >= p); }
+
+    operator PlanetId() const { return _pid; }
 };
 
 class samePlanet {
@@ -558,14 +598,14 @@ public:
         if (empty() && other.empty()) return false;
         for (auto thit = cbegin(), othit = other.cbegin();
              thit != cend() && othit != other.cend();
-             ++thit, ++othit) {
+             ++thit, ++othit)
+        {
             if (thit->first < othit->first) return true;
             if (thit->first > othit->first) return false;
             if (thit->second < othit->second) return true;
             if (thit->second > othit->second) return false;
         }
-        if (size() < other.size()) return true;
-        return false;
+        return (size() < other.size());
     }
 
     bool contains(const ChartPlanetBitmap& other) const
@@ -585,8 +625,10 @@ public:
     static value_type planetBit(const ChartPlanetId& cpid)
     {
         return value_type(cpid.fileId(),
-               (1 << (maxShift() - cpid.planetId()))
-               | (cpid.isSolo()? 0 : (1 << (maxShift() - cpid.planetId2()))));
+                          (1 << (maxShift() - cpid.planetId()))
+                          | (cpid.isSolo()? 0
+                                          : (1 << (maxShift()
+                                                   - cpid.planetId2()))));
     }
 
     static ChartPlanetId cpid(const value_type& val)
@@ -625,38 +667,139 @@ public:
 
 typedef QMap<ChartPlanetId, Planet> ChartPlanetMap;
 
-struct PlanetLoc {
-    ChartPlanetId planet;
+struct Loc {
     qreal loc;
+    qreal speed;
+    static double RAMC;
+    Loc(qreal l = 0, qreal s = 0) : loc(l), speed(s) { }
+    virtual ~Loc() { }
+    virtual qreal defaultSpeed() const { return 0; }
+    virtual qreal operator()(double /*jd*/) { return loc; }
+};
+
+struct PlanetLoc : public Loc {
+    ChartPlanetId planet;
 
 #if 1
-    PlanetLoc(int fid, PlanetId p, qreal l) :
-        planet(fid, p, Planet_None), loc(l)
+    PlanetLoc(int fid, PlanetId p, qreal l, qreal s = 0) :
+        Loc(l,s), planet(fid, p, Planet_None)
     { }
-    PlanetLoc(int fid, PlanetId p, PlanetId p2, qreal l) :
-        planet(fid, p, p2), loc(l)
+    PlanetLoc(int fid, PlanetId p, PlanetId p2, qreal l, qreal s = 0) :
+        Loc(l,s), planet(fid, p, p2)
     { }
 #endif
-    PlanetLoc(ChartPlanetId p = 0, qreal l = 0.0) :
-        planet(p), loc(l)
+    PlanetLoc(ChartPlanetId p = 0, qreal l = 0.0, qreal s = 0) :
+        Loc(l,s), planet(p)
     { }
 
     PlanetLoc(const PlanetLoc& other) :
-        planet(other.planet), loc(other.loc)
+        Loc(other.loc), planet(other.planet)
     { }
 
     PlanetLoc& operator==(const PlanetLoc& other)
     { planet = other.planet; loc = other.loc; return *this; }
+
+    virtual bool inMotion() const { return false; }
 
     bool operator<(const PlanetLoc& other) const
     { return loc < other.loc || (loc == other.loc && planet < other.planet); }
 
     bool operator==(const PlanetLoc& other) const
     { return loc == other.loc && planet == other.planet; }
+
+    qreal compute(const InputData& ida);
+    qreal compute(const InputData& ida, double jd);
+
+    virtual qreal defaultSpeed() const;
 };
+
+class NatalPosition : public PlanetLoc {
+public:
+    NatalPosition(const ChartPlanetId& cpid,
+                  const InputData& ida) :
+        PlanetLoc(cpid)
+    { compute(ida); speed = 0; }
+};
+
+class TransitPosition : public PlanetLoc {
+    InputData _ida;
+
+public:
+    TransitPosition(const ChartPlanetId& cpid,
+                    const InputData& ida) :
+        PlanetLoc(cpid),
+        _ida(ida)
+    { }
+
+    bool inMotion() const override { return true; }
+
+    qreal operator()(double jd) override { return compute(_ida, jd); }
+};
+
+class PlanetProfile :
+        public Loc,
+        public std::vector<PlanetLoc*>
+{
+public:
+    typedef std::vector<PlanetLoc*> Base;
+    using Base::Base;
+
+    virtual ~PlanetProfile() { qDeleteAll(*this); }
+
+    qreal defaultSpeed() const
+    {
+        // FIXME should base on synodic cycle? Compounded, this
+        // could be a high value, but harmonically, it will be rather
+        // less
+        int i = 0;
+        qreal spd = 0;
+        for (auto& pl : *this) {
+            if (pl->inMotion()) {
+                ++i;
+                spd += pl->defaultSpeed();
+            }
+        }
+        return i>1? spd/float(i) : spd;
+    }
+
+    qreal speed() const { return Loc::speed; }
+
+    qreal computeSpread(double jd)
+    { return fabs(computePos(jd)); }
+
+    qreal computePos(double jd);
+
+    qreal operator()(double jd) { return computePos(jd); }
+};
+
 
 typedef std::set<PlanetLoc> PlanetRange;
 typedef std::list<PlanetLoc> PlanetQueue;
+
+inline qreal getLoc(const Loc& loc) { return loc.loc; }
+inline qreal getLoc(const Loc* loc) { return loc->loc; }
+
+template <typename T>
+qreal
+getSpread(const T& range)
+{
+    qreal lo = getLoc(*range.cbegin());
+    qreal hi = getLoc(*range.crbegin());
+    if (hi - lo > A::harmonicsMaxQOrb()) {
+        auto lit = range.cbegin();
+        while (++lit != range.cend()) {
+            if (getLoc(*lit) - lo > A::harmonicsMaxQOrb()) {
+                hi = lo;
+                lo = getLoc(*lit);
+                break;
+            } else {
+                lo = getLoc(*lit);
+            }
+        }
+    }
+    qreal ret = qAbs(hi - lo);
+    return ret>180? 360-ret : ret;
+}
 
 class PlanetGroups : public std::map<PlanetSet, PlanetRange> {
 public:
@@ -667,7 +810,7 @@ public:
                              PlanetSet& plist)
     {
         plist.clear();
-        foreach (const PlanetLoc& loc, planets) 
+        for (const PlanetLoc& loc : planets)
             plist.insert(loc.planet);
     }
 
@@ -709,7 +852,7 @@ struct Horoscope
     ChartPlanetMap getOrigChartPlanets(int fileId) const
     {
         ChartPlanetMap ret;
-        foreach (PlanetId pid, planetsOrig.keys()) {
+        for (PlanetId pid : planetsOrig.keys()) {
             ret.insert(ChartPlanetId(fileId, pid, Planet_None), 
                        planetsOrig[pid]);
         }
@@ -717,44 +860,25 @@ struct Horoscope
     }
 };
 
-void setIncludeAscMC(bool = true);
-bool includeAscMC();
-
-void setIncludeChiron(bool = true);
-bool includeChiron();
-
-void setIncludeNodes(bool = true);
-bool includeNodes();
-
-void setIncludeMidpoints(bool = true);
-bool includeMidpoints();
-
-void setRequireAnchor(bool = true);
-bool requireAnchor();
-
-void resetPrimeFactorLimit(unsigned = 0);
-unsigned primeFactorLimit();
-
-bool isWithinPrimeFactorLimit(unsigned);
-void resetPFLCache();
-
-void setFilterFew(bool = true);
-bool filterFew();
-
-void setHarmonicsMinQuorum(unsigned);
-unsigned harmonicsMinQuorum();
-
-void setHarmonicsMinQOrb(double);
-double harmonicsMinQOrb();
-
-void setHarmonicsMaxQuorum(unsigned);
-unsigned harmonicsMaxQuorum();
-
-void setHarmonicsMaxQOrb(double);
-double harmonicsMaxQOrb();
-
-void setMaxHarmonic(int);
-unsigned maxHarmonic();
+void load(QString language);
+QString usedLanguage();
+const Planet& getPlanet(PlanetId pid);
+PlanetId getPlanet(const QString& name);
+QString getPlanetName(const ChartPlanetId& id);
+QString getPlanetGlyph(const ChartPlanetId& id);
+QList<PlanetId> getPlanets();
+const Star& getStar(const QString& name);
+QList<QString> getStars();
+const HouseSystem& getHouseSystem(HouseSystemId id);
+const Zodiac& getZodiac(ZodiacId id);
+const QList<HouseSystem> getHouseSystems();
+const QList<Zodiac> getZodiacs();
+//const QList<AspectType> getAspects(AspectSetId set);
+const AspectType& getAspect(AspectId id, const AspectsSet& set);
+QList<AspectsSet> getAspectSets();
+const AspectsSet& getAspectSet(AspectSetId set);
+const AspectsSet&  topAspectSet();
+const AspectsSet& tightConjunction();
 
 } // namespace
 

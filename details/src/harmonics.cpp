@@ -42,26 +42,6 @@ bool _includeOvertones = true;
 bool includeOvertones() { return _includeOvertones; }
 void setIncludeOvertones(bool b = true) { _includeOvertones = b; }
 
-qreal
-getSpread(const A::PlanetRange& range)
-{
-    qreal lo = range.cbegin()->loc;
-    qreal hi = range.crbegin()->loc;
-    if (hi - lo > A::harmonicsMaxQOrb()) {
-        auto lit = range.cbegin();
-        while (++lit != range.cend()) {
-            if (lit->loc - lo > A::harmonicsMaxQOrb()) {
-                hi = lo;
-                lo = lit->loc;
-                break;
-            } else {
-                lo = lit->loc;
-            }
-        }
-    }
-    return A::angle(lo, hi);
-}
-
 QVariant
 getFactors(int h)
 {
@@ -504,7 +484,7 @@ Harmonics::clickedCell(const QModelIndex& inx)
             val = "H" + v.toString();
         } else {
             val = inx.data(Qt::DisplayRole).toString();
-            double d;
+            double d(0);
             bool ok;
             val = val.split(":").first();
             if (val.startsWith("H")
@@ -714,14 +694,15 @@ Harmonics::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Harmonics/includeChiron", tr("Include Chiron"));
     ed->addCheckBox("Harmonics/includeNodes", tr("Include Nodes"));
 
-    auto over = ed->addCheckBox("Harmonics/includeOvertones",
-                                tr("Include Overtones"));
+    ed->addCheckBox("Harmonics/includeOvertones",
+                    tr("Include Overtones"));
 
     auto mpt = ed->addCheckBox("Harmonics/includeMidpoints", 
                                tr("Include Midpoints"));
     auto anchor = ed->addCheckBox("Harmonics/requireMidpointAnchor", 
                                   tr("Require midpoint anchor"));
-    connect(mpt, SIGNAL(toggled(bool)), anchor, SLOT(setEnabled(bool)));
+    connect(mpt, &QAbstractButton::toggled,
+            [anchor](bool b) { anchor->setEnabled(b); });
 
     ed->addCheckBox("Harmonics/filterFew", 
                     tr("Filter planet subsets [abc w/o ab]"));

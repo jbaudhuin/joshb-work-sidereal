@@ -1,0 +1,10 @@
+[General]
+name=Roman Polanski
+type=Male
+GMT=1933-08-18T09:30:00Z
+timezone=1
+lon=@Variant(\0\0\0\x87@\x16\x8a\xce)
+lat="@Variant(\0\0\0\x87\x42\x43m,)"
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Paris, France"
+comment="AA; Coll: Geslain"

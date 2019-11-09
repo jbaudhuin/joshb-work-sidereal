@@ -169,7 +169,6 @@ class FilesBar : public QTabBar
 
 private:
     bool askToSave;
-    AstroWidget* _aw;
     QList<AstroFileList> files;
 
     void updateTab(int index);
@@ -198,7 +197,6 @@ public slots:
 public:
     FilesBar(QWidget *parent = 0);
 
-    void setAW(AstroWidget* aw) { _aw = aw; }
     void addFile(AstroFile* file);
     void setAskToSave(bool b) { askToSave = b; }
     const AstroFileList& currentFiles()

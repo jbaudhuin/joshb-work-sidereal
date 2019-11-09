@@ -18,7 +18,7 @@ HEADERS +=\
     include/Astroprocessor/Calc \
     src/csvreader.h
 
-INCLUDEPATH += ../swe
+INCLUDEPATH += ../swe ../../boost_1_71_0
 
 TRANSLATIONS = ../bin/i18n/astroprocessor_ru.ts \
                ../bin/i18n/astroprocessor_en.ts

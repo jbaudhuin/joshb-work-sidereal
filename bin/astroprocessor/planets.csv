@@ -1,21 +1,21 @@
 ﻿id;name;name_ru;sweNum;sweFlags;defaultSpeed;isReal;homeSigns;exaltationSigns;exileSigns;downfallSigns;icon;iconHuge;fontChar;color;shapeColor
-0;Sun;Солнце;0;272;0.985585;1;Leo;Ari;Aqu;Lib;images/planets-mini/sun.png;images/planets/sun.png;93;#ff7624;#843e15
-1;Moon;Луна;1;272;13.1783;1;Can;Tau;Cap;Sco;images/planets-mini/moon.png;images/planets/moon-%1.png;95;#9fdddf;#3fbed5
-2;Mercury;Меркурий;2;272;1.21739;1;Gem;Vir;Sag;Pis;images/planets-mini/mercury.png;images/planets/mercury.png;97;#d3f2ec;#72827f
-3;Venus;Венера;3;272;1.03997;1;Tau,Lib;Pis;Ari,Sco;Vir;images/planets-mini/venus.png;images/planets/venus.png;99;#dedbab;#696851
-4;Mars;Марс;4;272;0.565364;1;Ari,Sco;Cap;Lib,Tau;Can;images/planets-mini/mars.png;images/planets/mars.png;103;#ff0000;#7c0000
-5;Jupiter;Юпитер;5;272;0.133515;1;Sag,Pis;Can;Gem,Vir;Cap;images/planets-mini/jupiter.png;images/planets/jupiter.png;106;#ff3c00;#7a2207
-6;Saturn;Сатурн;6;272;0.0692364;1;Cap,Aqu;Lib;Can,Leo;Ari;images/planets-mini/saturn.png;images/planets/saturn.png;108;#dedbab;#696851
-7;Uranus;Уран;7;272;0.0337821;1;Aqu,Cap;Sco;Leo,Can;Tau;images/planets-mini/uranus.png;images/planets/uranus.png;111;#d3f2ec;#72827f
-8;Neptune;Нептун;8;272;0.0213086;1;Pis;Aqu;Vir;Gem;images/planets-mini/neptune.png;images/planets/neptune.png;114;#0280c4;#18353f
-9;Pluto;Плутон;9;272;0.015883;1;Sco,Ari;Leo;Tau,Lib;Aqu;images/planets-mini/pluto.png;images/planets/pluto.png;119;#0280c4;#18353f
+0;Sun;Солнце;0;272;0.985556;1;Leo;Ari;Aqu;Lib;images/planets-mini/sun.png;images/planets/sun.png;93;#ff7624;#843e15
+1;Moon;Луна;1;272;13.17639;1;Can;Tau;Cap;Sco;images/planets-mini/moon.png;images/planets/moon-%1.png;95;#9fdddf;#3fbed5
+2;Mercury;Меркурий;2;272;1.383333;1;Gem;Vir;Sag;Pis;images/planets-mini/mercury.png;images/planets/mercury.png;97;#d3f2ec;#72827f
+3;Venus;Венера;3;272;1.2;1;Tau,Lib;Pis;Ari,Sco;Vir;images/planets-mini/venus.png;images/planets/venus.png;99;#dedbab;#696851
+4;Mars;Марс;4;272;0.524167;1;Ari,Sco;Cap;Lib,Tau;Can;images/planets-mini/mars.png;images/planets/mars.png;103;#ff0000;#7c0000
+5;Jupiter;Юпитер;5;272;0.083056;1;Sag,Pis;Can;Gem,Vir;Cap;images/planets-mini/jupiter.png;images/planets/jupiter.png;106;#ff3c00;#7a2207
+6;Saturn;Сатурн;6;272;0.033611;1;Cap,Aqu;Lib;Can,Leo;Ari;images/planets-mini/saturn.png;images/planets/saturn.png;108;#dedbab;#696851
+7;Uranus;Уран;7;272;0.011667;1;Aqu,Cap;Sco;Leo,Can;Tau;images/planets-mini/uranus.png;images/planets/uranus.png;111;#d3f2ec;#72827f
+8;Neptune;Нептун;8;272;0.006667;1;Pis;Aqu;Vir;Gem;images/planets-mini/neptune.png;images/planets/neptune.png;114;#0280c4;#18353f
+9;Pluto;Плутон;9;272;0.004167;1;Sco,Ari;Leo;Tau,Lib;Aqu;images/planets-mini/pluto.png;images/planets/pluto.png;119;#0280c4;#18353f
 10;N. Node;Сев. узел;11;272;;0;;;;;images/planets-mini/nnode.png;images/planets/nnode.png;8221;#6fb69f;#345349
 11;S. Node;Южн. узел;11;262416;;0;;;;;images/planets-mini/snode.png;images/planets/snode.png;8211;#6fb69f;#345349
-12;Chiron;Хирон;15;272;;0;;;;;images/planets-mini/chiron.png;;120;;
-13;Ceres;Церера;17;272;;0;;;;;images/planets-mini/ceres.png;;122;;
-14;Pallas;Паллада;18;272;;0;;;;;images/planets-mini/pallas.png;;124;;
-15;Juno;Юнона;19;272;;0;;;;;images/planets-mini/juno.png;;123;;
-16;Vesta;Веста;20;272;;0;;;;;images/planets-mini/vesta.png;;125;;
+12;Chiron;Хирон;15;272;0.033333;1;;;;;images/planets-mini/chiron.png;;120;;
+13;Ceres;Церера;17;272;0.211111;1;;;;;images/planets-mini/ceres.png;;122;;
+14;Pallas;Паллада;18;272;0.205556;1;;;;;images/planets-mini/pallas.png;;124;;
+15;Juno;Юнона;19;272;0.2375;1;;;;;images/planets-mini/juno.png;;123;;
+16;Vesta;Веста;20;272;0.270833;1;;;;;images/planets-mini/vesta.png;;125;;
 17;Proserpina;Прозерпина;57;272;;0;;;;;images/planets-mini/proserpina.png;;8482;;
 18;Selena;Селена;56;272;;0;;;;;images/planets-mini/selena.png;;732;;
 19;Lilith;Лилит;12;272;;0;;;;;images/planets-mini/lilith.png;;732;#883ae0;#391c60

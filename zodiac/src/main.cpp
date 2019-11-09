@@ -11,27 +11,52 @@
 #include <QSslSocket>
 
 void loadTranslations(QApplication* a, QString lang)
- {
-  QDir dir("i18n");
-  foreach (QString s, dir.entryList(QStringList("*" + lang + ".qm")))
-   {
-    QTranslator* t = new QTranslator;
-    qDebug() << "load translation file" << s << ":"
+{
+    QDir dir("i18n");
+    foreach (QString s, dir.entryList(QStringList("*" + lang + ".qm")))
+    {
+        QTranslator* t = new QTranslator;
+        qDebug() << "load translation file" << s << ":"
                  << (t->load(dir.absolutePath() + '/' + s) ? "success" : "failed");
-    a->installTranslator(t);
-   }
- }
+        a->installTranslator(t);
+    }
+}
 
 #if (QT_VERSION < QT_VERSION_CHECK(5, 2, 0))
 void emptyOutput ( QtMsgType type, const char *msg )
 #else
-void emptyOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+void emptyOutput(QtMsgType type,
+                 const QMessageLogContext &context,
+                 const QString &msg)
 #endif
- {
+{
     Q_UNUSED(type);
     Q_UNUSED(context);
     Q_UNUSED(msg);
- }
+}
+
+namespace {
+void
+zodOutputHandler(QtMsgType type,
+                 const QMessageLogContext& cxt,
+                 const QString& msg)
+{
+    Q_UNUSED(type);
+    Q_UNUSED(cxt);
+    if (!msg.startsWith("Invalid paameter")) {
+    fprintf(stderr, "%s", msg.toLatin1().constData());
+    }
+}
+
+void my_invalid_parameter(const wchar_t * expression,
+   const wchar_t * function,
+   const wchar_t * file,
+   unsigned int line,
+   uintptr_t pReserved)
+{
+
+}
+}
 
 int main(int argc, char *argv[])
 {
@@ -40,18 +65,27 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
     a.setApplicationName("Zodiac");
     a.setApplicationVersion("v0.8.1 (build 2019-02-08)");
-    qDebug() << "SSL version use for build: " << QSslSocket::sslLibraryBuildVersionString();
-    qDebug() << "SSL version use for run-time: " << QSslSocket::sslLibraryVersionString();
-    qDebug() << QCoreApplication::libraryPaths();
+
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_WNDW);
+
+    //auto foo = _get_invalid_parameter_handler();
+    //auto fum = _set_invalid_parameter_handler((_invalid_parameter_handler) my_invalid_parameter);
+    //auto fie = _set_thread_local_invalid_parameter_handler((_invalid_parameter_handler) my_invalid_parameter);
 
 #if (QT_VERSION < QT_VERSION_CHECK(5, 2, 0))
     QTextCodec* codec = QTextCodec::codecForName ( "UTF-8" );
     QTextCodec::setCodecForCStrings ( codec );
     QTextCodec::setCodecForTr ( codec );
     qInstallMsgHandler (emptyOutput);
+#elif defined(_ZOD_DEBUG)
+    //qInstallMessageHandler(zodOutputHandler);
 #else
-    //qInstallMessageHandler(emptyOutput);
+    qInstallMessageHandler(emptyOutput);
 #endif
+
+    qDebug() << "SSL version use for build: " << QSslSocket::sslLibraryBuildVersionString();
+    qDebug() << "SSL version use for run-time: " << QSslSocket::sslLibraryVersionString();
+    qDebug() << QCoreApplication::libraryPaths();
 
     //QDir::setCurrent(a.applicationDirPath());
     QString lang = "";

@@ -5,14 +5,34 @@
 #undef UCHAR
 #undef forward
 
+#define min min
+
 #include <math.h>
 #include <tuple>
+
+#include <boost/math/tools/minima.hpp>
+#include <boost/math/tools/roots.hpp>
 
 #include "astro-calc.h"
 #include <swephexp.h>
 #include <swehouse.h>
 
 namespace A {
+
+template <typename T> inline constexpr
+int sgn(T x, std::false_type is_signed) {
+    return T(0) < x;
+}
+
+template <typename T> inline constexpr
+int sgn(T x, std::true_type is_signed) {
+    return (T(0) < x) - (x < T(0));
+}
+
+template <typename T> inline constexpr
+int sgn(T x) {
+    return sgn(x, std::is_signed<T>());
+}
 
 aspectModeType aspectMode(amcEcliptic);
 
@@ -35,6 +55,13 @@ double getJulianDate(QDateTime GMT, bool ephemerisTime/*=false*/)
     return ret[ephemerisTime ? 0 : 1]; // ET or UT
 }
 
+inline
+qreal
+harmonic(double h, qreal value)
+{
+    return fmod(value*h,360.);
+}
+
 float roundDegree(float deg)
 {
     deg = deg - ((int)(deg / 360)) * 360;
@@ -42,7 +69,9 @@ float roundDegree(float deg)
     return deg;
 }
 
-const ZodiacSign& getSign(float deg, const Zodiac& zodiac)
+const
+ZodiacSign&
+getSign(float deg, const Zodiac& zodiac)
 {
     for (const ZodiacSign& s : zodiac.signs)
         if (s.startAngle <= deg && s.endAngle > deg)
@@ -50,7 +79,8 @@ const ZodiacSign& getSign(float deg, const Zodiac& zodiac)
     return zodiac.signs[zodiac.signs.count() - 1];
 }
 
-int getHouse(const Houses& houses, float deg)
+int
+getHouse(const Houses& houses, float deg)
 {
     for (int i = 0; i <= 10; i++)
         if ((deg >= houses.cusp[i] && deg < houses.cusp[i + 1])
@@ -64,7 +94,8 @@ int getHouse(const Houses& houses, float deg)
     return 12;
 }
 
-int getHouse(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
+int
+getHouse(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
 {
     if (sign == Sign_None) return 0;
 
@@ -75,7 +106,8 @@ int getHouse(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
     return 0;
 }
 
-float angle(const Star& body1, const Star& body2)
+float
+angle(const Star& body1, const Star& body2)
 {
     switch (aspectMode) {
     case amcGreatCircle:
@@ -125,19 +157,22 @@ float   angle(const Star& body, QPointF coordinate)
         return angle(body.equatorialPos.x(), coordinate.x());
     case amcPrimeVertical:
         return angle(body.pvPos, coordinate.x());
-        break;
+    default:
+        return 0;
     }
-    return 0;
 }
 
-float   angle(float deg1, float deg2)
+float
+angle(float deg1, float deg2)
 {
-    float ret = qAbs(deg1 - deg2);
+    float ret = fabs(deg1 - deg2);
     if (ret > 180) ret = 360 - ret;
     return ret;
 }
 
-AspectId aspect(const Star& planet1, const Star& planet2, const AspectsSet& aspectSet)
+AspectId
+aspect(const Star& planet1, const Star& planet2,
+       const AspectsSet& aspectSet)
 {
     if (planet1.isPlanet() && planet2.isPlanet()
         && planet1.getSWENum() == planet2.getSWENum())
@@ -355,6 +390,13 @@ calculatePlanet(PlanetId planet,
     ret.eclipticSpeed.setX(xx[3]);
     ret.eclipticSpeed.setY(xx[4]);
 
+    if (/*ret.sweNum != SE_MOON &&*/ ret.sweNum != SE_SUN) {
+        double phaen[20];
+        swe_pheno_ut(jd, ret.sweNum, flags, phaen, errStr);
+        ret.phaseAngle = phaen[0];
+        ret.elongation = phaen[2];
+    }
+
     double geopos[3];
     geopos[0] = input.location.x();
     geopos[1] = input.location.y();
@@ -404,7 +446,6 @@ calculatePlanet(PlanetId planet,
     double  jd = getJulianDate(input.GMT);
 
     char    errStr[256] = "";
-    double  xx[6];
 
     // turn off true pos
     double eps, ablong;
@@ -481,6 +522,129 @@ calculatePlanet(PlanetId planet,
     }
 
     return ret;
+}
+
+qreal
+PlanetLoc::compute(const InputData& ida,
+                   double jd)
+{
+    uint invertPositionFlag = 256 * 1024;
+    char errStr[256] = "";
+
+    const Planet& p1(getPlanet(planet.planetId()));
+    uint flags = (SEFLG_SWIEPH | p1.sweFlags)
+                 & ~SEFLG_TRUEPOS;
+    if (ida.zodiac > 1) {
+        flags |= SEFLG_SIDEREAL;
+        swe_set_sid_mode(ida.zodiac - 2, 0, 0);
+    }
+
+    double xx[6];
+    swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
+    auto eps = xx[0];
+
+    auto getPos = [&](const Planet& p, qreal& speed) -> qreal {
+        int ret = ERR;
+        qreal pos = 0.0;
+        switch (aspectMode) {
+        case amcEcliptic:
+            ret = swe_calc_ut(jd, p.sweNum, flags, xx, errStr);
+            pos = xx[0];
+            speed = xx[3] * ida.harmonic;
+            break;
+
+        case amcEquatorial:
+            ret = swe_calc_ut(jd, p.sweNum,
+                              (flags & ~SEFLG_SIDEREAL)
+                                | SEFLG_EQUATORIAL | SEFLG_SPEED,
+                              xx, errStr);
+            pos = xx[0];
+            speed = xx[3] * ida.harmonic;
+            break;
+
+        default:
+        case amcPrimeVertical:
+            break;
+        }
+        if (ret != ERR) return harmonic(ida.harmonic, pos);
+        qDebug() << "Can't calculate position of " << p1.name
+                 << "at jd" << jd << ":" << errStr;
+        return 0;
+    };
+
+    speed = 0;
+    auto pos = getPos(p1,speed);
+    if (planet.isMidpt()) {
+        qreal speed2 = 0;
+        auto pos2 = getPos(getPlanet(planet.planetId2()),speed2);
+        pos = (pos + pos2)/2;
+        speed = (speed + speed2)/2;
+        if (planet.isOppMidpt()) pos += 180;
+    }
+    loc = pos;
+    return pos;
+}
+
+qreal
+PlanetLoc::compute(const InputData& ida)
+{
+    return compute(ida, getJulianDate(ida.GMT));
+}
+
+qreal
+PlanetLoc::defaultSpeed() const
+{
+    switch (aspectMode) {
+    case amcEquatorial:
+    case amcEcliptic:
+        return getPlanet(planet.planetId()).defaultEclipticSpeed.x();
+    case amcPrimeVertical:
+        return -360;
+    default:
+        return 0;
+    }
+}
+
+qreal
+PlanetProfile::computePos(double jd)
+{
+    // It is not obvious what needs to happen here.
+    // We certainly want to update the positions of the in-motion
+    // entities, but if there is more than one of these, getting
+    // an average position wouldn't allow us to converge, only
+    // track an aspect to a moving midpoint. In contrast, in most
+    // cases we want to find a "root", i.e., a zero-point in between
+    // a negative and a positive result. Even if we use a spread
+    // value to minimize (will never be less than zero), the
+    // averaged speed value isn't necessary a proper derivative...
+    // Hmm... Perhaps when there is more than one planet, we
+    // need to compute spread and position? There is more than one
+    // value, but we only have one degree of freedom (one input variable)
+    // to control...
+    unsigned char sizes[2] {0,0};
+    qreal apos[2] {0,0};
+    qreal aspd[2] {0,0};
+    for (auto& pl : *this) {
+        auto npos = pl->operator()(jd);
+        unsigned fid = unsigned(pl->inMotion());
+        unsigned char& i( sizes[fid] );
+        aspd[fid] = (pl->speed + i*aspd[fid])/(i+1);
+        if (i) {
+            if (apos[fid] - npos > 180) apos[fid] -= 360;
+            else if (npos - apos[fid] > 180) apos[fid] += 360;
+            apos[fid] = (npos + i*apos[fid])/(i+1);
+        } else apos[fid] = npos;
+        ++i;
+    }
+
+    qreal &a = apos[0], &b = apos[1];
+    if (b - a > 180) b -= 360;
+    else if (a - b > 180) b += 360;
+
+    Loc::speed = aspd[1];
+    Loc::loc = apos[1];
+
+    return b - a;
 }
 
 
@@ -788,7 +952,7 @@ calculateAspect( const AspectsSet& aspectSet,
 
     a.angle   = angle(planet1, planet2);
     a.d       = &getAspect(aspect(a.angle, aspectSet), aspectSet);
-    a.orb     = qAbs(a.d->angle - a.angle);
+    a.orb     = fabs(a.d->angle - a.angle);
     a.planet1 = &planet1;
     a.planet2 = &planet2;
     a.applying  = towardsMovement(planet1, planet2) == (a.angle > a.d->angle);
@@ -804,12 +968,13 @@ calculateAspects( const AspectsSet& aspectSet,
 
     PlanetMap::const_iterator i = planets.constBegin();
     while (i != planets.constEnd()) {
-        if (i->id >= Planet_Sun && i->id <= Planet_Pluto
-                || i->id == Planet_Chiron)
+        if ((i->id >= Planet_Sun && i->id <= Planet_Pluto)
+            || i->id == Planet_Chiron)
         {
             PlanetMap::const_iterator j = i + 1;
             while (j != planets.constEnd()) {
-                if ((j->id >= Planet_Sun && j->id <= Planet_Pluto || j->id == Planet_Chiron)
+                if (((j->id >= Planet_Sun && j->id <= Planet_Pluto)
+                     || j->id == Planet_Chiron)
                     && aspect(i.value(), j.value(), aspectSet) != Aspect_None) 
                 {
                     ret << calculateAspect(aspectSet, i.value(), j.value());
@@ -859,13 +1024,6 @@ findPlanetStarConfigs(const PlanetMap& planets, StarMap& stars)
             }
         }
     }
-}
-
-inline
-qreal
-harmonic(double h, qreal value)
-{
-    return fmod(value*h,360.);
 }
 
 void
@@ -1277,7 +1435,7 @@ findHarmonics(const ChartPlanetMap& cpm,
 {
     bool doMidpoints = includeMidpoints();
     int d = harmonicsMinQuorum() <= harmonicsMaxQuorum() ? 1 : -1;
-    unsigned num = qAbs(harmonicsMaxQuorum() - harmonicsMinQuorum()) + 1;
+    unsigned num = fabs(harmonicsMaxQuorum() - harmonicsMinQuorum()) + 1;
     qreal orb = harmonicsMinQOrb();
     qreal lorbMin = log2(orb);
     qreal lorbMax = log2(harmonicsMaxQOrb());
@@ -1333,78 +1491,318 @@ calculateBaseChartHarmonic(Horoscope& scope)
         calculateAspects(getAspectSet(input.aspectSet), scope.planets);
 }
 
-#if 1
+/*
+An implementation of an improved & simplified Brent's Method.
+Calculates root of a function f(x) in the interval [a,b].
+Zhang, Z. (2011). An Improvement to the Brent’s Method. International Journal of Experimental Algorithms (IJEA), (2), 21–26.
+Retrieved from http://www.cscjournals.org/csc/manuscript/Journals/IJEA/volume2/Issue1/IJEA-7.pdf
+[This link appears to be invalid, though the artical is retrievable by googling
+the title.]
+
+I've adapted it with the further corrections from Steven Stage, whose analysis
+seems to indicate that the method is not quite an improvement in practical
+terms, but is clearly a simplification. See:
+
+https://www.cscjournals.org/manuscript/Journals/IJEA/Volume4/Issue1/IJEA-33.pdf
+
+f -> Functor to be evaluated
+lo -> Starting point of interval
+hi -> Ending point of interval
+result -> This will contain the root when the functiuon is complete
+tol -> tolerance . Set to a low value like 1e-6
+Returns bool indicating success or failure
+*/
+
+template <typename F>
+bool
+brentZhangStage(F& f,
+                double lo, double hi,
+                double f_lo, double f_hi,
+                double& result,
+                double tol = 1e-9)
+{
+    // Root not bound by the given guesses?
+    if (f_lo * f_hi >= 0) return false;
+
+    double s, f_s;
+    do {
+        double c = (lo + hi)/2;
+        double f_c = f(c);
+        if (fabs(f_lo - f_c) > tol
+            && fabs(f_hi - f_c) > tol)
+        {
+            // f(a)!=f(c) and f(b)!=f(c)
+            // Inverse quadratic interpolation
+            s = lo*f_hi * f_c/((f_lo-f_hi)*(f_lo-f_c))
+                + hi*f_lo * f_c/((f_hi-f_lo)*(f_hi-f_c))
+                + c*f_lo * f_hi/((f_c-f_lo)*(f_c-f_hi));
+            if (s < lo || s > hi) {
+                // According to Stage, s can go awry in this
+                // calculation (i.e., exceed lo-hi bounds),
+                // so we need to get it back in
+                // line one of three ways, of which
+                s = c; // is the simplest option
+            }
+        } else {
+            // Secant rule
+            s = hi - f_hi*(hi-lo)/(f_hi-f_lo);
+        }
+        f_s = f(s);
+
+        if (c > s) qSwap(s, c);
+
+        if (f_c * f_s < 0) {
+            f_lo = f(lo = c);
+            f_hi = f(hi = s);
+        } else if (f_lo * f_c < 0) {
+            f_hi = f(hi = c);
+        } else {
+            f_lo = f(lo = s);
+        }
+    } while (f_hi!=0 && f_lo!=0 && fabs(hi-lo) > tol);	// Convergence conditions
+
+    result = hi; // either hi or lo could be returned,
+    // as we are now at tolerated convergence.
+
+    return true;
+}
+
+template <typename F>
+bool
+brentZhangStage(F& f,
+                double lo, double hi,
+                double& result,
+                double tol = 1e-9)
+{
+    if (fabs(hi - lo) <= tol) return false;
+
+    if (lo > hi) qSwap(lo,hi);
+
+    double f_lo = f(lo);
+    double f_hi = f(hi);
+    return brentZhangStage(f, lo, hi, f_lo, f_hi, result, tol);
+}
+
+// Adapted from the Algol60 code in "Algorithms for Minimization
+// without Derivatives" by Richard P. Brent (2002).
+// Yes, it uses gotos!
+
+template <typename F>
+double
+brentGlobalMin(F f, double lo, double hi, double guess,
+               double m, double err, double tol, double& x)
+{
+    const auto macheps = std::numeric_limits<double>::epsilon();
+    int k;
+    double a0, a2, a3, d0, d1, d2, h, m2, p, q, qs, r, s,
+            y, y0, y1, y2, y3, yb, z0, z1, z2;
+
+    x = a0 = hi; a2 = lo;
+    yb = y0 = f(hi);
+    y = y2 = f(lo);
+    if (y0 < y) y = y0; else x = lo;
+
+    if ((m > 0) && (lo < hi)) {
+        // nontrivial case
+        m2 = 0.5 * (1 + 16 * macheps) * m;
+        if ((guess <= lo) || (guess >= hi)) guess = 0.5 * (lo + hi);
+        y1 = f(guess); k = 3; d0 = a2 - guess; h = 9/11;
+
+        if (y1 < y) { x = guess; y = y1; }
+
+        // main loop
+        next:
+        d1 = a2 - a0; d2 = guess - a0;
+        z2 = hi - a2; z0 = y2 - y1; z1 = y2 - y0;
+        p = r = d1 * d1 * z0 - d0 * d0 * z1;
+        q = qs = 2 * (d0 * z1 - d1 * z0);
+
+        // try to find lower value of f using quadratic interpolation
+        if ((k > 100000) && (y < y2)) goto skip;
+
+        retry:
+        if (q * (r * (yb - y2) + z2 * q * ((y2-y)+tol))
+            < z2*m2*r*(z2*q-r))
+        {
+            a3 = a2 + r/q;
+            y3 = f(a3);
+            if (y3 < y) x = a3, y = y3;
+        }
+
+        // with probability about 0.1 do a random search for a lower
+        // value of f. Any reasonable random number generator can be
+        // used in place of the one here (it need not be very good).
+
+        skip:
+        k = 1611*k;
+        k = k - 1048576*(k/1048576);
+        q = 1; r = (hi-lo)*(k/100000);
+
+        if (r<z2) goto retry;
+
+        // prepare to step as far as possible
+        r = m2*d0*d1*d2; s = sqrt(((y2-y)+tol)/m2);
+        h = 0.5*(1+h);
+        p = h*(p+2*r*s); q = r+0.5*qs;
+        r = -0.5*(d0+(z0+2.01*err)/(d0*m2));
+        r = a2 + ((r<s || d0<0)? s : r);
+
+        // it is safe to step to r, but we may try to step further
+        a3 = (p*q>0)? a2+p/q : r;
+
+        inner:
+        if (a3<r) a3 = r;
+        if (a3 > hi) { a3 = hi; y3 = yb; }
+        else y3 = f(a3);
+        if (y3 < y) { x = a3; y = y3; }
+        d0 = a3 - a2;
+
+        if (a3 > r) {
+            // inspect the parabolic lower bound on f in (a2,a3)
+            p = 2*(y2 - y3)/(m*d0);
+            if ((fabs(p) < (1+9*macheps)*d0)
+                && (0.5*m2*(d0*d0+p*p)
+                    > (y2-y)+(y3-y)+2*tol))
+            {
+                // halve the step and try again
+                a3 = 0.5*(a2+a3);
+                h = 0.9*h;
+                goto inner;
+            }
+        }
+        if (a3 < hi) {
+            // prepare for the next step
+            a0 = guess; guess = a2; a2 = a3;
+            y0 = y1; y1 = y2; y2 = y3;
+            goto next;
+        }
+    }
+    return y;
+}
+
+QDateTime
+dateTimeFromJulian(double jd)
+{
+    int32 y, d, m;
+    int32 hr, min, sec;
+    double dsec;
+    swe_jdut1_to_utc(jd, SE_GREG_CAL, &y, &m, &d, &hr, &min, &dsec);
+    sec = dsec;
+    int msec = int(dsec - sec) * 1000;
+    return QDateTime(QDate(y,m,d), QTime(hr,min,sec,msec));
+}
+
+QDateTime
+calculateClosestTime(PlanetProfile& poses,
+                    const InputData& locale)
+{
+    bool quiet = false;
+    auto calc = [&poses, &quiet](double jd) -> qreal {
+        auto ret = poses.computePos(jd);
+        if (!quiet) {
+            QDateTime dt(dateTimeFromJulian(jd));
+            qDebug() << "calc iter:" << dt.toLocalTime() << "Ret:" << ret;
+        }
+        return ret;
+    };
+
+    auto calcSpread = [&poses](double jd) -> qreal {
+        for (auto& pos : poses) pos->operator()(jd);
+        auto ret = getSpread(poses);
+
+        QDateTime dt(dateTimeFromJulian(jd));
+        qDebug() << "spread iter:" << dt.toLocalTime() << "Ret:" << ret;
+        return ret;
+    };
+
+    auto ncalc = [&poses](double jd) -> std::pair<qreal,qreal>
+    {
+        auto pos = poses.computePos(jd);
+        auto ret = std::make_pair(pos, poses.speed());
+
+        QDateTime dt(dateTimeFromJulian(jd));
+        qDebug() << "ncalc iter:" << dt.toLocalTime() << "Ret:" << ret;
+
+        return ret;
+    };
+
+    using namespace boost::math::tools;
+
+    static auto digits = std::numeric_limits<double>::digits;
+    //int digits = 24;
+    static double tol = 9e-5; //std::numeric_limits<double>::min()*10;
+    double jdIn = getJulianDate(locale.GMT);
+
+    float orb, horb;
+    if (aspectMode == amcPrimeVertical) horb = .5;
+    float speed = poses.defaultSpeed();
+    orb = 360 / speed / locale.harmonic;
+    horb = orb / 1.8;
+
+    float span;
+    auto plid = poses.back()->planet.planetId();
+    if (true/*plid == Planet_Sun || plid==Planet_Moon*/) span = orb/4;
+    else span = 1/speed;
+
+    qDebug() << poses[0]->planet.name() << "half-orbit" << horb << "days";
+
+    //auto rnd = QRandomGenerator::global();
+    float segs = orb/span;
+
+    double jd = jdIn;
+    std::function<bool(double,double,double,double,double)>
+            looper = [&calc, &ncalc, &jd, &quiet, &poses, &looper]
+                     (double begin,
+                     double end,
+                     double span,
+                     double flo,
+                     double splo) -> bool
+    {
+        bool done = false;
+        double fhi, sphi;
+        for (double jdc = begin; !done /*jdc<end*/;
+             splo = sphi, flo = fhi, jdc += span)
+        {
+            fhi = calc(jdc + span);
+            sphi = poses.speed();
+            if (sgn(flo)==sgn(fhi) || (sgn(flo)==sgn(splo)
+                                       && sgn(fhi)==-sgn(sphi)))
+                continue;
+
+            double guess = jdc + (fabs(flo)/(fabs(flo)+fabs(fhi)))*span;
+            uintmax_t iter = 100;
+            jd = newton_raphson_iterate(ncalc, guess, jdc, jdc + span,
+                                        digits, iter);
+            done = fabs(poses[1]->loc - poses[0]->loc) <= tol;
+            if (!done) done = looper(jdc, jdc+span, span/4, flo, splo);
+#if 0
+            if (!done)
+                done = brentZhangStage(calc, jdc,jdc+span, flo, fhi, jd);
+#endif
+        }
+        return done;
+    };
+
+    double begin = jdIn-orb/2;
+    double end = begin + horb*2;
+    double flo = calc(begin);
+    double splo = poses.speed();
+    looper(begin, end, span, flo, splo);
+
+    return dateTimeFromJulian(jd);
+}
+
 QDateTime
 calculateReturnTime(PlanetId id,
                     const InputData& native,
                     const InputData& locale)
 {
-    InputData timeAndPlace(locale);
-    Planet pnat = calculatePlanet(id, native, calculateHouses(native),
-                                  getZodiac(native.zodiac));
-    auto h = native.harmonic;
-    if (h != 1.0) calculateHarmonic(h, pnat);
+    PlanetProfile poses;
+    poses.push_back(new NatalPosition(id, native));
+    poses.push_back(new TransitPosition(id, locale));
 
-    pnat.eclipticSpeed = QVector2D(0,0); // non moving
-    pnat.equatorialSpeed = QVector2D(0,0);
-    qDebug() << "Nativity " << native.GMT;
-    qDebug() << "Currently " << locale.GMT;
-
-    auto z = getZodiac(locale.zodiac);
-    Aspect a;
-    //auto last = pnat.eclipticPos.x();
-
-    auto convergeBySpeed = [&a,h](const Planet& p) -> double
-    {
-        double speed = aspectMode==amcEcliptic
-                       ? p.eclipticSpeed.x()
-                        : aspectMode==amcEquatorial
-                         ? p.equatorialSpeed.x()
-                         : aspectMode==amcPrimeVertical
-                           ? -360
-                           : 1;
-        if (abs(speed) < 0.1) {
-            speed = (speed < 0? -1 : 1) * p.defaultEclipticSpeed.x();
-        }
-        return (a.angle / speed) / h;
-    };
-
-    auto convergeBySep = [&a](bool priorApp, double ldt) -> double
-    { return (a.applying == priorApp)? ldt : -ldt/2; };
-
-    double ldt = -1;
-    bool lap = false;
-    int bySpeed = 1 + bool(aspectMode==amcPrimeVertical);
-    do {
-        // FIXME add calcPlanet version that doesn't need houses
-        auto houses = calculateHouses(timeAndPlace);
-        Planet p = calculatePlanet(id, timeAndPlace, houses, z);
-        if (h != 1.0) calculateHarmonic(h, p);
-        //if (p.eclipticPos.x() == last) break;
-        //last = p.eclipticPos.x();
-        a = calculateAspect(tightConjunction(), pnat, p);
-        qDebug() << "Angle" << a.angle << a.applying;
-        if (ldt == 0) break;
-        //if (a.angle < 5.0e-5) break;
-        double dt = bySpeed? convergeBySpeed(p) : convergeBySep(lap, ldt);
-        qint64 days = qint64(dt);
-        qint64 msecs = qint64((dt - days) * 24 * 60 * 60 * 1000);
-        if (days == 0 && msecs == 0) break;
-        lap = a.applying;
-        ldt = dt;
-        auto gmt = timeAndPlace.GMT;
-        if (!bySpeed || a.applying) {
-            timeAndPlace.GMT = gmt.addDays(days).addMSecs(msecs);
-        } else {
-            timeAndPlace.GMT = gmt.addDays(-days).addMSecs(-msecs);
-        }
-        if (bySpeed && bySpeed-- == 1 && !lap) ldt = -dt;
-        qDebug() << "New date:" << timeAndPlace.GMT;
-    } while (true);
-    qDebug() << "Final time/date:" << timeAndPlace.GMT;
-    return timeAndPlace.GMT;
+    return calculateClosestTime(poses, locale);
 }
-#endif
 
 
 Horoscope
@@ -1414,15 +1812,6 @@ calculateAll(const InputData& input)
     scope.inputData = input;
     scope.houses = calculateHouses(input);
     scope.zodiac = getZodiac(input.zodiac);
-
-#if 0
-    double  jd = getJulianDate(input.GMT);
-    double  xx[6];
-    char    errStr[256] = "";
-
-    swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
-    double eps = xx[0];
-#endif
 
     for (PlanetId id : getPlanets()) {
         if (id == Planet_Asc) {

@@ -335,15 +335,13 @@ AstroWidget::addSlide(AstroFileHandler* w,
         return;
 #endif
 
-    for (AstroFileHandler* wdg : dockHandlers)
-    {
+    for (AstroFileHandler* wdg : dockHandlers) {
         qDebug() << w << "connected planetSelected() to" << wdg;
         connect(w, SIGNAL(planetSelected(A::PlanetId, int)),
                 wdg, SLOT(setCurrentPlanet(A::PlanetId, int)));
     }
 
-    for (QDockWidget* d : docks)
-    {
+    for (QDockWidget* d : docks) {
         qDebug() << w << "connected planetSelected() to dock" << d;
         connect(w, SIGNAL(planetSelected(A::PlanetId, int)),
                 d, SLOT(show()));
@@ -734,10 +732,73 @@ void AstroDatabase::showContextMenu(QPoint p)
     mnu->addAction(tr("Synastry view"), this, SLOT(openSelectedAsSecond()));
 
     mnu->addAction(tr("Composite"), this, SLOT(openSelectedComposite()));
-    mnu->addAction(tr("Open Solar Return in new tab"),
-                   this, SLOT(openSelectedSolarReturnInNewTab()));
+    mnu->addSeparator();
     mnu->addAction(tr("Open with Solar Return"),
                    this, SLOT(openSelectedWithSolarReturn()));
+    mnu->addAction(tr("Open Solar Return in new tab"),
+                   this, SLOT(openSelectedSolarReturnInNewTab()));
+    mnu->addAction(tr("Open Lunar Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(), "Moon");
+    });
+
+    mnu->addAction(tr("Open Mercury Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(), "Mercury");
+    });
+
+    mnu->addAction(tr("Open Venus Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(), "Venus");
+    });
+
+    mnu->addAction(tr("Open Mars Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(), "Mars");
+    });
+
+    mnu->addAction(tr("Open Jupiter Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(), "Jupiter");
+    });
+
+    mnu->addAction(tr("Open Saturn Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(), "Saturn");
+    });
+
+    mnu->addAction(tr("Open Uranus Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(), "Uranus");
+    });
+
+    mnu->addAction(tr("Open Neptune Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(), "Neptune");
+    });
+
+    mnu->addAction(tr("Open Pluto Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(), "Pluto");
+    });
 
     mnu->addSeparator();
     mnu->addAction(QIcon("style/delete.png"), tr("Delete"),
@@ -959,7 +1020,7 @@ void
 FilesBar::openFileReturn(const QString& name, const QString& body)
 {
     AstroFile* native = new AstroFile;
-    _aw->setupFile(native, true);
+    MainWindow::theAstroWidget()->setupFile(native, true);
     native->load(name);
 
     QString planet = body=="Sun"? "Solar"
@@ -972,7 +1033,7 @@ FilesBar::openFileReturn(const QString& name, const QString& body)
     A::PlanetId pid = A::getPlanet(body);
 
     AstroFile* planetReturn = new AstroFile;
-    _aw->setupFile(planetReturn, true);
+    MainWindow::theAstroWidget()->setupFile(planetReturn, true);
 
     //planetReturn->setParent(this);
     planetReturn->setName("Return");
@@ -996,7 +1057,7 @@ FilesBar::openFileInNewTabWithReturn(const QString& name,
                                      const QString& body)
 {
     AstroFile* native = new AstroFile;
-    _aw->setupFile(native);
+    MainWindow::theAstroWidget()->setupFile(native);
     native->load(name);
     addFile(native);
 
@@ -1008,7 +1069,7 @@ FilesBar::openFileInNewTabWithReturn(const QString& name,
     A::PlanetId pid = A::getPlanet(body);
 
     AstroFile* planetReturn = new AstroFile;
-    _aw->setupFile(planetReturn, true);
+    MainWindow::theAstroWidget()->setupFile(planetReturn, true);
 
     auto dt = A::calculateReturnTime(pid, native->data(),
                                      planetReturn->data());
@@ -1045,7 +1106,6 @@ MainWindow::MainWindow(QWidget *parent) :
 
     filesBar = new FilesBar(this);
     astroWidget = new AstroWidget(this);
-    filesBar->setAW(astroWidget);
     databaseDockWidget = new QDockWidget(this);
     astroDatabase = new AstroDatabase();
     toolBar = new QToolBar(tr("File"), this);

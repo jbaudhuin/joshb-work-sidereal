@@ -1,0 +1,10 @@
+[General]
+name=Madonna
+type=Female
+GMT=1958-08-16T12:05:00Z
+timezone=-5
+lon=@Variant(\0\0\0\x87\xc2\xa7\xc7\x19)
+lat=@Variant(\0\0\0\x87\x42.`\xbc)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Bay City, MI, USA"
+comment=
