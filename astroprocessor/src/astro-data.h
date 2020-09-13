@@ -1,6 +1,8 @@
 #ifndef A_DATA_H
 #define A_DATA_H
 
+#include <QColor>
+#include <QSet>
 #include <QString>
 #include <QDateTime>
 #include <QPointF>
@@ -9,6 +11,8 @@
 #include <QVector2D>
 #include <QVariant>
 #include <QMetaType>
+#include <QDebug>
+
 #include <set>
 #include <deque>
 #include <algorithm>
@@ -54,6 +58,51 @@ double harmonicsMaxQOrb();
 
 void setMaxHarmonic(int);
 unsigned maxHarmonic();
+
+qreal orbFactor();
+void setOrbFactor(qreal ofac);
+
+typedef QMap<unsigned,bool> uintBoolMap;
+typedef QSet<unsigned> uintQSet;
+
+bool dynAspState(unsigned);
+void setDynAspState(unsigned, bool);
+uintQSet dynAspState();
+
+inline bool getDynAspState(QVariant& var)
+{
+    QVariant ret;
+    auto asps = dynAspState();
+    if (asps.size()==32) ret = "all";
+    else {
+        QVariantList vl;
+        for (auto u : asps) vl << u;
+        ret = vl;
+    }
+    ret.swap(var);
+    return true;
+}
+
+void setDynAspState(const uintQSet&);
+
+inline void setDynAspState(const QVariant& var)
+{
+    setDynAspState(uintQSet());
+    if (var.isNull()) return;
+    if (var.type()==QVariant::String) {
+        auto str = var.toString();
+        if (str == "all") {
+            for (unsigned i = 1; i <= 32; ++i) setDynAspState(i,true);
+        }
+        return;
+    }
+    auto type = var.type();
+    if (type==QVariant::List || type==QVariant::StringList) {
+        for (auto v : var.toList()) {
+            setDynAspState(v.toUInt(), true);
+        }
+    }
+}
 
 
 typedef int ZodiacSignId;
@@ -280,22 +329,33 @@ struct Planet : public Star
     { return this->id != other.id || this->eclipticPos != other.eclipticPos; }
 };
 
-//struct AspectsSet;
+struct AspectsSet;
 
 struct AspectType {
-    AspectId id;
-    const struct AspectsSet* set;
-    QString  name;
-    float    angle;
-    float    orb;
+    AspectId    id;
+    const AspectsSet* set;
+    QString     name;
+    float       angle;
+    float       _orb;
+    unsigned    _harmonic = 0;
+    std::set<unsigned> factors;
+    bool        enabled = true;
     QMap<QString, QVariant> userData;
 
     AspectType() :
         id(Aspect_None),
         set(nullptr),
         angle(0),
-        orb(0)
+        _orb(0),
+        enabled(true)
     { }
+
+    float orb() const
+    {
+        if (!_harmonic) return _orb * orbFactor();
+        return harmonicsMaxQOrb()/_harmonic * orbFactor();
+    }
+    void setEnabled(bool b = true) { enabled = b; }
 };
 
 struct Aspect {
@@ -314,6 +374,8 @@ struct Aspect {
         orb(0),
         applying(false)
     { }
+
+    ~Aspect() { }
 };
 
 struct AspectsSet {
@@ -322,7 +384,12 @@ struct AspectsSet {
     QMap<AspectId, AspectType> aspects;
     bool isEmpty() const { return aspects.isEmpty(); }
 
-    AspectsSet() { id = AspectSet_Default; }
+    AspectsSet(AspectSetId aid = AspectSet_Default,
+               const QString& n = "default") :
+        id(aid), name(n)
+    { }
+
+    ~AspectsSet() { }
 };
 
 
@@ -358,11 +425,16 @@ public:
     static const Zodiac& getZodiac(ZodiacId id);
     static const QList<Zodiac> getZodiacs();
 
+    static double getSignPos(ZodiacId zid, const QString& sign);
+
+    static QColor getHarmonicColor(unsigned h);
+    static const QMap<unsigned,QColor>& getHarmonicColors();
+
     static const AspectType& getAspect(AspectId id, const AspectsSet& set);
     //static const QList<AspectType> getAspects(AspectSetId set);
 
     static QList<AspectsSet> getAspectSets() { return aspectSets.values(); }
-    static const AspectsSet& getAspectSet(AspectSetId set);
+    static AspectsSet& getAspectSet(AspectSetId set);
     static const AspectsSet& topAspectSet() { return aspectSets[topAspSet]; }
     static const AspectsSet& tightConjunction();
 };
@@ -668,13 +740,22 @@ public:
 typedef QMap<ChartPlanetId, Planet> ChartPlanetMap;
 
 struct Loc {
+    QString desc;
     qreal loc;
     qreal speed;
     static double RAMC;
+
     Loc(qreal l = 0, qreal s = 0) : loc(l), speed(s) { }
+    Loc(const QString& description, qreal l = 0, qreal s = 0) :
+        desc(description), loc(l), speed(s)
+    { }
+
     virtual ~Loc() { }
+
     virtual qreal defaultSpeed() const { return 0; }
     virtual qreal operator()(double /*jd*/) { return loc; }
+    virtual bool inMotion() const { return false; }
+    virtual QString description() const { return desc; }
 };
 
 struct PlanetLoc : public Loc {
@@ -699,8 +780,6 @@ struct PlanetLoc : public Loc {
     PlanetLoc& operator==(const PlanetLoc& other)
     { planet = other.planet; loc = other.loc; return *this; }
 
-    virtual bool inMotion() const { return false; }
-
     bool operator<(const PlanetLoc& other) const
     { return loc < other.loc || (loc == other.loc && planet < other.planet); }
 
@@ -710,7 +789,10 @@ struct PlanetLoc : public Loc {
     qreal compute(const InputData& ida);
     qreal compute(const InputData& ida, double jd);
 
-    virtual qreal defaultSpeed() const;
+    QString description() const override
+    { return planet.name(); }
+
+    virtual qreal defaultSpeed() const override;
 };
 
 class NatalPosition : public PlanetLoc {
@@ -736,12 +818,34 @@ public:
     qreal operator()(double jd) override { return compute(_ida, jd); }
 };
 
+template <typename T>
+qreal
+getSpread(const T& range)
+{
+    qreal lo = getLoc(*range.cbegin());
+    qreal hi = getLoc(*range.crbegin());
+    if (hi - lo > A::harmonicsMaxQOrb()) {
+        auto lit = range.cbegin();
+        while (++lit != range.cend()) {
+            if (getLoc(*lit) - lo > A::harmonicsMaxQOrb()) {
+                hi = lo;
+                lo = getLoc(*lit);
+                break;
+            } else {
+                lo = getLoc(*lit);
+            }
+        }
+    }
+    qreal ret = qAbs(hi - lo);
+    return ret>180? 360-ret : ret;
+}
+
 class PlanetProfile :
         public Loc,
-        public std::vector<PlanetLoc*>
+        public std::deque<Loc*>
 {
 public:
-    typedef std::vector<PlanetLoc*> Base;
+    typedef std::deque<Loc*> Base;
     using Base::Base;
 
     virtual ~PlanetProfile() { qDeleteAll(*this); }
@@ -764,12 +868,13 @@ public:
 
     qreal speed() const { return Loc::speed; }
 
-    qreal computeSpread(double jd)
-    { return fabs(computePos(jd)); }
+    qreal computeSpread(double jd);
 
     qreal computePos(double jd);
 
     qreal operator()(double jd) { return computePos(jd); }
+
+    bool needsFindMinimalSpread() const { return size() > 2; }
 };
 
 
@@ -779,27 +884,6 @@ typedef std::list<PlanetLoc> PlanetQueue;
 inline qreal getLoc(const Loc& loc) { return loc.loc; }
 inline qreal getLoc(const Loc* loc) { return loc->loc; }
 
-template <typename T>
-qreal
-getSpread(const T& range)
-{
-    qreal lo = getLoc(*range.cbegin());
-    qreal hi = getLoc(*range.crbegin());
-    if (hi - lo > A::harmonicsMaxQOrb()) {
-        auto lit = range.cbegin();
-        while (++lit != range.cend()) {
-            if (getLoc(*lit) - lo > A::harmonicsMaxQOrb()) {
-                hi = lo;
-                lo = getLoc(*lit);
-                break;
-            } else {
-                lo = getLoc(*lit);
-            }
-        }
-    }
-    qreal ret = qAbs(hi - lo);
-    return ret>180? 360-ret : ret;
-}
 
 class PlanetGroups : public std::map<PlanetSet, PlanetRange> {
 public:
@@ -862,8 +946,17 @@ struct Horoscope
 
 void load(QString language);
 QString usedLanguage();
+
+inline QColor getHarmonicColor(unsigned h)
+{ return Data::getHarmonicColor(h); }
+
 const Planet& getPlanet(PlanetId pid);
-PlanetId getPlanet(const QString& name);
+PlanetId getPlanetId(const QString& name);
+double getSignPos(ZodiacId zid,
+                  const QString& sign,
+                  unsigned degrees = 0,
+                  unsigned minutes = 0,
+                  unsigned seconds = 0);
 QString getPlanetName(const ChartPlanetId& id);
 QString getPlanetGlyph(const ChartPlanetId& id);
 QList<PlanetId> getPlanets();
@@ -876,8 +969,8 @@ const QList<Zodiac> getZodiacs();
 //const QList<AspectType> getAspects(AspectSetId set);
 const AspectType& getAspect(AspectId id, const AspectsSet& set);
 QList<AspectsSet> getAspectSets();
-const AspectsSet& getAspectSet(AspectSetId set);
-const AspectsSet&  topAspectSet();
+AspectsSet& getAspectSet(AspectSetId set);
+const AspectsSet& topAspectSet();
 const AspectsSet& tightConjunction();
 
 } // namespace

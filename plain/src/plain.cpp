@@ -98,7 +98,7 @@ void Plain         :: refresh()
           (A::Article_Speculum* describeSpeculum->isChecked()) |
 	  (A::Article_FixedStars * includeFixedStars);
 
-  view->setText(A::describe(file()->horoscope(), (A::Article)articles, paranOrb));
+  view->setText(A::describe(files(), (A::Article)articles, paranOrb));
  }
 
 AppSettings

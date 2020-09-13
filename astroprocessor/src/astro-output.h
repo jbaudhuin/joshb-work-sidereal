@@ -20,7 +20,7 @@ enum Article        { Article_All     = 0xFF,
                       Article_Power   = 0x10,
                       Article_Parans  = 0x20,
                       Article_DiurnalEvents = 0x40,
-		      Article_FixedStars = 0x80,
+                      Article_FixedStars = 0x80,
                       Article_Speculum = 0x100 };
 
 enum AnglePrecision { 
@@ -53,11 +53,13 @@ QString     describePlanetCoord ( const Planet& planet );
 QString     describePlanetCoordInHtml ( const Planet& planet );
 QString     describePower       ( const Planet& planet, const Horoscope& scope );
 QString     describePowerInHtml ( const Planet& planet, const Horoscope& scope );
-QString     describeParans      ( const Horoscope& scope, bool showAll=false, double orb=1.0 );
+QString     describeParans      ( const AstroFileList& scopes,
+                                  bool showAll=false,
+                                  double orb=1.0 );
 QString     describeSpeculum    ( const Horoscope& scope );
-QString     describe            ( const Horoscope& scope, 
-				  Articles article = Article_All,
-				  double paranOrb = 1.0 );
+QString     describe( AstroFileList&& scopes,
+                      Articles article = Article_All,
+                      double paranOrb = 1.0 );
 
 }
 

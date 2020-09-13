@@ -136,6 +136,9 @@ PlanetId receptionWith           ( const Planet& planet, const Horoscope& scope 
 
 uintSet getAllFactors(unsigned h);
 uintSet getPrimeFactors(unsigned h);
+std::vector<bool> getPrimeSieve(unsigned top);
+uintSet getPrimes(unsigned top);
+
 void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
 void calculateBaseChartHarmonic(Horoscope& scope);
 
@@ -147,9 +150,20 @@ Aspect      calculateAspect      ( const AspectsSet& aspectSet, const Planet& pl
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets );
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets1, const PlanetMap& planets2 );   // synastry
 
+void calculateOrbAndSpan(const PlanetProfile& poses,
+                         const InputData& locale,
+                         double& orb,
+                         double& horb,
+                         double& span);
 QDateTime calculateReturnTime(PlanetId pid,
                               const InputData& native,
                               const InputData& locale);
+QDateTime calculateClosestTime(PlanetProfile& poses,
+                               const InputData& locale);
+QList<QDateTime> quotidianSearch(PlanetProfile& poses,
+                                 const InputData& locale,
+                                 const QDateTime& endDt,
+                                 double span = 1.0);
 
 Horoscope   calculateAll         ( const InputData& input );
 

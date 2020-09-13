@@ -74,7 +74,7 @@ private:
     Customizable* customObj;
     AppSettings settings;
     AppSettings defaultSettings;  // нужен для восстановления значений, а также проверки типов
-    QMap <QString, QWidget*> bindedControls;
+    QMap <QString, QWidget*> boundControls;
     QList<QWidget*> customWidgets;  // widgets added by addCustomWidget() method
     bool changed;
 
@@ -99,18 +99,18 @@ public:
     AppSettingsEditor();
     ~AppSettingsEditor();
 
-    void addTab(QString tabName);
-    //void beginGroup  ( QString groupName );
+    void addTab(const QString& tabName);
+    //void beginGroup  ( const QString& groupName );
     void endGroup();
     void addSpacing(int spacing);
-    QWidget* addControl(QString valueName, QString label);
-    void addCustomWidget(QWidget* wdg, QString label, const char* changeSignal);
-    QLineEdit* addLineEdit(QString valueName, QString label);
-    QCheckBox* addCheckBox(QString valueName, QString label);
-    QSpinBox* addSpinBox(QString valueName, QString label, int minValue, int MaxValue);
-    QDoubleSpinBox* addDoubleSpinBox(QString valueName, QString label, double minValue, double maxValue, double step = 0.1);
-    QComboBox* addComboBox(QString valueName, QString label, QMap<QString, QVariant> values);
-    void addLabel(QString label);
+    QWidget* addControl(const QString& valueName, const QString& label);
+    void addCustomWidget(QWidget* wdg, const QString& label, const char* changeSignal);
+    QLineEdit* addLineEdit(const QString& valueName, const QString& label);
+    QCheckBox* addCheckBox(const QString& valueName, const QString& label);
+    QSpinBox* addSpinBox(const QString& valueName, const QString& label, int minValue, int MaxValue);
+    QDoubleSpinBox* addDoubleSpinBox(const QString& valueName, const QString& label, double minValue, double maxValue, double step = 0.1);
+    QComboBox* addComboBox(const QString& valueName, const QString& label, QMap<QString, QVariant> values);
+    void addLabel(const QString& label);
 
     void setObject(Customizable* obj);
 
@@ -123,14 +123,15 @@ class Customizable
 {
     public:
         Customizable ();
+        virtual ~Customizable() { }
 
-        virtual AppSettings defaultSettings ()                    { return AppSettings(); }
-        virtual AppSettings currentSettings ()                    { return AppSettings(); }
+        virtual AppSettings defaultSettings() { return AppSettings(); }
+        virtual AppSettings currentSettings() { return AppSettings(); }
         virtual void applySettings ( const AppSettings& )         { }
         virtual void setupSettingsEditor  ( AppSettingsEditor* )  { }
 
-        void loadSettings (QString iniFile = "settings.ini");
-        void saveSettings (QString iniFile = "settings.ini");
+        void loadSettings (const QString& iniFile = "settings.ini");
+        void saveSettings (const QString& iniFile = "settings.ini");
         void openSettingsEditor();
 };
 

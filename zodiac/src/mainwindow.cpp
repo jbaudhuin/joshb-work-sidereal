@@ -3,22 +3,26 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStatusBar>
-#include <QListWidget>
+#include <QTreeWidget>
+#include <QHeaderView>
 #include <QKeyEvent>
 #include <QShortcut>
 #include <QScrollArea>
 #include <QMenu>
 #include <QDir>
+#include <QDialogButtonBox>
 #include <QApplication>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QGraphicsBlurEffect>
+#include <QWidget>
 #include <math.h>
 #include <QDebug>
 #include <QMetaObject>
 #include "../plain/src/plain.h"
 #include "../chart/src/chart.h"
 #include "../astroprocessor/src/astro-calc.h"
+#include "../astroprocessor/src/astro-data.h"
 #include "../fileeditor/src/fileeditor.h"
 #include "../fileeditor/src/geosearch.h"
 #include "../planets/src/planets.h"
@@ -97,14 +101,16 @@ void AstroFileInfo::refresh()
 
 void AstroFileInfo::filesUpdated(MembersList m)
 {
-    if (currentIndex >= filesCount())
-    {
+    if (currentIndex >= filesCount()) {
         setText("");
         return;
     }
 
-    if (m[currentIndex] & (AstroFile::Name | AstroFile::GMT | AstroFile::Timezone |
-                           AstroFile::Location | AstroFile::LocationName))
+    if (m[currentIndex] & (AstroFile::Name
+                           | AstroFile::GMT
+                           | AstroFile::Timezone
+                           | AstroFile::Location
+                           | AstroFile::LocationName))
         refresh();
 }
 
@@ -202,9 +208,36 @@ void AstroWidget::setupFile(AstroFile* file, bool suspendUpdate)
 
     file->setZodiac(zodiacSelector->itemData(zodiacSelector->currentIndex()).toInt());   // set zodiac
     file->setHouseSystem(hsystemSelector->itemData(hsystemSelector->currentIndex()).toInt()); // set house system
-    file->setAspectSet(aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt()); // set aspect set
+    file->setAspectSet(aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt(), _dynAspChange); // set aspect set
     file->setAspectMode(A::aspectModeEnum(aspectModeSelector->currentIndex()));    // aspect mode
-    file->setHarmonic(harmonicSelector->currentText().toDouble());
+    auto val = harmonicSelector->currentText();
+    bool ok = false;
+    auto h = val.toDouble(&ok);
+    if (!ok) {
+        auto ops = val.split(QRegExp("\\s*\\*\\s*"));
+        if (ops.size()>=2) {
+            double v = 1;
+            for (auto m : ops) {
+                auto mv = m.toDouble(&ok);
+                if (ok) v *= mv; else break;
+            }
+            if (ok) file->setHarmonic(v);
+        } else {
+            ops = val.split(QRegExp("\\s*/\\s*"));
+            if (ops.size()>=2) {
+                double v = ops.takeFirst().toDouble(&ok);
+                for (auto m : ops) {
+                    auto mv = m.toDouble(&ok);
+                    if (std::abs(mv)<=std::numeric_limits<double>::epsilon()) {
+                        ok = false; break;
+                    }
+                    if (ok) v /= mv; else break;
+                }
+                if (ok) file->setHarmonic(v);
+            }
+        }
+    } else
+        file->setHarmonic(h);
 
     if (!hasChanges) file->clearUnsavedState();
     if (!suspendUpdate) file->resumeUpdate();
@@ -214,7 +247,9 @@ void AstroWidget::setupFile(AstroFile* file, bool suspendUpdate)
 
 void AstroWidget::switchToSingleAspectSet()
 {
-#if 0 // TODO tweak orb factor
+#if 1
+    A::setOrbFactor(1);
+#else
     aspectsSelector->blockSignals(true);
     A::AspectSetId set = aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt();
     A::AspectSetId set2 = sqrtf(set);
@@ -230,7 +265,9 @@ void AstroWidget::switchToSingleAspectSet()
 
 void AstroWidget::switchToSynastryAspectSet()
 {
-#if 0
+#if 1
+    A::setOrbFactor(.25);
+#else
     aspectsSelector->blockSignals(true);
     A::AspectSetId set = aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt();
     A::AspectSetId set2 = set * set;
@@ -246,28 +283,29 @@ void AstroWidget::switchToSynastryAspectSet()
 
 void AstroWidget::setFiles(const AstroFileList& files)
 {
-    if (files.count() == 2)
+    if (files.count() == 2) {
         switchToSynastryAspectSet();
-    else if (files.count() == 1)
+    } else if (files.count() == 1) {
         switchToSingleAspectSet();
+    }
 
-    for (AstroFile* i : files)
-        setupFile(i, true);
+    for (AstroFile* i : files) setupFile(i, true);
 
     fileView->setFiles(files);
     fileView2nd->setFiles(files);
     if (editor) editor->setFiles(files);
-    for (AstroFileHandler* h : handlers)
-        h->setFiles(files);
 
-    for (AstroFile* i : files)
-        i->resumeUpdate();
+    for (AstroFileHandler* h : handlers) h->setFiles(files);
+
+    for (AstroFile* i : files) i->resumeUpdate();
 
     fileView->resumeUpdate();
     fileView2nd->resumeUpdate();
     if (editor) editor->resumeUpdate();
-    for (AstroFileHandler* h : handlers)
+
+    for (AstroFileHandler* h : handlers) {
         if (h->isVisible()) h->resumeUpdate();
+    }
 }
 
 void AstroWidget::openEditor()
@@ -307,9 +345,10 @@ AstroWidget::setHarmonic(double h)
 
 void AstroWidget::destroyingFile()
 {
-    AstroFile* file = (AstroFile*)sender();
-    if (!files().contains(file) || files().count() > 2) return;
-    switchToSingleAspectSet();
+    if (auto file = qobject_cast<AstroFile*>(sender())) {
+        if (!files().contains(file) || files().count() > 2) return;
+        switchToSingleAspectSet();
+    }
 }
 
 void AstroWidget::destroyEditor()
@@ -386,11 +425,16 @@ void AstroWidget::attachHandler(AstroFileHandler* w)
 void AstroWidget::addHoroscopeControls()
 {
     zodiacSelector = new QComboBox;
+    zodiacSelector->setObjectName("zodiacSelector");
     hsystemSelector = new QComboBox;
+    hsystemSelector->setObjectName("hsystemSelector");
     aspectsSelector = new QComboBox;
+    aspectsSelector->setObjectName("aspectsSelector");
     aspectModeSelector = new QComboBox;
+    aspectModeSelector->setObjectName("aspectModeSelector");
     harmonicSelector = new QComboBox;
-    harmonicSelector->setMinimumWidth(50);
+    harmonicSelector->setObjectName("harmonicSelector");
+    harmonicSelector->setMinimumWidth(100);
     harmonicSelector->setValidator(new QDoubleValidator(1, 360*360, 4, this));
 
     zodiacSelector->setToolTip(tr("Sign"));
@@ -407,8 +451,111 @@ void AstroWidget::addHoroscopeControls()
     for (const A::HouseSystem& sys : A::getHouseSystems())
         hsystemSelector->addItem(sys.name, sys.id);
 
+    // create combo box with aspect sets
     for (const A::AspectsSet& s : A::getAspectSets())
-        aspectsSelector->addItem(s.name, s.id);                 // create combo box with aspect sets
+        aspectsSelector->addItem(s.name, s.id);
+
+    A::AspectSetId daspId = -1;
+    for (auto&& as : A::getAspectSets()) {
+        if (as.name.startsWith("Dynamic")) {
+            daspId = as.id;
+        }
+    }
+    dynAspectControls = new QToolBar();
+    dynAspectControls->setObjectName("dynAspectControls");
+    QStringList ssl {
+        "QToolBar { padding: 0px; }",
+        "QToolBar#dynAspectControls QToolButton { "
+            "padding: 0px; margin: 0px; border-width: 0px; "
+            //"width: 15px; "
+            "max-width: 45px; "
+            "min-width: 15px; "
+        "}",
+    };
+
+    auto& dasps = A::getAspectSet(daspId);
+    QMapIterator<A::AspectId,A::AspectType> dit(dasps.aspects);
+    for (unsigned i = 1; i <= 32; ++i) {
+        auto num = QString::number(i);
+        auto act = dynAspectControls->addAction(num);
+        act->setObjectName("hasp" + num);
+        act->setCheckable(true);
+        act->setChecked(A::dynAspState(i));
+
+        auto facs = A::getPrimeFactors(i);
+        if (facs.size()>1) {
+            QStringList sl;
+            for (auto u : facs) sl << QString::number(u);
+            sl = QStringList() << sl.join("x");
+            while (dit.hasNext()
+                   && dit.peekNext().value()._harmonic != i)
+            { dit.next(); }
+            while (dit.hasNext() && dit.peekNext().value()._harmonic==i) {
+                const auto& asp = dit.next().value();
+                sl << asp.name;
+            }
+            act->setToolTip(sl.join("<br>"));
+        }
+
+        auto btn = dynAspectControls->widgetForAction(act);
+        btn->setObjectName("hasp" + num + "btn");
+        QColor clr = A::getHarmonicColor(i);
+        double luma = 0.2126 * clr.redF()
+                     + 0.7152 * clr.greenF()
+                     + 0.0722 * clr.blueF();
+        bool useBlack = ( luma > 0.5 );
+        QColor darker = clr.darker();
+        auto style =
+                QString("QToolButton:checked "
+                        "{ background-color: %1;  color: %2; } "
+                        "QToolButton { background-color: %3; color: %4; }")
+                .arg(clr.name(QColor::HexArgb))
+                .arg((useBlack? "black" : "white"))
+                .arg(darker.name(QColor::HexArgb))
+                .arg((useBlack? "darkgray" : "lightgray"));
+        btn->setStyleSheet(style);
+        btn->setMaximumWidth(20);
+
+        connect(act, &QAction::toggled,
+                [this, &dasps, i](bool b)
+        {
+            //bool b = act->isChecked();
+            if (A::dynAspState(i) == b) return;
+
+            A::setDynAspState(i, b);
+            bool seen = false;
+            for (auto aid : dasps.aspects.keys()) {
+                A::AspectType& asp = dasps.aspects[aid];
+                if (asp._harmonic == i) {
+                    seen = true;
+                    asp.setEnabled(b);
+                } else if (seen) break;    // assumes they're bunched...
+#if 0
+                if (!b) {
+                    if (asp._harmonic % i == 0) asp.setEnabled(false);
+                    continue;
+                }
+                bool foundAll = true;
+                for (auto h : asp.factors) {
+                    foundAll = A::dynAspState(h);
+                    if (!foundAll) break;
+                }
+                if (foundAll) asp.setEnabled(true);
+#endif
+            }
+            if (_dynAspChange) return;
+            A::modalize<bool> change(_dynAspChange, true);
+            horoscopeControlChanged();
+        });
+        //act->dumpObjectInfo();
+    }
+    auto ssh = ssl.join(" ");
+    dynAspectControls->setStyleSheet(ssh);
+#if 0
+    qDebug() << ssh;
+    dynAspectControls->dumpObjectInfo();
+    dynAspectControls->dumpObjectTree();
+#endif
 
     for (unsigned i = A::amcGreatCircle; i < A::amcEND; ++i) {
         aspectModeSelector->addItem(A::aspectModeType::toUserString(i),
@@ -419,16 +566,21 @@ void AstroWidget::addHoroscopeControls()
         harmonicSelector->addItem(QString::number(i));
     }
 
-    horoscopeControls << zodiacSelector << hsystemSelector
-        << aspectsSelector << aspectModeSelector
-        << harmonicSelector;
+    horoscopeControls
+            << zodiacSelector
+            << hsystemSelector
+            << aspectsSelector
+            << aspectModeSelector
+            << harmonicSelector;
 
     harmonicSelector->setEditable(true);
 
-    for (QComboBox* c: horoscopeControls) {
-        if (c != harmonicSelector) c->setEditable(false);
-        connect(c, SIGNAL(currentIndexChanged(int)),
-                this, SLOT(horoscopeControlChanged()));
+    for (QWidget* w: horoscopeControls) {
+        if (auto c = qobject_cast<QComboBox*>(w)) {
+            c->setEditable(c == harmonicSelector);
+            connect(c, SIGNAL(currentIndexChanged(int)),
+                    this, SLOT(horoscopeControlChanged()));
+        }
     }
 }
 
@@ -473,6 +625,11 @@ void AstroWidget::horoscopeControlChanged()
         i->resumeUpdate();
 }
 
+void AstroWidget::aspectSelectionChanged()
+{
+
+}
+
 AppSettings AstroWidget::defaultSettings()
 {
     AppSettings s;
@@ -487,13 +644,15 @@ AppSettings AstroWidget::defaultSettings()
     s.setValue("Scope/zodiac", 0);          // indexes of ComboBox items, not values itself
     s.setValue("Scope/houseSystem", 0);
     s.setValue("Scope/aspectSet", 0);
+    s.setValue("Scope/dynamic", "all");
     s.setValue("Scope/aspectMode", 1);   // ecliptic
     s.setValue("slide", slides->currentIndex());    // чтобы не возвращалась к первому слайду после сброса настроек
     s.setValue("harmonic", 1);
     return s;
 }
 
-AppSettings AstroWidget::currentSettings()
+AppSettings
+AstroWidget::currentSettings()
 {
     AppSettings s;
 
@@ -508,6 +667,11 @@ AppSettings AstroWidget::currentSettings()
     s.setValue("Scope/houseSystem", hsystemSelector->currentIndex());
     s.setValue("Scope/aspectSet", aspectsSelector->currentIndex());
     s.setValue("Scope/aspectMode", aspectModeSelector->currentIndex());
+
+    QVariant var;
+    A::getDynAspState(var);
+    s.setValue("Scope/dynamic", var);
+
     s.setValue("harmonic", harmonicSelector->currentText().toDouble());
     s.setValue("slide", slides->currentIndex());
     return s;
@@ -520,7 +684,7 @@ void AstroWidget::applySettings(const AppSettings& s)
 
     zodiacSelector->setCurrentIndex(s.value("Scope/zodiac").toInt());
     hsystemSelector->setCurrentIndex(s.value("Scope/houseSystem").toInt());
-    aspectsSelector->setCurrentIndex(s.value("Scope/aspectSet").toUInt());
+    aspectsSelector->setCurrentIndex(s.value("Scope/aspectSet").toInt());
     aspectModeSelector->setCurrentIndex(s.value("Scope/aspectMode").toInt());
 
     QString harm = s.value("harmonic", 1).toString();
@@ -530,6 +694,21 @@ void AstroWidget::applySettings(const AppSettings& s)
         index = harmonicSelector->findText(harm);
     }
     harmonicSelector->setCurrentIndex(index);
+
+    if (auto dactrls = getDynAspectControls()) {
+        A::modalize<bool> inChange(_dynAspChange, true);
+        A::setDynAspState(s.value("Scope/dynamic"));
+        for (unsigned i = 1; i <= 32; ++i) {
+            if (auto act =
+                dactrls->findChild<QAction*>(QString("hasp%1").arg(i)))
+            {
+                bool b = A::dynAspState(i);
+                if (act->isChecked() != b) {
+                    act->toggle();
+                }
+            }
+        }
+    }
 
     slides->setSlide(s.value("slide").toInt());
     toolBar->actions()[slides->currentIndex()]->setChecked(true);
@@ -564,14 +743,17 @@ AstroDatabase::AstroDatabase(QWidget *parent) : QFrame(parent)
 {
     QPushButton* refresh = new QPushButton;
 
-    fileList = new QListWidget;
+    fileList = new QTreeWidget;
     search = new QLineEdit;
 
     refresh->setIcon(QIcon("style/update.png"));
     refresh->setToolTip(tr("Refresh"));
     refresh->setCursor(Qt::PointingHandCursor);
+
     fileList->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    fileList->viewport()->installEventFilter(this);       // for handling middle mouse button clicks
+    fileList->viewport()->installEventFilter(this); // for handling middle mouse button clicks
+    fileList->header()->hide();
+
     search->setPlaceholderText(tr("Search"));
     setMinimumWidth(200);
     setContextMenuPolicy(Qt::CustomContextMenu);
@@ -600,10 +782,21 @@ AstroDatabase::AstroDatabase(QWidget *parent) : QFrame(parent)
 
 void AstroDatabase::searchFilter(QString s)
 {
-    for (int i = 0; i < fileList->count(); i++) {
-        QListWidgetItem* item = fileList->item(i);
-        item->setHidden(!item->text().contains(s, Qt::CaseInsensitive));
+    auto top = fileList->invisibleRootItem();
+    for (int i = 0; i < top->childCount(); i++) {
+        auto item = top->child(i);
+        item->setHidden(!item->text(0).contains(s, Qt::CaseInsensitive));
     }
+}
+
+QStringList
+getSelectedItems(QTreeWidgetItem* tw)
+{
+    QStringList sl;
+    for (int i = 0; i < tw->childCount(); ++i) {
+        if (tw->child(i)->isSelected()) sl << tw->child(i)->text(0);
+    }
+    return sl;
 }
 
 void AstroDatabase::updateList()
@@ -614,15 +807,13 @@ void AstroDatabase::updateList()
                                      QDir::Files, QDir::Name | QDir::IgnoreCase);
     list.replaceInStrings(".dat", "");
 
-    QStringList selectedItems;
-    for (QListWidgetItem* item : fileList->selectedItems()) {
-        if (item->isSelected()) selectedItems << item->text();
-    }
+    auto top = fileList->invisibleRootItem();
+    QStringList selectedItems(getSelectedItems(top));
 
     fileList->clear();
 
-    for (QString itemString : list) {
-        QListWidgetItem* item = new QListWidgetItem(itemString, fileList);
+    for (const auto& itemString : list) {
+        auto item = new QTreeWidgetItem(top, {itemString});
         if (selectedItems.contains(itemString))
             item->setSelected(true);
     }
@@ -640,7 +831,7 @@ void AstroDatabase::deleteSelected()
     msgBox.setDefaultButton(QMessageBox::Save);
 
     if (count == 1)
-        msgBox.setText(tr("Delete '%1' from list?").arg(fileList->selectedItems()[0]->text()));
+        msgBox.setText(tr("Delete '%1' from list?").arg(fileList->selectedItems()[0]->text(0)));
     else
         msgBox.setText(tr("Delete %1 files from list?").arg(count));
 
@@ -648,11 +839,11 @@ void AstroDatabase::deleteSelected()
     int ret = msgBox.exec();
     if (ret == QMessageBox::Cancel) return;
 
-    for (QListWidgetItem* item : fileList->selectedItems()) {
-        QString file = "user/" + item->text() + ".dat";
+    for (auto item : fileList->selectedItems()) {
+        QString file = "user/" + item->text(0) + ".dat";
         QFile::remove(file);
-        emit fileRemoved(item->text());
-        fileList->removeItemWidget(item);
+        emit fileRemoved(item->text(0));
+        fileList->removeItemWidget(item, 0);
         delete item;
     }
 }
@@ -664,10 +855,10 @@ AstroDatabase::openSelected()
     if (!count) return;
 
     if (count == 1) {
-        emit openFile(fileList->selectedItems()[0]->text());
+        emit openFile(fileList->selectedItems()[0]->text(0));
     } else {
-        for (QListWidgetItem* item : fileList->selectedItems()) {
-            emit openFileInNewTab(item->text());
+        for (auto item : fileList->selectedItems()) {
+            emit openFileInNewTab(item->text(0));
         }
     }
 }
@@ -675,28 +866,36 @@ AstroDatabase::openSelected()
 void
 AstroDatabase::openSelectedInNewTab()
 {
-    for (QListWidgetItem* item : fileList->selectedItems())
-        emit openFileInNewTab(item->text());
+    for (auto item : fileList->selectedItems())
+        emit openFileInNewTab(item->text(0));
 }
 
 void
 AstroDatabase::openSelectedWithTransits()
 {
-    for (QListWidgetItem* item : fileList->selectedItems())
-        emit openFileInNewTabWithTransits(item->text());
+    for (auto item : fileList->selectedItems())
+        emit openFileInNewTabWithTransits(item->text(0));
 }
 
 void AstroDatabase::openSelectedAsSecond()
 {
-    QListWidgetItem* item = fileList->selectedItems().first();
-    emit openFileAsSecond(item->text());
+    auto item = fileList->selectedItems().first();
+    emit openFileAsSecond(item->text(0));
 }
 
 void AstroDatabase::openSelectedComposite()
 {
     QStringList items;
-    for (auto item : fileList->selectedItems()) items << item->text();
+    for (auto item : fileList->selectedItems())
+        items << item->text(0);
     emit openFilesComposite(items);
+}
+
+void
+AstroDatabase::findSelectedDerived()
+{
+    auto item = fileList->selectedItems().first()->text(0);
+    emit findSelectedDerived(item);
 }
 
 void AstroDatabase::openSelectedWithSolarReturn()
@@ -705,11 +904,11 @@ void AstroDatabase::openSelectedWithSolarReturn()
     if (!count) return;
 
     if (count == 1) {
-        QString file(fileList->selectedItems().first()->text());
+        QString file(fileList->selectedItems().first()->text(0));
         emit openFileInNewTabWithReturn(file);
     } else {
-        for (QListWidgetItem* item : fileList->selectedItems()) {
-            emit openFileInNewTabWithReturn(item->text());
+        for (auto item : fileList->selectedItems()) {
+            emit openFileInNewTabWithReturn(item->text(0));
         }
     }
 }
@@ -717,7 +916,7 @@ void AstroDatabase::openSelectedWithSolarReturn()
 void AstroDatabase::openSelectedSolarReturnInNewTab()
 {
     for (auto item : fileList->selectedItems()) {
-        emit openFileReturn(item->text());
+        emit openFileReturn(item->text(0));
     }
 }
 
@@ -726,12 +925,13 @@ void AstroDatabase::showContextMenu(QPoint p)
     QMenu* mnu = new QMenu(this);
     QPoint pos = ((QWidget*)sender())->mapToGlobal(p);
 
-    mnu->addAction(tr("Open"), this, SLOT(openSelected()));
+    mnu->addAction(tr("Open"), this, SLOT(openSedlected()));
     mnu->addAction(tr("Open in new tab"), this, SLOT(openSelectedInNewTab()));
     mnu->addAction(tr("Open with Transits"), this, SLOT(openSelectedWithTransits()));
     mnu->addAction(tr("Synastry view"), this, SLOT(openSelectedAsSecond()));
 
     mnu->addAction(tr("Composite"), this, SLOT(openSelectedComposite()));
+    mnu->addAction(tr("Open Derived..."), this, SLOT(findSelectedDerived()));
     mnu->addSeparator();
     mnu->addAction(tr("Open with Solar Return"),
                    this, SLOT(openSelectedWithSolarReturn()));
@@ -741,63 +941,70 @@ void AstroDatabase::showContextMenu(QPoint p)
                    [this]()
     {
         for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(), "Moon");
+            emit openFileReturn(item->text(0), "Moon");
     });
 
     mnu->addAction(tr("Open Mercury Return in new tab"),
                    [this]()
     {
         for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(), "Mercury");
+            emit openFileReturn(item->text(0), "Mercury");
     });
 
     mnu->addAction(tr("Open Venus Return in new tab"),
                    [this]()
     {
         for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(), "Venus");
+            emit openFileReturn(item->text(0), "Venus");
     });
 
     mnu->addAction(tr("Open Mars Return in new tab"),
                    [this]()
     {
         for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(), "Mars");
+            emit openFileReturn(item->text(0), "Mars");
     });
 
     mnu->addAction(tr("Open Jupiter Return in new tab"),
                    [this]()
     {
         for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(), "Jupiter");
+            emit openFileReturn(item->text(0), "Jupiter");
     });
 
     mnu->addAction(tr("Open Saturn Return in new tab"),
                    [this]()
     {
         for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(), "Saturn");
+            emit openFileReturn(item->text(0), "Saturn");
     });
 
     mnu->addAction(tr("Open Uranus Return in new tab"),
                    [this]()
     {
         for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(), "Uranus");
+            emit openFileReturn(item->text(0), "Uranus");
     });
 
     mnu->addAction(tr("Open Neptune Return in new tab"),
                    [this]()
     {
         for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(), "Neptune");
+            emit openFileReturn(item->text(0), "Neptune");
     });
 
     mnu->addAction(tr("Open Pluto Return in new tab"),
                    [this]()
     {
         for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(), "Pluto");
+            emit openFileReturn(item->text(0), "Pluto");
+    });
+
+    mnu->addAction(tr("Open Chiron Return in new tab"),
+                   [this]()
+    {
+        for (auto item: fileList->selectedItems())
+            emit openFileReturn(item->text(0), "Chiron");
     });
 
     mnu->addSeparator();
@@ -876,6 +1083,79 @@ void FilesBar::addFile(AstroFile* file)
     connect(file, SIGNAL(destroyRequested()), this, SLOT(fileDestroyed()));
 }
 
+void
+FilesBar::editNewChart()
+{
+    auto dlg = new QDialog();
+    auto lay = new QVBoxLayout(dlg);
+    dlg->setLayout(lay);
+    auto pafe = new AstroFileEditor(dlg);
+    auto f = new AstroFile;
+    MainWindow::theAstroWidget()->setupFile(f);
+    pafe->setFiles( {f} );
+    lay->addWidget(pafe);
+    pafe->layout()->setMargin(0);
+    auto dbb = new QDialogButtonBox(QDialogButtonBox::Ok
+                                    |QDialogButtonBox::Cancel,
+                                    dlg);
+    lay->addWidget(dbb);
+
+    dlg->adjustSize();
+    dlg->move((topLevelWidget()->width() - dlg->width())/2
+             + topLevelWidget()->geometry().left(),
+             (topLevelWidget()->height() - dlg->height())/2
+             + topLevelWidget()->geometry().top());
+
+    auto aw = topLevelWidget()->findChild<AstroWidget*>();
+    qDebug() << aw;
+    connect(dbb, SIGNAL(accepted()), dlg, SLOT(accept()));
+    connect(dbb, SIGNAL(rejected()), dlg, SLOT(reject()));
+    connect(dlg, &QDialog::accepted,
+            [this,pafe] { pafe->applyToFile(); addFile(pafe->file()); });
+    connect(dlg, SIGNAL(rejected()), dlg, SLOT(destroyLater()));
+    connect(dlg, SIGNAL(accepted()), dlg, SLOT(destroyLater()));
+    dlg->open();
+}
+
+void
+FilesBar::findChart()
+{
+    auto dlg = new QDialog();
+    auto lay = new QVBoxLayout(dlg);
+    dlg->setLayout(lay);
+    auto pafe = new AstroFindEditor(dlg);
+    auto f = new AstroFile;
+    MainWindow::theAstroWidget()->setupFile(f);
+    pafe->setFiles( {f} );
+    lay->addWidget(pafe);
+    pafe->layout()->setMargin(0);
+    auto dbb = new QDialogButtonBox(QDialogButtonBox::Ok
+                                    | QDialogButtonBox::Cancel,
+                                    dlg);
+    auto ok = dbb->button(QDialogButtonBox::Ok);
+    connect(pafe, SIGNAL(hasSelection(bool)),
+            ok, SLOT(setEnabled(bool)));
+    ok->setEnabled(false);
+
+    lay->addWidget(dbb);
+
+    dlg->adjustSize();
+    dlg->move((topLevelWidget()->width() - dlg->width())/2
+             + topLevelWidget()->geometry().left(),
+             (topLevelWidget()->height() - dlg->height())/2
+             + topLevelWidget()->geometry().top());
+
+    auto aw = topLevelWidget()->findChild<AstroWidget*>();
+    qDebug() << aw;
+    connect(dbb, SIGNAL(accepted()), dlg, SLOT(accept()));
+    connect(dbb, SIGNAL(rejected()), dlg, SLOT(reject()));
+    connect(dlg, &QDialog::accepted,
+            [this,pafe] { pafe->applyToFile(); addFile(pafe->file()); });
+    connect(dlg, SIGNAL(rejected()), dlg, SLOT(deleteLater()));
+    connect(dlg, SIGNAL(accepted()), dlg, SLOT(deleteLater()));
+    dlg->open();
+}
+
 void FilesBar::updateTab(int index)
 {
     if (index >= count()) return;
@@ -897,7 +1177,7 @@ void FilesBar::fileUpdated(AstroFile::Members m)
 
 void FilesBar::fileDestroyed()                // called when AstroFile going to be destroyed
 {
-    AstroFile* file = (AstroFile*)sender();
+    auto file = static_cast<AstroFile*>(sender());
     int tab = getTabIndex(file);
     if (tab == -1) return;                        // tab with the single file has been removed already
     int index = files[tab].indexOf(file);
@@ -946,9 +1226,11 @@ bool FilesBar::closeTab(int index)
     }
 
     files.removeAt(index);
-    ((QTabBar*)this)->removeTab(index);
-    for (AstroFile* i : f)
-        i->destroy();                     // delete AstroFiles, because we do not need it
+    static_cast<QTabBar*>(this)->removeTab(index);
+    
+    // delete AstroFiles, because we do not need it
+    for (AstroFile* i : f) i->destroy();
+    
     if (!count()) addNewFile();
     return true;
 }
@@ -1030,7 +1312,7 @@ FilesBar::openFileReturn(const QString& name, const QString& body)
         planet += " H" + QString::number(native->data().harmonic);
     }
 
-    A::PlanetId pid = A::getPlanet(body);
+    A::PlanetId pid = A::getPlanetId(body);
 
     AstroFile* planetReturn = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(planetReturn, true);
@@ -1049,7 +1331,14 @@ FilesBar::openFileReturn(const QString& name, const QString& body)
                           .arg(name)
                           .arg(planet)
                           .arg(dt.toLocalTime().date().year()));
+    planetReturn->clearUnsavedState();
     addFile(planetReturn);
+}
+
+void
+FilesBar::findDerivedChart(const QString& body)
+{
+    
 }
 
 void
@@ -1066,7 +1355,7 @@ FilesBar::openFileInNewTabWithReturn(const QString& name,
         planet += " H" + QString::number(native->data().harmonic);
     }
 
-    A::PlanetId pid = A::getPlanet(body);
+    A::PlanetId pid = A::getPlanetId(body);
 
     AstroFile* planetReturn = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(planetReturn, true);
@@ -1084,6 +1373,8 @@ FilesBar::openFileInNewTabWithReturn(const QString& name,
 
     files[currentIndex()] << planetReturn;
     updateTab(currentIndex());
+
+    planetReturn->clearUnsavedState();
 
     connect(planetReturn, SIGNAL(changed(AstroFile::Members)), this, SLOT(fileUpdated(AstroFile::Members)));
     connect(planetReturn, SIGNAL(destroyRequested()), this, SLOT(fileDestroyed()));
@@ -1151,8 +1442,41 @@ MainWindow::MainWindow(QWidget *parent) :
         createActionForPanel(w);
     }
 
-    for (QWidget* w : astroWidget->getHoroscopeControls())
+    for (QWidget* w : astroWidget->getHoroscopeControls()) {
+        auto name = w->objectName();
+        qDebug() << "Permanent widget added:" << w;
+        if (!qobject_cast<QComboBox*>(w)) {
+            for (auto btn: w->findChildren<QPushButton*>()) {
+                statusBar()->addPermanentWidget(btn);
+            }
+            continue;
+        }
         statusBar()->addPermanentWidget(w);
+    }
+
+    A::AspectsSet* dynAspSet = nullptr;
+    for (auto&& as : A::getAspectSets()) {
+        if (as.name.startsWith("Dynamic")) {
+            dynAspSet = &as; break;
+        }
+    }
+
+    auto aspectsSelector = astroWidget->getAspectsSelector();
+    connect(aspectsSelector,
+            QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [this, aspectsSelector](int i)
+    {
+        A::AspectId id = aspectsSelector->itemData(i).toInt();
+        const auto& asp = A::getAspectSet(id);
+        bool add = asp.name.startsWith("Dynamic");
+        auto dactrls = astroWidget->getDynAspectControls();
+        if (add) {
+            if (dactrls->parent()) dactrls->setVisible(true);
+            else statusBar()->insertPermanentWidget(0, dactrls);
+        } else {
+            if (dactrls->parent()) dactrls->setVisible(false);
+        }
+    });
 
     connect(wdg, SIGNAL(customContextMenuRequested(QPoint)),
             this, SLOT(contextMenu(QPoint)));
@@ -1204,17 +1528,36 @@ void MainWindow::contextMenu(QPoint p)
 
 void MainWindow::addToolBarActions()
 {
-    toolBar->addAction(QIcon("style/file.png"), tr("New"), filesBar, SLOT(addNewFile()));
+    auto tbNew = new QToolButton(this);
+    tbNew->setPopupMode(QToolButton::MenuButtonPopup);
+    tbNew->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+
+    auto newAct = new QAction(QIcon("style/file.png"), tr("New"));
+    tbNew->addAction(newAct);
+    tbNew->setDefaultAction(newAct);
+    connect(newAct, SIGNAL(triggered()), filesBar, SLOT(addNewFile()));
+
+    auto newEditAct = new QAction(QIcon("style/file.png"), tr("New chart..."));
+    tbNew->addAction(newEditAct);
+    connect(newEditAct, SIGNAL(triggered()), filesBar, SLOT(editNewChart()));
+
+    auto newFindAct = new QAction(QIcon(), tr("Find chart..."));
+    tbNew->addAction(newFindAct);
+    connect(newFindAct, SIGNAL(triggered()), filesBar, SLOT(findChart()));
+
+    toolBar->addWidget(tbNew);
     toolBar->addAction(QIcon("style/save.png"), tr("Save"), this, SLOT(saveFile()));
     toolBar->addAction(QIcon("style/edit.png"), tr("Edit"), astroWidget, SLOT(openEditor()));
     //toolBar  -> addAction(QIcon("style/print.png"), tr("Экспорт"));
 
-    toolBar->actions()[0]->setShortcut(QKeySequence("CTRL+N"));
+    newAct->setShortcut(QKeySequence("CTRL+N"));
+    newEditAct->setShortcut(QKeySequence("Ctrl+Shift+N"));
     toolBar->actions()[1]->setShortcut(QKeySequence("CTRL+S"));
     toolBar->actions()[2]->setShortcut(QKeySequence("F2"));
     //toolBar  -> actions()[3]->setShortcut(QKeySequence("CTRL+P"));
 
-    toolBar->actions()[0]->setStatusTip(tr("New data") + "\n Ctrl+N");
+    newAct->setStatusTip(tr("New data") + "\n Ctrl+N");
+    newEditAct->setStatusTip(tr("Edit new data") + "\n Ctrl+Shift+N");
     toolBar->actions()[1]->setStatusTip(tr("Save data") + "\n Ctrl+S");
     toolBar->actions()[2]->setStatusTip(tr("Edit data...") + "\n F2");
     //toolBar  -> actions()[3]->setStatusTip(tr("Печать или экспорт \n Ctrl+P"));

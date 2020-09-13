@@ -67,7 +67,7 @@ void AppSettings::load(const QString& fileName)
     QSettings file(fileName, QSettings::IniFormat);
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
 
-    foreach(QString key, vals.keys())
+    foreach(const QString& key, vals.keys())
         setValue(key, file.value(key, value(key)));
 
     qDebug() << "AppSettings: loaded from" << fileName;
@@ -78,7 +78,7 @@ void AppSettings::save(const QString& fileName)
     QSettings file(fileName, QSettings::IniFormat);
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
 
-    foreach(QString key, vals.keys())
+    foreach(const QString& key, vals.keys())
         file.setValue(key, value(key));
 
     qDebug() << "AppSettings: saved to" << fileName;
@@ -99,17 +99,17 @@ AppSettingsEditor::AppSettingsEditor() : QDialog()
     setWindowTitle(tr("Settings"));
     bApply->setEnabled(false);
 
-    QHBoxLayout* buttLayout = new QHBoxLayout;
-    buttLayout->addWidget(setDefault);
-    buttLayout->addStretch(0);
-    buttLayout->addSpacing(10);
-    buttLayout->addWidget(ok);
-    buttLayout->addWidget(cancel);
-    buttLayout->addWidget(bApply);
+    QHBoxLayout* btnLayout = new QHBoxLayout;
+    btnLayout->addWidget(setDefault);
+    btnLayout->addStretch(0);
+    btnLayout->addSpacing(10);
+    btnLayout->addWidget(ok);
+    btnLayout->addWidget(cancel);
+    btnLayout->addWidget(bApply);
 
     QVBoxLayout* layout = new QVBoxLayout(this);
     layout->addWidget(tabs);
-    layout->addLayout(buttLayout);
+    layout->addLayout(btnLayout);
 
     connect(bApply, SIGNAL(clicked()), this, SLOT(applySettings()));
     connect(ok, SIGNAL(clicked()), this, SLOT(applySettings()));
@@ -131,7 +131,7 @@ void AppSettingsEditor::change()
     bApply->setEnabled(true);
 }
 
-void AppSettingsEditor::addTab(QString tabName)
+void AppSettingsEditor::addTab(const QString& tabName)
 {
     QWidget* w = new QWidget;
     w->setLayout(new QFormLayout);
@@ -153,7 +153,8 @@ QFormLayout* AppSettingsEditor::lastLayout()
 }
 
 QWidget* 
-AppSettingsEditor::addControl(QString valueName, QString label)
+AppSettingsEditor::addControl(const QString& valueName,
+                              const QString& label)
 {
     if (valueName.isEmpty()) return nullptr;
 
@@ -172,16 +173,18 @@ AppSettingsEditor::addControl(QString valueName, QString label)
 
 void 
 AppSettingsEditor::addCustomWidget(QWidget* wdg,
-                                   QString label,
+                                   const QString& label,
                                    const char* changeSignal)
-{                                     // add a user widget (manual reading and applying settings is required)
+{
+    // add a user widget (manual reading and applying settings is required)
     customWidgets << wdg;
     lastLayout()->addRow(label, wdg);
     connect(wdg, changeSignal, this, SLOT(change()));
 }
 
 QLineEdit* 
-AppSettingsEditor::addLineEdit(QString valueName, QString label)
+AppSettingsEditor::addLineEdit(const QString& valueName,
+                               const QString& label)
 {
     if (valueName.isEmpty()) return nullptr;
     QVariant s = settings.value(valueName);
@@ -189,14 +192,15 @@ AppSettingsEditor::addLineEdit(QString valueName, QString label)
     QLineEdit* edit = new QLineEdit(s.toString());
     lastLayout()->addRow(label, edit);
 
-    bindedControls[valueName] = edit;
+    boundControls[valueName] = edit;
     connect(edit, SIGNAL(textChanged(QString)), this, SLOT(change()));
 
     return edit;
 }
 
 QCheckBox* 
-AppSettingsEditor::addCheckBox(QString valueName, QString label)
+AppSettingsEditor::addCheckBox(const QString& valueName, const QString&
+                               label)
 {
     if (valueName.isEmpty()) return nullptr;
     QVariant s = settings.value(valueName);
@@ -205,15 +209,15 @@ AppSettingsEditor::addCheckBox(QString valueName, QString label)
     edit->setChecked(s.toBool());
     lastLayout()->addRow(label, edit);
 
-    bindedControls[valueName] = edit;
+    boundControls[valueName] = edit;
     connect(edit, SIGNAL(toggled(bool)), this, SLOT(change()));
 
     return edit;
 }
 
 QSpinBox* 
-AppSettingsEditor::addSpinBox(QString valueName,
-                              QString label,
+AppSettingsEditor::addSpinBox(const QString& valueName,
+                              const QString& label,
                               int minValue,
                               int MaxValue)
 {
@@ -228,15 +232,15 @@ AppSettingsEditor::addSpinBox(QString valueName,
 
     lastLayout()->addRow(label, edit);
 
-    bindedControls[valueName] = edit;
+    boundControls[valueName] = edit;
     connect(edit, SIGNAL(valueChanged(int)), this, SLOT(change()));
 
     return edit;
 }
 
 QDoubleSpinBox*
-AppSettingsEditor::addDoubleSpinBox(QString valueName,
-                                    QString label,
+AppSettingsEditor::addDoubleSpinBox(const QString& valueName,
+                                    const QString& label,
                                     double minValue,
                                     double maxValue,
                                     double step /*=0.1*/)
@@ -254,14 +258,14 @@ AppSettingsEditor::addDoubleSpinBox(QString valueName,
 
     lastLayout()->addRow(label, edit);
 
-    bindedControls[valueName] = edit;
+    boundControls[valueName] = edit;
     connect(edit, SIGNAL(valueChanged(double)), this, SLOT(change()));
 
     return edit;
 }
 
 QComboBox*
-AppSettingsEditor::addComboBox(QString valueName, QString label, QMap<QString, QVariant> values)
+AppSettingsEditor::addComboBox(const QString& valueName, const QString& label, QMap<QString, QVariant> values)
 {
     if (valueName.isEmpty()) return nullptr;
     QVariant s = settings.value(valueName);
@@ -281,13 +285,13 @@ AppSettingsEditor::addComboBox(QString valueName, QString label, QMap<QString, Q
 
     lastLayout()->addRow(label, edit);
 
-    bindedControls[valueName] = edit;
+    boundControls[valueName] = edit;
     connect(edit, SIGNAL(currentIndexChanged(int)), this, SLOT(change()));
 
     return edit;
 }
 
-void AppSettingsEditor::addLabel(QString label)
+void AppSettingsEditor::addLabel(const QString& label)
 {
     if (label.isEmpty()) return;
     QLabel* l = new QLabel(label);
@@ -303,34 +307,23 @@ void AppSettingsEditor::applySettings()
 {
     if (!changed) return;
 
-    QMap<QString, QWidget*>::iterator i = bindedControls.begin();
+    for (auto i = boundControls.begin(); i != boundControls.end(); ++i) {
+        auto w = i.value();
 
-    while (i != bindedControls.end())
-    {
-        QWidget* w = i.value();
-        QString className = w->metaObject()->className();
-        QString objName = w->objectName();
         QVariant value;
-
-        if (className == "QLineEdit")
-            value = ((QLineEdit*)w)->text();
-
-        else if (className == "QCheckBox")
-            value = ((QCheckBox*)w)->isChecked();
-
-        else if (className == "QSpinBox")
-            value = ((QSpinBox*)w)->value();
-
-        else if (className == "QDoubleSpinBox") {
-            double v = ((QDoubleSpinBox*)w)->value();
-            value = v;
+        if (auto le = qobject_cast<QLineEdit*>(w)) {
+            value = le->text();
+        } else if (auto cb = qobject_cast<QCheckBox*>(w)) {
+            value = cb->isChecked();
+        } else if (auto sb = qobject_cast<QSpinBox*>(w)) {
+            value = sb->value();
+        } else if (auto dsb = qobject_cast<QDoubleSpinBox*>(w)) {
+            value = dsb->value();
+        } else if (auto cmb = qobject_cast<QComboBox*>(w)) {
+            value = cmb->currentData(); // no displayRole?
         }
 
-        else if (className == "QComboBox")
-            value = ((QComboBox*)w)->itemData(((QComboBox*)w)->currentIndex());
-
         settings.setValue(i.key(), value);
-        i++;
     }
 
     changed = false;
@@ -341,31 +334,21 @@ void AppSettingsEditor::applySettings()
 
 void AppSettingsEditor::updateControls()
 {
-    QMap<QString, QWidget*>::iterator i = bindedControls.begin();
-
-    while (i != bindedControls.end())
-    {
+    for (auto i = boundControls.begin(); i != boundControls.end(); ++i) {
         QWidget* w = i.value();
-        QString className = w->metaObject()->className();
+
         QVariant value = settings.value(i.key());
-
-        if (className == "QLineEdit")
-            ((QLineEdit*)w)->setText(value.toString());
-
-        else if (className == "QCheckBox")
-            ((QCheckBox*)w)->setChecked(value.toBool());
-
-        else if (className == "QSpinBox")
-            ((QSpinBox*)w)->setValue(value.toInt());
-
-        else if (className == "QDoubleSpinBox") {
-            ((QDoubleSpinBox*)w)->setValue(value.toDouble());
+        if (auto le = qobject_cast<QLineEdit*>(w)) {
+            le->setText(value.toString());
+        } else if (auto cb = qobject_cast<QCheckBox*>(w)) {
+            cb->setChecked(value.toBool());
+        } else if (auto sb = qobject_cast<QSpinBox*>(w)) {
+            sb->setValue(value.toInt());
+        } else if (auto dsb = qobject_cast<QDoubleSpinBox*>(w)) {
+            dsb->setValue(value.toDouble());
+        } else if (auto cmb = qobject_cast<QComboBox*>(w)) {
+            cmb->setCurrentIndex(cmb->findData(value));
         }
-
-        else if (className == "QComboBox")
-            ((QComboBox*)w)->setCurrentIndex(((QComboBox*)w)->findData(value));
-
-        i++;
     }
 }
 
@@ -402,12 +385,12 @@ void Customizable::openSettingsEditor()
     ed->deleteLater();
 }
 
-void Customizable::saveSettings(QString iniFile)
+void Customizable::saveSettings(const QString& iniFile)
 {
     currentSettings().save(iniFile);
 }
 
-void Customizable::loadSettings(QString iniFile)
+void Customizable::loadSettings(const QString& iniFile)
 {
     AppSettings s = defaultSettings();
     s.load(iniFile);

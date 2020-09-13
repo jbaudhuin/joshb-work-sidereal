@@ -11,16 +11,11 @@ class Harmonics : public AstroFileHandler
 {
     Q_OBJECT
 
-private:
-    A::PlanetId _planet;
-    int _fileIndex;
-    bool _expandedAspects;
-    bool _inhibitUpdate;
+public:
+    Harmonics(QWidget* parent = nullptr);
+    ~Harmonics() { }
 
-    QTreeWidget*  harmonicsList;
-
-    void describePlanet();
-    void clear();
+    QTreeWidget* listWidget() const { return harmonicsList; }
 
 protected:                            // AstroFileHandler implementation
     void filesUpdated(MembersList);
@@ -29,6 +24,9 @@ protected:                            // AstroFileHandler implementation
     AppSettings currentSettings();
     void applySettings(const AppSettings&);
     void setupSettingsEditor(AppSettingsEditor*);
+
+    void describePlanet();
+    void clear();
 
 signals:
     void updateHarmonics(double);
@@ -46,11 +44,14 @@ protected slots:
 public slots:
     void setCurrentPlanet(A::PlanetId, int);
 
-public:
-    Harmonics(QWidget* parent = nullptr);
-    ~Harmonics() { }
+private:
+    A::PlanetId _planet;
+    int _fileIndex;
+    bool _expandedAspects;
+    bool _inhibitUpdate;
 
-    QTreeWidget* listWidget() const { return harmonicsList; }
+    QTreeWidget*  harmonicsList;
+
 };
 
 #endif // Harmonics_H

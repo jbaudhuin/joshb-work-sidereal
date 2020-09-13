@@ -22,9 +22,10 @@
 #include <QPainter>
 #include <Astroprocessor/Calc>
 #include <Astroprocessor/Output>
-#include "../../zodiac/astroprocessor/src/astro-data.h"
+#include "../../astroprocessor/src/astro-data.h"
 #include "../../zodiac/src/mainwindow.h"
 #include "harmonics.h"
+#include <math.h>
 
 enum HarmonicSort {
     hscByHarmonic,
@@ -41,6 +42,9 @@ namespace {
 bool _includeOvertones = true;
 bool includeOvertones() { return _includeOvertones; }
 void setIncludeOvertones(bool b = true) { _includeOvertones = b; }
+unsigned _overtoneLimit = 16;
+unsigned overtoneLimit() { return _overtoneLimit; }
+void setOvertoneLimit(unsigned ol) { _overtoneLimit = ol; }
 
 QVariant
 getFactors(int h)
@@ -184,11 +188,11 @@ Harmonics::updateHarmonics()
         for (auto it = apm.cbegin(); it != apm.cend(); ++it) {
             // Filter planet list...
             A::PlanetId pid = it.key().planetId();
-            if (pid >= A::Planet_Sun && pid <= A::Planet_Pluto
+            if ((pid >= A::Planet_Sun && pid <= A::Planet_Pluto)
                 || ((pid == A::Planet_MC || pid == A::Planet_Asc)
                     && A::includeAscMC()
                     && A::aspectMode == A::amcEcliptic)
-                || pid == A::Planet_Chiron && A::includeChiron()
+                || (pid == A::Planet_Chiron && A::includeChiron())
                 || ((pid == A::Planet_SouthNode || pid == A::Planet_NorthNode)
                     && A::includeNodes()))
             {
@@ -209,10 +213,12 @@ Harmonics::updateHarmonics()
         typedef std::set<int> intSet;
         auto getDivs = [](int h, intSet& ret) {
             intSet is;
-            for (int i = 2, n = sqrt(h); i <= n; ++i) {
+            for (int i = 2, n = int(sqrt(h));
+                 i <= n; ++i)
+            {
                 if (h%i == 0) {
-                    if (h/i <= A::primeFactorLimit()) is.insert(i);
-                    if (i <= A::primeFactorLimit()) is.insert(h / i);
+                    if (h/i <= overtoneLimit()) is.insert(i);
+                    if (i <= overtoneLimit()) is.insert(h / i);
                 }
             }
             ret.swap(is);
@@ -226,8 +232,11 @@ Harmonics::updateHarmonics()
             QList<QTreeWidgetItem*> hits;
             auto factors = getFactors(ph.first);
             for (auto hp : ph.second) {
-                if (_planet != A::Planet_None && !hp.first.contains(_planet))
+                if (_planet != A::Planet_None
+                    && !hp.first.contains(_planet))
+                {
                     continue;
+                }
 
                 qreal spread = getSpread(hp.second)
                     /*/ qreal(ph.first)*/;
@@ -592,6 +601,7 @@ Harmonics::defaultSettings()
     s.setValue("Harmonics/includeChiron", true);
     s.setValue("Harmonics/includeNodes", true);
     s.setValue("Harmonics/includeOvertones", true);
+    s.setValue("Harmonics/overtoneLimit", 16);
     s.setValue("Harmonics/includeMidpoints", false);
     s.setValue("Harmonics/requireMidpointAnchor", true);
     s.setValue("Harmonics/filterFew", true);
@@ -612,6 +622,7 @@ AppSettings Harmonics::currentSettings()
     s.setValue("Harmonics/includeChiron", A::includeChiron());
     s.setValue("Harmonics/includeNodes", A::includeNodes());
     s.setValue("Harmonics/includeOvertones", includeOvertones());
+    s.setValue("Harmonics/overtoneLimit", overtoneLimit());
     s.setValue("Harmonics/includeMidpoints", A::includeMidpoints());
     s.setValue("Harmonics/requireMidpointAnchor", A::requireAnchor());
     s.setValue("Harmonics/filterFew", A::filterFew());
@@ -634,6 +645,7 @@ void Harmonics::applySettings(const AppSettings& s)
     bool chiron = s.value("Harmonics/includeChiron").toBool();
     bool nodes = s.value("Harmonics/includeNodes").toBool();
     bool over = s.value("Harmonics/includeOvertones").toBool();
+    unsigned ol = s.value("Harmonics/overtoneLimit").toUInt();
     bool mp = s.value("Harmonics/includeMidpoints").toBool();
     bool amp = s.value("Harmonics/requireMidpointAnchor").toBool();
     unsigned pfl = s.value("Harmonics/primeFactorLimit").toUInt();
@@ -648,6 +660,7 @@ void Harmonics::applySettings(const AppSettings& s)
         || A::includeChiron() != chiron
         || A::includeNodes() != nodes
         || includeOvertones() != over
+        || overtoneLimit() != ol
         || A::includeMidpoints() != mp
         || A::requireAnchor() != amp
         || A::primeFactorLimit() != pfl
@@ -661,6 +674,7 @@ void Harmonics::applySettings(const AppSettings& s)
     A::setIncludeChiron(chiron);
     A::setIncludeNodes(nodes);
     setIncludeOvertones(over);
+    setOvertoneLimit(ol);
     A::setIncludeMidpoints(mp);
     A::setRequireAnchor(amp);
     A::setFilterFew(ff);
@@ -694,8 +708,13 @@ Harmonics::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Harmonics/includeChiron", tr("Include Chiron"));
     ed->addCheckBox("Harmonics/includeNodes", tr("Include Nodes"));
 
-    ed->addCheckBox("Harmonics/includeOvertones",
+    auto io = ed->addCheckBox("Harmonics/includeOvertones",
                     tr("Include Overtones"));
+    auto ol = ed->addSpinBox("Harmonics/overtoneLimit",
+                             tr("Overtone harmonic limit"),
+                             2, 60);
+    connect(io, &QAbstractButton::toggled,
+            [ol](bool b) { ol->setEnabled(b); });
 
     auto mpt = ed->addCheckBox("Harmonics/includeMidpoints", 
                                tr("Include Midpoints"));

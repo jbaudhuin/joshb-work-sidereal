@@ -70,7 +70,7 @@ QString degreeToString(float deg, AnglePrecision precision)
         else   sprintf(str, "%s%i°", (polarity < 0) ? "-" : "", d);
     }
 
-    return QString::fromLatin1(str);
+    return QString::fromLocal8Bit(str);
 }
 
 QString zodiacPosition(float deg, const Zodiac& zodiac, AnglePrecision precision)
@@ -81,7 +81,7 @@ QString zodiacPosition(float deg, const Zodiac& zodiac, AnglePrecision precision
 
     if (precision) {
         QString str = degreeToString(deg, precision);
-        str.remove(0, str.indexOf(QString::fromLatin1("°")));
+        str.remove(0, str.indexOf(QString::fromLocal8Bit("°")));
         return QString("%1%2 %3").arg(ang).arg(str).arg(sign.tag);
     } else {
         int m = (int)(60.0*(deg - (int)deg));
@@ -91,7 +91,15 @@ QString zodiacPosition(float deg, const Zodiac& zodiac, AnglePrecision precision
 
 QString zodiacPosition(const Star& star, const Zodiac& zodiac, AnglePrecision precision)
 {
-    return zodiacPosition(star.eclipticPos.x(), zodiac, precision);
+    float deg;
+    switch (aspectMode) {
+    case amcEquatorial: deg = star.equatorialPos.x(); break;
+    case amcPrimeVertical: deg = star.pvPos; break;
+    default:
+    case amcEcliptic: deg = star.eclipticPos.x(); break;
+    }
+
+    return zodiacPosition(deg, zodiac, precision);
 }
 
 void sortPlanets(PlanetList &planets, PlanetsOrder order)
@@ -196,7 +204,7 @@ QString     describeAspectFull(const Aspect &asp, QString tag1, QString tag2)
         .arg(tag2)
         .arg(degreeToString(asp.d->angle)) +
         QObject::tr("Orb: %1 (max: %2)\n").arg(degreeToString(asp.orb))
-        .arg(degreeToString(asp.d->orb)) +
+        .arg(degreeToString(asp.d->orb())) +
         (asp.applying ? QObject::tr("Applying") : QObject::tr("Separating"));
 }
 
@@ -258,7 +266,7 @@ QString     describePlanetCoord(const Planet& planet)
 QString     describePlanetCoordInHtml(const Planet& planet)
 {
     QString ret = describePlanetCoord(planet);
-    ret.replace(QRegExp(QString::fromLatin1("(: [!-° ]+)")),
+    ret.replace(QRegExp(QString::fromLocal8Bit("(: [!-° ]+)")),
                 "<font color='#e9e9e4'>\\1</font>");  // replaces values
     ret.replace("\n", "<br>");
     return ret;
@@ -524,11 +532,13 @@ QDateTime event::_radix;
 }
 
 QString
-describeParans(const Horoscope &scope,
+describeParans(const AstroFileList& scopes,
                bool showAll,
                bool showFixedStars,
                double paranOrb)
 {
+    bool showDates = scopes.count() == 1;
+    auto scope = scopes.first()->horoscope();
     short tz = scope.inputData.tz;
     QVector<event> events;
     events << event(scope.inputData.GMT, NULL, 4);    // radix
@@ -589,7 +599,7 @@ describeParans(const Horoscope &scope,
                     anyPrinted = false;
                     break;
                 }
-                ++j, --bit;
+                ++j; --bit;
             }
             QVector<event>::ConstIterator lastPlanet = it;
             QVector<event>::ConstIterator nit;
@@ -668,11 +678,13 @@ describeSpeculum(const Horoscope &scope,
 }
 
 QString
-describe(const Horoscope& scope,
+describe(AstroFileList&& scopes,
          Articles article /*=All*/,
          double paranOrb /*=1.0*/)
 {
     QString ret;
+
+    auto scope = scopes.first()->horoscope();
 
     ret += QObject::tr("%1 sign").arg(scope.zodiac.name) + "\n\n";
 
@@ -714,7 +726,7 @@ describe(const Horoscope& scope,
             ret += p.name + "\n" + describePower(p, scope) + "\n\n";
 
     if ((article & Article_Parans) && scope.planets.count()) {
-        ret += describeParans(scope,
+        ret += describeParans(scopes,
                               bool(article & Article_DiurnalEvents),
                               bool(article & Article_FixedStars),
                               paranOrb) + "\n\n";

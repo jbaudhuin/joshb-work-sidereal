@@ -19,17 +19,20 @@
 
 namespace A {
 
-template <typename T> inline constexpr
-int sgn(T x, std::false_type is_signed) {
+template <typename T>
+inline constexpr
+int sgn(T x, std::false_type) {
     return T(0) < x;
 }
 
-template <typename T> inline constexpr
-int sgn(T x, std::true_type is_signed) {
+template <typename T>
+inline constexpr
+int sgn(T x, std::true_type) {
     return (T(0) < x) - (x < T(0));
 }
 
-template <typename T> inline constexpr
+template <typename T>
+inline constexpr
 int sgn(T x) {
     return sgn(x, std::is_signed<T>());
 }
@@ -64,7 +67,7 @@ harmonic(double h, qreal value)
 
 float roundDegree(float deg)
 {
-    deg = deg - ((int)(deg / 360)) * 360;
+    deg = deg - (int(deg / 360)) * 360;
     if (deg < 0) deg += 360;
     return deg;
 }
@@ -122,7 +125,6 @@ angle(const Star& body1, const Star& body2)
         return angle(body1.equatorialPos.x(), body2.equatorialPos.x());
     case amcPrimeVertical:
         return angle(body1.pvPos, body2.pvPos);
-        break;
     }
     return 0;
 }
@@ -137,7 +139,6 @@ float angle(const Star& body, float deg)
         return angle(body.equatorialPos.x(), deg);
     case amcPrimeVertical:
         return angle(body.pvPos, deg);
-        break;
     }
     return 0;
 }
@@ -146,11 +147,11 @@ float   angle(const Star& body, QPointF coordinate)
 {
     switch (aspectMode) {
     case amcGreatCircle:
-    {
-        float a = angle(body.eclipticPos.x(), coordinate.x());
-        float b = angle(body.eclipticPos.y(), coordinate.y());
-        return sqrt(pow(a, 2) + pow(b, 2));
-    }
+        {
+            float a = angle(body.eclipticPos.x(), coordinate.x());
+            float b = angle(body.eclipticPos.y(), coordinate.y());
+            return sqrt(pow(a, 2) + pow(b, 2));
+        }
     case amcEcliptic:
         return angle(body.eclipticPos.x(), coordinate.x());
     case amcEquatorial:
@@ -193,12 +194,13 @@ AspectId aspect(const Star& planet, QPointF coordinate, const AspectsSet& aspect
 
 AspectId aspect(float angle, const AspectsSet& aspectSet)
 {
-    for (const AspectType& aspect : aspectSet.aspects)
-    {
-     //if (aspect.id == Aspect_None) qDebug() << "aaa!";
-        if (aspect.angle - aspect.orb <= angle &&
-            aspect.angle + aspect.orb >= angle)
+    for (const AspectType& aspect : aspectSet.aspects) {
+        if (aspect.enabled
+            && aspect.angle - aspect.orb() <= angle
+            && aspect.angle + aspect.orb() >= angle)
+        {
             return aspect.id;
+        }
     }
 
     return Aspect_None;
@@ -578,7 +580,7 @@ PlanetLoc::compute(const InputData& ida,
         qreal speed2 = 0;
         auto pos2 = getPos(getPlanet(planet.planetId2()),speed2);
         pos = (pos + pos2)/2;
-        speed = (speed + speed2)/2;
+        speed += speed2;
         if (planet.isOppMidpt()) pos += 180;
     }
     loc = pos;
@@ -597,6 +599,13 @@ PlanetLoc::defaultSpeed() const
     switch (aspectMode) {
     case amcEquatorial:
     case amcEcliptic:
+        if (planet.isMidpt()) {
+            auto p1 = getPlanet(planet.planetId());
+            auto p2 = getPlanet(planet.planetId2());
+            return std::abs(p1.defaultEclipticSpeed.x()
+                            - p2.defaultEclipticSpeed.y());
+
+        }
         return getPlanet(planet.planetId()).defaultEclipticSpeed.x();
     case amcPrimeVertical:
         return -360;
@@ -621,10 +630,15 @@ PlanetProfile::computePos(double jd)
     // need to compute spread and position? There is more than one
     // value, but we only have one degree of freedom (one input variable)
     // to control...
-    unsigned char sizes[2] {0,0};
-    qreal apos[2] {0,0};
-    qreal aspd[2] {0,0};
+    std::vector<qreal> apos(size(),0);
+    std::vector<qreal> aspd(size(),0);
+    unsigned i = 0;
+    Loc::speed = 0;
     for (auto& pl : *this) {
+        Loc::speed += pl->speed;
+#if 1
+        apos[i] = pl->operator()(jd);
+#else
         auto npos = pl->operator()(jd);
         unsigned fid = unsigned(pl->inMotion());
         unsigned char& i( sizes[fid] );
@@ -634,19 +648,50 @@ PlanetProfile::computePos(double jd)
             else if (npos - apos[fid] > 180) apos[fid] += 360;
             apos[fid] = (npos + i*apos[fid])/(i+1);
         } else apos[fid] = npos;
+#endif
         ++i;
     }
 
+    if (size()==1) {
+        Loc::loc = front()->loc;
+        Loc::speed = front()->speed;
+        return Loc::loc;
+    }
     qreal &a = apos[0], &b = apos[1];
+#if 0
+    qreal &spa = aspd[0], &spb = aspd[1];
+    qreal p;
+    if (spa > spb) p = b - a;
+    else p = a - b;
+    if (p > 180) p -= 360; else if (p < -180) p += 360;
+#else
     if (b - a > 180) b -= 360;
     else if (a - b > 180) b += 360;
-
-    Loc::speed = aspd[1];
-    Loc::loc = apos[1];
-
-    return b - a;
+#endif
+#if 0
+    return p;
+#else
+    return Loc::loc = b - a;
+#endif
 }
 
+qreal
+PlanetProfile::computeSpread(double jd)
+{
+    computePos(jd);
+    std::sort(begin(), end(),
+              [](const Loc* a, const Loc* b)
+    {
+        return a->loc < b->loc;
+    });
+    qreal maxa = 0;
+    for (unsigned i = 0, n = size(); i < n; ++i) {
+        auto a = angle(operator[](i)->loc,
+                operator[]((i+1) % n)->loc);
+        if (a > maxa) maxa = a;
+    }
+    return maxa;
+}
 
 Star calculateStar(const QString& name,
                    const InputData& input,
@@ -665,7 +710,6 @@ Star calculateStar(const QString& name,
         swe_set_sid_mode(zodiac.id - 2, 0, 0);
     }
 
-    // TODO: wrong moon speed calculation
     // (flags: SEFLG_TRUEPOS|SEFLG_SPEED = 272)
     //         272|invertPositionFlag = 262416
     char starName[256];
@@ -1050,7 +1094,9 @@ calculateHarmonic(double        h,
         houses.cusp[i] = fmod(houses.cusp[i-1] + 30.0, 360.);
     }
     houses.Asc = harmonic(h, houses.Asc);
+    houses.RAAC = harmonic(h, houses.RAAC);
     houses.MC = harmonic(h, houses.MC);
+    houses.RAMC = harmonic(h, houses.RAMC);
 
     for (PlanetId id : getPlanets()) {
         calculateHarmonic(h, planets[id]);
@@ -1244,6 +1290,31 @@ public:
     }
 };
 
+std::vector<bool>
+getPrimeSieve(unsigned top)
+{
+    std::vector<bool> ret(top+1,true);
+    ret[0] = false;
+    for (unsigned i = 2; i <= top; ++i) {
+        if (!ret[i]) continue;
+        for (unsigned j = 2*i; j <= top; j += i) {
+            ret[j] = false;
+        }
+    }
+    return ret;
+}
+
+uintSet getPrimes(unsigned top)
+{
+    uintSet ret;
+    unsigned i = 0;
+    for (auto&& p: getPrimeSieve(top)) {
+        if (p) ret.insert(i);
+        ++i;
+    }
+    return ret;
+}
+
 void
 findHarmonics(const ChartPlanetMap& cpm,
               PlanetHarmonics& hx,
@@ -1266,10 +1337,9 @@ findHarmonics(const ChartPlanetMap& cpm,
     static unsigned lastMaxH = 0;
     static unsigned lastPFL = 0;
     if (maxH > lastMaxH || lastPFL != primeFactorLimit()) {
-        std::set<unsigned> primes, nonPrimes;
+        std::set<unsigned> primes { 1 }, nonPrimes;
         primeSieve.assign(maxH+1,true);
         std::vector<bool> maxFactor(maxH+1,false);
-        primes = std::set<unsigned>({1});
         for (unsigned int i = 2; i <= maxH; ++i) {
             if (!primeSieve[i]) {
                 if (!maxFactor[i]) nonPrimes.insert(i);
@@ -1422,10 +1492,12 @@ findHarmonics(const ChartPlanetMap& cpm,
         }
         return harmonicResult(h, groups);
     };
+
+    using namespace QtConcurrent;
+
     joiner j(hx, primeSieve);
     QFuture<uintSet> f = /*uintSet foo =*/
-            QtConcurrent::mappedReduced<uintSet>(seq, orbLoop, j,
-                                                 QtConcurrent::OrderedReduce);
+        mappedReduced<uintSet>(seq, orbLoop, j, OrderedReduce);
     f.waitForFinished();
 }
 
@@ -1436,9 +1508,9 @@ findHarmonics(const ChartPlanetMap& cpm,
     bool doMidpoints = includeMidpoints();
     int d = harmonicsMinQuorum() <= harmonicsMaxQuorum() ? 1 : -1;
     unsigned num = fabs(harmonicsMaxQuorum() - harmonicsMinQuorum()) + 1;
-    qreal orb = harmonicsMinQOrb();
+    qreal orb = harmonicsMinQOrb()*orbFactor();
     qreal lorbMin = log2(orb);
-    qreal lorbMax = log2(harmonicsMaxQOrb());
+    qreal lorbMax = log2(harmonicsMaxQOrb()*orbFactor());
     qreal od = num < 2 ? 0 : pow(2, (lorbMax - lorbMin) / (num - 1));
     unsigned quorum = unsigned(harmonicsMinQuorum());
     unsigned i = 0;
@@ -1692,30 +1764,44 @@ dateTimeFromJulian(double jd)
     return QDateTime(QDate(y,m,d), QTime(hr,min,sec,msec));
 }
 
-QDateTime
-calculateClosestTime(PlanetProfile& poses,
-                    const InputData& locale)
-{
-    bool quiet = false;
-    auto calc = [&poses, &quiet](double jd) -> qreal {
+namespace { bool quiet = false; }
+
+struct calcPos {
+    PlanetProfile& poses;
+    calcPos(PlanetProfile& p) : poses(p) { }
+
+    qreal operator()(double jd)
+    {
         auto ret = poses.computePos(jd);
         if (!quiet) {
             QDateTime dt(dateTimeFromJulian(jd));
             qDebug() << "calc iter:" << dt.toLocalTime() << "Ret:" << ret;
         }
         return ret;
-    };
+    }
+};
 
-    auto calcSpread = [&poses](double jd) -> qreal {
-        for (auto& pos : poses) pos->operator()(jd);
-        auto ret = getSpread(poses);
+struct calcSpd {
+    PlanetProfile& poses;
+    calcSpd(PlanetProfile& p) : poses(p) { }
 
-        QDateTime dt(dateTimeFromJulian(jd));
-        qDebug() << "spread iter:" << dt.toLocalTime() << "Ret:" << ret;
-        return ret;
-    };
+    qreal operator()(double jd)
+    {
+        poses.computePos(jd);
+        if (!quiet) {
+            QDateTime dt(dateTimeFromJulian(jd));
+            qDebug() << "calc iter:" << dt.toUTC() << "Ret:" << poses.speed();
+        }
+        return poses.speed();
+    }
+};
 
-    auto ncalc = [&poses](double jd) -> std::pair<qreal,qreal>
+typedef std::pair<qreal,qreal> posSpd;
+struct calcPosSpd {
+    PlanetProfile& poses;
+    calcPosSpd(PlanetProfile& p) : poses(p) { }
+
+    posSpd operator()(double jd)
     {
         auto pos = poses.computePos(jd);
         auto ret = std::make_pair(pos, poses.speed());
@@ -1724,72 +1810,320 @@ calculateClosestTime(PlanetProfile& poses,
         qDebug() << "ncalc iter:" << dt.toLocalTime() << "Ret:" << ret;
 
         return ret;
-    };
+    }
+};
 
+struct calcSpread {
+    PlanetProfile& poses;
+    calcSpread(PlanetProfile& p) : poses(p) { }
+
+    qreal operator()(double jd)
+    {
+        for (auto& pos : poses) pos->operator()(jd);
+        auto ret = getSpread(poses);
+
+        QDateTime dt(dateTimeFromJulian(jd));
+        qDebug() << "spread iter:" << dt.toLocalTime() << "Ret:" << ret;
+        return ret;
+    }
+};
+
+struct calcLoop {
+    calcPos cpos;
+    calcSpd cspd;
+    calcPosSpd ncpos;
+
+    PlanetProfile& poses;
+    double& jd;
+
+    static constexpr double tol = 9e-5;
+    static constexpr int digits = std::numeric_limits<double>::digits;
+
+    calcLoop(PlanetProfile& ps,
+             double& jdate) :
+        cpos(ps), cspd(ps), ncpos(ps), poses(ps), jd(jdate)
+    { }
+
+#if 1 // old version
+    bool operator()(double& begin,
+                    double end,
+                    double span,
+                    double flo,
+                    double splo,
+                    bool cont)
+    {
+        qDebug() << "calcLoop: begin" << begin
+                 << "end" << end
+                 << "span" << span
+                 << "flo" << flo
+                 << "splo" << splo;
+
+        using namespace boost::math::tools;
+
+        bool done = false;
+        double fhi, sphi;
+        for (double& jdc = begin; !done && (cont || jdc<end);
+             splo = sphi, flo = fhi, jdc += span)
+        {
+            fhi = cpos(jdc + span);
+            sphi = poses.speed();
+            if ((done = (fabs(poses.loc) <= tol))) {
+                qDebug() << "  done by span convergence";
+                jd = jdc+span/2;
+                continue;
+            }
+            if (span <= tol) {
+                qDebug() << "  zeno's paradox";
+                return false;
+            }
+            if (sgn(flo)==sgn(fhi)) {
+                qDebug() << "same sign"; continue;
+            }
+            if (abs(fhi) >= 170. && abs(flo) >= 170.) {
+                qDebug() << "flo and fhi >= 170"; continue;
+            }
+            qDebug() << "sgn(flo)=" << sgn(flo)
+                     << " sgn(splo)=" << sgn(splo)
+                     << " sgn(fhi)=" << sgn(fhi)
+                     << " sgn(sphi)=" << sgn(sphi);
+            if (sgn(flo)!=sgn(splo) || sgn(fhi)!=-sgn(sphi)) {
+#if 0
+                done = brentZhangStage(cpos, jdc,jdc+span, flo, fhi, jd);
+                if (done) qDebug() << "  done by brent";
+#else
+                double guess = jdc + (fabs(flo)/(fabs(flo)+fabs(fhi)))*span;
+                uintmax_t iter = 20;
+                jd = newton_raphson_iterate(ncpos, guess, jdc, jdc + span,
+                                            digits, iter);
+                done = fabs(poses[1]->loc - poses[0]->loc) <= tol
+                        || span < tol;
+                if (done) qDebug() << "  done by newton";
+#endif
+            }
+            double b = jdc;
+            if (!done) {
+                done = operator()(b, jdc+span, span/4, flo, splo,false);
+            }
+        }
+        if (!done) qDebug() << "  ran out clock";
+        return done;
+    }
+#endif
+
+    template <typename T> void calc(double j, T& ret);
+
+    bool signsEqual(const posSpd& a, const posSpd& b) const
+    { return sgn(a.first) == sgn(b.first); }
+
+    bool signsEqual(qreal a, qreal b) const
+    { return sgn(a) == sgn(b); }
+
+    bool longDistance(const posSpd& a, const posSpd& b) const
+    { return abs(a.first) >= 170. && abs(b.first) > 170.; }
+
+    bool longDistance(qreal, qreal)
+    { return false; }
+
+
+    template <typename T> bool doIterativeCalc(double& jd,
+                                               double jlo,
+                                               double jhi,
+                                               T lo,
+                                               T hi);
+
+    template <typename T>
+    bool operator()(double& begin,
+                    double end,
+                    double span,
+                    T lo,
+                    bool cont)
+    {
+        qDebug() << "calcLoop: begin" << begin
+                 << "end" << end
+                 << "span" << span;
+
+        bool done = false;
+        T hi;
+        for (double& jdc = begin; !done && (cont || jdc<end);
+             lo = hi, jdc += span)
+        {
+            calc(jdc + span, hi);
+            if ((done = (fabs(poses.loc) <= tol))) {
+                qDebug() << "  done by span convergence";
+                jd = jdc+span/2;
+                continue;
+            }
+            if (span <= tol) {
+                qDebug() << "  zeno's paradox";
+                return false;
+            }
+            if (signsEqual(lo, hi)) {
+                qDebug() << "same sign"; continue;
+            }
+            if (longDistance(lo, hi)) {
+                qDebug() << "flo and fhi >= 170"; continue;
+            }
+            //if (sgn(flo)!=sgn(splo) || sgn(fhi)!=-sgn(sphi)) {
+            done = doIterativeCalc(jd, jdc, jdc+span, lo, hi);
+            //}
+            double b = jdc;
+            if (!done) {
+                done = operator()(b, jdc+span, span/4, lo, false);
+            }
+        }
+        if (!done) qDebug() << "  ran out clock";
+        return done;
+    }
+};
+
+template <>
+inline
+void
+calcLoop::calc<posSpd>(double j, posSpd& ret) { ret = ncpos(j); }
+
+template <>
+inline
+void
+calcLoop::calc<qreal>(double j, qreal& ret) { ret = cspd(j); }
+
+template <>
+inline
+bool
+calcLoop::doIterativeCalc<qreal>(double& jd,
+                                 double jlo,
+                                 double jhi,
+                                 qreal lo,
+                                 qreal hi)
+{
+    bool done = brentZhangStage(cspd, jlo, jhi, lo, hi, jd);
+    if (done) qDebug() << "  done by brent";
+    return done;
+}
+
+template <>
+inline
+bool
+calcLoop::doIterativeCalc<posSpd>(double& jd,
+                                  double jlo,
+                                  double jhi,
+                                  posSpd lo,
+                                  posSpd hi)
+{
     using namespace boost::math::tools;
 
-    static auto digits = std::numeric_limits<double>::digits;
-    //int digits = 24;
-    static double tol = 9e-5; //std::numeric_limits<double>::min()*10;
-    double jdIn = getJulianDate(locale.GMT);
+    double span = jhi-jlo;
+    double g = jlo + (fabs(lo.first)/(fabs(lo.first)+fabs(hi.first)))*span;
 
-    float orb, horb;
+    uintmax_t iter = 20;
+    try {
+        jd = newton_raphson_iterate(ncpos, g, jlo, jhi, digits, iter);
+        bool done = fabs(poses[1]->loc - poses[0]->loc) <= tol
+                || span < tol;
+        if (done) qDebug() << "  done by newton";
+        return done;
+    } catch (...) {
+        return false;
+    }
+}
+
+void
+calculateOrbAndSpan(const PlanetProfile& poses,
+                    const InputData& locale,
+                    double& orb,
+                    double& horb,
+                    double& span)
+{
     if (aspectMode == amcPrimeVertical) horb = .5;
     float speed = poses.defaultSpeed();
     orb = 360 / speed / locale.harmonic;
     horb = orb / 1.8;
 
-    float span;
-    auto plid = poses.back()->planet.planetId();
+    //auto plid = poses.back()->planet.planetId();
     if (true/*plid == Planet_Sun || plid==Planet_Moon*/) span = orb/4;
     else span = 1/speed;
 
-    qDebug() << poses[0]->planet.name() << "half-orbit" << horb << "days";
+    qDebug() << poses[0]->description() << "half-orbit" << horb << "days";
+}
 
-    //auto rnd = QRandomGenerator::global();
-    float segs = orb/span;
+QDateTime
+calculateClosestTime(PlanetProfile& poses,
+                    const InputData& locale)
+{
+
+    double jdIn = getJulianDate(locale.GMT);
+
 
     double jd = jdIn;
-    std::function<bool(double,double,double,double,double)>
-            looper = [&calc, &ncalc, &jd, &quiet, &poses, &looper]
-                     (double begin,
-                     double end,
-                     double span,
-                     double flo,
-                     double splo) -> bool
-    {
-        bool done = false;
-        double fhi, sphi;
-        for (double jdc = begin; !done /*jdc<end*/;
-             splo = sphi, flo = fhi, jdc += span)
-        {
-            fhi = calc(jdc + span);
-            sphi = poses.speed();
-            if (sgn(flo)==sgn(fhi) || (sgn(flo)==sgn(splo)
-                                       && sgn(fhi)==-sgn(sphi)))
-                continue;
+    calcLoop looper(poses, jd);
 
-            double guess = jdc + (fabs(flo)/(fabs(flo)+fabs(fhi)))*span;
-            uintmax_t iter = 100;
-            jd = newton_raphson_iterate(ncalc, guess, jdc, jdc + span,
-                                        digits, iter);
-            done = fabs(poses[1]->loc - poses[0]->loc) <= tol;
-            if (!done) done = looper(jdc, jdc+span, span/4, flo, splo);
-#if 0
-            if (!done)
-                done = brentZhangStage(calc, jdc,jdc+span, flo, fhi, jd);
-#endif
-        }
-        return done;
-    };
+    double orb, horb, span;
+    calculateOrbAndSpan(poses, locale, orb, horb, span);
 
     double begin = jdIn-orb/2;
     double end = begin + horb*2;
-    double flo = calc(begin);
-    double splo = poses.speed();
-    looper(begin, end, span, flo, splo);
 
-    return dateTimeFromJulian(jd);
+    calcPos cpos(poses);
+    double flo = cpos(begin);
+    double splo = poses.speed();
+
+    if (looper(begin, end, span, flo, splo, true/*cont*/))
+        return dateTimeFromJulian(jd);
+
+    return locale.GMT;
+}
+
+QList<QDateTime>
+quotidianSearch(PlanetProfile& poses,
+                const InputData& locale,
+                const QDateTime& endDT,
+                double span /*= 1.0*/)
+{
+    double jd { };
+    double jd1 = getJulianDate(locale.GMT);
+    double jd2 = getJulianDate(endDT);
+
+    if (poses.needsFindMinimalSpread()) {
+        auto f = [&] (double j) {
+            auto ret = poses.computeSpread(j);
+            auto dt = dateTimeFromJulian(j);
+            qDebug() << "spreadIter:" << dt.toLocalTime() << "Ret:" << ret;
+            return ret;
+        };
+
+        double x;
+        constexpr auto tol = double(std::numeric_limits<float>::epsilon());
+        brentGlobalMin(f, jd1, jd2, jd1/2.+jd2/2.,
+                            1000000/*m*/, .0000001/*err*/, tol, x);
+        auto ret = QList<QDateTime>() << dateTimeFromJulian(x);
+        return ret;
+    }
+
+    calcLoop looper(poses, jd);
+    QList<QDateTime> ret;
+    auto loop = [&](auto lo) {
+        looper.calc(jd1, lo);
+        do {
+            if (looper(jd1,jd2,span,lo,false)) {
+                auto dt = dateTimeFromJulian(jd);
+                ret << dt;
+                qDebug() << "** Finding:" << dt;
+                looper.calc(jd1, lo);
+            }
+        } while (jd1 < jd2);
+    };
+
+    if (poses.size()==1) {
+        auto l = *poses.begin();
+        // looking for stations...
+        if (l->inMotion()) {
+            qreal lo { };
+            loop(lo);
+        }
+    } else {
+        posSpd lo;
+        loop(lo);
+    }
+    return ret;
 }
 
 QDateTime

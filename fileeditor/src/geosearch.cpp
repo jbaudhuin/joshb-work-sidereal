@@ -20,7 +20,8 @@
 
 namespace A {
 const QString googMapURL("https://maps.googleapis.com/maps/api");
-const QString googAPIKey("AIzaSyCY68oDIxVtthHXLKO3c1Nfyp0-uY4U8TM");
+const char* _googAPIKey = getenv("ZOD_GOOG_API_KEY");
+const QString googAPIKey(_googAPIKey? _googAPIKey : "");
 }
 
 GeoSuggestCompletion::GeoSuggestCompletion(GeoSearchBox *parent) :

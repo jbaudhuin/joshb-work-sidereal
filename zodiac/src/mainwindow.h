@@ -8,7 +8,7 @@
 #include "help.h"
 #include "slidewidget.h"
 
-class QListWidget;
+class QTreeWidget;
 class QLineEdit;
 class QActionGroup;
 class AstroFileEditor;
@@ -38,7 +38,7 @@ signals:
     void clicked();
 
 public:
-    AstroFileInfo(QWidget *parent = 0);
+    AstroFileInfo(QWidget *parent = nullptr);
     void setCurrentIndex(int i) { currentIndex = i; }
 
     AppSettings defaultSettings();
@@ -66,10 +66,13 @@ private:
     QComboBox*        aspectsSelector;
     QComboBox*        aspectModeSelector;
     QComboBox*        harmonicSelector;
-    QList<QComboBox*> horoscopeControls;
+    QToolBar*         dynAspectControls;
+    QWidgetList       horoscopeControls;
     QList<AstroFileHandler*> handlers;
     QList<AstroFileHandler*> dockHandlers;
     QList<QDockWidget*> docks;
+
+    bool              _dynAspChange = false;
 
     void setupFile(AstroFile* file, bool suspendUpdate = false);
     AstroFileList files() { return fileView->files(); }
@@ -88,6 +91,7 @@ private slots:
     void toolBarActionClicked();
     void currentSlideChanged();
     void horoscopeControlChanged();
+    void aspectSelectionChanged();
     void destroyingFile();
     void destroyEditor();
 
@@ -101,9 +105,11 @@ signals:
     void swapFilesRequested(int, int);
 
 public:
-    AstroWidget(QWidget *parent = 0);
+    AstroWidget(QWidget *parent = nullptr);
     QToolBar* getToolBar() { return toolBar; }
-    const QList<QComboBox*>& getHoroscopeControls() { return horoscopeControls; }
+    const QWidgetList& getHoroscopeControls() const { return horoscopeControls; }
+    QToolBar* getDynAspectControls() const { return dynAspectControls; }
+    QComboBox* getAspectsSelector() const { return aspectsSelector; }
     const QList<QDockWidget*>& getDockPanels() { return docks; }
 
     void setFiles(const AstroFileList& files);
@@ -124,7 +130,7 @@ class AstroDatabase : public QFrame
     Q_OBJECT
 
 private:
-    QListWidget* fileList;
+    QTreeWidget* fileList;
     QLineEdit* search;
 
 protected:
@@ -140,6 +146,7 @@ private slots:
     void openSelectedWithSolarReturn();
     void openSelectedSolarReturnInNewTab();
     void openSelectedComposite();
+    void findSelectedDerived();
     void deleteSelected();
     void searchFilter(QString);
 
@@ -155,9 +162,10 @@ signals:
     void openFilesComposite(const QStringList&);
     void openFileReturn(const QString&, const QString& = "Sun");
     void openFileInNewTabWithReturn(const QString&, const QString& = "Sun");
+    void findSelectedDerived(const QString&);
 
 public:
-    AstroDatabase(QWidget *parent = 0);
+    AstroDatabase(QWidget *parent = nullptr);
 };
 
 
@@ -171,6 +179,8 @@ private:
     bool askToSave;
     QList<AstroFileList> files;
 
+    QString _finding, _findingDerived;
+
     void updateTab(int index);
     int getTabIndex(AstroFile* f, bool seekFirstFileOnly = false);
     int getTabIndex(QString name, bool seekFirstFileOnly = false);
@@ -182,6 +192,8 @@ private slots:
 
 public slots:
     void addNewFile() { addFile(new AstroFile); }
+    void editNewChart();
+    void findChart();
     void swapCurrentFiles(int, int);
     void openFile(const QString& name);
     void openFileInNewTab(const QString& name);
@@ -190,12 +202,13 @@ public slots:
     void openFileAsSecond(const QString& name = "");
     void openFileComposite(const QStringList& names);
     void openFileReturn(const QString& name, const QString& body);
+    void findDerivedChart(const QString& name);
     void openFileInNewTabWithReturn(const QString& name, const QString& body);
     void nextTab() { setCurrentIndex((currentIndex() + 1) % count()); }
     bool closeTab(int);
 
 public:
-    FilesBar(QWidget *parent = 0);
+    FilesBar(QWidget *parent = nullptr);
 
     void addFile(AstroFile* file);
     void setAskToSave(bool b) { askToSave = b; }
@@ -246,7 +259,7 @@ protected:
     void closeEvent(QCloseEvent*);
 
 public:
-    MainWindow(QWidget *parent = 0);
+    MainWindow(QWidget *parent = nullptr);
 
     static MainWindow* instance();
     static AstroWidget* theAstroWidget() { return instance()->astroWidget; }

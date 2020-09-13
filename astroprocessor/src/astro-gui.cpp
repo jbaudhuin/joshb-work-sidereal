@@ -1,4 +1,5 @@
-﻿#include <QFile>
+﻿#include <memory>
+#include <QFile>
 #include <QSettings>
 #include <QTextCodec>
 #include <QDebug>
@@ -6,14 +7,14 @@
 #include "astro-gui.h"
 
 
-/* =========================== ASTRO FILE =========================================== */
+/* =========================== ASTRO FILE ================================== */
 
 int AstroFile::counter = 0;
 
 AstroFile::AstroFile(QObject* parent) : QObject(parent)
 {
     do {
-        name = tr("Untitled %1").arg(++counter);
+        _name = tr("Untitled %1").arg(++counter);
     } while (QFile::exists(fileName()));
 
     type = TypeOther;
@@ -93,7 +94,7 @@ AstroFile::save()
 }
 
 void
-AstroFile::load(QString name/*, bool recalculate*/)
+AstroFile::load(const QString& name/*, bool recalculate*/)
 {
     if (name.isEmpty()) return;
     qDebug() << "Loading file" << getName() << "from" << name;
@@ -117,6 +118,19 @@ AstroFile::load(QString name/*, bool recalculate*/)
     clearUnsavedState();
     if (/*!recalculate*/!isEmpty()) resumeUpdate()/*holdUpdateMembers = None*/;  // if empty file is just loaded, it will not be recalculated
     //resumeUpdate();
+}
+
+void
+AstroFile::loadComposite(const QStringList& names)
+{
+    suspendUpdate();
+    setName(names.first());
+
+    auto file = std::make_unique<QSettings>(fileName(), QSettings::IniFormat);
+    file->setIniCodec(QTextCodec::codecForName("UTF-8"));
+
+    setGMT(QDateTime::fromString(file->value("GMT").toString() + "Z",
+                                 Qt::ISODate));
 }
 
 void
@@ -166,10 +180,10 @@ AstroFile::clearUnsavedState()
 void
 AstroFile::setName(const QString&   name)
 {
-    if (this->name != name)
+    if (this->_name != name)
     {
-        qDebug() << "Renamed file" << this->name << "->" << name;
-        this->name = name;
+        qDebug() << "Renamed file" << this->_name << "->" << name;
+        this->_name = name;
         change(Name);
     }
 }
@@ -250,9 +264,9 @@ AstroFile::setZodiac(A::ZodiacId zod)
 }
 
 void
-AstroFile::setAspectSet(A::AspectSetId set)
+AstroFile::setAspectSet(A::AspectSetId set, bool force)
 {
-    if (getAspectSet().id != set)
+    if (getAspectSet().id != set || force)
     {
         scope.inputData.aspectSet = set;
         change(AspectSet);

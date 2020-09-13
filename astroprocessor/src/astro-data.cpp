@@ -6,12 +6,13 @@
 #undef forward
 
 #include <QDebug>
+#include <QColor>
+
 #include "csvreader.h"
 #include "astro-data.h"
 #include "astro-calc.h"
 
 namespace A {
-
 
 QMap<AspectSetId, AspectsSet> Data::aspectSets = QMap<AspectSetId, AspectsSet>();
 QMap<PlanetId, Planet> Data::planets = QMap<PlanetId, Planet>();
@@ -35,11 +36,13 @@ void Data::load(QString language)
     f.setFileName("astroprocessor/aspect_sets.csv");
     if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
     topAspSet = 0;
+    AspectSetId dynAspSet = 0;
     while (f.readRow())
     {
         AspectsSet s;
         s.id = f.row(0).toInt();
         s.name = language == "ru" ? f.row(2) : f.row(1);
+        if (s.name.startsWith("Dynamic")) dynAspSet = s.id;
 
         //for (int i = 3; i < f.columnsCount(); i++)
         //  s.userData[f.header(i)] = f.row(i);
@@ -48,26 +51,69 @@ void Data::load(QString language)
         topAspSet = qMax(topAspSet, s.id);         // update top set
     }
 
+    int atype = 0;
+
     f.close();
     f.setFileName("astroprocessor/aspects.csv");
     if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
     while (f.readRow())
     {
         AspectType a;
-        AspectSetId setId = f.row(0).toUInt();
+        auto setId = AspectSetId(f.row(0).toUInt());
         a.set = &aspectSets[setId];
         a.id = f.row(1).toInt();
+        if (a.id > atype) atype = a.id;
+
         a.name = language == "ru" ? f.row(3) : f.row(2);
         a.angle = f.row(4).toFloat();
-        a.orb = f.row(5).toFloat();
+        a._orb = f.row(5).toFloat();
 
         for (int i = 6; i < f.columnsCount(); i++)
             a.userData[f.header(i)] = f.row(i);
 
         aspectSets[setId].aspects[a.id] = a;
     }
-
     f.close();
+
+    if (dynAspSet) {
+        // Dynamic aspect set (aspects can be enabled separately
+        // under user control)
+        auto& aset = aspectSets[dynAspSet];
+
+        std::set<unsigned> harmonics;
+        unsigned i = 1, j = 1;
+        auto addAspect = [&](float angle) {
+            AspectType a;
+            a.set = &aset;
+            a.id = ++atype;
+            a.name = QString("%1/%2").arg(j).arg(i);
+            a._harmonic = i;
+            a.factors = harmonics;
+            a.angle = angle;
+            a._orb = float(16)/i;
+            a.userData["good"] = QString::number(i);
+            aset.aspects[a.id] = a;
+        };
+        addAspect(0);   // conjunction 1/1
+
+        for (i = 2; i <= 32; ++i) {
+            auto ifac = A::getAllFactors(i);
+            ifac.erase(1);
+
+            harmonics.clear();
+            for (auto k : A::getPrimeFactors(i)) harmonics.insert(k);
+
+            auto ang = float(360)/i;
+            for (j = 1; j <= i/2; ++j) {
+                auto jfac = A::getAllFactors(j);
+                jfac.erase(1);
+                bool common = false;
+                for (auto k: jfac) if ((common = ifac.count(k))) break;
+                if (!common && ifac.count(j)==0) addAspect(ang * j);
+            }
+        }
+    }
+
     f.setFileName("astroprocessor/hsystems.csv");
     if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
     while (f.readRow())
@@ -96,8 +142,7 @@ void Data::load(QString language)
     f.setFileName("astroprocessor/signs.csv");
     if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
     QHash<QString, ZodiacSignId> signs;            // collect and find signs by tag
-    while (f.readRow())
-    {
+    while (f.readRow()) {
         ZodiacSign s;
         s.zodiacId = f.row(0).toInt();
         s.id = f.row(1).toInt();
@@ -115,8 +160,7 @@ void Data::load(QString language)
     }
 
     // fill in sign data for 30deg sidereals
-    foreach(int z, zodiacs.keys())
-    {
+    for (int z : zodiacs.keys()) {
         if (zodiacs[z].signs.isEmpty()) {
             zodiacs[z].signs = zodiacs[0].signs;
         }
@@ -134,10 +178,10 @@ void Data::load(QString language)
         p.sweFlags = f.row(4).toInt();
         p.defaultEclipticSpeed.setX(f.row(5).toFloat());
         p.isReal = f.row(6).toInt();
-        foreach(QString s, f.row(7).split(',')) p.homeSigns << signs.values(s);
-        foreach(QString s, f.row(8).split(',')) p.exaltationSigns << signs.values(s);
-        foreach(QString s, f.row(9).split(',')) p.exileSigns << signs.values(s);
-        foreach(QString s, f.row(10).split(',')) p.downfallSigns << signs.values(s);
+        for (const auto& s : f.row(7).split(',')) p.homeSigns << signs.values(s);
+        for (const auto& s : f.row(8).split(',')) p.exaltationSigns << signs.values(s);
+        for (const auto& s : f.row(9).split(',')) p.exileSigns << signs.values(s);
+        for (const auto& s : f.row(10).split(',')) p.downfallSigns << signs.values(s);
 
         for (int i = 11; i < f.columnsCount(); i++)
             p.userData[f.header(i)] = f.row(i);
@@ -156,7 +200,8 @@ void Data::load(QString language)
     mc.userData["fontChar"] = 77;  // "M" -- no Mc available :(
     planets[Planet_MC] = mc;
 
-    int i = 1, j = 0;
+    unsigned i = 1;
+    int j = 0;
     char buf[256], errStr[256];
     double xx[6];
     std::set<std::string> seen { "GPol", "ICRS", "GP1958", "GPPlan", "ZE200" };
@@ -178,7 +223,7 @@ void Data::load(QString language)
 
             double mag = 10;
             bool get = (swe_fixstar_mag(buf, &mag, errStr) != ERR
-                        && mag <= 2.0);
+                        && mag <= 2.2);
             if (!get) {
                 static const QString ecl("AriTauGemCncLeoVirLibScoSgrCapAqrPsc");
                 get = ecl.indexOf(constellar.right(3), 0) != -1;
@@ -198,12 +243,58 @@ void Data::load(QString language)
     qDebug() << "Astroprocessor: initialized";
 }
 
+QColor
+Data::getHarmonicColor(unsigned h)
+{ return getHarmonicColors()[h]; }
+
+const QMap<unsigned, QColor>&
+Data::getHarmonicColors()
+{
+    static QMap<unsigned, QColor> s_colors;
+    if (s_colors.isEmpty()) {
+        s_colors[1] = "blue";
+        s_colors[2] = "red";
+        s_colors[3] = QColor("green").lighter();
+        s_colors[5] = "gold";
+        s_colors[7] = "cyan";
+        s_colors[11] = "magenta";
+        s_colors[13] = "royalblue";
+        s_colors[17] = "mediumslateblue";
+        s_colors[19] = "purple";
+        s_colors[23] = "teal";
+        s_colors[29] = "lightcoral";
+        s_colors[31] = "darkblue";
+
+        QColor rgb;
+        for (unsigned i=2, max=32; i <= max; ++i) {
+            if (s_colors.contains(i)) continue;
+            auto fac = A::getPrimeFactors(i);
+            auto num = fac.size();
+            qreal red = 0, green = 0, blue = 0;
+            uintSet::value_type lf = 0;
+            unsigned u = 0;
+            for (auto f: fac) {
+                if (lf != f) ++u;
+                const QColor& c = s_colors[f];
+                red += c.redF()/num;
+                green += c.greenF()/num;
+                blue += c.blueF()/num;
+                lf = f;
+            }
+            qreal n = fac.size();
+            // u - unique numbers
+            // n - number of factors
+            auto alpha = 1+(u-n)/(2*(n-1));
+            s_colors[i].setRgbF(red,green,blue,alpha);
+        }
+    }
+    return s_colors;
+}
+
 const Planet&
 Data::getPlanet(PlanetId id)
 {
-    if (Data::planets.contains(id))
-        return Data::planets[id];
-
+    if (Data::planets.contains(id)) return Data::planets[id];
     return planets[Planet_None];
 }
 
@@ -225,64 +316,83 @@ Data::getStar(const QString& name)
     return dummy;
 }
 
-QList<QString> Data::getStars()
+QList<QString>
+Data::getStars()
 {
     QList<QString> ret;
-    foreach (const std::string str, stars.keys()) {
+    for (const std::string& str : stars.keys()) {
         ret << str.c_str();
     }
     return ret;
 }
 
-const HouseSystem& Data :: getHouseSystem(HouseSystemId id)
- {
-  if (Data::houseSystems.contains(id))
-    return Data::houseSystems[id];
+const HouseSystem&
+Data::getHouseSystem(HouseSystemId id)
+{
+    if (Data::houseSystems.contains(id))
+        return Data::houseSystems[id];
 
-  return houseSystems[Housesystem_None];
- }
+    return houseSystems[Housesystem_None];
+}
 
-const Zodiac& Data :: getZodiac(ZodiacId id)
- {
-  if (Data::zodiacs.contains(id))
-    return Data::zodiacs[id];
+const Zodiac&
+Data::getZodiac(ZodiacId id)
+{
+    if (Data::zodiacs.contains(id))
+        return Data::zodiacs[id];
 
-  return zodiacs[Zodiac_Tropical];
- }
+    return zodiacs[Zodiac_Tropical];
+}
 
-const QList<HouseSystem> Data :: getHouseSystems()
- {
-  return Data::houseSystems.values();
- }
+const QList<HouseSystem>
+Data::getHouseSystems()
+{
+    return Data::houseSystems.values();
+}
 
-const QList<Zodiac> Data :: getZodiacs()
- {
-  return zodiacs.values();
- }
+const QList<Zodiac>
+Data::getZodiacs()
+{
+    return zodiacs.values();
+}
 
-/*const QList<AspectType> Data :: getAspects(AspectSetId set)
+double
+Data::getSignPos(ZodiacId zid, const QString& sign)
+{
+    const auto& Z(getZodiac(zid));
+    for (const auto& s : Z.signs) {
+        if (s.name.startsWith(sign,Qt::CaseInsensitive)) return s.startAngle;
+    }
+    return 0;
+}
+
+/*const QList<AspectType>
+Data::getAspects(AspectSetId set)
  {
   set = qBound(0, set, aspects.count());
   return aspects[set].values();
  }*/
 
-const AspectType& Data :: getAspect(AspectId id, const AspectsSet& set)
- {
-  if (set.aspects.contains(id))
-    return aspectSets[set.id].aspects[id];
+const AspectType&
+Data::getAspect(AspectId id, const AspectsSet& set)
+{
+    if (set.aspects.contains(id))
+        return aspectSets[set.id].aspects[id];
 
-  return aspectSets[AspectSet_Default].aspects[Aspect_None];
- }
+    return aspectSets[AspectSet_Default].aspects[Aspect_None];
+}
 
-const AspectsSet& Data :: getAspectSet(AspectSetId set)
- {
-  if (aspectSets.contains(set))
-    return aspectSets[set];
+AspectsSet&
+Data::getAspectSet(AspectSetId set)
+{
+    if (aspectSets.contains(set))
+        return aspectSets[set];
 
-  return aspectSets[AspectSet_Default];
- }
+    return aspectSets[AspectSet_Default];
+}
 
-/*QList<AspectsSet>& Data :: getAspectSets()
+/*QList<AspectsSet>&
+Data::getAspectSets()
  {
   return aspectSets.values();
  }*/
@@ -297,7 +407,7 @@ Data::tightConjunction()
         at.id = 0;
         at.name = QObject::tr("Conjunction");
         at.angle = 0;
-        at.orb = 1.5;
+        at._orb = 1.5;
         ret.aspects[0] = at;
     }
     return ret;
@@ -327,10 +437,11 @@ const Planet& getPlanet(PlanetId pid) { return Data::getPlanet(pid); }
 
 
 PlanetId
-getPlanet(const QString& name)
+getPlanetId(const QString& name)
 {
     for (auto && it : getPlanets()) {
-        if (getPlanet(it).name == name) return it;
+        if (getPlanet(it).name.startsWith(name,Qt::CaseInsensitive))
+            return it;
     }
     return Planet_None;
 }
@@ -347,8 +458,17 @@ const QList<HouseSystem> getHouseSystems() { return Data::getHouseSystems(); }
 const QList<Zodiac> getZodiacs() { return Data::getZodiacs(); }
 //const QList<AspectType> getAspects(AspectSetId set) { return Data::getAspects(set); }
 const AspectType& getAspect(AspectId id, const AspectsSet& set) { return Data::getAspect(id, set); }
+double getSignPos(ZodiacId zid,
+                  const QString& sign,
+                  unsigned degrees /*=0*/,
+                  unsigned minutes /*=0*/,
+                  unsigned seconds /*=0*/)
+{
+    return Data::getSignPos(zid,sign) + degrees + minutes/60. + seconds/3600.;
+}
+
 QList<AspectsSet> getAspectSets() { return Data::getAspectSets(); }
-const AspectsSet& getAspectSet(AspectSetId set) { return Data::getAspectSet(set); }
+AspectsSet& getAspectSet(AspectSetId set) { return Data::getAspectSet(set); }
 const AspectsSet& topAspectSet() { return Data::topAspectSet(); }
 const AspectsSet& tightConjunction() { return Data::tightConjunction(); }
 
@@ -431,7 +551,7 @@ unsigned _minQuorum, _maxQuorum;
 unsigned _maxHarmonic;
 
 unsigned _pfl = 32;
-QMap<unsigned, bool> _pflCache;
+uintBoolMap _pflCache;
 
 void resetPrimeFactorLimit(unsigned pfl /*= 0*/)
 { 
@@ -467,5 +587,33 @@ double harmonicsMaxQOrb() { return _maxQOrb; }
 
 void setMaxHarmonic(int m) { _maxHarmonic = m; }
 unsigned maxHarmonic() { return _maxHarmonic; }
+
+
+std::vector<bool> _haspEnabled(33, true);
+
+bool dynAspState(unsigned h)
+{ if (h > 32) return false; return _haspEnabled[h]; }
+
+void setDynAspState(unsigned h, bool b)
+{ if (h > 32) return; _haspEnabled[h] = b; }
+
+uintQSet dynAspState()
+{
+    uintQSet ret;
+    for (unsigned i = 1; i <= 32; ++i) {
+        if (_haspEnabled[i]) ret.insert(i);
+    }
+    return ret;
+}
+
+void setDynAspState(const uintQSet& state)
+{
+    _haspEnabled.assign(33,false);
+    for (unsigned h: state) setDynAspState(h, true);
+}
+
+qreal _orbFactor = 1.0;
+qreal orbFactor() { return _orbFactor; }
+void setOrbFactor(qreal ofac) { if (ofac > 0) _orbFactor = ofac; }
 
 }

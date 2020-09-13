@@ -9,6 +9,7 @@
 #include <Astroprocessor/Output>
 #include <Astroprocessor/Calc>
 #include "chart.h"
+#include <swephexp.h>
 
 
 RotatingCircleItem::RotatingCircleItem(QRect rect, const QPen& pen) : QAbstractGraphicsShapeItem()
@@ -140,11 +141,15 @@ Chart::Chart(QWidget *parent) :
     chartsCount = 0;
     zoom = 1;
 
-    float scale = 0.8;
+    float scale = 0.8, sc2 = 0.5;
     viewport = QRect(chartRect().x() / scale,
                      chartRect().y() / scale,
                      chartRect().width() / scale,
                      chartRect().height() / scale);
+    viewportBig = QRect(chartRect().x() / sc2,
+                        chartRect().y() / sc2,
+                        chartRect().width() / sc2,
+                        chartRect().height() / sc2);
 
     view = new QGraphicsView(this);
 
@@ -217,7 +222,8 @@ Chart::createScene()
     s->addItem(circle);
     s->addEllipse(chartRect(), penBorder)->setParentItem(circle);                 // zodiac outer border
     s->addEllipse(chartRect().adjusted(zodiacWidth(), zodiacWidth(),              // zodiac inner border
-                                       -zodiacWidth(), -zodiacWidth()), penBorder)->setParentItem(circle);
+                                       -zodiacWidth(), -zodiacWidth()),
+                  penBorder)->setParentItem(circle);
 
     if (zodiacDropShadow) {
         QGraphicsDropShadowEffect* effect = new QGraphicsDropShadowEffect;
@@ -274,10 +280,20 @@ Chart::updateScene()
     circle->setFile(file());
     float rotate;
 
-    if (circleStart == Start_Ascendent)
-        rotate = file()->horoscope().houses.cusp[0];
-    else
+    if (circleStart == Start_Ascendent) {
+        const auto& houses = file()->horoscope().houses;
+        switch (A::aspectMode) {
+        case A::amcEquatorial:
+            rotate = houses.RAAC;
+            break;
+        default:
+        case A::amcEcliptic:
+            rotate = houses.cusp[0];
+            break;
+        }
+    } else {
         rotate = file()->horoscope().zodiac.signs[0].startAngle;
+    }
     if (clockwise) rotate = -rotate;
 
     for (QGraphicsItem* i : signIcons)
@@ -286,16 +302,17 @@ Chart::updateScene()
     circle->setRotation(rotate);
 }
 
-void Chart::updatePlanetsAndCusps(int fileIndex)
+void
+Chart::updatePlanetsAndCusps(int fileIndex)
 {
     qDebug() << "Update planets and cusps" << fileIndex;
 
     QMap<QGraphicsItem*, const A::Star*> ret;
     QMap<QGraphicsItem*, int> moved;
 
-    auto overlap = [&moved](QGraphicsItem* planet,
-                            QGraphicsItem* other,
-                            int rung)
+    auto overlap = [](QGraphicsItem* planet,
+                      QGraphicsItem* other,
+                      int rung)
     {
         // FIXME: should use some pi-based ratio to increase the
         // available space
@@ -335,119 +352,147 @@ void Chart::updatePlanetsAndCusps(int fileIndex)
     { if (angle < 0) angle += 360.0; return angle; };
 
     auto rotate = circle->rotation();
-    for (const A::Planet& p : file(fileIndex)->horoscope().planets) {
-        // update planets
-        if (p.id == A::Planet_Asc) continue;
-
-        QGraphicsItem* marker = planetMarkers[fileIndex][p.id];
-        QGraphicsItem* planet = planets[fileIndex][p.id];
-
-        if (p.id == A::Planet_MC) {
-            if (file(fileIndex)->getHarmonic() == 1) {
-                marker->setVisible(false);
-                planet->setVisible(false);
-                continue;
-            } else {
-                marker->setVisible(true);
-                planet->setVisible(true);
-            }
+    auto repose = [&](auto b, bool hide)
+            -> std::pair<QGraphicsItem*,QGraphicsItem*>
+    {
+        qreal angle = 0.0;
+        switch (A::aspectMode) {
+        case A::amcEcliptic: angle = b.eclipticPos.x(); break;
+        case A::amcEquatorial: angle = b.equatorialPos.x(); break;
+        case A::amcPrimeVertical: angle = b.pvPos; break;
+        default: hide = true; break;
         }
 
-        auto angle = p.eclipticPos.x();
+        QGraphicsItem* marker = planetMarkers[fileIndex][b.id];
+        QGraphicsItem* body = planets[fileIndex][b.id];
+
+        if (hide) {
+            marker->setVisible(false);
+            body->setVisible(false);
+            return std::make_pair(body, marker);
+        }
+
+        marker->setVisible(true);
+        body->setVisible(true);
+
         if (clockwise) angle = 180 - angle;
 
-        planet->setPos(normalPlanetPosX(planet, marker), planet->pos().y());
-        planet->setRotation( positive(angle - rotate) );
+        body->setPos(normalPlanetPosX(body, marker), body->pos().y());
+        body->setRotation( positive(angle - rotate) );
         marker->setRotation( positive(rotate - angle) );
-        qDebug() << "planet 'name" << p.name << "id" << p.id
+        qDebug() << "planet 'name" << b.name << "id" << b.id
                  //<< reinterpret_cast<void*>(planet)
-                 << "pos" << planet->pos()
-                 << "rot" << planet->rotation()
-                 << planet->boundingRect().size();
+                 << "pos" << body->pos()
+                 << "rot" << body->rotation()
+                 << body->boundingRect().size();
 
         // avoid intersection of planets
         bool adjusted = false;
         do {
             for (auto other : ret.keys()) {
-                if ((adjusted = moveIfNeeded(planet, other))) break;
+                if ((adjusted = moveIfNeeded(body, other))) break;
             }
         } while (adjusted);
 
-        ret.insert(planet, &p);
+        ret.insert(body, &b);
+
+        return std::make_pair(body,marker);
+    };
+
+    QGraphicsItem *body, *marker;
+    for (const A::Planet& p : file(fileIndex)->horoscope().planets) {
+        // update planets
+        if (p.id == A::Planet_Asc) continue;
+
+        bool hide = (p.id == A::Planet_MC)
+                    && (file(fileIndex)->getHarmonic() ==  1);
+
+        std::tie(body, marker) = repose(p, hide);
+        if (hide) continue;
 
         QString toolTip = QString("%1 %2, %3")
                 .arg(p.name)
                 .arg(A::zodiacPosition(p, file()->horoscope().zodiac,
                                        A::HighPrecision))
                 .arg(A::houseNum(p));
-        planet->setToolTip(toolTip);
+        body->setToolTip(toolTip);
         marker->setToolTip(toolTip);
         if (p.sign) {
-            circle->setHelpTag(planet, p.name + "+" + p.sign->name);
+            circle->setHelpTag(body, p.name + "+" + p.sign->name);
             circle->setHelpTag(marker, p.name);
         }
     }
 
     for (const A::Star& s : file(fileIndex)->horoscope().stars) {
-        // update planets
-        QGraphicsItem* marker = planetMarkers[fileIndex][s.id];
-        QGraphicsItem* star = planets[fileIndex][s.id];
-        if (!s.isConfiguredWithPlanet()) {
-            marker->setVisible(false);
-            star->setVisible(false);
-            continue;
-        }
-        marker->setVisible(true);
-        star->setVisible(true);
-
-        auto angle = s.eclipticPos.x();
-        if (clockwise) angle = 180 - angle;
-
-        star->setPos(normalPlanetPosX(star, marker), star->pos().y());
-        star->setRotation( positive(angle - rotate) );
-        marker->setRotation( positive(rotate - angle) );
-
-        qDebug() << "star" << s.name << "pos" << star->pos() << "rot"
-                 << star->rotation();
-
-        bool adjusted = false;
-        do {
-            for (auto other : ret.keys()) {
-                if ((adjusted = moveIfNeeded(star, other))) break;
-            }
-        } while (adjusted);
-
-        ret.insert(star, &s);
+        bool hide = !s.isConfiguredWithPlanet();
+        std::tie(body, marker) = repose(s, hide);
+        if (hide) continue;
 
         QString toolTip = QString("%1 %2")
                 .arg(s.name)
                 .arg(A::zodiacPosition(s, file()->horoscope().zodiac,
                                        A::HighPrecision));
-        star->setToolTip(toolTip);
+        body->setToolTip(toolTip);
         marker->setToolTip(toolTip);
-        circle->setHelpTag(star, s.name);
+        circle->setHelpTag(body, s.name);
         circle->setHelpTag(marker, s.name);
     }
 
-    // update cuspides && labels
-    for (int i = 0; i < 12; i++) {
-        auto cusp = file(fileIndex)->horoscope().houses.cusp[i];
+    auto cuspate = [=](qreal cusp, int i) {
         if (clockwise) cusp = 180 - cusp;
 
         QGraphicsItem* c = cuspides[fileIndex][i];
+        c->setVisible(true);
         QGraphicsItem* l = cuspideLabels[fileIndex][i];
+        l->setVisible(true);
 
         c->setRotation(-cusp + rotate);
         l->setRotation(cusp - rotate);
 
         QString tag = tr("%1+%2").arg(A::romanNum(i + 1))
-                .arg(A::getSign(cusp, file()->horoscope().zodiac).name);
+                      .arg(A::getSign(cusp, file()->horoscope().zodiac).name);
         circle->setHelpTag(c, tag);
         circle->setHelpTag(l, tag);
 
         c->setToolTip(tr("House %1<br>%2").arg(A::romanNum(i + 1))
                       .arg(A::zodiacPosition(cusp, file()->horoscope().zodiac)));
         l->setToolTip(c->toolTip());
+    };
+
+    switch (A::aspectMode) {
+    case A::amcEquatorial:
+        {
+            const auto& houses = file(fileIndex)->horoscope().houses;
+            for (int i = 0; i < 12; ++i) {
+                cuspides[fileIndex][i]->setVisible(!(i%3));
+            }
+            auto cusp = houses.RAAC;
+            cuspate(cusp, 0);
+            cusp = swe_degnorm(cusp+180);
+            cuspate(cusp, 6);
+            if (file(fileIndex)->horoscope().inputData.harmonic == 1) {
+                cusp = houses.RAMC;
+                cuspate(cusp, 9);
+                cusp = swe_degnorm(cusp+180);
+                cuspate(cusp, 3);
+            } else {
+                cuspides[fileIndex][3]->setVisible(false);
+                cuspides[fileIndex][9]->setVisible(false);
+            }
+        }
+        break;
+
+    case A::amcPrimeVertical:
+        //break;
+
+    default:
+    case A::amcEcliptic:
+        // update cuspides && labels
+        for (int i = 0; i < 12; i++) {
+            auto cusp = file(fileIndex)->horoscope().houses.cusp[i];
+            cuspate(cusp, i);
+        }
+        break;
     }
 }
 
@@ -516,8 +561,10 @@ void Chart::clearScene()
 
 QRect Chart::chartRect()
 {
-    return QRect(-defaultChartRadius * zoom, -defaultChartRadius * zoom,
-                 defaultChartRadius * 2 * zoom, defaultChartRadius * 2 * zoom);
+    return QRect(-defaultChartRadius * zoom,
+                 -defaultChartRadius * zoom,
+                 defaultChartRadius * 2 * zoom,
+                 defaultChartRadius * 2 * zoom);
 }
 
 float Chart::innerRadius(int fileIndex)
@@ -553,28 +600,35 @@ void Chart::drawPlanets(int fileIndex)
 
     QGraphicsScene* s = view->scene();
 
-    for (const A::Planet& planet: file(fileIndex)->horoscope().planets) {
+    for (const auto& planet: file(fileIndex)->horoscope().planets) {
         if (planet.id == A::Planet_Asc) continue;
 
         int radius = 2;
         int charIndex = planet.userData["fontChar"].toInt();
 
-        QGraphicsSimpleTextItem* text =
+        auto text =
                 s->addSimpleText(QString(charIndex),
-                                 planet.isReal ? planetFont : planetFontSmall);
+                                 planet.isReal
+                                 ? planetFont
+                                 : planetFontSmall);
 
-        QGraphicsEllipseItem* marker =
+        auto marker =
                 s->addEllipse(-innerRadius(fileIndex) - radius, -radius,
-                              radius * 2, radius * 2, planetMarkerPen(planet, fileIndex));
-        qDebug() << "planet" << planet.name << " 'text" << (void*)text << " 'marker" << (void*)marker;
+                              radius * 2, radius * 2,
+                              planetMarkerPen(planet, fileIndex));
+        qDebug() << "planet" << planet.name
+                 << " 'text" << (void*)text << " 'marker" << (void*)marker;
 
         if (filesCount() > 1) {
             // duplicate on outer circle
-            s->addEllipse(-innerRadius(0) - radius, -radius, radius * 2, radius * 2,
-                          planetMarkerPen(planet, fileIndex))->setParentItem(marker);
+            auto e = s->addEllipse(-innerRadius(0) - radius, -radius,
+                          radius * 2, radius * 2,
+                          planetMarkerPen(planet, fileIndex));
+            e->setParentItem(marker);
         }
 
-        text->setPos(normalPlanetPosX(text, marker), -text->boundingRect().height() / 2);
+        text->setPos(normalPlanetPosX(text, marker),
+                     -text->boundingRect().height() / 2);
         text->setBrush(planetColor(planet, fileIndex));
         text->setPen(planetShapeColor(planet, fileIndex));
         //text   -> setOpacity(opacity);
@@ -598,26 +652,31 @@ void Chart::drawStars(int fileIndex)
 
     QGraphicsScene* s = view->scene();
 
-    for (const A::Star& star : file(fileIndex)->horoscope().stars) {
+    for (const auto& star : file(fileIndex)->horoscope().stars) {
         int radius = 2;
 
-        QGraphicsSimpleTextItem* text =
+        auto text =
                 s->addSimpleText("*", planetFont);
-        QGraphicsEllipseItem* marker =
+        auto marker =
                 s->addEllipse(-innerRadius(fileIndex) - radius, -radius,
                               radius * 2, radius * 2,
                               planetMarkerPen(A::Planet(), fileIndex));
 
         if (star.isConfiguredWithPlanet())
-            qDebug() << "star " << star.name << " 'text" << (void*)text << " 'marker" << (void*)marker;
+            qDebug() << "star " << star.name
+                     << " 'text" << (void*)text
+                     << " 'marker" << (void*)marker;
 
         if (filesCount() > 1) {
             // duplicate on outer circle
-            s->addEllipse(-innerRadius(0) - radius, -radius, radius * 2, radius * 2,
-                          planetMarkerPen(A::Planet(), fileIndex))->setParentItem(marker);
+            auto e = s->addEllipse(-innerRadius(0) - radius, -radius,
+                          radius * 2, radius * 2,
+                          planetMarkerPen(A::Planet(), fileIndex));
+            e->setParentItem(marker);
         }
 
-        text->setPos(normalPlanetPosX(text, marker), -text->boundingRect().height() / 2);
+        text->setPos(normalPlanetPosX(text, marker),
+                     -text->boundingRect().height() / 2);
         text->setBrush(planetColor(A::Planet(), fileIndex));
         text->setPen(planetShapeColor(A::Planet(), fileIndex));
         //text   -> setOpacity(opacity);
@@ -633,7 +692,8 @@ void Chart::drawStars(int fileIndex)
     }
 }
 
-void Chart::drawCuspides(int fileIndex)
+void
+Chart::drawCuspides(int fileIndex)
 {
     static QPen penCusp(QColor(227, 214, 202), 2);
     static QPen penCusp1(QColor(250, 90, 58), 3);
@@ -660,17 +720,21 @@ void Chart::drawCuspides(int fileIndex)
 
         if (filesCount() > 1 && fileIndex == 0) {
             l = s->addLine(-innerRadius(0), 0, -innerRadius(1), 0, pen);
-            s->addLine(chartRect().x(), 0, endPointX, 0, pen)->setParentItem(l);
+            auto cl = s->addLine(chartRect().x(), 0, endPointX, 0, pen);
+            cl->setParentItem(l);
         } else {
             l = s->addLine(-innerRadius(fileIndex), 0, endPointX, 0, pen);
         }
 
         if (i == 0) {
-            s->addLine(endPointX, 0, endPointX + 14, 7, pen)->setParentItem(l);  // arrow for first cuspide
-            s->addLine(endPointX, 0, endPointX + 14, -7, pen)->setParentItem(l);
+            auto cl = s->addLine(endPointX, 0, endPointX + 14, 7, pen);
+            cl->setParentItem(l);  // arrow for first cuspide
+            cl = s->addLine(endPointX, 0, endPointX + 14, -7, pen);
+            cl->setParentItem(l);
         } else if (i == 9) {
             int d = 12;
-            s->addEllipse(endPointX - d, -d / 2, d, d, pen)->setParentItem(l);
+            auto el = s->addEllipse(endPointX - d, -d / 2, d, d, pen);
+            el->setParentItem(l);
         }
 
         cuspides[fileIndex][i] = l;
@@ -686,10 +750,14 @@ void Chart::drawCuspides(int fileIndex)
     }
 }
 
-int  Chart::normalPlanetPosX(QGraphicsItem* planet, QGraphicsItem* marker)
+int
+Chart::normalPlanetPosX(QGraphicsItem* planet,
+                        QGraphicsItem* marker)
 {
     int indent = 6;
-    return marker->boundingRect().x() - planet->boundingRect().width() - indent;
+    return marker->boundingRect().x()
+            - planet->boundingRect().width()
+            - indent;
 }
 
 const QPen& 
@@ -702,22 +770,17 @@ Chart::aspectPen(const A::Aspect& asp)
         {"0", QColor(15, 114, 248)},
         {"+", QColor(14, 162, 98)},
         {"++", QColor(77, 206, 113)},
-        // test implementation of harmonic colors
-        {"1", QColor("blue")},
-        {"2", QColor("red")},
-        {"3", QColor("green")},
-        {"5", QColor("darkGreen")},
-        {"7", QColor(230,155,57)},
-        {"9", QColor("darkCyan")},
-        {"11", QColor("magenta")},
-        {"12", QColor("darkRed").lighter(125)},
-        {"13", QColor("yellow").darker(150)},
-        {"16", QColor("red").lighter(125)},
-        {"17", QColor("cyan")},
-        {"19", QColor("blue").lighter(125)},
-        {"23", QColor("yellow").darker()}
     };
-    qreal thick = 3 * (asp.d->orb - asp.orb) / asp.d->orb;
+    static bool s_inited = false;
+    if (!s_inited) {
+        QColor rgb;
+        for (unsigned i = 1, n = 32; i <= n; ++i) {
+            QString is = QString::number(i);
+            brushes[is] = A::getHarmonicColor(i);
+        }
+    }
+    auto atOrb = asp.d->orb();
+    qreal thick = 3 * (atOrb - asp.orb) / atOrb;
     static QPen p;
     p = QPen(brushes[tag], thick);
     return p;
@@ -814,10 +877,11 @@ void Chart::filesUpdated(MembersList m)
         updateScene();
         updatePlanetsAndCusps(0);
         updAspects = true;
-    }
-
-    if (!updAspects && filesCount() && (m[0] & AstroFile::AspectMode)) {
+    } else if (!updAspects && filesCount()
+               && (m[0] & AstroFile::AspectMode))
+    {
         // aspect mode changed
+        updateScene();
         updatePlanetsAndCusps(0);
         updAspects = true;
     }
@@ -834,12 +898,12 @@ void Chart::filesUpdated(MembersList m)
         updateAspects();
 }
 
-bool Chart::eventFilter(QObject* obj, QEvent* ev)
+bool
+Chart::eventFilter(QObject* obj, QEvent* ev)
 {
     if (ev->type() == QEvent::GraphicsSceneWheel) {
         ev->accept();
-        QGraphicsSceneWheelEvent* e = (QGraphicsSceneWheelEvent*)ev;
-
+        auto e = static_cast<QGraphicsSceneWheelEvent*>(ev);
         float z = 1;
         if (e->delta() < 0) {
             viewport.moveCenter(QPoint(0, 0));

@@ -47,7 +47,7 @@ private:
 
     static const int defaultChartRadius = 250;
     int chartsCount;
-    QRectF viewport;
+    QRectF viewport, viewportBig;
     float zoom;
     QGraphicsView* view;
     RotatingCircleItem* circle;
@@ -113,7 +113,7 @@ signals:
     void planetsSelected(const A::PlanetSet&);
 
 public:
-    Chart(QWidget *parent = 0);
+    Chart(QWidget *parent = nullptr);
 
     void help(QString tag) { requestHelp(tag); }    // called by circle item (because requestHelp() is protected)
     bool isClockwise() { return clockwise; }

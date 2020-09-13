@@ -66,7 +66,9 @@ int main(int argc, char *argv[])
     a.setApplicationName("Zodiac");
     a.setApplicationVersion("v0.8.1 (build 2019-02-08)");
 
+#ifdef _MSC_VER
     _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_WNDW);
+#endif
 
     //auto foo = _get_invalid_parameter_handler();
     //auto fum = _set_invalid_parameter_handler((_invalid_parameter_handler) my_invalid_parameter);
@@ -79,7 +81,7 @@ int main(int argc, char *argv[])
     qInstallMsgHandler (emptyOutput);
 #elif defined(_ZOD_DEBUG)
     //qInstallMessageHandler(zodOutputHandler);
-#else
+#elif defined(NDEBUG)
     qInstallMessageHandler(emptyOutput);
 #endif
 
