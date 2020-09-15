@@ -58,19 +58,28 @@ QString degreeToString(float deg, AnglePrecision precision)
     d = (int)(deg);
     m = (int)(60.0*(deg - d));
 
-    char* str = new char[20];
+    QString ret;
     if (precision == HighPrecision) {
         s = (int)((deg - (d + m / 60.0)) * 3600.0);
-        sprintf(str, "%s%i°%02i\'%02i\"", (polarity < 0) ? "-" : "", d, m, s);
+        ret = QString("%1%2°%3'%4\"")
+                .arg((polarity < 0) ? "-" : "")
+                .arg(d)
+                .arg(m,2,10,QChar('0'))
+                .arg(s,2,10,QChar('0'));
     } else if (precision == LowPrecision) {
-        sprintf(str, "%s%i°", (polarity < 0) ? "-" : "",
-                d + int(m >= 30));
+        ret = QString("%1%2°").arg((polarity < 0) ? "-" : "")
+                .arg(d + int(m >= 30));
     } else {
-        if (m) sprintf(str, "%s%i°%02i\'", (polarity < 0) ? "-" : "", d, m);
-        else   sprintf(str, "%s%i°", (polarity < 0) ? "-" : "", d);
+        if (m)
+            ret = QString("%1%2°%3'")
+                .arg((polarity < 0) ? "-" : "")
+                .arg(d).arg(m,2,10,QChar('0'));
+        else
+            ret = QString("%1%2°")
+                .arg((polarity < 0) ? "-" : "")
+                .arg(d);
     }
-
-    return QString::fromLocal8Bit(str);
+    return ret;
 }
 
 QString zodiacPosition(float deg, const Zodiac& zodiac, AnglePrecision precision)
@@ -81,7 +90,7 @@ QString zodiacPosition(float deg, const Zodiac& zodiac, AnglePrecision precision
 
     if (precision) {
         QString str = degreeToString(deg, precision);
-        str.remove(0, str.indexOf(QString::fromLocal8Bit("°")));
+        str.remove(0, str.indexOf("°"));
         return QString("%1%2 %3").arg(ang).arg(str).arg(sign.tag);
     } else {
         int m = (int)(60.0*(deg - (int)deg));
