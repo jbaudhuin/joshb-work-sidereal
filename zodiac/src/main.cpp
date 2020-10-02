@@ -60,8 +60,6 @@ void my_invalid_parameter(const wchar_t * expression,
 
 int main(int argc, char *argv[])
 {
-    QCoreApplication::addLibraryPath("C:\\OpenSSL-Win64\\bin");
-
     QApplication a(argc, argv);
     a.setApplicationName("Zodiac");
     a.setApplicationVersion("v0.8.1 (build 2019-02-08)");

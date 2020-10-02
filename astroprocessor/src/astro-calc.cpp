@@ -1938,8 +1938,8 @@ struct calcLoop {
                     T lo,
                     bool cont)
     {
-        qDebug() << "calcLoop: begin" << begin
-                 << "end" << end
+        qDebug() << "calcLoop: begin" << dateTimeFromJulian(begin)
+                 << "end" << dateTimeFromJulian(end)
                  << "span" << span;
 
         bool done = false;
@@ -2078,7 +2078,6 @@ quotidianSearch(PlanetProfile& poses,
                 const QDateTime& endDT,
                 double span /*= 1.0*/)
 {
-    double jd { };
     double jd1 = getJulianDate(locale.GMT);
     double jd2 = getJulianDate(endDT);
 
@@ -2093,11 +2092,12 @@ quotidianSearch(PlanetProfile& poses,
         double x;
         constexpr auto tol = double(std::numeric_limits<float>::epsilon());
         brentGlobalMin(f, jd1, jd2, jd1/2.+jd2/2.,
-                            1000000/*m*/, .0000001/*err*/, tol, x);
+                            100/*m*/, .0000001/*err*/, tol, x);
         auto ret = QList<QDateTime>() << dateTimeFromJulian(x);
         return ret;
     }
 
+    double jd { };
     calcLoop looper(poses, jd);
     QList<QDateTime> ret;
     auto loop = [&](auto lo) {

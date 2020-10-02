@@ -48,7 +48,8 @@ signals:
     void swapFiles(int, int);
 
 public slots:
-    virtual void applyToFile(bool setNeedsSave=true);
+    virtual void applyToFile(bool setNeedsSave=true,
+                             bool resume=true);
 
 private slots:
     void swapFilesSlot(int, int);
@@ -79,6 +80,7 @@ public slots:
     void applyToFile();
 
 private:
+    bool _inDateSelection;
     QDateTimeEdit* endDateTime;
     QCheckBox* endDateTimeCB;
     QTableView* hits;

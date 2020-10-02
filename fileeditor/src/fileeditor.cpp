@@ -40,17 +40,17 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     tabs     -> setTabsClosable(true);
     tabs     -> setMovable(true);
     addFileBtn -> setMaximumWidth(32);
-    type     -> addItem(tr("male"),      AstroFile::TypeMale);
-    type     -> addItem(tr("female"),    AstroFile::TypeFemale);
-    type     -> addItem(tr("undefined"), AstroFile::TypeOther);
+    type->addItem(tr("male"),       AstroFile::TypeMale);
+    type->addItem(tr("female"),     AstroFile::TypeFemale);
+    type->addItem(tr("search"),     AstroFile::TypeSearch);
+    type->addItem(tr("event(s)"),   AstroFile::TypeEvents);
+    type->addItem(tr("other"),      AstroFile::TypeOther);
     timeZone -> setRange(-12, 12);
     timeZone -> setDecimals(1);
 
     dateTime -> setCalendarPopup(true);
     QString fmt = dateTime->displayFormat();
-    if (fmt.replace("h:mm ", "h:mm:ss ")
-            != dateTime->displayFormat())
-    {
+    if (fmt.replace("h:mm ", "h:mm:ss ") != dateTime->displayFormat()) {
         // if we don't show seconds, they will be non-zero and
         // the only way to edit it is hand-editing the .dat file.
         dateTime->setDisplayFormat(fmt);
@@ -72,7 +72,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
 
     QHBoxLayout* lay3 = new QHBoxLayout;
     lay3->addWidget(name);
-    lay3->addWidget(new QLabel(tr("Gender:")));
+    lay3->addWidget(new QLabel(tr("Type:")));
     lay3->addWidget(type);
 
     QHBoxLayout* lay2 = new QHBoxLayout;
@@ -259,7 +259,8 @@ void AstroFileEditor::filesUpdated(MembersList members)
         update(members[currentFile]);
 }
 
-void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/)
+void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
+                                  bool resume /*=true*/)
 {
     AstroFile* dst = file(currentFile);
 
@@ -273,7 +274,7 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/)
             .toString(Qt::ISODate) + "Z";
     dst->setGMT(QDateTime::fromString(ugh,Qt::ISODate));
     dst->setComment(comment->document()->toPlainText());
-    dst->resumeUpdate();
+    if (resume) dst->resumeUpdate();
     if (!setNeedsSaveFlag) dst->clearUnsavedState();
 }
 
@@ -284,12 +285,14 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/)
  }*/
 
 AstroFindEditor::AstroFindEditor(QWidget* parent /*=nullptr*/) :
-    AstroFileEditor(parent)
+    AstroFileEditor(parent),
+    _inDateSelection(false)
 {
     if (planets.empty()) {
         planets = QStringList({ "Sun", "Moon", "Mercury", "Venus", "Mars",
                         "Jupiter", "Saturn", "Uranus", "Neptune",
-                        "Pluto", "Chiron" });
+                        "Pluto", "Chiron", "Pallas", "Vesta", "Juno",
+                        "Ceres" });
     }
 
     if (signs.empty()) {
@@ -396,6 +399,7 @@ void
 AstroFindEditor::onEditingFinished()
 {
     if (!name->hasAcceptableInput()) return;
+    if (_inDateSelection) return;
 
     auto rev = qobject_cast<const QRegularExpressionValidator*>(name->validator());
     auto re = rev->regularExpression();
@@ -414,47 +418,17 @@ AstroFindEditor::onEditingFinished()
     A::PlanetProfile poses;
 
     // get any edits to date or whatever
-    AstroFileEditor::applyToFile(false/*not needsSave*/);
+    AstroFileEditor::applyToFile(false/*not needsSave*/,
+                                 false/*not recalc*/);
     A::InputData inda = file()->data();
+    double orb, horb, span;
 
-#if 0
-    double harmonic = 1;
-    auto str = match.captured("harmonic");
-    if (!str.isNull()) {
-        harmonic = str.toDouble();
-    }
-
-    str = match.captured("planet");
-    if (str.isNull()) return;
-    auto pid = A::getPlanetId(str);
-    auto pla = A::getPlanet(pid);
-
-    if (harmonic != 1.) inda.harmonic = harmonic;
-    poses.push_back(new A::TransitPosition(pid, inda));
-
-    str = match.captured("sign");
-    if (str.isNull()) {
-        str = match.captured("otherPlanet");
-        pid = A::getPlanetId(str);
-        auto plb = A::getPlanet(pid);
-        auto tp = new A::TransitPosition(pid, inda);
-        if (plb.defaultEclipticSpeed.x() < pla.defaultEclipticSpeed.x())
-            poses.push_front(tp);
-        else
-            poses.push_back(tp);
-    } else {
-        unsigned deg = capUInt("deg");
-        unsigned min = capUInt("min");
-        unsigned sec = capUInt("sec");
-        auto pos = A::getSignPos(inda.zodiac, str, deg, min, sec);
-        poses.push_front(new A::Loc(str, pos));
-    }
-#else
     if (has("station")) {
         auto planet = match.captured("station");
         auto pid = A::getPlanetId(planet);
         auto pla = A::getPlanet(pid);
         poses.push_back(new A::TransitPosition(pid, inda));
+        span = 10;
     } else {
         inda.harmonic = 1;
         auto str = match.captured("harmonic");
@@ -488,21 +462,15 @@ AstroFindEditor::onEditingFinished()
                 poses.push_back(new A::TransitPosition(cpid, inda));
             }
         }
-    }
-#endif
 
-    double orb, horb, span;
-    A::calculateOrbAndSpan(poses, inda, orb, horb, span);
-#if 0
-    auto was = dateTime->dateTime();
-    if (!endDateTimeCB->isChecked()) {
-        endDateTime->setDateTime(dateTime->dateTime()
-                                 .addMSecs(qint64(horb)*3600*60*1000));
+        A::calculateOrbAndSpan(poses, inda, orb, horb, span);
     }
-#endif
+
+    auto d0 = A::getJulianDate(dateTime->dateTime());
+    auto d1 = A::getJulianDate(endDateTime->dateTime());
     auto dl = A::quotidianSearch(poses, inda,
                                  endDateTime->dateTime(),
-                                 std::min(45.,span));
+                                 std::min((d1-d0)/8,span));
 
     auto lw = findChild<QListWidget*>();
     lw->clear();
@@ -521,6 +489,8 @@ AstroFindEditor::applyToFile()
     auto lw = findChild<QListWidget*>();
     auto sel = lw->selectedItems();
     if (sel.isEmpty()) return;
+
+    A::modalize<bool> inReset(_inDateSelection, true);
     auto item = sel.takeFirst();
     auto dt = QLocale().toDateTime(item->text(), QLocale::LongFormat);
     dateTime->setDateTime(dt);

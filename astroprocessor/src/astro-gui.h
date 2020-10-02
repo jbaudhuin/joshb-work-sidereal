@@ -12,7 +12,8 @@ class AstroFile : public QObject
     Q_OBJECT;
 
 public:
-    enum FileType { TypeOther, TypeMale, TypeFemale, TypeEvent, TypeSearch,
+    enum FileType { TypeOther, TypeMale, TypeFemale,
+                    TypeEvents, TypeSearch,
                     TypeDerivedSA, TypeDerivedProg, TypeDerivedPD,
                     TypeDerivedSearch };
 
@@ -53,6 +54,7 @@ public:
     void suspendUpdate()            { holdUpdate = true; }
     bool isSuspendedUpdate()  const { return holdUpdate; }
     void resumeUpdate();
+
     void clearUnsavedState();
     bool hasUnsavedChanges()  const { return unsavedChanges; }
     bool isEmpty()            const { return scope.planets.count() == 0; }
