@@ -19,6 +19,12 @@
 
 namespace A {
 
+QString
+dtToString(const QDateTime& dt)
+{
+    return dt.toString("yyyy-MM-dd hh:mm:ss.zzz");
+}
+
 template <typename T>
 inline constexpr
 int sgn(T x, std::false_type) {
@@ -194,16 +200,21 @@ AspectId aspect(const Star& planet, QPointF coordinate, const AspectsSet& aspect
 
 AspectId aspect(float angle, const AspectsSet& aspectSet)
 {
+    AspectId closest = Aspect_None;
+    float pct = 1;
     for (const AspectType& aspect : aspectSet.aspects) {
+        auto npct = abs(aspect.angle)/aspect.orb();
         if (aspect.enabled
             && aspect.angle - aspect.orb() <= angle
-            && aspect.angle + aspect.orb() >= angle)
+            && aspect.angle + aspect.orb() >= angle
+            && (closest == Aspect_None? true : npct < pct))
         {
-            return aspect.id;
+            closest = aspect.id;
+            pct = npct;
+            //return aspect.id;
         }
     }
-
-    return Aspect_None;
+    return closest;
 }
 
 bool
@@ -1760,7 +1771,7 @@ dateTimeFromJulian(double jd)
     double dsec;
     swe_jdut1_to_utc(jd, SE_GREG_CAL, &y, &m, &d, &hr, &min, &dsec);
     sec = dsec;
-    int msec = int(dsec - sec) * 1000;
+    int msec = int((dsec - double(sec)) * 1000.0);
     return QDateTime(QDate(y,m,d), QTime(hr,min,sec,msec));
 }
 
@@ -1775,7 +1786,7 @@ struct calcPos {
         auto ret = poses.computePos(jd);
         if (!quiet) {
             QDateTime dt(dateTimeFromJulian(jd));
-            qDebug() << "calc iter:" << dt.toLocalTime() << "Ret:" << ret;
+            qDebug() << "calc iter:" << dtToString(dt) << "Ret:" << ret;
         }
         return ret;
     }
@@ -1789,8 +1800,7 @@ struct calcSpd {
     {
         poses.computePos(jd);
         if (!quiet) {
-            QDateTime dt(dateTimeFromJulian(jd));
-            qDebug() << "calc iter:" << dt.toUTC() << "Ret:" << poses.speed();
+            qDebug() << "calc iter:" << dtToString(dateTimeFromJulian(jd)) << "Ret:" << poses.speed();
         }
         return poses.speed();
     }
@@ -1807,7 +1817,7 @@ struct calcPosSpd {
         auto ret = std::make_pair(pos, poses.speed());
 
         QDateTime dt(dateTimeFromJulian(jd));
-        qDebug() << "ncalc iter:" << dt.toLocalTime() << "Ret:" << ret;
+        qDebug() << "ncalc iter:" << dtToString(dt) << "Ret:" << ret;
 
         return ret;
     }
@@ -1823,7 +1833,7 @@ struct calcSpread {
         auto ret = getSpread(poses);
 
         QDateTime dt(dateTimeFromJulian(jd));
-        qDebug() << "spread iter:" << dt.toLocalTime() << "Ret:" << ret;
+        qDebug() << "spread iter:" << dtToString(dt) << "Ret:" << ret;
         return ret;
     }
 };
@@ -1836,7 +1846,7 @@ struct calcLoop {
     PlanetProfile& poses;
     double& jd;
 
-    static constexpr double tol = 9e-5;
+    static constexpr double tol = 1e-09;
     static constexpr int digits = std::numeric_limits<double>::digits;
 
     calcLoop(PlanetProfile& ps,
@@ -1893,11 +1903,13 @@ struct calcLoop {
 #else
                 double guess = jdc + (fabs(flo)/(fabs(flo)+fabs(fhi)))*span;
                 uintmax_t iter = 20;
-                jd = newton_raphson_iterate(ncpos, guess, jdc, jdc + span,
-                                            digits, iter);
-                done = fabs(poses[1]->loc - poses[0]->loc) <= tol
-                        || span < tol;
-                if (done) qDebug() << "  done by newton";
+                try {
+                    jd = newton_raphson_iterate(ncpos, guess, jdc, jdc + span,
+                                                digits, iter);
+                    done = fabs(poses[1]->loc - poses[0]->loc) <= tol
+                            || span < tol;
+                    if (done) qDebug() << "  done by newton";
+                } catch (...) { }
 #endif
             }
             double b = jdc;
@@ -1938,8 +1950,8 @@ struct calcLoop {
                     T lo,
                     bool cont)
     {
-        qDebug() << "calcLoop: begin" << dateTimeFromJulian(begin)
-                 << "end" << dateTimeFromJulian(end)
+        qDebug() << "calcLoop: begin" << dtToString(dateTimeFromJulian(begin))
+                 << "end" << dtToString(dateTimeFromJulian(end))
                  << "span" << span;
 
         bool done = false;
@@ -2066,6 +2078,7 @@ calculateClosestTime(PlanetProfile& poses,
     double flo = cpos(begin);
     double splo = poses.speed();
 
+    //if (looper(begin,end,span,flo,true))
     if (looper(begin, end, span, flo, splo, true/*cont*/))
         return dateTimeFromJulian(jd);
 
@@ -2085,7 +2098,7 @@ quotidianSearch(PlanetProfile& poses,
         auto f = [&] (double j) {
             auto ret = poses.computeSpread(j);
             auto dt = dateTimeFromJulian(j);
-            qDebug() << "spreadIter:" << dt.toLocalTime() << "Ret:" << ret;
+            qDebug() << "spreadIter:" << dtToString(dt) << "Ret:" << ret;
             return ret;
         };
 
@@ -2106,7 +2119,7 @@ quotidianSearch(PlanetProfile& poses,
             if (looper(jd1,jd2,span,lo,false)) {
                 auto dt = dateTimeFromJulian(jd);
                 ret << dt;
-                qDebug() << "** Finding:" << dt;
+                qDebug() << "** Finding:" << dtToString(dt);
                 looper.calc(jd1, lo);
             }
         } while (jd1 < jd2);

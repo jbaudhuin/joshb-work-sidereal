@@ -1,21 +1,24 @@
 ﻿#include <memory>
 #include <QFile>
+#include <QDir>
 #include <QSettings>
 #include <QTextCodec>
 #include <QDebug>
+#include <QStandardPaths>
+
 #include "astro-calc.h"
 #include "astro-gui.h"
 
 
-/* =========================== ASTRO FILE ================================== */
+/* ====================== ASTRO FILE ============================= */
 
-int AstroFile::counter = 0;
+/*static*/ int AstroFile::counter = 0;
 
 AstroFile::AstroFile(QObject* parent) : QObject(parent)
 {
     do {
-        _name = tr("Untitled %1").arg(++counter);
-    } while (QFile::exists(fileName()));
+        setName(tr("Untitled %1").arg(++counter));
+    } while (fileInfo().exists());
 
     type = TypeOther;
     unsavedChanges = false;
@@ -27,14 +30,19 @@ AstroFile::AstroFile(QObject* parent) : QObject(parent)
 QString
 AstroFile::fileName() const
 {
-    return "user/" + getName() + ".dat";
+    return fileInfo().filePath();
 }
 
 QString
-AstroFile::typeToString(FileType type) const
+AstroFile::typeToString(FileType ft) const
 {
-    switch (type)
-    {
+    switch (ft) {
+    case TypeEvents: return "Event";
+    case TypeSearch: return "Search";
+    case TypeDerivedSA: return "SA";
+    case TypeDerivedProg: return "Prog";
+    case TypeDerivedPD: return "PD";
+    case TypeDerivedSearch: return "Der";
     case TypeMale: return "Male";
     case TypeFemale: return "Female";
     case TypeOther: return "Other";
@@ -47,6 +55,12 @@ AstroFile::typeFromString(QString str) const
 {
     if (str == "Male")   return TypeMale;
     if (str == "Female") return TypeFemale;
+    if (str == "Der") return TypeDerivedSearch;
+    if (str == "PD") return TypeDerivedPD;
+    if (str == "Prog") return TypeDerivedProg;
+    if (str == "SA") return TypeDerivedSA;
+    if (str == "Search") return TypeSearch;
+    if (str == "Event") return TypeEvents;
     return TypeOther;
 }
 
@@ -54,9 +68,9 @@ AstroFile::Members
 AstroFile::diff(AstroFile* other) const
 {
     if (!other) return AstroFile::All;
-    if (this == other) return 0;
+    if (this == other) return None;
 
-    AstroFile::Members flags = 0;
+    Members flags = None;
     if (getName() != other->getName()) flags |= Name;
     if (getType() != other->getType()) flags |= Type;
     if (getGMT() != other->getGMT()) flags |= GMT;
@@ -67,14 +81,49 @@ AstroFile::diff(AstroFile* other) const
     if (getHouseSystem() != other->getHouseSystem()) flags |= HouseSystem;
     if (getZodiac() != other->getZodiac()) flags |= Zodiac;
     if (getAspectSet().id != other->getAspectSet().id) flags |= AspectSet;
-    if (hasUnsavedChanges() != other->hasUnsavedChanges()) flags |= ChangedState;
+    if (hasUnsavedChanges() != other->hasUnsavedChanges())
+        flags |= ChangedState;
     //lastChangedMembers = flags;
     return flags;
 }
 
+/*static*/
+QMap<QString,QString> &
+AstroFile::_fixedChartDirMap()
+{
+    static QMap<QString,QString> s_map;
+    if (s_map.empty()) {
+        constexpr auto loc = QStandardPaths::DocumentsLocation;
+        QString dir = QStandardPaths::writableLocation(loc)
+                      + "/zodiac-charts";
+
+        QDir d(dir);
+        if (!d.exists()) QDir().mkpath(d.absolutePath());
+
+        s_map["User Charts"] = dir;
+        s_map["Sample Charts"] = "user/";
+        _fixedChartDirMapKeys() << "User Charts" << "Sample Charts";
+    }
+    return s_map;
+}
+
+/*static*/
+QStringList &
+AstroFile::_fixedChartDirMapKeys()
+{
+    static QStringList s_keys;
+    if (s_keys.empty()) (void) _fixedChartDirMap();
+    return s_keys;
+}
+
+
 void
 AstroFile::save()
 {
+    if (fileInfo().path() == ".") {
+        _fileInfo.setFile(QDir(fixedChartDir()),
+                          _fileInfo.fileName());
+    }
     QSettings file(fileName(), QSettings::IniFormat);
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
 
@@ -88,19 +137,20 @@ AstroFile::save()
     file.setValue("placeTag", getLocationName());
     file.setValue("comment", getComment());
 
-    qDebug() << "Saved file" << getName();
+    qDebug() << "Saved" << getName() << "to" << fileName();
 
     clearUnsavedState();
 }
 
 void
-AstroFile::load(const QString& name/*, bool recalculate*/)
+AstroFile::load(const QFileInfo& fi/*, bool recalculate*/)
 {
+    QString name = fi.baseName();
     if (name.isEmpty()) return;
     qDebug() << "Loading file" << getName() << "from" << name;
 
     suspendUpdate();
-    setName(name);
+    _fileInfo = fi;
 
     QSettings file(fileName(), QSettings::IniFormat);
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
@@ -121,10 +171,10 @@ AstroFile::load(const QString& name/*, bool recalculate*/)
 }
 
 void
-AstroFile::loadComposite(const QStringList& names)
+AstroFile::loadComposite(const QFileInfoList& names)
 {
     suspendUpdate();
-    setName(names.first());
+    setFileInfo(names.first());
 
     auto file = std::make_unique<QSettings>(fileName(), QSettings::IniFormat);
     file->setIniCodec(QTextCodec::codecForName("UTF-8"));
@@ -180,10 +230,9 @@ AstroFile::clearUnsavedState()
 void
 AstroFile::setName(const QString&   name)
 {
-    if (this->_name != name)
-    {
-        qDebug() << "Renamed file" << this->_name << "->" << name;
-        this->_name = name;
+    if (getName() != name) {
+        qDebug() << "Renamed file" << getName() << "->" << name;
+        _fileInfo.setFile(name + ".dat");
         change(Name);
     }
 }
@@ -191,8 +240,7 @@ AstroFile::setName(const QString&   name)
 void
 AstroFile::setType(const FileType   type)
 {
-    if (this->type != type)
-    {
+    if (this->type != type) {
         this->type = type;
         change(Type);
     }

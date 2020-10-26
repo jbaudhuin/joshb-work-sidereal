@@ -4,11 +4,16 @@
 #include <QMainWindow>
 #include <QTabBar>
 #include <QDockWidget>
+#include <QFileInfo>
+
 #include <Astroprocessor/Gui>
 #include "help.h"
 #include "slidewidget.h"
 
-class QTreeWidget;
+class QSortFilterProxyModel;
+class QFileSystemWatcher;
+class QTreeView;
+class QStandardItemModel;
 class QLineEdit;
 class QActionGroup;
 class AstroFileEditor;
@@ -130,7 +135,10 @@ class AstroDatabase : public QFrame
     Q_OBJECT
 
 private:
-    QTreeWidget* fileList;
+    QTreeView* fileList;
+    QStandardItemModel* dirModel;
+    QSortFilterProxyModel* searchProxy;
+    QFileSystemWatcher* fswatch;
     QLineEdit* search;
 
 protected:
@@ -148,21 +156,21 @@ private slots:
     void openSelectedComposite();
     void findSelectedDerived();
     void deleteSelected();
-    void searchFilter(QString);
+    void searchFilter(const QString&);
 
 public slots:
     void updateList();
 
 signals:
-    void fileRemoved(const QString&);
-    void openFile(const QString&);
-    void openFileInNewTab(const QString&);
-    void openFileInNewTabWithTransits(const QString&);
-    void openFileAsSecond(const QString&);
-    void openFilesComposite(const QStringList&);
-    void openFileReturn(const QString&, const QString& = "Sun");
-    void openFileInNewTabWithReturn(const QString&, const QString& = "Sun");
-    void findSelectedDerived(const QString&);
+    void fileRemoved(const QFileInfo&);
+    void openFile(const QFileInfo&);
+    void openFileInNewTab(const QFileInfo&);
+    void openFileInNewTabWithTransits(const QFileInfo&);
+    void openFileAsSecond(const QFileInfo&);
+    void openFilesComposite(const QFileInfoList&);
+    void openFileReturn(const QFileInfo&, const QString& = "Sun");
+    void openFileInNewTabWithReturn(const QFileInfo&, const QString& = "Sun");
+    void findSelectedDerived(const QFileInfo&);
 
 public:
     AstroDatabase(QWidget *parent = nullptr);
@@ -195,15 +203,15 @@ public slots:
     void editNewChart();
     void findChart();
     void swapCurrentFiles(int, int);
-    void openFile(const QString& name);
-    void openFileInNewTab(const QString& name);
-    void openFileInNewTabWithTransits(const QString& name);
+    void openFile(const QFileInfo& name);
+    void openFileInNewTab(const QFileInfo& name);
+    void openFileInNewTabWithTransits(const QFileInfo& name);
     void openTransits(int);
-    void openFileAsSecond(const QString& name = "");
-    void openFileComposite(const QStringList& names);
-    void openFileReturn(const QString& name, const QString& body);
-    void findDerivedChart(const QString& name);
-    void openFileInNewTabWithReturn(const QString& name, const QString& body);
+    void openFileAsSecond(const QFileInfo& name = QFileInfo());
+    void openFileComposite(const QFileInfoList& names);
+    void openFileReturn(const QFileInfo& name, const QString& body);
+    void findDerivedChart(const QFileInfo& name);
+    void openFileInNewTabWithReturn(const QFileInfo& name, const QString& body);
     void nextTab() { setCurrentIndex((currentIndex() + 1) % count()); }
     bool closeTab(int);
 

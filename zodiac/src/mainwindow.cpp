@@ -3,7 +3,12 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStatusBar>
-#include <QTreeWidget>
+
+#include <QStandardItemModel>
+#include <QTreeView>
+#include <QSortFilterProxyModel>
+#include <QFileSystemWatcher>
+
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QShortcut>
@@ -31,7 +36,7 @@
 #include "mainwindow.h"
 
 
-/* =========================== ASTRO FILE INFO ====================================== */
+/* =========================== ASTRO FILE INFO ============================== */
 
 AstroFileInfo::AstroFileInfo(QWidget *parent) : AstroFileHandler(parent)
 {
@@ -85,8 +90,10 @@ void AstroFileInfo::refresh()
     QString place;
     if (currentFile()->getLocationName().isEmpty())
     {
-        QString longitude = A::degreeToString(currentFile()->getLocation().x(), A::HighPrecision);
-        QString latitude = A::degreeToString(currentFile()->getLocation().y(), A::HighPrecision);
+        QString longitude = A::degreeToString(currentFile()->getLocation().x(),
+                                              A::HighPrecision);
+        QString latitude = A::degreeToString(currentFile()->getLocation().y(),
+                                             A::HighPrecision);
         place = QString("%1N  %2E").arg(latitude, longitude);
     } else
     {
@@ -739,11 +746,33 @@ void AstroWidget::setupSettingsEditor(AppSettingsEditor* ed)
 
 /* =========================== ASTRO FILE DATABASE ================================== */
 
-AstroDatabase::AstroDatabase(QWidget *parent) : QFrame(parent)
+AstroDatabase::AstroDatabase(QWidget *parent /*=nullptr*/) :
+    QFrame(parent)
 {
     QPushButton* refresh = new QPushButton;
 
-    fileList = new QTreeWidget;
+    fswatch = new QFileSystemWatcher(this);
+    connect(fswatch, SIGNAL(directoryChanged()),
+            this, SLOT(updateList()));
+
+    dirModel = new QStandardItemModel(this);
+
+    for (const auto& name: AstroFile::fixedChartDirMapKeys()) {
+        auto dir = AstroFile::fixedChartDirMap().value(name);
+        auto dirit = new QStandardItem(name);
+        dirit->setData(dir);
+        dirit->setFlags(Qt::ItemIsEnabled);
+        fswatch->addPath(dir);
+        dirModel->appendRow(dirit);
+    }
+
+    searchProxy = new QSortFilterProxyModel(this);
+    searchProxy->setRecursiveFilteringEnabled(true);
+
+    fileList = new QTreeView;
+    searchProxy->setSourceModel(dirModel);
+    fileList->setModel(searchProxy);
+
     search = new QLineEdit;
 
     refresh->setIcon(QIcon("style/update.png"));
@@ -768,7 +797,6 @@ AstroDatabase::AstroDatabase(QWidget *parent) : QFrame(parent)
     layout->addLayout(l);
     layout->addWidget(fileList);
 
-
     connect(refresh, SIGNAL(clicked()), this, SLOT(updateList()));
     connect(this, SIGNAL(customContextMenuRequested(QPoint)),
             this, SLOT(showContextMenu(QPoint)));
@@ -780,50 +808,94 @@ AstroDatabase::AstroDatabase(QWidget *parent) : QFrame(parent)
     updateList();
 }
 
-void AstroDatabase::searchFilter(QString s)
+void AstroDatabase::searchFilter(const QString& nf)
 {
-    auto top = fileList->invisibleRootItem();
-    for (int i = 0; i < top->childCount(); i++) {
-        auto item = top->child(i);
-        item->setHidden(!item->text(0).contains(s, Qt::CaseInsensitive));
-    }
+    searchProxy->setFilterRegExp(nf);
 }
 
-QStringList
-getSelectedItems(QTreeWidgetItem* tw)
+QFileInfoList
+getSelectedItems(QTreeView* tv)
 {
-    QStringList sl;
-    for (int i = 0; i < tw->childCount(); ++i) {
-        if (tw->child(i)->isSelected()) sl << tw->child(i)->text(0);
+    QItemSelectionModel* sm = tv->selectionModel();
+    if (!sm) return { };
+
+    auto sfpModel = qobject_cast<QSortFilterProxyModel*>(tv->model());
+    auto dirModel =
+            qobject_cast<QStandardItemModel*>(sfpModel
+                                              ? sfpModel->sourceModel()
+                                              : tv->model());
+    if (!dirModel) return { };
+
+    QFileInfoList sel;
+    for (const auto& mi : sm->selectedIndexes()) {
+        auto dmi = sfpModel->mapToSource(mi);
+        auto pmi = dmi.parent();
+        auto sit = dmi.data().toString();
+        auto item = dirModel->itemFromIndex(dmi);
+        if (auto pitem = item? item->parent() : nullptr) {
+            sel << QFileInfo(pitem->data().toString(),
+                             sit + ".dat");
+        }
     }
-    return sl;
+    return sel;
+}
+
+bool
+hasSelectedItems(QTreeView* tv)
+{
+    QItemSelectionModel* sm = tv->selectionModel();
+    if (!sm) return false;
+    return (sm->hasSelection());
 }
 
 void AstroDatabase::updateList()
 {
-    QDir dir("user/");
-
-    QStringList list = dir.entryList(QStringList("*.dat"),
-                                     QDir::Files, QDir::Name | QDir::IgnoreCase);
-    list.replaceInStrings(".dat", "");
-
-    auto top = fileList->invisibleRootItem();
-    QStringList selectedItems(getSelectedItems(top));
-
-    fileList->clear();
-
-    for (const auto& itemString : list) {
-        auto item = new QTreeWidgetItem(top, {itemString});
-        if (selectedItems.contains(itemString))
-            item->setSelected(true);
+    QMap<QStandardItem*, QStringList> sel;
+    QItemSelectionModel* sm = fileList->selectionModel();
+    if (sm) {
+        for (const auto& mi : sm->selectedIndexes()) {
+            auto sit = mi.data().toString();
+            auto item = dirModel->itemFromIndex(mi.parent());
+            sel[item].append(sit);
+        }
     }
 
-    searchFilter(search->text());
+    QItemSelection sl;
+    for (int i = 0, n = dirModel->rowCount(); i < n; ++i) {
+        auto mi = dirModel->index(i,0);
+        auto item = dirModel->item(i);
+        QDir dir(item->data().toString());
+        item->removeRows(0,item->rowCount());
+
+        QStringList list =
+                dir.entryList(QStringList("*.dat"),
+                              QDir::Files, QDir::Name | QDir::IgnoreCase);
+        list.replaceInStrings(".dat", "");
+        list.sort();
+
+        const QStringList& presel = sel[item];
+        int j = 0;
+        for (const QString& chit : list) {
+            auto child = new QStandardItem(chit);
+            child->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            item->appendRow(child);
+            while (j < presel.count() && presel.at(j) < chit) ++j;
+            if (j < presel.count() && presel.at(j) == chit) {
+                QModelIndex qmi = dirModel->index(item->rowCount()-1,0,mi);
+                sl.select(qmi,qmi);
+            }
+        }
+    }
+    if (!sl.empty()) sm->select(sl, QItemSelectionModel::ClearAndSelect);
 }
 
 void AstroDatabase::deleteSelected()
 {
-    int count = fileList->selectedItems().count();
+    auto sm = fileList->selectionModel();
+    if (!sm) return;
+
+    auto sil = sm->selectedIndexes();
+    int count = sil.count();
     if (!count) return;
 
     QMessageBox msgBox;
@@ -831,7 +903,8 @@ void AstroDatabase::deleteSelected()
     msgBox.setDefaultButton(QMessageBox::Save);
 
     if (count == 1)
-        msgBox.setText(tr("Delete '%1' from list?").arg(fileList->selectedItems()[0]->text(0)));
+        msgBox.setText(tr("Delete '%1' from list?")
+                       .arg(sil.first().data().toString()));
     else
         msgBox.setText(tr("Delete %1 files from list?").arg(count));
 
@@ -839,26 +912,35 @@ void AstroDatabase::deleteSelected()
     int ret = msgBox.exec();
     if (ret == QMessageBox::Cancel) return;
 
-    for (auto item : fileList->selectedItems()) {
-        QString file = "user/" + item->text(0) + ".dat";
+    for (const auto& mi : sil) {
+        if (!mi.parent().isValid()) continue;
+        auto dir = mi.parent().data(Qt::UserRole+1).toString();
+        const auto& chit = mi.data().toString();
+        QString file = QFileInfo(dir, chit + ".dat").canonicalFilePath();
+        //fswatch->blockSignals(true);
         QFile::remove(file);
-        emit fileRemoved(item->text(0));
-        fileList->removeItemWidget(item, 0);
-        delete item;
+        //fswatch->blockSignals(false);
+        emit fileRemoved(chit);
+#if 0
+        auto item = dirModel->itemFromIndex(mi);
+        auto parent = item->parent();
+        parent->removeRow(mi.row());
+#endif
     }
 }
 
 void
 AstroDatabase::openSelected()
 {
-    int count = fileList->selectedItems().count();
-    if (!count) return;
+    auto sfi = getSelectedItems(fileList);
+    if (sfi.empty()) return;
 
+    auto count = sfi.count();
     if (count == 1) {
-        emit openFile(fileList->selectedItems()[0]->text(0));
+        emit openFile(sfi.first());
     } else {
-        for (auto item : fileList->selectedItems()) {
-            emit openFileInNewTab(item->text(0));
+        for (const auto& fi: sfi) {
+            emit openFileInNewTab(fi);
         }
     }
 }
@@ -866,66 +948,60 @@ AstroDatabase::openSelected()
 void
 AstroDatabase::openSelectedInNewTab()
 {
-    for (auto item : fileList->selectedItems())
-        emit openFileInNewTab(item->text(0));
+    for (const auto& fi : getSelectedItems(fileList)) {
+        emit openFileInNewTab(fi);
+    }
 }
 
 void
 AstroDatabase::openSelectedWithTransits()
 {
-    for (auto item : fileList->selectedItems())
-        emit openFileInNewTabWithTransits(item->text(0));
+    for (const auto& fi : getSelectedItems(fileList))
+        emit openFileInNewTabWithTransits(fi);
 }
 
 void AstroDatabase::openSelectedAsSecond()
 {
-    auto item = fileList->selectedItems().first();
-    emit openFileAsSecond(item->text(0));
+    auto sfi = getSelectedItems(fileList);
+    if (!sfi.empty()) emit openFileAsSecond(sfi.first());
 }
 
 void AstroDatabase::openSelectedComposite()
 {
-    QStringList items;
-    for (auto item : fileList->selectedItems())
-        items << item->text(0);
-    emit openFilesComposite(items);
+    emit openFilesComposite(getSelectedItems(fileList));
 }
 
 void
 AstroDatabase::findSelectedDerived()
 {
-    auto item = fileList->selectedItems().first()->text(0);
-    emit findSelectedDerived(item);
+    for (const auto& fi: getSelectedItems(fileList)) {
+        emit findSelectedDerived(fi);
+        break;
+    }
 }
 
 void AstroDatabase::openSelectedWithSolarReturn()
 {
-    int count = fileList->selectedItems().count();
-    if (!count) return;
-
-    if (count == 1) {
-        QString file(fileList->selectedItems().first()->text(0));
-        emit openFileInNewTabWithReturn(file);
-    } else {
-        for (auto item : fileList->selectedItems()) {
-            emit openFileInNewTabWithReturn(item->text(0));
-        }
+    for (const auto& fi: getSelectedItems(fileList)) {
+        emit openFileInNewTabWithReturn(fi);
     }
 }
 
 void AstroDatabase::openSelectedSolarReturnInNewTab()
 {
-    for (auto item : fileList->selectedItems()) {
-        emit openFileReturn(item->text(0));
+    for (const auto& fi : getSelectedItems(fileList)) {
+        emit openFileReturn(fi);
     }
 }
 
 void AstroDatabase::showContextMenu(QPoint p)
 {
+    if (!hasSelectedItems(fileList)) return;
+
     QMenu* mnu = new QMenu(this);
     QPoint pos = ((QWidget*)sender())->mapToGlobal(p);
 
-    mnu->addAction(tr("Open"), this, SLOT(openSedlected()));
+    mnu->addAction(tr("Open"), this, SLOT(openSelected()));
     mnu->addAction(tr("Open in new tab"), this, SLOT(openSelectedInNewTab()));
     mnu->addAction(tr("Open with Transits"), this, SLOT(openSelectedWithTransits()));
     mnu->addAction(tr("Synastry view"), this, SLOT(openSelectedAsSecond()));
@@ -938,73 +1014,63 @@ void AstroDatabase::showContextMenu(QPoint p)
     mnu->addAction(tr("Open Solar Return in new tab"),
                    this, SLOT(openSelectedSolarReturnInNewTab()));
     mnu->addAction(tr("Open Lunar Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Moon");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Moon");
     });
 
     mnu->addAction(tr("Open Mercury Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Mercury");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Mercury");
     });
 
     mnu->addAction(tr("Open Venus Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Venus");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Venus");
     });
 
     mnu->addAction(tr("Open Mars Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Mars");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Mars");
     });
 
     mnu->addAction(tr("Open Jupiter Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Jupiter");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Jupiter");
     });
 
     mnu->addAction(tr("Open Saturn Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Saturn");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Saturn");
     });
 
     mnu->addAction(tr("Open Uranus Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Uranus");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Uranus");
     });
 
     mnu->addAction(tr("Open Neptune Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Neptune");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Neptune");
     });
 
     mnu->addAction(tr("Open Pluto Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Pluto");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Pluto");
     });
 
     mnu->addAction(tr("Open Chiron Return in new tab"),
-                   [this]()
-    {
-        for (auto item: fileList->selectedItems())
-            emit openFileReturn(item->text(0), "Chiron");
+                   [this] {
+        for (const auto& fi : getSelectedItems(fileList))
+            emit openFileReturn(fi, "Chiron");
     });
 
     mnu->addSeparator();
@@ -1071,8 +1137,7 @@ void FilesBar::addFile(AstroFile* file)
         return;
     }
 
-    AstroFileList list;
-    list << file;
+    AstroFileList list { file };
     files << list;
     file->setParent(this);
     addTab("new");
@@ -1120,7 +1185,7 @@ FilesBar::editNewChart()
 void
 FilesBar::findChart()
 {
-    auto dlg = new QDialog();
+    auto dlg = new QDialog(nullptr,Qt::Dialog|Qt::WindowStaysOnTopHint);
     auto lay = new QVBoxLayout(dlg);
     dlg->setLayout(lay);
     auto pafe = new AstroFindEditor(dlg);
@@ -1235,33 +1300,34 @@ bool FilesBar::closeTab(int index)
     return true;
 }
 
-void FilesBar::openFile(const QString& name)
+void FilesBar::openFile(const QFileInfo& fi)
 {
-    int i = getTabIndex(name, true/*firstFileOnly*/);
+    int i = getTabIndex(fi.baseName(), true/*firstFileOnly*/);
     if (i != -1) return setCurrentIndex(i); // focus if the file is currently opened
 
     /*if (currentFile()->hasUnsavedChanges())
       openFileInNewTab(name);
     else*/
-    currentFiles()[0]->load(name);
-
+    currentFiles()[0]->load(fi);
+    i = getTabIndex(fi.baseName());
+    if (i != -1) updateTab(i);
 }
 
-void FilesBar::openFileInNewTab(const QString& name)
+void FilesBar::openFileInNewTab(const QFileInfo& fi)
 {
     //int i = getTabIndex(name, true);
     //if (i != -1) return setCurrentIndex(i);
 
     AstroFile* file = new AstroFile;
-    file->load(name);
+    file->load(fi);
     addFile(file);
 }
 
 void
-FilesBar::openFileInNewTabWithTransits(const QString& name)
+FilesBar::openFileInNewTabWithTransits(const QFileInfo& fi)
 {
     AstroFile* file1 = new AstroFile;
-    file1->load(name);
+    file1->load(fi);
     addFile(file1);
     AstroFile* file2 = new AstroFile;
     file2->setName("Transits " + QDate::currentDate().toString());
@@ -1273,11 +1339,11 @@ FilesBar::openFileInNewTabWithTransits(const QString& name)
     emit currentChanged(currentIndex());
 }
 
-void FilesBar::openFileAsSecond(const QString& name)
+void FilesBar::openFileAsSecond(const QFileInfo& fi)
 {
     if (files[currentIndex()].count() < 2) {
         AstroFile* file = new AstroFile;
-        file->load(name);
+        file->load(fi);
         file->setParent(this);
         files[currentIndex()] << file;
         updateTab(currentIndex());
@@ -1285,29 +1351,29 @@ void FilesBar::openFileAsSecond(const QString& name)
         connect(file, SIGNAL(destroyRequested()), this, SLOT(fileDestroyed()));
         emit currentChanged(currentIndex());
     } else {
-        files[currentIndex()][1]->load(name);
+        files[currentIndex()][1]->load(fi);
     }
 }
 
 void
-FilesBar::openFileComposite(const QStringList& names)
+FilesBar::openFileComposite(const QFileInfoList& fis)
 {
+    // XXX @todo
     AstroFile* file = new AstroFile;
-    file->load(names.first());
+    file->load(fis.first());
     addFile(file);
 
 }
 
 void
-FilesBar::openFileReturn(const QString& name, const QString& body)
+FilesBar::openFileReturn(const QFileInfo& fi, const QString& body)
 {
     AstroFile* native = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(native, true);
-    native->load(name);
+    native->load(fi);
 
-    QString planet = body=="Sun"? "Solar"
-                                : body=="Moon"? "Lunar"
-                                              : body;
+    QString planet =
+            body=="Sun"? "Solar" : body=="Moon"? "Lunar" : body;
     if (native->data().harmonic != 1.0) {
         planet += " H" + QString::number(native->data().harmonic);
     }
@@ -1328,7 +1394,7 @@ FilesBar::openFileReturn(const QString& name, const QString& body)
     planetReturn->setGMT(dt);
 
     planetReturn->setName(QString("%1 %2 Return %3")
-                          .arg(name)
+                          .arg(fi.baseName())
                           .arg(planet)
                           .arg(dt.toLocalTime().date().year()));
     planetReturn->clearUnsavedState();
@@ -1336,18 +1402,18 @@ FilesBar::openFileReturn(const QString& name, const QString& body)
 }
 
 void
-FilesBar::findDerivedChart(const QString& body)
+FilesBar::findDerivedChart(const QFileInfo& fi)
 {
     
 }
 
 void
-FilesBar::openFileInNewTabWithReturn(const QString& name,
+FilesBar::openFileInNewTabWithReturn(const QFileInfo& fi,
                                      const QString& body)
 {
     AstroFile* native = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(native);
-    native->load(name);
+    native->load(fi);
     addFile(native);
 
     QString planet = body=="Sun"? "Solar" : body=="Moon"? "Lunar" : body;
@@ -1365,7 +1431,7 @@ FilesBar::openFileInNewTabWithReturn(const QString& name,
     planetReturn->setGMT(dt);
 
     planetReturn->setName(QString("%1 %2 Return %3")
-                          .arg(name)
+                          .arg(fi.baseName())
                           .arg(planet)
                           .arg(dt.toLocalTime().date().year()));
 
@@ -1482,14 +1548,14 @@ MainWindow::MainWindow(QWidget *parent) :
             this, SLOT(contextMenu(QPoint)));
     connect(filesBar, SIGNAL(currentChanged(int)),
             this, SLOT(currentTabChanged()));
-    connect(astroDatabase, SIGNAL(openFile(const QString&)),
-            filesBar, SLOT(openFile(const QString&)));
-    connect(astroDatabase, SIGNAL(openFileInNewTab(const QString&)),
-            filesBar, SLOT(openFileInNewTab(const QString&)));
-    connect(astroDatabase, SIGNAL(openFileInNewTabWithTransits(const QString&)),
-            filesBar, SLOT(openFileInNewTabWithTransits(const QString&)));
-    connect(astroDatabase, SIGNAL(openFileAsSecond(const QString&)),
-            filesBar, SLOT(openFileAsSecond(const QString&)));
+    connect(astroDatabase, SIGNAL(openFile(const QFileInfo&)),
+            filesBar, SLOT(openFile(const QFileInfo&)));
+    connect(astroDatabase, SIGNAL(openFileInNewTab(const QFileInfo&)),
+            filesBar, SLOT(openFileInNewTab(const QFileInfo&)));
+    connect(astroDatabase, SIGNAL(openFileInNewTabWithTransits(const QFileInfo&)),
+            filesBar, SLOT(openFileInNewTabWithTransits(const QFileInfo&)));
+    connect(astroDatabase, SIGNAL(openFileAsSecond(const QFileInfo&)),
+            filesBar, SLOT(openFileAsSecond(const QFileInfo&)));
     connect(astroWidget, SIGNAL(appendFileRequested()),
             filesBar, SLOT(openFileAsSecond()));
     connect(astroWidget, SIGNAL(helpRequested(QString)),
@@ -1500,10 +1566,10 @@ MainWindow::MainWindow(QWidget *parent) :
             help, SLOT(searchFor(QString)));
     connect(new QShortcut(QKeySequence("CTRL+TAB"), this),
             SIGNAL(activated()), filesBar, SLOT(nextTab()));
-    connect(astroDatabase, SIGNAL(openFileReturn(const QString&, const QString&)),
-            filesBar, SLOT(openFileReturn(const QString&, const QString&)));
-    connect(astroDatabase, SIGNAL(openFileInNewTabWithReturn(const QString&, const QString&)),
-            filesBar, SLOT(openFileInNewTabWithReturn(const QString&, const QString&)));
+    connect(astroDatabase, SIGNAL(openFileReturn(const QFileInfo&, const QString&)),
+            filesBar, SLOT(openFileReturn(const QFileInfo&, const QString&)));
+    connect(astroDatabase, SIGNAL(openFileInNewTabWithReturn(const QFileInfo&, const QString&)),
+            filesBar, SLOT(openFileInNewTabWithReturn(const QFileInfo&, const QString&)));
 
     loadSettings();
     filesBar->addNewFile();

@@ -367,8 +367,8 @@ AstroFindEditor::AstroFindEditor(QWidget* parent /*=nullptr*/) :
     QString plre = "\\w+(-\\w+)?";  // e.g., planet-r, planet-p
     QString plmpre = QString("(%1(/%1)?)").arg(plre);   // planet/planet
     QString signsre = "(" + signs.join("|") + ")";
-    QString zposre = "(?<deg>\\d+)? ?(?<sign>"+ signsre +")"
-                     "( ?((?<min>\\d+)'? ?((?<sec>\\d+)\"?)?))";
+    QString zposre = "(?<deg>\\d+\\s+)?(?<sign>"+ signsre +")"
+                     "( ?((?<min>\\d+)'? ?((?<sec>\\d+)\"?)?))?";
                                     // sign or deg Sign mins' sec"
     QString plmpeqre = plmpre + "(=" + plmpre + ")+";
                                     // e.g., sun=moon=mars
@@ -470,7 +470,7 @@ AstroFindEditor::onEditingFinished()
     auto d1 = A::getJulianDate(endDateTime->dateTime());
     auto dl = A::quotidianSearch(poses, inda,
                                  endDateTime->dateTime(),
-                                 std::min((d1-d0)/8,span));
+                                 std::min((d1-d0)/8,45.));
 
     auto lw = findChild<QListWidget*>();
     lw->clear();

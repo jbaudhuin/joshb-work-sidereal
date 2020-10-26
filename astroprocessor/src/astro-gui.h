@@ -1,6 +1,9 @@
 #ifndef ASTRO_GUI_H
 #define ASTRO_GUI_H
 
+#include <QFileInfo>
+#include <QStringList>
+
 #include "astro-data.h"
 #include "astro-calc.h"
 #include "appsettings.h"
@@ -48,8 +51,8 @@ public:
 
     void save();
     void saveAs();
-    void load(const QString& name);
-    void loadComposite(const QStringList& names);
+    void load(const QFileInfo& name);
+    void loadComposite(const QFileInfoList& names);
 
     void suspendUpdate()            { holdUpdate = true; }
     bool isSuspendedUpdate()  const { return holdUpdate; }
@@ -59,7 +62,8 @@ public:
     bool hasUnsavedChanges()  const { return unsavedChanges; }
     bool isEmpty()            const { return scope.planets.count() == 0; }
 
-    void setName         (const QString&   _name);
+    void setName         (const QString&   name);
+    void setFileInfo(const QFileInfo& fi) { _fileInfo = fi; }
     void setType         (const FileType   type);
     void setGMT          (const QDateTime& gmt);
     void setTimezone     (const short& zone);
@@ -72,7 +76,9 @@ public:
     void setAspectMode   (const A::aspectModeType& mode);
     void setHarmonic     (double harmonic);
 
-    const QString&   getName()         const { return _name; }
+    QString          getName()         const { return _fileInfo.baseName(); }
+    const QFileInfo& fileInfo() const { return _fileInfo; }
+    
     const QString&   getComment()      const { return comment; }
     FileType         getType()         const { return type; }
     const QVector3D& getLocation()     const { return scope.inputData.location; }
@@ -92,6 +98,28 @@ public:
 
     const A::InputData& data() const { return scope.inputData; }
 
+    static void      addChartDir(const QString& label,
+                                 const QString& dir);
+
+    static QMap<QString,QString>& _fixedChartDirMap();
+
+    static const QMap<QString,QString>& fixedChartDirMap()
+    { return _fixedChartDirMap(); }
+
+    static QStringList& _fixedChartDirMapKeys();
+
+    static const QStringList& fixedChartDirMapKeys()
+    { return _fixedChartDirMapKeys(); }
+
+    static QString fixedChartDir(int i = 0)
+    {
+        const auto& cd(fixedChartDirMapKeys());
+        if (i >= 0 && i < cd.count()) {
+            return fixedChartDirMap().value(cd.at(i));
+        }
+        return ".";
+    }
+
 signals:
     void changed(AstroFile::Members);
     void destroyRequested();
@@ -105,7 +133,7 @@ private:
     Members holdUpdateMembers;
     static int counter;
 
-    QString _name;
+    QFileInfo _fileInfo;
     QString comment;
     QString locationName;
     FileType type;
