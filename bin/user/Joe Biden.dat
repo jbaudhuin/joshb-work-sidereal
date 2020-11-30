@@ -1,0 +1,11 @@
+[General]
+name=Joe Biden
+type=Male
+GMT=1942-11-20T12:30:00Z
+timezone=-4
+lon=@Variant(\0\0\0\x87\xc2\x97S()
+lat=@Variant(\0\0\0\x87\x42%\xa2\xc9)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Scranton, PA, USA"
+comment=astro.com
+eventList=@Invalid()

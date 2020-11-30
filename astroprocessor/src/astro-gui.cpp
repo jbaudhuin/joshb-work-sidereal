@@ -5,10 +5,12 @@
 #include <QTextCodec>
 #include <QDebug>
 #include <QStandardPaths>
+#include <QMetaType>
 
 #include "astro-calc.h"
 #include "astro-gui.h"
 
+Q_DECLARE_METATYPE(AstroFile::dateRange);
 
 /* ====================== ASTRO FILE ============================= */
 
@@ -34,7 +36,7 @@ AstroFile::fileName() const
 }
 
 QString
-AstroFile::typeToString(FileType ft) const
+AstroFile::typeToString(unsigned ft)
 {
     switch (ft) {
     case TypeEvents: return "Event";
@@ -46,12 +48,13 @@ AstroFile::typeToString(FileType ft) const
     case TypeMale: return "Male";
     case TypeFemale: return "Female";
     case TypeOther: return "Other";
+    default: break;
     }
     return "";
 }
 
 AstroFile::FileType
-AstroFile::typeFromString(QString str) const
+AstroFile::typeFromString(const QString& str)
 {
     if (str == "Male")   return TypeMale;
     if (str == "Female") return TypeFemale;
@@ -81,6 +84,7 @@ AstroFile::diff(AstroFile* other) const
     if (getHouseSystem() != other->getHouseSystem()) flags |= HouseSystem;
     if (getZodiac() != other->getZodiac()) flags |= Zodiac;
     if (getAspectSet().id != other->getAspectSet().id) flags |= AspectSet;
+    if (getEventList() != other->getEventList()) flags |= EventList;
     if (hasUnsavedChanges() != other->hasUnsavedChanges())
         flags |= ChangedState;
     //lastChangedMembers = flags;
@@ -137,13 +141,27 @@ AstroFile::save()
     file.setValue("placeTag", getLocationName());
     file.setValue("comment", getComment());
 
+    //if (getType()==TypeEvents) {
+    file.setValue("dateRange",
+                  QVariant::fromValue(getDateRange()));
+    if (_eventList.empty()) {
+        file.setValue("eventList", QVariant());
+    } else {
+        QVariantList vl;
+        for (const auto& dt: _eventList) {
+            vl << dt;
+        }
+        file.setValue("eventList", vl);
+    }
+    //}
+
     qDebug() << "Saved" << getName() << "to" << fileName();
 
     clearUnsavedState();
 }
 
 void
-AstroFile::load(const QFileInfo& fi/*, bool recalculate*/)
+AstroFile::load(const AFileInfo& fi/*, bool recalculate*/)
 {
     QString name = fi.baseName();
     if (name.isEmpty()) return;
@@ -165,13 +183,29 @@ AstroFile::load(const QFileInfo& fi/*, bool recalculate*/)
     setLocationName(file.value("placeTag").toString());
     setComment(file.value("comment").toString());
 
+    //if (getType()==TypeEvents) {
+    QList<QDateTime> dl;
+    if (file.contains("eventList")) {
+        auto vl = file.value("eventList").toList();
+        for (const auto& v: vl) {
+            dl << v.toDateTime();
+        }
+        _eventList.swap(dl);
+    }
+    AstroFile::dateRange range;
+    if (file.contains("dateRange")) {
+        range = file.value("dateRange").value<AstroFile::dateRange>();
+    }
+    setDateRange(range);
+    //}
+
     clearUnsavedState();
     if (/*!recalculate*/!isEmpty()) resumeUpdate()/*holdUpdateMembers = None*/;  // if empty file is just loaded, it will not be recalculated
     //resumeUpdate();
 }
 
 void
-AstroFile::loadComposite(const QFileInfoList& names)
+AstroFile::loadComposite(const AFileInfoList& names)
 {
     suspendUpdate();
     setFileInfo(names.first());
@@ -340,6 +374,15 @@ AstroFile::setHarmonic(double harmonic)
 }
 
 void
+AstroFile::setEventList(const QList<QDateTime>& evl)
+{
+    if (getEventList() != evl) {
+        _eventList = evl;
+        change(EventList);
+    }
+}
+
+void
 AstroFile::recalculate()
 {
     qDebug() << "Calculating file" << getName() << "...";
@@ -398,7 +441,7 @@ AstroFileHandler::setFiles(const AstroFileList& files)
     for (AstroFile* file: files) {
         AstroFile* old = (f.count() >= i + 1) ? f[i] : nullptr;
         if (file == old) {
-            flags << 0; //flags.clear();  // ??
+            flags.clear();
         } else {
             if (old) {
                 old->disconnect(this, SLOT(fileUpdatedSlot(AstroFile::Members)));
@@ -412,7 +455,7 @@ AstroFileHandler::setFiles(const AstroFileList& files)
                         this, SLOT(fileDestroyedSlot()));
                 flags << file->diff(old);
             } else {
-                flags << 0; //flags.clear();  // ??
+                flags.clear();
             }
         }
 
@@ -445,7 +488,7 @@ AstroFileHandler::blankMembers()
 {
     MembersList ret;
     for (int i = 0; i < f.count(); i++)
-        ret << 0;
+        ret << AstroFile::Members();
     return ret;
 }
 
@@ -470,10 +513,16 @@ AstroFileHandler::fileUpdatedSlot(AstroFile::Members m)
             mList = blankMembers();
         }
 
+        while (mList.count()<=i) {
+            mList.append(AstroFile::Members());
+        }
         mList[i] |= m;
         filesUpdated(mList);
     } else {
         delayUpdate = true;
+        while (delayMembers.count()<=i) {
+            delayMembers.append(AstroFile::Members());
+        }
         delayMembers[i] |= m;
     }
 }

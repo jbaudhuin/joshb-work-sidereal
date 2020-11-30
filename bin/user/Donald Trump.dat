@@ -1,0 +1,11 @@
+[General]
+name=Donald Trump
+type=Male
+GMT=1946-06-14T14:54:00Z
+timezone=-4
+lon=@Variant(\0\0\0\x87\xc2\x93\x93\xf4)
+lat=@Variant(\0\0\0\x87\x42\"\xcf\x8b)
+z=@Variant(\0\0\0\x87\0\0\0\0)
+placeTag="Jamaica, Queens, NY, USA"
+comment=
+eventList=@Invalid()

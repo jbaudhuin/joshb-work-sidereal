@@ -64,6 +64,19 @@ double getJulianDate(QDateTime GMT, bool ephemerisTime/*=false*/)
     return ret[ephemerisTime ? 0 : 1]; // ET or UT
 }
 
+double getUTfromET(double et)
+{
+    int32 iyear, imonth, iday, ihour, imin;
+    double dsec;
+    swe_jdut1_to_utc(et,1/*greg*/,&iyear,&imonth,&iday,&ihour,&imin,&dsec);
+
+    double ret[2];
+    char serr[256];
+    swe_utc_to_jd(iyear,imonth,iday,ihour,imin,dsec,1/*greg*/,ret,serr);
+
+    return ret[1];
+}
+
 inline
 qreal
 harmonic(double h, qreal value)
@@ -541,12 +554,11 @@ qreal
 PlanetLoc::compute(const InputData& ida,
                    double jd)
 {
-    uint invertPositionFlag = 256 * 1024;
+    constexpr uint invertPositionFlag = 256 * 1024;
     char errStr[256] = "";
 
     const Planet& p1(getPlanet(planet.planetId()));
-    uint flags = (SEFLG_SWIEPH | p1.sweFlags)
-                 & ~SEFLG_TRUEPOS;
+    uint flags = (SEFLG_SWIEPH | p1.sweFlags) & ~SEFLG_TRUEPOS;
     if (ida.zodiac > 1) {
         flags |= SEFLG_SIDEREAL;
         swe_set_sid_mode(ida.zodiac - 2, 0, 0);
@@ -556,28 +568,79 @@ PlanetLoc::compute(const InputData& ida,
     swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
     auto eps = xx[0];
 
+    auto getAscMC = [&](unsigned i, bool trop = false) {
+        double cusps[14], ascmc[11];
+        auto jdut = getUTfromET(jd);
+        uint flags = SEFLG_SWIEPH;
+        if (!trop) flags |= SEFLG_SIDEREAL;
+        swe_houses_ex(jdut, flags,
+                      ida.location.y(), ida.location.x(),
+                      'C', cusps, ascmc);
+        return ascmc[i];
+    };
+
     auto getPos = [&](const Planet& p, qreal& speed) -> qreal {
         int ret = ERR;
         qreal pos = 0.0;
         switch (aspectMode) {
         case amcEcliptic:
-            ret = swe_calc_ut(jd, p.sweNum, flags, xx, errStr);
-            pos = xx[0];
-            speed = xx[3] * ida.harmonic;
+            if (p.id == Planet_Asc) {
+                pos = getAscMC(0);
+                ret = OK;
+                // FIXME speed?
+            } else if (p.id == Planet_MC) {
+                pos = getAscMC(1);
+                ret = OK;
+                // FIXME speed?
+            } else {
+                ret = swe_calc_ut(jd, p.sweNum, flags, xx, errStr);
+                pos = xx[0];
+                if (p.id==Planet_SouthNode) pos = swe_degnorm(pos+180.);
+                speed = xx[3] * ida.harmonic;
+            }
             break;
 
         case amcEquatorial:
-            ret = swe_calc_ut(jd, p.sweNum,
-                              (flags & ~SEFLG_SIDEREAL)
-                                | SEFLG_EQUATORIAL | SEFLG_SPEED,
-                              xx, errStr);
-            pos = xx[0];
-            speed = xx[3] * ida.harmonic;
+            if (p.id == Planet_Asc) {
+                double xx[6];
+                xx[0] = getAscMC(0, true/*trop*/);
+                xx[1] = 0, xx[2] = 1.0;
+                swe_cotrans(xx, xx, -eps);
+                pos = xx[0];
+                ret = OK;
+                // FIXME speed?
+            } else if (p.id == Planet_MC) {
+                pos = getAscMC(2, true/*trop*/);
+                ret = OK;
+            } else {
+                ret = swe_calc_ut(jd, p.sweNum,
+                                  (flags & ~SEFLG_SIDEREAL)
+                                  | SEFLG_EQUATORIAL | SEFLG_SPEED,
+                                  xx, errStr);
+                pos = xx[0];
+                if (p.id==Planet_SouthNode) pos = swe_degnorm(pos+180.);
+                speed = xx[3] * ida.harmonic;
+            }
             break;
 
         default:
         case amcPrimeVertical:
+        {
+            if (p.id == Planet_Asc) {
+                pos = 0; ret = OK; // speed?
+            } else if (p.id == Planet_MC) {
+                pos = 270; ret = OK; // speed?
+            } else {
+                ret = swe_calc_ut(jd, p.sweNum,
+                                  flags & ~SEFLG_SIDEREAL,
+                                  xx, errStr);
+                auto housePos = swe_house_pos(getAscMC(2,true/*trop*/),
+                                              ida.location.y(), eps,
+                                              'C', xx, errStr);
+                pos = (housePos - 1)/12*360;
+            }
             break;
+        }
         }
         if (ret != ERR) return harmonic(ida.harmonic, pos);
         qDebug() << "Can't calculate position of " << p1.name
@@ -785,8 +848,8 @@ Houses calculateHouses ( const InputData& input )
         swe_set_sid_mode(input.zodiac - 2, 0, 0);
     }
 
-    double julianDay = getJulianDate(input.GMT, false/*need UT*/);
-    double  jd = getJulianDate(input.GMT);
+    double julianDay = getJulianDate(input.GMT, false/*i.e., UT*/);
+    double  jd = getJulianDate(input.GMT, true/*i.e., ET*/);
     char    errStr[256] = "";
     double  xx[6];
 
@@ -1769,7 +1832,7 @@ dateTimeFromJulian(double jd)
     int32 y, d, m;
     int32 hr, min, sec;
     double dsec;
-    swe_jdut1_to_utc(jd, SE_GREG_CAL, &y, &m, &d, &hr, &min, &dsec);
+    swe_jdet_to_utc(jd, SE_GREG_CAL, &y, &m, &d, &hr, &min, &dsec);
     sec = dsec;
     int msec = int((dsec - double(sec)) * 1000.0);
     return QDateTime(QDate(y,m,d), QTime(hr,min,sec,msec));
@@ -1846,7 +1909,7 @@ struct calcLoop {
     PlanetProfile& poses;
     double& jd;
 
-    static constexpr double tol = 1e-09;
+    static constexpr double tol = 5e-08;
     static constexpr int digits = std::numeric_limits<double>::digits;
 
     calcLoop(PlanetProfile& ps,
@@ -1908,7 +1971,8 @@ struct calcLoop {
                                                 digits, iter);
                     done = fabs(poses[1]->loc - poses[0]->loc) <= tol
                             || span < tol;
-                    if (done) qDebug() << "  done by newton";
+                    if (done)
+                        qDebug() << "  done by newton";
                 } catch (...) { }
 #endif
             }
@@ -2031,7 +2095,8 @@ calcLoop::doIterativeCalc<posSpd>(double& jd,
         jd = newton_raphson_iterate(ncpos, g, jlo, jhi, digits, iter);
         bool done = fabs(poses[1]->loc - poses[0]->loc) <= tol
                 || span < tol;
-        if (done) qDebug() << "  done by newton";
+        if (done)
+            qDebug() << "  done by newton";
         return done;
     } catch (...) {
         return false;

@@ -192,6 +192,8 @@ struct InputData
     short          tz;
     double         harmonic;
 
+    //double         RAMC;
+
     InputData()
     {
         GMT.setTimeSpec(Qt::UTC);
@@ -203,6 +205,8 @@ struct InputData
         tz          = 0;
         harmonic    = 1;
     }
+
+    //void            computeRAMC() { }
 };
 
 struct Houses
@@ -743,7 +747,6 @@ struct Loc {
     QString desc;
     qreal loc;
     qreal speed;
-    static double RAMC;
 
     Loc(qreal l = 0, qreal s = 0) : loc(l), speed(s) { }
     Loc(const QString& description, qreal l = 0, qreal s = 0) :

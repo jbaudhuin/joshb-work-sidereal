@@ -2,16 +2,20 @@
 #define FILEEDITOR_H
 
 #include <Astroprocessor/Gui>
-#include <QTableView>
+#include <QRegularExpression>
+#include <QComboBox>
 
+class QLabel;
 class QLineEdit;
-class QComboBox;
+class QListWidget;
 class QCheckBox;
 class QDateTimeEdit;
+class QDateEdit;
 class QDoubleSpinBox;
 class GeoSearchWidget;
 class QPlainTextEdit;
 class QTabBar;
+class QTableView;
 
 
 /* =========================== ASTRO FILE EDITOR =========================== */
@@ -31,8 +35,19 @@ protected:
     QDoubleSpinBox* timeZone;
     GeoSearchWidget* geoSearch;
     QPlainTextEdit* comment;
+    QLabel* startDateLbl;
+    QDateEdit* startDate;
+    QDateEdit* endDate;
+    QCheckBox* endDateCB;
+    QListWidget* hits;
+
+    QRegularExpression _re;
 
     bool _inUpdate;
+    bool _inApply;
+    bool _inDateSelection;
+
+    static QStringList planets, signs, events;
 
     void update(AstroFile::Members);
     void updateTabs();
@@ -46,10 +61,13 @@ signals:
     void windowClosed();
     void appendFile();
     void swapFiles(int, int);
+    void hasSelection(bool);
 
 public slots:
     virtual void applyToFile(bool setNeedsSave=true,
                              bool resume=true);
+    void onEditingFinished();
+    void setType(AstroFile::FileType t) { type->setCurrentIndex(unsigned(t)); }
 
 private slots:
     void swapFilesSlot(int, int);
@@ -64,29 +82,5 @@ public:
 
     bool& inUpdate() { return _inUpdate; }
 };
-
-class AstroFindEditor : public AstroFileEditor
-{
-    Q_OBJECT;
-    
-public:
-    AstroFindEditor(QWidget* parent = nullptr);
-
-signals:
-    void hasSelection(bool);
-    
-public slots:
-    void onEditingFinished();
-    void applyToFile();
-
-private:
-    bool _inDateSelection;
-    QDateTimeEdit* endDateTime;
-    QCheckBox* endDateTimeCB;
-    QTableView* hits;
-
-    QStringList planets, signs, events;
-};
-
 
 #endif // FILEEDITOR_H

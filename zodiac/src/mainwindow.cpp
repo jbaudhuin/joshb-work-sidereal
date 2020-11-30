@@ -88,15 +88,13 @@ void AstroFileInfo::refresh()
         timezone = "GMT";
 
     QString place;
-    if (currentFile()->getLocationName().isEmpty())
-    {
+    if (currentFile()->getLocationName().isEmpty()) {
         QString longitude = A::degreeToString(currentFile()->getLocation().x(),
                                               A::HighPrecision);
         QString latitude = A::degreeToString(currentFile()->getLocation().y(),
                                              A::HighPrecision);
         place = QString("%1N  %2E").arg(latitude, longitude);
-    } else
-    {
+    } else {
         place = currentFile()->getLocationName();
     }
 
@@ -108,11 +106,10 @@ void AstroFileInfo::refresh()
 
 void AstroFileInfo::filesUpdated(MembersList m)
 {
-    if (currentIndex >= filesCount()) {
+    if (currentIndex >= filesCount() /*|| currentIndex >= m.size()*/) {
         setText("");
         return;
     }
-
     if (m[currentIndex] & (AstroFile::Name
                            | AstroFile::GMT
                            | AstroFile::Timezone
@@ -754,6 +751,8 @@ AstroDatabase::AstroDatabase(QWidget *parent /*=nullptr*/) :
     fswatch = new QFileSystemWatcher(this);
     connect(fswatch, SIGNAL(directoryChanged()),
             this, SLOT(updateList()));
+    connect(this, SIGNAL(fileRemoved(const AFileInfo&)),
+            this, SLOT(updateList()));
 
     dirModel = new QStandardItemModel(this);
 
@@ -813,7 +812,7 @@ void AstroDatabase::searchFilter(const QString& nf)
     searchProxy->setFilterRegExp(nf);
 }
 
-QFileInfoList
+AFileInfoList
 getSelectedItems(QTreeView* tv)
 {
     QItemSelectionModel* sm = tv->selectionModel();
@@ -826,14 +825,14 @@ getSelectedItems(QTreeView* tv)
                                               : tv->model());
     if (!dirModel) return { };
 
-    QFileInfoList sel;
+    AFileInfoList sel;
     for (const auto& mi : sm->selectedIndexes()) {
         auto dmi = sfpModel->mapToSource(mi);
         auto pmi = dmi.parent();
         auto sit = dmi.data().toString();
         auto item = dirModel->itemFromIndex(dmi);
         if (auto pitem = item? item->parent() : nullptr) {
-            sel << QFileInfo(pitem->data().toString(),
+            sel << AFileInfo(pitem->data().toString(),
                              sit + ".dat");
         }
     }
@@ -867,10 +866,15 @@ void AstroDatabase::updateList()
         QDir dir(item->data().toString());
         item->removeRows(0,item->rowCount());
 
-        QStringList list =
+        QStringList list;
+        for (auto fn :
                 dir.entryList(QStringList("*.dat"),
-                              QDir::Files, QDir::Name | QDir::IgnoreCase);
-        list.replaceInStrings(".dat", "");
+                              QDir::Files,
+                              QDir::Name | QDir::IgnoreCase))
+        {
+            fn.replace(".dat", "");
+            list << AFileInfo::decodeName(fn);
+        }
         list.sort();
 
         const QStringList& presel = sel[item];
@@ -912,21 +916,23 @@ void AstroDatabase::deleteSelected()
     int ret = msgBox.exec();
     if (ret == QMessageBox::Cancel) return;
 
+    bool any = false;
     for (const auto& mi : sil) {
         if (!mi.parent().isValid()) continue;
         auto dir = mi.parent().data(Qt::UserRole+1).toString();
         const auto& chit = mi.data().toString();
-        QString file = QFileInfo(dir, chit + ".dat").canonicalFilePath();
+        QString file = AFileInfo(dir, chit + ".dat").canonicalFilePath();
         //fswatch->blockSignals(true);
         QFile::remove(file);
         //fswatch->blockSignals(false);
-        emit fileRemoved(chit);
+        any = true;
 #if 0
         auto item = dirModel->itemFromIndex(mi);
         auto parent = item->parent();
         parent->removeRow(mi.row());
 #endif
     }
+    if (any) emit fileRemoved(AFileInfo());
 }
 
 void
@@ -1188,10 +1194,12 @@ FilesBar::findChart()
     auto dlg = new QDialog(nullptr,Qt::Dialog|Qt::WindowStaysOnTopHint);
     auto lay = new QVBoxLayout(dlg);
     dlg->setLayout(lay);
-    auto pafe = new AstroFindEditor(dlg);
+    auto pafe = new AstroFileEditor(dlg);
     auto f = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(f, true/*suspendUpdate*/);
+    f->setType(AstroFile::TypeEvents);
     pafe->setFiles( {f} );
+
     lay->addWidget(pafe);
     pafe->layout()->setMargin(0);
     auto dbb = new QDialogButtonBox(QDialogButtonBox::Ok
@@ -1269,6 +1277,10 @@ void FilesBar::swapCurrentFiles(int i, int j)
 
 bool FilesBar::closeTab(int index)
 {
+    int next = -1;
+    int curr = currentIndex();
+    if (index < curr) next = curr - 1;
+
     AstroFileList f = files[index];
     AstroFile* file = nullptr;
     if (f.count()) file = f[0];
@@ -1290,6 +1302,16 @@ bool FilesBar::closeTab(int index)
         return false;                               // TODO: make an empty file instead last tab
     }
 
+    if (currentIndex() != index) {
+        // If this is not the active tab, we need to make it
+        // so, otherwise there can be a race condition when
+        // the removeTab() call makes it active in a partial way.
+        // Make active now, but strictly speaking we should
+        // try to prevent recomputation with some sort of
+        // "doomed" state.
+        setCurrentIndex(index);
+    }
+
     files.removeAt(index);
     static_cast<QTabBar*>(this)->removeTab(index);
     
@@ -1297,10 +1319,14 @@ bool FilesBar::closeTab(int index)
     for (AstroFile* i : f) i->destroy();
     
     if (!count()) addNewFile();
+    else if (next != -1) {
+        setCurrentIndex(next);
+        //QTimer::singleShot(0, [this] {setCurrentIndex(next);});
+    }
     return true;
 }
 
-void FilesBar::openFile(const QFileInfo& fi)
+void FilesBar::openFile(const AFileInfo& fi)
 {
     int i = getTabIndex(fi.baseName(), true/*firstFileOnly*/);
     if (i != -1) return setCurrentIndex(i); // focus if the file is currently opened
@@ -1313,7 +1339,7 @@ void FilesBar::openFile(const QFileInfo& fi)
     if (i != -1) updateTab(i);
 }
 
-void FilesBar::openFileInNewTab(const QFileInfo& fi)
+void FilesBar::openFileInNewTab(const AFileInfo& fi)
 {
     //int i = getTabIndex(name, true);
     //if (i != -1) return setCurrentIndex(i);
@@ -1324,7 +1350,7 @@ void FilesBar::openFileInNewTab(const QFileInfo& fi)
 }
 
 void
-FilesBar::openFileInNewTabWithTransits(const QFileInfo& fi)
+FilesBar::openFileInNewTabWithTransits(const AFileInfo& fi)
 {
     AstroFile* file1 = new AstroFile;
     file1->load(fi);
@@ -1339,7 +1365,7 @@ FilesBar::openFileInNewTabWithTransits(const QFileInfo& fi)
     emit currentChanged(currentIndex());
 }
 
-void FilesBar::openFileAsSecond(const QFileInfo& fi)
+void FilesBar::openFileAsSecond(const AFileInfo& fi)
 {
     if (files[currentIndex()].count() < 2) {
         AstroFile* file = new AstroFile;
@@ -1356,17 +1382,16 @@ void FilesBar::openFileAsSecond(const QFileInfo& fi)
 }
 
 void
-FilesBar::openFileComposite(const QFileInfoList& fis)
+FilesBar::openFileComposite(const AFileInfoList& fis)
 {
     // XXX @todo
     AstroFile* file = new AstroFile;
     file->load(fis.first());
     addFile(file);
-
 }
 
 void
-FilesBar::openFileReturn(const QFileInfo& fi, const QString& body)
+FilesBar::openFileReturn(const AFileInfo& fi, const QString& body)
 {
     AstroFile* native = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(native, true);
@@ -1402,13 +1427,13 @@ FilesBar::openFileReturn(const QFileInfo& fi, const QString& body)
 }
 
 void
-FilesBar::findDerivedChart(const QFileInfo& fi)
+FilesBar::findDerivedChart(const AFileInfo& fi)
 {
     
 }
 
 void
-FilesBar::openFileInNewTabWithReturn(const QFileInfo& fi,
+FilesBar::openFileInNewTabWithReturn(const AFileInfo& fi,
                                      const QString& body)
 {
     AstroFile* native = new AstroFile;
@@ -1548,14 +1573,14 @@ MainWindow::MainWindow(QWidget *parent) :
             this, SLOT(contextMenu(QPoint)));
     connect(filesBar, SIGNAL(currentChanged(int)),
             this, SLOT(currentTabChanged()));
-    connect(astroDatabase, SIGNAL(openFile(const QFileInfo&)),
-            filesBar, SLOT(openFile(const QFileInfo&)));
-    connect(astroDatabase, SIGNAL(openFileInNewTab(const QFileInfo&)),
-            filesBar, SLOT(openFileInNewTab(const QFileInfo&)));
-    connect(astroDatabase, SIGNAL(openFileInNewTabWithTransits(const QFileInfo&)),
-            filesBar, SLOT(openFileInNewTabWithTransits(const QFileInfo&)));
-    connect(astroDatabase, SIGNAL(openFileAsSecond(const QFileInfo&)),
-            filesBar, SLOT(openFileAsSecond(const QFileInfo&)));
+    connect(astroDatabase, SIGNAL(openFile(const AFileInfo&)),
+            filesBar, SLOT(openFile(const AFileInfo&)));
+    connect(astroDatabase, SIGNAL(openFileInNewTab(const AFileInfo&)),
+            filesBar, SLOT(openFileInNewTab(const AFileInfo&)));
+    connect(astroDatabase, SIGNAL(openFileInNewTabWithTransits(const AFileInfo&)),
+            filesBar, SLOT(openFileInNewTabWithTransits(const AFileInfo&)));
+    connect(astroDatabase, SIGNAL(openFileAsSecond(const AFileInfo&)),
+            filesBar, SLOT(openFileAsSecond(const AFileInfo&)));
     connect(astroWidget, SIGNAL(appendFileRequested()),
             filesBar, SLOT(openFileAsSecond()));
     connect(astroWidget, SIGNAL(helpRequested(QString)),
@@ -1566,10 +1591,10 @@ MainWindow::MainWindow(QWidget *parent) :
             help, SLOT(searchFor(QString)));
     connect(new QShortcut(QKeySequence("CTRL+TAB"), this),
             SIGNAL(activated()), filesBar, SLOT(nextTab()));
-    connect(astroDatabase, SIGNAL(openFileReturn(const QFileInfo&, const QString&)),
-            filesBar, SLOT(openFileReturn(const QFileInfo&, const QString&)));
-    connect(astroDatabase, SIGNAL(openFileInNewTabWithReturn(const QFileInfo&, const QString&)),
-            filesBar, SLOT(openFileInNewTabWithReturn(const QFileInfo&, const QString&)));
+    connect(astroDatabase, SIGNAL(openFileReturn(const AFileInfo&, const QString&)),
+            filesBar, SLOT(openFileReturn(const AFileInfo&, const QString&)));
+    connect(astroDatabase, SIGNAL(openFileInNewTabWithReturn(const AFileInfo&, const QString&)),
+            filesBar, SLOT(openFileInNewTabWithReturn(const AFileInfo&, const QString&)));
 
     loadSettings();
     filesBar->addNewFile();

@@ -773,7 +773,7 @@ Chart::aspectPen(const A::Aspect& asp)
     };
     static bool s_inited = false;
     if (!s_inited) {
-        QColor rgb;
+        //QColor rgb;
         for (unsigned i = 1, n = 32; i <= n; ++i) {
             QString is = QString::number(i);
             brushes[is] = A::getHarmonicColor(i);
@@ -787,7 +787,7 @@ Chart::aspectPen(const A::Aspect& asp)
 }
 
 const QPen& 
-Chart::planetMarkerPen(const A::Planet& p, 
+Chart::planetMarkerPen(const A::Planet& /*p*/,
                        int fileIndex)
 {
     static QList<QPen>pens;
@@ -858,7 +858,7 @@ void Chart::refreshAll()
 void Chart::filesUpdated(MembersList m)
 {
     if (chartsCount && (chartsCount != filesCount() ||     // clear if charts count or zodiac has changed
-                        (filesCount() && m[0] & AstroFile::Zodiac)))
+                        (filesCount() && (m[0] & AstroFile::Zodiac))))
         clearScene();
 
     bool justCreated = false;

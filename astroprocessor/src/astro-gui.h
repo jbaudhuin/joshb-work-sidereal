@@ -1,12 +1,12 @@
 #ifndef ASTRO_GUI_H
 #define ASTRO_GUI_H
 
-#include <QFileInfo>
 #include <QStringList>
 
 #include "astro-data.h"
 #include "astro-calc.h"
 #include "appsettings.h"
+#include "../zodiac/src/afileinfo.h"
 
 /* =========================== ASTRO FILE ================================== */
 
@@ -15,10 +15,12 @@ class AstroFile : public QObject
     Q_OBJECT;
 
 public:
+    typedef QPair<QDate,QDate> dateRange;
+
     enum FileType { TypeOther, TypeMale, TypeFemale,
                     TypeEvents, TypeSearch,
                     TypeDerivedSA, TypeDerivedProg, TypeDerivedPD,
-                    TypeDerivedSearch };
+                    TypeDerivedSearch, TypeCount };
 
     enum Member {
         None = 0x0,
@@ -35,8 +37,10 @@ public:
         AspectMode = 0x400,
         Harmonic = 0x800,
         HarmonicOpts = 0x1000,
-        ChangedState = 0x2000,
-        All = 0x3FFF
+        EventList = 0x2000,
+        DateRange = 0x4000,
+        ChangedState = 0x8000,
+        All = 0xFFFF
     };
 
     Q_DECLARE_FLAGS(Members, Member)
@@ -45,14 +49,14 @@ public:
     virtual ~AstroFile() { }
 
     QString fileName() const;
-    QString typeToString(FileType type) const;
-    FileType typeFromString(QString str) const;
+    static QString typeToString(unsigned type);
+    static FileType typeFromString(const QString& str);
     AstroFile::Members diff(AstroFile* other) const;
 
     void save();
     void saveAs();
-    void load(const QFileInfo& name);
-    void loadComposite(const QFileInfoList& names);
+    void load(const AFileInfo& name);
+    void loadComposite(const AFileInfoList& names);
 
     void suspendUpdate()            { holdUpdate = true; }
     bool isSuspendedUpdate()  const { return holdUpdate; }
@@ -63,7 +67,7 @@ public:
     bool isEmpty()            const { return scope.planets.count() == 0; }
 
     void setName         (const QString&   name);
-    void setFileInfo(const QFileInfo& fi) { _fileInfo = fi; }
+    void setFileInfo(const AFileInfo& fi) { _fileInfo = fi; }
     void setType         (const FileType   type);
     void setGMT          (const QDateTime& gmt);
     void setTimezone     (const short& zone);
@@ -74,10 +78,12 @@ public:
     void setZodiac       (A::ZodiacId zod);
     void setAspectSet    (A::AspectSetId set, bool force = false);
     void setAspectMode   (const A::aspectModeType& mode);
+    void setEventList(const QList<QDateTime>& evl);
+    void setDateRange(const dateRange& startEnd) { _dateRange = startEnd; }
     void setHarmonic     (double harmonic);
 
     QString          getName()         const { return _fileInfo.baseName(); }
-    const QFileInfo& fileInfo() const { return _fileInfo; }
+    const AFileInfo& fileInfo() const { return _fileInfo; }
     
     const QString&   getComment()      const { return comment; }
     FileType         getType()         const { return type; }
@@ -91,8 +97,10 @@ public:
     A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac; }
     const A::AspectsSet& getAspectSet()  const { return A::getAspectSet(scope.inputData.aspectSet); }
     A::aspectModeEnum getAspectMode()  const { return A::aspectMode; }
+    const QList<QDateTime>& getEventList() const { return _eventList; }
     double           getHarmonic()     const { return scope.inputData.harmonic; }
     QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(getTimezone() * 3600); }
+    const dateRange& getDateRange() const { return _dateRange; }
 
     void             calculate() { recalculate(); }
 
@@ -133,17 +141,19 @@ private:
     Members holdUpdateMembers;
     static int counter;
 
-    QFileInfo _fileInfo;
+    AFileInfo _fileInfo;
     QString comment;
     QString locationName;
     FileType type;
     A::Horoscope scope;
 
+    QList<QDateTime> _eventList;  // computed contact dateTimes
+    dateRange _dateRange; // really just start, end
+
     virtual void recalculate();
     void recalculateBaseChart();
     void recalculateHarmonics();
     void change(AstroFile::Members, bool affectChangedState = true);
-
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(AstroFile::Members)

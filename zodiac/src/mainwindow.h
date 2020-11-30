@@ -4,11 +4,11 @@
 #include <QMainWindow>
 #include <QTabBar>
 #include <QDockWidget>
-#include <QFileInfo>
 
 #include <Astroprocessor/Gui>
 #include "help.h"
 #include "slidewidget.h"
+#include "afileinfo.h"
 
 class QSortFilterProxyModel;
 class QFileSystemWatcher;
@@ -162,15 +162,15 @@ public slots:
     void updateList();
 
 signals:
-    void fileRemoved(const QFileInfo&);
-    void openFile(const QFileInfo&);
-    void openFileInNewTab(const QFileInfo&);
-    void openFileInNewTabWithTransits(const QFileInfo&);
-    void openFileAsSecond(const QFileInfo&);
-    void openFilesComposite(const QFileInfoList&);
-    void openFileReturn(const QFileInfo&, const QString& = "Sun");
-    void openFileInNewTabWithReturn(const QFileInfo&, const QString& = "Sun");
-    void findSelectedDerived(const QFileInfo&);
+    void fileRemoved(const AFileInfo&);
+    void openFile(const AFileInfo&);
+    void openFileInNewTab(const AFileInfo&);
+    void openFileInNewTabWithTransits(const AFileInfo&);
+    void openFileAsSecond(const AFileInfo&);
+    void openFilesComposite(const AFileInfoList&);
+    void openFileReturn(const AFileInfo&, const QString& = "Sun");
+    void openFileInNewTabWithReturn(const AFileInfo&, const QString& = "Sun");
+    void findSelectedDerived(const AFileInfo&);
 
 public:
     AstroDatabase(QWidget *parent = nullptr);
@@ -203,15 +203,15 @@ public slots:
     void editNewChart();
     void findChart();
     void swapCurrentFiles(int, int);
-    void openFile(const QFileInfo& name);
-    void openFileInNewTab(const QFileInfo& name);
-    void openFileInNewTabWithTransits(const QFileInfo& name);
+    void openFile(const AFileInfo& name);
+    void openFileInNewTab(const AFileInfo& name);
+    void openFileInNewTabWithTransits(const AFileInfo& name);
     void openTransits(int);
-    void openFileAsSecond(const QFileInfo& name = QFileInfo());
-    void openFileComposite(const QFileInfoList& names);
-    void openFileReturn(const QFileInfo& name, const QString& body);
-    void findDerivedChart(const QFileInfo& name);
-    void openFileInNewTabWithReturn(const QFileInfo& name, const QString& body);
+    void openFileAsSecond(const AFileInfo& name = AFileInfo());
+    void openFileComposite(const AFileInfoList& names);
+    void openFileReturn(const AFileInfo& name, const QString& body);
+    void findDerivedChart(const AFileInfo& name);
+    void openFileInNewTabWithReturn(const AFileInfo& name, const QString& body);
     void nextTab() { setCurrentIndex((currentIndex() + 1) % count()); }
     bool closeTab(int);
 

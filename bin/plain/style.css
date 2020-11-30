@@ -1,5 +1,5 @@
 QTextBrowser {
-	font-family: "DejaVu Sans Mono", "Lucida Console", courier;
+        font-family: "Consolas", "Courier New", courier, "DejaVu Sans Mono", "Lucida Console";
 	font-size: 9pt;
 	color: #b5bfdf;
 	margin: 70px 0 0 10px;

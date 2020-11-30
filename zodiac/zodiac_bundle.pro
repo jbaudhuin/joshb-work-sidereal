@@ -22,6 +22,7 @@ include(zodiac.pri)
 DEFINES += _CRT_SECURE_NO_WARNINGS
 
 CONFIG(release): DEFINES += NDEBUG
+
 CONFIG(debug): DEFINES += _ZOD_DEBUG
 
 HEADERS +=

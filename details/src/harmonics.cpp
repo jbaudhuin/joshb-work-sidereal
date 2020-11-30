@@ -584,12 +584,13 @@ Harmonics::filesUpdated(MembersList m)
         return;
     }
 
-    if (m[0] & ~(AstroFile::Harmonic
-                 | AstroFile::AspectSet
-                 | AstroFile::HouseSystem)) 
-    {
-        describePlanet();
+    bool any = false;
+    for (auto ml: m) {
+        any |= (ml & ~(AstroFile::Harmonic
+                       | AstroFile::AspectSet
+                       | AstroFile::HouseSystem));
     }
+    if (any) describePlanet();
 }
 
 AppSettings 

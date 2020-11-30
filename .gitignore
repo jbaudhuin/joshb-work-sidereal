@@ -13,6 +13,7 @@
 *.lib
 *.res
 *.pdb
+*.ilk
 
 # Qt-es
 
@@ -51,3 +52,6 @@ Thumbs.db
 *.tlog
 resource*.h
 *.log
+users*appdatalocaltemp*
+object_script.*.*
+*.autosave
