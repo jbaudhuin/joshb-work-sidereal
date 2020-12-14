@@ -568,15 +568,19 @@ PlanetLoc::compute(const InputData& ida,
     swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
     auto eps = xx[0];
 
-    auto getAscMC = [&](unsigned i, bool trop = false) {
-        double cusps[14], ascmc[11];
+    typedef std::pair<double,double> posSpd;
+    auto getAscMC = [&](unsigned i, bool trop = false)
+            -> posSpd
+    {
+        double cusps[14], cuspspd[14], ascmc[11], ascmcspd[11];
         auto jdut = getUTfromET(jd);
         uint flags = SEFLG_SWIEPH;
         if (!trop) flags |= SEFLG_SIDEREAL;
-        swe_houses_ex(jdut, flags,
+        swe_houses_ex2(jdut, flags,
                       ida.location.y(), ida.location.x(),
-                      'C', cusps, ascmc);
-        return ascmc[i];
+                      'C', cusps, ascmc, cuspspd, ascmcspd,
+                       errStr);
+        return { ascmc[i], ascmcspd[i] };
     };
 
     auto getPos = [&](const Planet& p, qreal& speed) -> qreal {
@@ -585,11 +589,13 @@ PlanetLoc::compute(const InputData& ida,
         switch (aspectMode) {
         case amcEcliptic:
             if (p.id == Planet_Asc) {
-                pos = getAscMC(0);
+                std::tie(pos,speed) = getAscMC(0);
+                speed *= ida.harmonic;
                 ret = OK;
                 // FIXME speed?
             } else if (p.id == Planet_MC) {
-                pos = getAscMC(1);
+                std::tie(pos,speed) = getAscMC(1);
+                speed *= ida.harmonic;
                 ret = OK;
                 // FIXME speed?
             } else {
@@ -603,14 +609,16 @@ PlanetLoc::compute(const InputData& ida,
         case amcEquatorial:
             if (p.id == Planet_Asc) {
                 double xx[6];
-                xx[0] = getAscMC(0, true/*trop*/);
+                std::tie(xx[0],speed) = getAscMC(0, true/*trop*/);
                 xx[1] = 0, xx[2] = 1.0;
                 swe_cotrans(xx, xx, -eps);
                 pos = xx[0];
+                speed *= ida.harmonic;
                 ret = OK;
                 // FIXME speed?
             } else if (p.id == Planet_MC) {
-                pos = getAscMC(2, true/*trop*/);
+                std::tie(pos,speed) = getAscMC(2, true/*trop*/);
+                speed *= ida.harmonic;
                 ret = OK;
             } else {
                 ret = swe_calc_ut(jd, p.sweNum,
@@ -634,7 +642,7 @@ PlanetLoc::compute(const InputData& ida,
                 ret = swe_calc_ut(jd, p.sweNum,
                                   flags & ~SEFLG_SIDEREAL,
                                   xx, errStr);
-                auto housePos = swe_house_pos(getAscMC(2,true/*trop*/),
+                auto housePos = swe_house_pos(getAscMC(2,true/*trop*/).first,
                                               ida.location.y(), eps,
                                               'C', xx, errStr);
                 pos = (housePos - 1)/12*360;
@@ -1832,7 +1840,7 @@ dateTimeFromJulian(double jd)
     int32 y, d, m;
     int32 hr, min, sec;
     double dsec;
-    swe_jdet_to_utc(jd, SE_GREG_CAL, &y, &m, &d, &hr, &min, &dsec);
+    swe_jdut1_to_utc(jd, SE_GREG_CAL, &y, &m, &d, &hr, &min, &dsec);
     sec = dsec;
     int msec = int((dsec - double(sec)) * 1000.0);
     return QDateTime(QDate(y,m,d), QTime(hr,min,sec,msec));
@@ -1888,12 +1896,18 @@ struct calcPosSpd {
 
 struct calcSpread {
     PlanetProfile& poses;
+    int m = 1;
+
     calcSpread(PlanetProfile& p) : poses(p) { }
 
     qreal operator()(double jd)
     {
+#if 1
+        auto ret = poses.computeSpread(jd);
+#else
         for (auto& pos : poses) pos->operator()(jd);
         auto ret = getSpread(poses);
+#endif
 
         QDateTime dt(dateTimeFromJulian(jd));
         qDebug() << "spread iter:" << dtToString(dt) << "Ret:" << ret;
@@ -1904,6 +1918,7 @@ struct calcSpread {
 struct calcLoop {
     calcPos cpos;
     calcSpd cspd;
+    calcSpread csprd;
     calcPosSpd ncpos;
 
     PlanetProfile& poses;
@@ -1914,7 +1929,7 @@ struct calcLoop {
 
     calcLoop(PlanetProfile& ps,
              double& jdate) :
-        cpos(ps), cspd(ps), ncpos(ps), poses(ps), jd(jdate)
+        cpos(ps), cspd(ps), ncpos(ps), csprd(ps), poses(ps), jd(jdate)
     { }
 
 #if 1 // old version
@@ -1989,10 +2004,15 @@ struct calcLoop {
     template <typename T> void calc(double j, T& ret);
 
     bool signsEqual(const posSpd& a, const posSpd& b) const
-    { return sgn(a.first) == sgn(b.first); }
+    { return sgn(a.first) == sgn(b.first);  }
 
     bool signsEqual(qreal a, qreal b) const
     { return sgn(a) == sgn(b); }
+
+    bool speedSignsEqual(const posSpd& a, const posSpd& b) const
+    { return sgn(a.second) == sgn(b.second); }
+
+    bool speedSignsEqual(qreal a, qreal b) const { return true; }
 
     bool longDistance(const posSpd& a, const posSpd& b) const
     { return abs(a.first) >= 170. && abs(b.first) > 170.; }
@@ -2024,27 +2044,34 @@ struct calcLoop {
              lo = hi, jdc += span)
         {
             calc(jdc + span, hi);
-            if ((done = (fabs(poses.loc) <= tol))) {
-                qDebug() << "  done by span convergence";
-                jd = jdc+span/2;
-                continue;
-            }
-            if (span <= tol) {
-                qDebug() << "  zeno's paradox";
-                return false;
-            }
-            if (signsEqual(lo, hi)) {
-                qDebug() << "same sign"; continue;
-            }
-            if (longDistance(lo, hi)) {
-                qDebug() << "flo and fhi >= 170"; continue;
-            }
-            //if (sgn(flo)!=sgn(splo) || sgn(fhi)!=-sgn(sphi)) {
-            done = doIterativeCalc(jd, jdc, jdc+span, lo, hi);
-            //}
-            double b = jdc;
-            if (!done) {
-                done = operator()(b, jdc+span, span/4, lo, false);
+            if (poses.needsFindMinimalSpread()) {
+                if (doIterativeCalc(jd, jdc, jdc+span, lo, hi)) {
+                    modalize<int> precise(csprd.m, 1000);
+                    done = doIterativeCalc(jd, jdc, jdc+span, lo, hi);
+                }
+            } else {
+                if ((done = (fabs(poses.loc) <= tol))) {
+                    qDebug() << "  done by span convergence";
+                    jd = jdc+span/2;
+                    continue;
+                }
+                if (span <= tol) {
+                    qDebug() << "  zeno's paradox";
+                    return false;
+                }
+                if (signsEqual(lo, hi)) {
+                    qDebug() << "same sign"; continue;
+                }
+                if (longDistance(lo, hi)) {
+                    qDebug() << "flo and fhi >= 170"; continue;
+                }
+                //if (sgn(flo)!=sgn(splo) || sgn(fhi)!=-sgn(sphi)) {
+                done = doIterativeCalc(jd, jdc, jdc+span, lo, hi);
+                //}
+                double b = jdc;
+                if (!done) {
+                    done = operator()(b, jdc+span, span/4, lo, false);
+                }
             }
         }
         if (!done) qDebug() << "  ran out clock";
@@ -2092,11 +2119,22 @@ calcLoop::doIterativeCalc<posSpd>(double& jd,
 
     uintmax_t iter = 20;
     try {
-        jd = newton_raphson_iterate(ncpos, g, jlo, jhi, digits, iter);
-        bool done = fabs(poses[1]->loc - poses[0]->loc) <= tol
-                || span < tol;
-        if (done)
-            qDebug() << "  done by newton";
+        bool done = false;
+        if (poses.needsFindMinimalSpread()) {
+            constexpr auto tol = double(std::numeric_limits<float>::epsilon());
+            brentGlobalMin(csprd, jlo, jhi, jlo/2.+jhi/2.,
+                           csprd.m, .0000001/*err*/, tol, jd);
+            if (csprd.poses.computeSpread(jd) <= harmonicsMinQOrb()) {
+                done = true;
+                qDebug() << "  done by brentGlobalMin";
+            }
+        } else {
+            jd = newton_raphson_iterate(ncpos, g, jlo, jhi, digits, iter);
+            done = fabs(poses[1]->loc - poses[0]->loc) <= tol
+                    || span < tol;
+            if (done)
+                qDebug() << "  done by newton";
+        }
         return done;
     } catch (...) {
         return false;
@@ -2159,21 +2197,29 @@ quotidianSearch(PlanetProfile& poses,
     double jd1 = getJulianDate(locale.GMT);
     double jd2 = getJulianDate(endDT);
 
+    if (poses.needsFindMinimalSpread()) span *= 2.; else span /= 4.;
+
+#if 0
     if (poses.needsFindMinimalSpread()) {
-        auto f = [&] (double j) {
+#if 1
+        calcSpread fsprd(poses);
+#else
+        auto fsprd = [&] (double j) {
             auto ret = poses.computeSpread(j);
             auto dt = dateTimeFromJulian(j);
             qDebug() << "spreadIter:" << dtToString(dt) << "Ret:" << ret;
             return ret;
         };
+#endif
 
         double x;
         constexpr auto tol = double(std::numeric_limits<float>::epsilon());
-        brentGlobalMin(f, jd1, jd2, jd1/2.+jd2/2.,
-                            100/*m*/, .0000001/*err*/, tol, x);
+        brentGlobalMin(fsprd, jd1, jd2, jd1/2.+jd2/2.,
+                            1/*m*/, .0000001/*err*/, tol, x);
         auto ret = QList<QDateTime>() << dateTimeFromJulian(x);
         return ret;
     }
+#endif
 
     double jd { };
     calcLoop looper(poses, jd);
@@ -2183,7 +2229,29 @@ quotidianSearch(PlanetProfile& poses,
         do {
             if (looper(jd1,jd2,span,lo,false)) {
                 auto dt = dateTimeFromJulian(jd);
+                if (poses.needsFindMinimalSpread()
+                        && !ret.isEmpty()
+                        && qAbs(dt.secsTo(ret.back())) < 86400)
+                {
+                    auto ugh = qAbs(dt.secsTo(ret.back()));
+                    qDebug() << ugh << "Let's scrunch up"
+                             << dtToString(dt) << "and"
+                             << dtToString(ret.back());
+                    // XXX goofy hack to ignore adjacent values
+                    auto hi = lo;
+                    auto jda = jd - .5;
+                    looper.calc(jda,lo);
+                    auto jdb = jd + .5;
+                    looper.calc(jdb,hi);
+                    modalize<int> precise(looper.csprd.m,1000);
+                    bool found = looper.doIterativeCalc(jd,jda,jdb,lo,hi);
+                    if (found) {
+                        ret.pop_back();
+                        dt = dateTimeFromJulian(jd);
+                    }
+                }
                 ret << dt;
+
                 qDebug() << "** Finding:" << dtToString(dt);
                 looper.calc(jd1, lo);
             }

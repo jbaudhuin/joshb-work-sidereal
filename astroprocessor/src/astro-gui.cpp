@@ -10,8 +10,6 @@
 #include "astro-calc.h"
 #include "astro-gui.h"
 
-Q_DECLARE_METATYPE(AstroFile::dateRange);
-
 /* ====================== ASTRO FILE ============================= */
 
 /*static*/ int AstroFile::counter = 0;
@@ -142,8 +140,7 @@ AstroFile::save()
     file.setValue("comment", getComment());
 
     //if (getType()==TypeEvents) {
-    file.setValue("dateRange",
-                  QVariant::fromValue(getDateRange()));
+    file.setValue("dateRange", getDateRange().operator QVariant());
     if (_eventList.empty()) {
         file.setValue("eventList", QVariant());
     } else {
@@ -192,9 +189,9 @@ AstroFile::load(const AFileInfo& fi/*, bool recalculate*/)
         }
         _eventList.swap(dl);
     }
-    AstroFile::dateRange range;
+    ADateRange range;
     if (file.contains("dateRange")) {
-        range = file.value("dateRange").value<AstroFile::dateRange>();
+        range = file.value("dateRange");
     }
     setDateRange(range);
     //}
@@ -266,7 +263,7 @@ AstroFile::setName(const QString&   name)
 {
     if (getName() != name) {
         qDebug() << "Renamed file" << getName() << "->" << name;
-        _fileInfo.setFile(name + ".dat");
+        _fileInfo.setFile(name);
         change(Name);
     }
 }

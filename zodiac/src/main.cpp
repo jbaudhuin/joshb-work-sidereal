@@ -43,9 +43,9 @@ zodOutputHandler(QtMsgType type,
 {
     Q_UNUSED(type);
     Q_UNUSED(cxt);
-    //if (!msg.startsWith("Invalid parameter")) {
+    if (!msg.startsWith("Invalid parameter")) {
     //fprintf(stderr, "%s", msg.toLatin1().constData());
-    //}
+    }
 }
 
 void my_invalid_parameter(const wchar_t * expression,
@@ -78,7 +78,7 @@ int main(int argc, char *argv[])
     QTextCodec::setCodecForTr ( codec );
     qInstallMsgHandler (emptyOutput);
 #elif defined(_ZOD_DEBUG)
-    qInstallMessageHandler(zodOutputHandler);
+    //qInstallMessageHandler(zodOutputHandler);
 #elif defined(NDEBUG)
     qInstallMessageHandler(emptyOutput);
 #endif

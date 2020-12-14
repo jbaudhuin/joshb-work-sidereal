@@ -41,7 +41,7 @@ protected:
     QCheckBox* endDateCB;
     QListWidget* hits;
 
-    QRegularExpression _re;
+    QRegularExpression _re, _zposre;
 
     bool _inUpdate;
     bool _inApply;

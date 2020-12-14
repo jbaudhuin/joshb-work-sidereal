@@ -832,8 +832,7 @@ getSelectedItems(QTreeView* tv)
         auto sit = dmi.data().toString();
         auto item = dirModel->itemFromIndex(dmi);
         if (auto pitem = item? item->parent() : nullptr) {
-            sel << AFileInfo(pitem->data().toString(),
-                             sit + ".dat");
+            sel << AFileInfo(pitem->data().toString(), sit);
         }
     }
     return sel;
@@ -860,35 +859,57 @@ void AstroDatabase::updateList()
     }
 
     QItemSelection sl;
-    for (int i = 0, n = dirModel->rowCount(); i < n; ++i) {
-        auto mi = dirModel->index(i,0);
-        auto item = dirModel->item(i);
-        QDir dir(item->data().toString());
-        item->removeRows(0,item->rowCount());
+
+    std::function<void(QModelIndex)> updir = [&](QModelIndex mi)
+    {
+        auto diritem = dirModel->itemFromIndex(mi);
+        QDir dir(diritem->data().toString());
+        diritem->removeRows(0,diritem->rowCount());
+
+        for (auto dn : dir.entryList(QDir::Dirs)) {
+            if (dn == "." || dn == "..") continue;
+
+            QFileInfo fi(dir, dn);
+            auto subdiritem =
+                    new QStandardItem(AFileInfo::decodeName(dn));
+            subdiritem->setData(fi.absoluteFilePath());
+
+            int n = diritem->rowCount();
+            diritem->appendRow(subdiritem);
+
+            QModelIndex sdmi = diritem->child(n)->index();
+            updir(sdmi);
+        }
 
         QStringList list;
         for (auto fn :
-                dir.entryList(QStringList("*.dat"),
+                dir.entryList(AFileInfo::wildcard(),
                               QDir::Files,
                               QDir::Name | QDir::IgnoreCase))
         {
-            fn.replace(".dat", "");
+            fn.replace(AFileInfo::suff(), "");
             list << AFileInfo::decodeName(fn);
         }
         list.sort();
 
-        const QStringList& presel = sel[item];
+        const QStringList& presel = sel[diritem];
         int j = 0;
         for (const QString& chit : list) {
             auto child = new QStandardItem(chit);
             child->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-            item->appendRow(child);
+            diritem->appendRow(child);
             while (j < presel.count() && presel.at(j) < chit) ++j;
             if (j < presel.count() && presel.at(j) == chit) {
-                QModelIndex qmi = dirModel->index(item->rowCount()-1,0,mi);
+                QModelIndex qmi =
+                        dirModel->index(diritem->rowCount()-1,0,mi);
                 sl.select(qmi,qmi);
             }
         }
+    };
+
+    for (int i = 0, n = dirModel->rowCount(); i < n; ++i) {
+        auto mi = dirModel->index(i,0);
+        updir(mi);
     }
     if (!sl.empty()) sm->select(sl, QItemSelectionModel::ClearAndSelect);
 }
@@ -921,7 +942,7 @@ void AstroDatabase::deleteSelected()
         if (!mi.parent().isValid()) continue;
         auto dir = mi.parent().data(Qt::UserRole+1).toString();
         const auto& chit = mi.data().toString();
-        QString file = AFileInfo(dir, chit + ".dat").canonicalFilePath();
+        QString file = AFileInfo(dir, chit).canonicalFilePath();
         //fswatch->blockSignals(true);
         QFile::remove(file);
         //fswatch->blockSignals(false);

@@ -3,8 +3,6 @@ swehouse.c \
 swejpl.c \
 swemmoon.c \
 swemplan.c \
-swepcalc.c \
-swepdate.c \
 sweph.c \
 swephlib.c \
 swecl.c \

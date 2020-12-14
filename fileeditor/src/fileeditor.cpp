@@ -202,13 +202,17 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     connect(geoSearch, SIGNAL(locationChanged()),
             this, SLOT(updateTimezone()));
 
-    QString plre = "\\w+(-\\w+)?";  // e.g., planet-r, planet-p
+    QString plre = "[a-zA-Z]+(-[a-zA-Z])?";  // e.g., planet-r, planet-p
     QString plmpre = QString("(%1(/%1)?)").arg(plre);   // planet/planet
     QString signsre = "(" + signs.join("|") + ")";
     QString zposre = "(?<deg>\\d+\\s+)?(?<sign>"+ signsre +")"
                      "( ?((?<min>\\d+)'? ?((?<sec>\\d+)\"?)?))?";
                                     // sign or deg Sign mins' sec"
-    QString plmpeqre = plmpre + "(=" + plmpre + ")+";
+    _zposre = QRegularExpression(zposre,QRegularExpression::CaseInsensitiveOption);
+    QString zposrea = zposre;
+    QString plmpeqre = plmpre + "(=" + plmpre + ")*"
+            + "(=(?<posa>" + zposrea.replace(">","a>")
+            + "))?";
                                     // e.g., sun=moon=mars
     QString plmpzposre = "(?<body>" + plmpre + ") "
             + "("
@@ -217,10 +221,10 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
             + ")";       // e.g., sun ingress capricorn, sun return
     QString asprestr = "(?<aspect>" + plmpeqre + ")";
     QString stationre = "((?<station>(" + planets.join("|") + ")) station)";
-    QString restr = "("
-                    "(H(?<harmonic>\\d+(\\.\\d+)?) )?"
-                    "(" + plmpzposre + "|" + asprestr + ")"
-                    + "|" + stationre + ")";
+    QString restr = "(" + stationre + "|"
+            + "(H(?<harmonic>\\d+(\\.\\d+)?) )?"
+              "(" + plmpzposre + "|" + asprestr + ")"
+            + ")";
 
     qDebug() << restr;
     _re = QRegularExpression(restr,QRegularExpression::CaseInsensitiveOption);
@@ -469,8 +473,7 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
         dtl << dt;
     }
 
-    AstroFile::dateRange range
-    {startDate->date(), endDate->date()};
+    ADateRange range { startDate->date(), endDate->date() };
 
     dst->setDateRange(range);
     dst->setEventList(dtl);
@@ -601,9 +604,18 @@ AstroFileEditor::onEditingFinished()
                 ps = psp.first();
                 if (ps.indexOf('/') == -1) {
                     auto pid = A::getPlanetId(ps);
-                    if (pid == A::Planet_None) continue;
-                    auto pla = A::getPlanet(pid);
-                    poses.push_back(funs[t](pid));
+                    if (pid != A::Planet_None) {
+                        auto pla = A::getPlanet(pid);
+                        poses.push_back(funs[t](pid));
+                        continue;
+                    }
+                    if (!has("posa")) continue;
+                    auto sgn = match.captured("signa");
+                    unsigned deg = capUInt("dega");
+                    unsigned min = capUInt("mina");
+                    unsigned sec = capUInt("seca");
+                    auto pos = A::getSignPos(inda.zodiac, sgn, deg, min, sec);
+                    poses.push_front(new A::Loc(match.captured("posa"), pos));
                     continue;
                 }
                 auto mpls = ps.split('/');
@@ -612,18 +624,20 @@ AstroFileEditor::onEditingFinished()
                 auto cpid = A::ChartPlanetId(pid1,pid2);
                 poses.push_back(funs[t](cpid));
             }
+            if (poses.size() < 2) return;
         }
-
         if (poses.empty()) return;
         A::calculateOrbAndSpan(poses, inda, orb, horb, span);
     }
 
-    auto d0 = A::getJulianDate(startDate->dateTime().toUTC());
-    auto d1 = A::getJulianDate(endDate->dateTime().toUTC());
+    //auto d0 = A::getJulianDate(startDate->dateTime().toUTC());
+    //auto d1 = A::getJulianDate(endDate->dateTime().toUTC());
     inda.GMT = startDate->dateTime().toUTC();
     auto dl = A::quotidianSearch(poses, inda,
                                  endDate->dateTime().toUTC(),
-                                 std::min((d1-d0)/8,45.));
+                                 //std::min(span/2,std::min((d1-d0)/12,45.))
+                                 std::min(span/inda.harmonic,30.)
+                                 );
 
     auto lw = findChild<QListWidget*>();
     lw->clear();

@@ -182,7 +182,7 @@ Chart::createScene()
     QPen penZodiac(QColor(31, 52, 93), zodiacWidth());
     QPen penBorder(QColor(50, 145, 240));
     QPen penCircle(QColor(227, 214, 202), 1);
-    QFont zodiacFont("Almagest", 16 * zoom, QFont::Bold);
+    QFont zodiacFont("Almagest", 15 * zoom, QFont::Bold);
     QColor signFillColor = Qt::black;
     QColor signShapeColor = "#6d6d6d";
 
@@ -595,8 +595,8 @@ int Chart::cuspideLength(int fileIndex, int cusp)
 
 void Chart::drawPlanets(int fileIndex)
 {
-    QFont planetFont("Almagest", 17, QFont::Bold);
-    QFont planetFontSmall("Almagest", 15, QFont::Bold);
+    QFont planetFont("Almagest", 15, QFont::Bold);
+    QFont planetFontSmall("Almagest", 12, QFont::Bold);
 
     QGraphicsScene* s = view->scene();
 

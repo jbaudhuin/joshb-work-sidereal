@@ -2,11 +2,45 @@
 #define ASTRO_GUI_H
 
 #include <QStringList>
+#include <QVariant>
+#include <QMetaType>
 
 #include "astro-data.h"
 #include "astro-calc.h"
 #include "appsettings.h"
 #include "../zodiac/src/afileinfo.h"
+
+struct ADateRange : public QPair<QDate,QDate> {
+    typedef QPair<QDate,QDate> Base;
+    using Base::Base;
+
+    ADateRange() : Base() { }
+
+    ADateRange(QVariant& v)
+    {
+        QVariantList vl = v.toList();
+        first = vl.takeFirst().toDate();
+        second = vl.takeFirst().toDate();
+    }
+
+    ADateRange& operator=(const QVariant& v)
+    {
+        if (v.isNull() || v.type() != QVariant::List) {
+            first = QDate();
+            second = QDate();
+        } else {
+            QVariantList vl = v.toList();
+            first = vl.takeFirst().toDate();
+            second = vl.takeFirst().toDate();
+        }
+        return *this;
+    }
+
+    operator QVariant() const
+    { QVariantList vl; vl << first << second; return vl; }
+};
+
+Q_DECLARE_METATYPE(ADateRange)
 
 /* =========================== ASTRO FILE ================================== */
 
@@ -15,8 +49,6 @@ class AstroFile : public QObject
     Q_OBJECT;
 
 public:
-    typedef QPair<QDate,QDate> dateRange;
-
     enum FileType { TypeOther, TypeMale, TypeFemale,
                     TypeEvents, TypeSearch,
                     TypeDerivedSA, TypeDerivedProg, TypeDerivedPD,
@@ -79,7 +111,7 @@ public:
     void setAspectSet    (A::AspectSetId set, bool force = false);
     void setAspectMode   (const A::aspectModeType& mode);
     void setEventList(const QList<QDateTime>& evl);
-    void setDateRange(const dateRange& startEnd) { _dateRange = startEnd; }
+    void setDateRange(const ADateRange& startEnd) { _dateRange = startEnd; }
     void setHarmonic     (double harmonic);
 
     QString          getName()         const { return _fileInfo.baseName(); }
@@ -100,7 +132,7 @@ public:
     const QList<QDateTime>& getEventList() const { return _eventList; }
     double           getHarmonic()     const { return scope.inputData.harmonic; }
     QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(getTimezone() * 3600); }
-    const dateRange& getDateRange() const { return _dateRange; }
+    const ADateRange& getDateRange() const { return _dateRange; }
 
     void             calculate() { recalculate(); }
 
@@ -148,7 +180,7 @@ private:
     A::Horoscope scope;
 
     QList<QDateTime> _eventList;  // computed contact dateTimes
-    dateRange _dateRange; // really just start, end
+    ADateRange _dateRange; // really just start, end
 
     virtual void recalculate();
     void recalculateBaseChart();
