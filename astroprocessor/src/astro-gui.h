@@ -10,6 +10,8 @@
 #include "appsettings.h"
 #include "../zodiac/src/afileinfo.h"
 
+class QStandardItemModel;
+
 struct ADateRange : public QPair<QDate,QDate> {
     typedef QPair<QDate,QDate> Base;
     using Base::Base;

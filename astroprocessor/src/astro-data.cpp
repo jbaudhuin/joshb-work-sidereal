@@ -14,13 +14,13 @@
 
 namespace A {
 
-QMap<AspectSetId, AspectsSet> Data::aspectSets = QMap<AspectSetId, AspectsSet>();
-QMap<PlanetId, Planet> Data::planets = QMap<PlanetId, Planet>();
+QMap<AspectSetId, AspectsSet> Data::aspectSets;
+QMap<PlanetId, Planet> Data::planets;
 QMap<std::string, Star> Data::stars;
-QMap<HouseSystemId, HouseSystem> Data::houseSystems = QMap<HouseSystemId, HouseSystem>();
-QMap<ZodiacId, Zodiac> Data::zodiacs = QMap<ZodiacId, Zodiac>();
-AspectSetId Data::topAspSet = AspectSetId();
-QString Data::usedLang = QString();
+QMap<HouseSystemId, HouseSystem> Data::houseSystems;
+QMap<ZodiacId, Zodiac> Data::zodiacs;
+AspectSetId Data::topAspSet;
+QString Data::usedLang;
 
 void Data::load(QString language)
 {
@@ -403,7 +403,7 @@ Data::tightConjunction()
     static AspectsSet ret;
     if (ret.isEmpty()) {
         AspectType at;
-        at.set = NULL;
+        at.set = &ret;
         at.id = 0;
         at.name = QObject::tr("Conjunction");
         at.angle = 0;

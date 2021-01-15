@@ -2,7 +2,7 @@
 #define A_CALC_H
 
 #include "astro-data.h"
-
+#include <QFuture>
 
 namespace A {  // Astrology, sort of :)
 template <typename T>
@@ -141,6 +141,22 @@ uintSet getPrimes(unsigned top);
 
 void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
 void calculateBaseChartHarmonic(Horoscope& scope);
+
+void calculateTransits(const uintQSet& hs,
+                       const QDate& start,
+                       const QDate& end,
+                       const InputData& trainp,
+                       const PlanetSet& tran,
+                       HarmonicEvents& ev);
+void calculateTransitsToNatal(const uintQSet& hs,
+                              const QDate& start,
+                              const QDate& end,
+                              const InputData& natinp,
+                              const InputData& trainp,
+                              const PlanetSet& natal,
+                              const PlanetSet& tran,
+                              HarmonicEvents& ev,
+                              bool includeTransitsToTransits = false);
 
 Planet      calculatePlanet      ( PlanetId planet, const InputData& input, const Houses& houses, const Zodiac& zodiac );
 Star calculateStar(const QString&, const InputData& input, const Houses& houses, const Zodiac& zodiac);

@@ -23,7 +23,7 @@ enum Article        { Article_All     = 0xFF,
                       Article_FixedStars = 0x80,
                       Article_Speculum = 0x100 };
 
-enum AnglePrecision { 
+enum AnglePrecision {
     LowPrecision,
     NormalPrecision,
     HighPrecision

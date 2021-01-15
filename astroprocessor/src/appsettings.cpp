@@ -33,8 +33,14 @@
 #include <QTabWidget>
 #include <QFormLayout>
 #include <QTextCodec>
+#include <QTimer>
 #include <QDebug>
+
 #include "appsettings.h"
+
+namespace {
+int lastTab = -1;
+}
 
 /* =========================== APP SETTINGS ========================================= */
 
@@ -44,7 +50,7 @@ AppSettings::AppSettings()
 
 void AppSettings::setValue(const QString& name, const QVariant& value)
 {
-    vals[name] = value;
+    _values[name] = value;
 }
 
 void AppSettings::setValues(const AppSettings& s)
@@ -59,7 +65,7 @@ void AppSettings::setValues(const AppSettings& s)
 
 const QVariant AppSettings::value(const QString& name, const QVariant& defaultValue) const
 {
-    return vals.value(name, defaultValue);
+    return _values.value(name, defaultValue);
 }
 
 void AppSettings::load(const QString& fileName)
@@ -67,7 +73,7 @@ void AppSettings::load(const QString& fileName)
     QSettings file(fileName, QSettings::IniFormat);
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
 
-    foreach(const QString& key, vals.keys())
+    foreach(const QString& key, _values.keys())
         setValue(key, file.value(key, value(key)));
 
     qDebug() << "AppSettings: loaded from" << fileName;
@@ -78,8 +84,9 @@ void AppSettings::save(const QString& fileName)
     QSettings file(fileName, QSettings::IniFormat);
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
 
-    foreach(const QString& key, vals.keys())
+    for (const QString& key : _values.keys()) {
         file.setValue(key, value(key));
+    }
 
     qDebug() << "AppSettings: saved to" << fileName;
 }
@@ -116,7 +123,24 @@ AppSettingsEditor::AppSettingsEditor() : QDialog()
     connect(ok, SIGNAL(clicked()), this, SLOT(accept()));
     connect(cancel, SIGNAL(clicked()), this, SLOT(reject()));
     connect(setDefault, SIGNAL(clicked()), this, SLOT(restoreDefaults()));
+
+    if (lastTab != -1) {
+        // restore prior tab, after the dialog is assembled.
+        QTimer::singleShot(0, [this] {
+            tabs->setCurrentIndex(lastTab);
+        });
+    }
 }
+
+AppSettingsEditor::~AppSettingsEditor()
+{
+    lastTab = tabs->currentIndex(); // keep tabs on the tab
+    foreach(QWidget* wdg, customWidgets) {
+        // deattach another widgets before deleting
+        wdg->setParent(this->parentWidget());
+    }
+}
+
 
 void AppSettingsEditor::setObject(Customizable* obj)
 {
@@ -166,7 +190,8 @@ AppSettingsEditor::addControl(const QString& valueName,
     } else if (ds.type() == QVariant::String) {
         return addLineEdit(valueName, label);
     } else {
-        qDebug("AppSettingsEditor: can't add control: unsupported control type `%s`", ds.typeName());
+        qDebug("AppSettingsEditor: can't add control: unsupported control type `%s`",
+               ds.typeName());
     }
     return nullptr;
 }
@@ -359,14 +384,6 @@ void AppSettingsEditor::restoreDefaults()
     bApply->setEnabled(true);
     updateControls();
 }
-
-AppSettingsEditor :: ~AppSettingsEditor()
-{
-    foreach(QWidget* wdg, customWidgets) {
-        wdg->setParent(this->parentWidget()); // deattach another widgets before deleting
-    }
-}
-
 
 
 /* =========================== CUSTOMIZABLE CLASS =================================== */

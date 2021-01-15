@@ -194,10 +194,11 @@ AspectId
 aspect(const Star& planet1, const Star& planet2,
        const AspectsSet& aspectSet)
 {
+#if 0
     if (planet1.isPlanet() && planet2.isPlanet()
         && planet1.getSWENum() == planet2.getSWENum())
         return Aspect_None;
-
+#endif
     return aspect(angle(planet1, planet2), aspectSet);
 }
 
@@ -217,7 +218,7 @@ AspectId aspect(float angle, const AspectsSet& aspectSet)
     float pct = 1;
     for (const AspectType& aspect : aspectSet.aspects) {
         auto npct = abs(aspect.angle)/aspect.orb();
-        if (aspect.enabled
+        if (aspect.isEnabled()
             && aspect.angle - aspect.orb() <= angle
             && aspect.angle + aspect.orb() >= angle
             && (closest == Aspect_None? true : npct < pct))
@@ -590,19 +591,17 @@ PlanetLoc::compute(const InputData& ida,
         case amcEcliptic:
             if (p.id == Planet_Asc) {
                 std::tie(pos,speed) = getAscMC(0);
-                speed *= ida.harmonic;
                 ret = OK;
                 // FIXME speed?
             } else if (p.id == Planet_MC) {
                 std::tie(pos,speed) = getAscMC(1);
-                speed *= ida.harmonic;
                 ret = OK;
                 // FIXME speed?
             } else {
                 ret = swe_calc_ut(jd, p.sweNum, flags, xx, errStr);
                 pos = xx[0];
                 if (p.id==Planet_SouthNode) pos = swe_degnorm(pos+180.);
-                speed = xx[3] * ida.harmonic;
+                speed = xx[3];
             }
             break;
 
@@ -613,12 +612,11 @@ PlanetLoc::compute(const InputData& ida,
                 xx[1] = 0, xx[2] = 1.0;
                 swe_cotrans(xx, xx, -eps);
                 pos = xx[0];
-                speed *= ida.harmonic;
                 ret = OK;
                 // FIXME speed?
             } else if (p.id == Planet_MC) {
+                // XXX do we not use cotrans here, too?
                 std::tie(pos,speed) = getAscMC(2, true/*trop*/);
-                speed *= ida.harmonic;
                 ret = OK;
             } else {
                 ret = swe_calc_ut(jd, p.sweNum,
@@ -627,7 +625,7 @@ PlanetLoc::compute(const InputData& ida,
                                   xx, errStr);
                 pos = xx[0];
                 if (p.id==Planet_SouthNode) pos = swe_degnorm(pos+180.);
-                speed = xx[3] * ida.harmonic;
+                speed = xx[3];
             }
             break;
 
@@ -650,7 +648,7 @@ PlanetLoc::compute(const InputData& ida,
             break;
         }
         }
-        if (ret != ERR) return harmonic(ida.harmonic, pos);
+        if (ret != ERR) return pos;
         qDebug() << "Can't calculate position of " << p1.name
                  << "at jd" << jd << ":" << errStr;
         return 0;
@@ -665,7 +663,9 @@ PlanetLoc::compute(const InputData& ida,
         speed += speed2;
         if (planet.isOppMidpt()) pos += 180;
     }
-    loc = pos;
+    _rasiLoc = pos;
+    loc = harmonic(ida.harmonic, pos);
+    speed *= ida.harmonic;
     return pos;
 }
 
@@ -696,8 +696,11 @@ PlanetLoc::defaultSpeed() const
     }
 }
 
-qreal
-PlanetProfile::computePos(double jd)
+/*static*/
+std::pair<qreal, qreal>
+PlanetProfile::computeDelta(const Loc* a,
+                            const Loc* b,
+                            int h /*=1*/)
 {
     // It is not obvious what needs to happen here.
     // We certainly want to update the positions of the in-motion
@@ -712,49 +715,31 @@ PlanetProfile::computePos(double jd)
     // need to compute spread and position? There is more than one
     // value, but we only have one degree of freedom (one input variable)
     // to control...
-    std::vector<qreal> apos(size(),0);
-    std::vector<qreal> aspd(size(),0);
-    unsigned i = 0;
-    Loc::speed = 0;
-    for (auto& pl : *this) {
-        Loc::speed += pl->speed;
-#if 1
-        apos[i] = pl->operator()(jd);
-#else
-        auto npos = pl->operator()(jd);
-        unsigned fid = unsigned(pl->inMotion());
-        unsigned char& i( sizes[fid] );
-        aspd[fid] = (pl->speed + i*aspd[fid])/(i+1);
-        if (i) {
-            if (apos[fid] - npos > 180) apos[fid] -= 360;
-            else if (npos - apos[fid] > 180) apos[fid] += 360;
-            apos[fid] = (npos + i*apos[fid])/(i+1);
-        } else apos[fid] = npos;
-#endif
-        ++i;
-    }
+    qreal speed = (a->speed + b->speed);
+    if (h>1) speed *= qreal(h);
 
-    if (size()==1) {
+    qreal apos = h>1? harmonic(h,a->loc) : a->loc;
+    qreal bpos = h>1? harmonic(h,b->loc) : b->loc;
+
+    if (bpos - apos > 180) bpos -= 360;
+    else if (apos - bpos > 180) bpos += 360;
+
+    return { bpos - apos, speed };
+}
+
+qreal
+PlanetProfile::computePos(double jd)
+{
+    Loc::loc = 0;
+    Loc::speed = 0;
+    for (auto loc : *this) (*loc)(jd);
+    if (size() == 1) {
         Loc::loc = front()->loc;
         Loc::speed = front()->speed;
-        return Loc::loc;
+    } else if (size() == 2) {
+        std::tie(Loc::loc, Loc::speed) = computeDelta(front(),back());
     }
-    qreal &a = apos[0], &b = apos[1];
-#if 0
-    qreal &spa = aspd[0], &spb = aspd[1];
-    qreal p;
-    if (spa > spb) p = b - a;
-    else p = a - b;
-    if (p > 180) p -= 360; else if (p < -180) p += 360;
-#else
-    if (b - a > 180) b -= 360;
-    else if (a - b > 180) b += 360;
-#endif
-#if 0
-    return p;
-#else
-    return Loc::loc = b - a;
-#endif
+    return Loc::loc;
 }
 
 qreal
@@ -768,8 +753,7 @@ PlanetProfile::computeSpread(double jd)
     });
     qreal maxa = 0;
     for (unsigned i = 0, n = size(); i < n; ++i) {
-        auto a = angle(operator[](i)->loc,
-                operator[]((i+1) % n)->loc);
+        auto a = angle(at(i)->loc, at((i+1) % n)->loc);
         if (a > maxa) maxa = a;
     }
     return maxa;
@@ -1121,10 +1105,12 @@ calculateAspects(const AspectsSet& aspectSet,
 {
     AspectList ret;
     for (auto i = planets1.constBegin(); i != planets1.constEnd(); ++i) {
-        if (i->id >= Planet_Sun && i->id <= Planet_Pluto || i->id == Planet_Chiron) {
+        if ((i->id >= Planet_Sun && i->id <= Planet_Pluto) || i->id == Planet_Chiron) {
             for (auto j = planets2.constBegin(); j != planets2.constEnd(); ++j) {
-                if ((j->id >= Planet_Sun && j->id <= Planet_Pluto || j->id == Planet_Chiron)
-                    && aspect(i.value(), j.value(), aspectSet) != Aspect_None) {
+                if (((j->id >= Planet_Sun && j->id <= Planet_Pluto)
+                     || j->id == Planet_Chiron)
+                    && aspect(i.value(), j.value(), aspectSet) != Aspect_None)
+                {
                     ret << calculateAspect(aspectSet, i.value(), j.value());
                 }
             }
@@ -1850,10 +1836,13 @@ namespace { bool quiet = false; }
 
 struct calcPos {
     PlanetProfile& poses;
+    uintmax_t _iter = 0;
+
     calcPos(PlanetProfile& p) : poses(p) { }
 
     qreal operator()(double jd)
     {
+        ++_iter;
         auto ret = poses.computePos(jd);
         if (!quiet) {
             QDateTime dt(dateTimeFromJulian(jd));
@@ -1861,6 +1850,8 @@ struct calcPos {
         }
         return ret;
     }
+
+    uintmax_t& count() { return _iter; }
 };
 
 struct calcSpd {
@@ -1887,8 +1878,10 @@ struct calcPosSpd {
         auto pos = poses.computePos(jd);
         auto ret = std::make_pair(pos, poses.speed());
 
-        QDateTime dt(dateTimeFromJulian(jd));
-        qDebug() << "ncalc iter:" << dtToString(dt) << "Ret:" << ret;
+        if (!quiet) {
+            QDateTime dt(dateTimeFromJulian(jd));
+            qDebug() << "ncalc iter:" << dtToString(dt) << "Ret:" << ret;
+        }
 
         return ret;
     }
@@ -2012,7 +2005,7 @@ struct calcLoop {
     bool speedSignsEqual(const posSpd& a, const posSpd& b) const
     { return sgn(a.second) == sgn(b.second); }
 
-    bool speedSignsEqual(qreal a, qreal b) const { return true; }
+    bool speedSignsEqual(qreal, qreal) const { return true; }
 
     bool longDistance(const posSpd& a, const posSpd& b) const
     { return abs(a.first) >= 170. && abs(b.first) > 170.; }
@@ -2167,7 +2160,6 @@ calculateClosestTime(PlanetProfile& poses,
 
     double jdIn = getJulianDate(locale.GMT);
 
-
     double jd = jdIn;
     calcLoop looper(poses, jd);
 
@@ -2194,6 +2186,8 @@ quotidianSearch(PlanetProfile& poses,
                 const QDateTime& endDT,
                 double span /*= 1.0*/)
 {
+    modalize<bool> mum(quiet,true);
+
     double jd1 = getJulianDate(locale.GMT);
     double jd2 = getJulianDate(endDT);
 
@@ -2277,8 +2271,10 @@ calculateReturnTime(PlanetId id,
                     const InputData& native,
                     const InputData& locale)
 {
+    modalize<bool> mum(quiet,true);
+
     PlanetProfile poses;
-    poses.push_back(new NatalPosition(id, native));
+    poses.push_back(new NatalLoc(id, native));
     poses.push_back(new TransitPosition(id, locale));
 
     return calculateClosestTime(poses, locale);
@@ -2323,6 +2319,276 @@ calculateAll(const InputData& input)
     calculateBaseChartHarmonic(scope);
 
     return scope;
+}
+
+using uintPair = std::pair<unsigned,unsigned>;
+
+void computeTransits(uintQSet hs,
+                     PlanetProfile& a,
+                     const std::list<uintPair>& staff,
+                     InputData& id1,
+                     InputData& id2,
+                     QDateTime d,
+                     QDateTime e,
+                     HarmonicEvents& ev)
+{
+    PlanetProfile b = a;
+
+    double jd = getJulianDate(d);
+    for (auto tp: a) (*tp)(jd);   // the horror
+
+    modalize<bool> mum(quiet,true);
+
+    unsigned int h;
+    auto keep = [&](unsigned i) {
+        if (h > 1) return true;
+        auto p = dynamic_cast<PlanetLoc*>(a[i]);
+        PlanetId pid = p->planet.planetId();
+        if (p->inMotion()) {
+            return pid != Planet_Moon;
+        }
+        return pid != Planet_MC && pid != Planet_Asc;
+    };
+
+    modalize<double> th1(id1.harmonic,1);
+    modalize<double> th2(id2.harmonic,1);
+    double pjd = jd;
+    auto nd = d.addDays(1);
+    while (d < e) {
+        jd = getJulianDate(nd);
+        for (auto tp: b) (*tp)(jd);
+
+        auto stuff = staff;
+
+        std::set<unsigned> stationed;
+        for (auto it = stuff.begin(); it != stuff.end(); ++it) {
+            auto i = it->first;
+            if (stationed.count(i)!=0) continue;
+            stationed.insert(i);
+            if (!a[i]->inMotion()) continue;
+            if (sgn(a[i]->speed) == sgn(b[i]->speed)) continue;
+
+            PlanetProfile pose { a[i]->clone() };
+            pose[0]->desc = QString("S%1")
+                    .arg(sgn(a[i]->speed)==-1? "D" : "R");
+
+            calcSpd cspd(pose);
+            double tjd = jd/2.+pjd/2.;
+            bool done = brentZhangStage(cspd, pjd, jd,
+                                        a[i]->speed, b[i]->speed,
+                                        tjd);
+            if (!done) continue;
+
+            auto qdt = dateTimeFromJulian(tjd);
+            auto dt = dtToString(qdt);
+            auto ploc = dynamic_cast<PlanetLoc*>(pose[0]);
+            PlanetSet pl { ploc->planet };
+            PlanetRange plr { *ploc };
+            ev.emplace_back(qdt, 1, pl, plr);
+
+            if (!quiet) qDebug() << dt << a[i]->description();
+
+            // include tightish aspects to station
+            for (auto stit = it; stit != stuff.end(); ++stit) {
+                auto j = stit->second;
+                if (stit->first != i || a[j]->inMotion()) continue;
+
+                auto natal = dynamic_cast<NatalPosition*>(a[j]);
+                if (!natal) continue;
+                for (auto hi : hs) {
+                    h = hi;
+                    auto delta =
+                            PlanetProfile::computeDelta(natal, ploc, h).first;
+                    if (std::abs(delta) > 2.0) {
+                        if (!keep(j)) break;
+                        continue;
+                    }
+
+                    PlanetSet asppl { *pl.begin(), natal->planet };
+                    PlanetRange aspplr { *plr.begin(), *natal };
+                    ev.emplace_back(qdt, h, asppl, aspplr);
+
+                    break;
+                }
+            }
+        }
+
+        qreal ad, asp;
+        qreal bd, bsp;
+        unsigned i, j;
+        for (auto hi = hs.begin(); hi != hs.end() && !stuff.empty(); ++hi) {
+            h = *hi;
+            for (auto it = stuff.begin(); it != stuff.end(); ) {
+                std::tie(i,j) = *it;
+                qreal ispd = a[i]->speed/2. + b[i]->speed/2.;
+                qreal jspd = a[j]->speed/2. + b[i]->speed/2.;
+                if (ispd > jspd) std::swap(i,j);
+
+                std::tie(ad, asp) = PlanetProfile::computeDelta(a[i], a[j], h);
+                std::tie(bd, bsp) = PlanetProfile::computeDelta(b[i], b[j], h);
+                if (sgn(ad)==sgn(bd) || (abs(ad)>=90. || abs(bd)>=90.)) {
+                    if (!keep(i) || !keep(j)) {
+                        stuff.erase(it++);
+                    } else {
+                        ++it;
+                    }
+                    continue;
+                }
+
+                modalize<double> th1(id1.harmonic,h);
+                modalize<double> th2(id2.harmonic,h);
+                PlanetProfile poses { a[i]->clone(), a[j]->clone() };
+
+                bool useBZS = (a[i]->inMotion() && ispd < .00001)
+                        || (a[j]->inMotion() && jspd < .00001);
+                if (ispd > jspd) std::swap(i,j);    // swap back for output
+                try {
+                    double tjd;
+                    uintmax_t iter;
+                    bool bzhs = false;
+                    if (useBZS) {
+                        bzhs = true;
+                        calcPos cpos(poses);
+                        bool done = brentZhangStage(cpos, pjd, jd, ad, bd, tjd);
+                        if (!done) {
+                            if (!keep(i) || !keep(j)) {
+                                stuff.erase(it++);
+                            } else {
+                                ++it;
+                            }
+                            continue;
+                        }
+                        iter = cpos.count();
+                    } else {
+                        // calcPosSpd
+                        iter = 50;  // TODO !? need to diagnose when we hit this
+                        static constexpr int digits =
+                                std::numeric_limits<double>::digits;
+
+                        using namespace boost::math::tools;
+                        double guess;
+                        if (a[i]->inMotion() && a[j]->inMotion()) {
+                            guess = pjd + (fabs(ad)/(fabs(ad)+fabs(bd)));
+                        } else {
+                            guess = pjd + .5;
+                        }
+                        tjd = newton_raphson_iterate(calcPosSpd(poses),
+                                                     guess, pjd, jd,
+                                                     digits, iter);
+                        // TODO add check for actual hit per tolerance?
+                    }
+
+                    // Pack up event
+                    auto qdt = dateTimeFromJulian(tjd);
+                    auto p1loc = dynamic_cast<PlanetLoc*>(poses[0]);
+                    auto p2loc = dynamic_cast<PlanetLoc*>(poses[1]);
+                    PlanetSet pl { p1loc->planet, p2loc->planet };
+                    PlanetRange plr { *p1loc, *p2loc };
+                    auto ch = static_cast<unsigned char>(h);
+                    ev.emplace_back(qdt, ch, pl, plr);
+
+                    if (!quiet)
+                    qDebug() << dtToString(qdt)
+                             << QString("H%1 %2=%3")
+                                .arg(h)
+                                .arg(a[i]->description())
+                                .arg(a[j]->description())
+                             << "with" << iter
+                             << "iteration(s)"
+                             << (bzhs? "brentZhangStage" : "newton_raphson");
+                } catch (...) {
+                    if (!quiet)
+                    qDebug() << d.date().toString()
+                             << QString("H%1 %2=%3")
+                                .arg(h)
+                                .arg(a[i]->description())
+                                .arg(a[j]->description());
+                }
+                stuff.erase(it++); // prevents duplicate search at higher harm
+            }
+        }
+
+        d = nd;
+        nd = d.addDays(1);
+        pjd = jd;
+
+        a.swap(b);
+
+    }
+}
+
+void
+calculateTransits(const uintQSet& hs,
+                  const QDate& from,
+                  const QDate& to,
+                  const InputData& trainp,
+                  const PlanetSet& tran,
+                  HarmonicEvents& ev)
+{
+    InputData ida(trainp);
+
+    PlanetProfile prof;
+    for (const auto& cpid: tran) {
+        prof.push_back(new TransitPosition(cpid,ida));
+    }
+
+    std::list<uintPair> staff;
+    for (unsigned i = 0; i+1 < prof.size(); ++i) {
+        for (unsigned j = i+1; j < prof.size(); ++j) {
+            staff.push_back( { i, j } );
+        }
+    }
+
+    auto start = from, end = to;
+    end.addDays(1);
+    computeTransits(hs, prof, staff, ida, ida,
+                    start.startOfDay(), end.startOfDay(), ev);
+}
+
+void
+calculateTransitsToNatal(const uintQSet& hs,
+                         const QDate& from,
+                         const QDate& to,
+                         const InputData& natinp,
+                         const InputData& trainp,
+                         const PlanetSet& natal,
+                         const PlanetSet& tran,
+                         HarmonicEvents& ev,
+                         bool includeTransitsToTransits /*=false*/)
+{
+    InputData ida(natinp);
+    ida.harmonic = 1;
+
+    InputData idb(trainp);
+    idb.harmonic = 1;
+
+    PlanetProfile prof;
+    for (const auto& cpid: natal) {
+        prof.push_back(new NatalPosition(cpid, ida, "r"));
+    }
+    for (const auto& cpid: tran) {
+        prof.push_back(new TransitPosition(cpid, idb));
+    }
+
+    std::list<uintPair> staff;
+    for (unsigned i = 0; i < tran.size(); ++i) {
+        for (unsigned j = 0; j < natal.size(); ++j) {
+            staff.push_back( { i + natal.size(), j } );
+        }
+    }
+
+    if (includeTransitsToTransits) {
+        for (unsigned i = 0; i+1 < tran.size(); ++i) {
+            for (unsigned j = i+1; j < tran.size(); ++j) {
+                staff.push_back( { i + natal.size(), j + natal.size() } );
+            }
+        }
+    }
+
+    auto start = from, end = to;
+    end.addDays(1);
+    computeTransits(hs, prof, staff, ida, idb,
+                    start.endOfDay(), end.startOfDay(), ev);
 }
 
 } // namespace A

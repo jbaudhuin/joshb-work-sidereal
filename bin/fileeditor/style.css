@@ -26,15 +26,21 @@ QToolButton {
 	padding-top: 4px;
 }
 
-QToolButton:hover { 								/* кнопка при наведении */
+QToolButton:hover { 								/* пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ */
 	background: rgba(0,0,0,70);
 }
 
-QToolButton:pressed { 							/* кнопка при нажатии */
+QToolButton:pressed { 							/* пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ */
 	background: rgba(0,0,0,90);
 }
 
 QToolButton:checked {
 	background: rgba(0,0,0,80);
 	border: 1px solid #A0A0A0;
+}
+
+QTreeView {
+	color: #b5bfdf;
+	background: #717b88;
+	font: 8pt Verdana, "DejaVu Sans";
 }

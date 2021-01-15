@@ -77,6 +77,8 @@ private:
     QList<AstroFileHandler*> dockHandlers;
     QList<QDockWidget*> docks;
 
+    QAction* _clickedHarmonic = nullptr;
+
     bool              _dynAspChange = false;
 
     void setupFile(AstroFile* file, bool suspendUpdate = false);
@@ -90,6 +92,9 @@ private:
     void addHoroscopeControls();
     void switchToSingleAspectSet();
     void switchToSynastryAspectSet();
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override;
 
 private slots:
     void applyGeoSettings(AppSettings&);
@@ -125,6 +130,7 @@ public:
     void setupSettingsEditor(AppSettingsEditor*);
 
     friend class FilesBar;
+    friend class Transits;
 };
 
 

@@ -2,10 +2,10 @@
 #define HARMONICS_H
 
 #include <QModelIndex>
-#include <QTreeWidgetItem>
 #include <Astroprocessor/Gui>
 
-class QTreeWidget;
+class QTreeView;
+class QStandardItemModel;
 
 class Harmonics : public AstroFileHandler
 {
@@ -15,7 +15,7 @@ public:
     Harmonics(QWidget* parent = nullptr);
     ~Harmonics() { }
 
-    QTreeWidget* listWidget() const { return harmonicsList; }
+    QTreeView* htv() const { return _hview; }
 
 protected:                            // AstroFileHandler implementation
     void filesUpdated(MembersList);
@@ -27,6 +27,8 @@ protected:                            // AstroFileHandler implementation
 
     void describePlanet();
     void clear();
+
+    QStandardItemModel* tvm() const;
 
 signals:
     void updateHarmonics(double);
@@ -50,7 +52,7 @@ private:
     bool _expandedAspects;
     bool _inhibitUpdate;
 
-    QTreeWidget*  harmonicsList;
+    QTreeView*  _hview;
 
 };
 

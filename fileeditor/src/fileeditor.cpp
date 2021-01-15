@@ -360,17 +360,17 @@ void AstroFileEditor::update(AstroFile::Members m)
     timeZone->setValue(source->getTimezone());
     dateTime->setDateTime(source->getLocalTime());
     //if (source->getType()==AstroFile::TypeEvents) {
-        // startDate->setDate(source->getStartDate());
+    // startDate->setDate(source->getStartDate());
     auto r = source->getDateRange();
-        if (startDate->date()==QDate() || r.first==r.second) {
-            endDateCB->setChecked(false);
-            startDate->setDate(source->getLocalTime().date());
-        } else {
-            const auto& range = source->getDateRange();
-            endDateCB->setChecked(true);
-            startDate->setDate(range.first);
-            endDate->setDate(range.second);
-        }
+    if (startDate->date()==QDate() || r.first==r.second) {
+        endDateCB->setChecked(false);
+        startDate->setDate(source->getLocalTime().date());
+    } else {
+        const auto& range = source->getDateRange();
+        endDateCB->setChecked(true);
+        startDate->setDate(range.first);
+        endDate->setDate(range.second);
+    }
     //}
     comment->setPlainText(source->getComment());
 
@@ -456,7 +456,7 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     dst->setLocation(geoSearch->location());
     dst->setTimezone(timeZone->value());
     if (update) {
-#if 1
+#if 0
         dst->setGMT(dateTime->dateTime().toUTC());
 #else
         QString ugh = dateTime->dateTime().addSecs(timeZone->value()*-3600)
@@ -553,7 +553,7 @@ AstroFileEditor::onEditingFinished()
             auto n = match.captured("body");
             auto pid = A::getPlanetId(n);
             auto pla = A::getPlanet(pid);
-            poses.push_back(new A::NatalPosition(pid, indb));
+            poses.push_back(new A::NatalLoc(pid, indb));
             poses.push_back(new A::TransitPosition(pid, inda));
         } else if (has("aspect")) {
             auto asp = match.captured("aspect");
@@ -568,7 +568,7 @@ AstroFileEditor::onEditingFinished()
             { return new A::TransitPosition(cpid, inda); };
 
             funs['r'] = [&](const A::ChartPlanetId& cpid)
-            { return new A::NatalPosition(cpid, indb); };
+            { return new A::NatalLoc(cpid, indb); };
 
             if (currentFile>0) {
                 // preview planets to determine a default pick.

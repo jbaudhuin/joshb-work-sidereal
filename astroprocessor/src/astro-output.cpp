@@ -83,7 +83,10 @@ QString degreeToString(float deg, AnglePrecision precision)
     return ret;
 }
 
-QString zodiacPosition(float deg, const Zodiac& zodiac, AnglePrecision precision)
+QString
+zodiacPosition(float deg,
+               const Zodiac& zodiac,
+               AnglePrecision precision)
 {
     const ZodiacSign& sign = getSign(deg, zodiac);
     int ang = floor(deg) - sign.startAngle;
@@ -95,7 +98,7 @@ QString zodiacPosition(float deg, const Zodiac& zodiac, AnglePrecision precision
         return QString("%1%2 %3").arg(ang).arg(str).arg(sign.tag);
     } else {
         int m = (int)(60.0*(deg - (int)deg));
-        return QString("%1 %2 %3%4").arg(ang).arg(sign.tag).arg(m > 10 ? "" : "0").arg(m);
+        return QString("%1 %2 %3%4").arg(ang).arg(sign.tag).arg(m >= 10 ? "" : "0").arg(m);
     }
 }
 

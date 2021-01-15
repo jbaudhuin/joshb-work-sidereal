@@ -104,6 +104,12 @@ inline void setDynAspState(const QVariant& var)
     }
 }
 
+enum HarmonicSort {
+    hscByHarmonic,
+    hscByPlanets,
+    hscByOrb,
+    hscByAge
+};
 
 typedef int ZodiacSignId;
 typedef int ZodiacId;
@@ -343,7 +349,7 @@ struct AspectType {
     float       _orb;
     unsigned    _harmonic = 0;
     std::set<unsigned> factors;
-    bool        enabled = true;
+    bool        _enabled;
     QMap<QString, QVariant> userData;
 
     AspectType() :
@@ -351,7 +357,7 @@ struct AspectType {
         set(nullptr),
         angle(0),
         _orb(0),
-        enabled(true)
+        _enabled(true)
     { }
 
     float orb() const
@@ -359,7 +365,9 @@ struct AspectType {
         if (!_harmonic) return _orb * orbFactor();
         return harmonicsMaxQOrb()/_harmonic * orbFactor();
     }
-    void setEnabled(bool b = true) { enabled = b; }
+
+    bool isEnabled() const { return _enabled; }
+    void setEnabled(bool b = true) { _enabled = b; }
 };
 
 struct Aspect {
@@ -569,7 +577,8 @@ private:
 
 class PlanetSet : public std::set<ChartPlanetId> {
 public:
-    using std::set<ChartPlanetId>::set;
+    using Base = std::set<ChartPlanetId>;
+    using Base::Base;
 
     bool contains(PlanetId pid) const
     { return std::any_of(begin(), end(), samePlanet(pid)); }
@@ -595,9 +604,8 @@ public:
     QString glyphs() const
     {
         QString res;
-        int lastFid = 0;
-        foreach(const ChartPlanetId& cpid, *this)
-        {
+        int lastFid = empty()? 0 : begin()->fileId();
+        for (const ChartPlanetId& cpid: *this) {
             if (cpid.fileId() != lastFid) res += " : ";
             else if (!res.isEmpty()) res += ",";
             res += cpid.glyph();
@@ -753,16 +761,30 @@ struct Loc {
         desc(description), loc(l), speed(s)
     { }
 
+    Loc(const Loc& other) :
+        desc(other.desc),
+        loc(other.loc),
+        speed(other.speed)
+    { }
+
     virtual ~Loc() { }
+
+    operator Loc const*() const { return this; }
+
+    virtual Loc* clone() const { return new Loc(*this); }
 
     virtual qreal defaultSpeed() const { return 0; }
     virtual qreal operator()(double /*jd*/) { return loc; }
     virtual bool inMotion() const { return false; }
     virtual QString description() const { return desc; }
+
+    virtual const InputData& input() const
+    { static InputData dummy; return dummy; }
 };
 
 struct PlanetLoc : public Loc {
     ChartPlanetId planet;
+    qreal _rasiLoc = 0;
 
 #if 1
     PlanetLoc(int fid, PlanetId p, qreal l, qreal s = 0) :
@@ -772,13 +794,21 @@ struct PlanetLoc : public Loc {
         Loc(l,s), planet(fid, p, p2)
     { }
 #endif
-    PlanetLoc(ChartPlanetId p = 0, qreal l = 0.0, qreal s = 0) :
+    PlanetLoc(ChartPlanetId p = 0, qreal l = 0, qreal s = 0) :
         Loc(l,s), planet(p)
     { }
 
+    PlanetLoc(const ChartPlanetId& p, const QString& desc) :
+        Loc(), planet(p)
+    { if (!desc.isEmpty()) this->desc = desc; }
+
     PlanetLoc(const PlanetLoc& other) :
-        Loc(other.loc), planet(other.planet)
-    { }
+        Loc(other), planet(other.planet)
+    { _rasiLoc = other._rasiLoc; }
+
+    qreal rasiLoc() const { return _rasiLoc; }
+
+    Loc* clone() const override { return new PlanetLoc(*this); }
 
     PlanetLoc& operator==(const PlanetLoc& other)
     { planet = other.planet; loc = other.loc; return *this; }
@@ -793,32 +823,77 @@ struct PlanetLoc : public Loc {
     qreal compute(const InputData& ida, double jd);
 
     QString description() const override
-    { return planet.name(); }
+    { return desc.isEmpty()? planet.name() : (planet.name() + "-" + desc) ; }
 
     virtual qreal defaultSpeed() const override;
 };
 
-class NatalPosition : public PlanetLoc {
+class NatalLoc : public PlanetLoc {
 public:
-    NatalPosition(const ChartPlanetId& cpid,
+    NatalLoc(const ChartPlanetId& cpid,
                   const InputData& ida) :
         PlanetLoc(cpid)
     { compute(ida); speed = 0; }
+
+    Loc* clone() const override { return new NatalLoc(*this); }
 };
 
-class TransitPosition : public PlanetLoc {
-    InputData _ida;
+
+class InputPosition : public PlanetLoc {
+public:
+    InputPosition(const ChartPlanetId& cpid,
+                  const InputData& ida,
+                  const QString& tag = "") :
+        PlanetLoc(cpid, tag), _ida(ida)
+    { }
+
+    const InputData& input() const override { return _ida; }
+
+protected:
+    const InputData& _ida;
+};
+
+class NatalPosition : public InputPosition {
 
 public:
+    NatalPosition(const ChartPlanetId& cpid,
+                  const InputData& ida,
+                  const QString& tag = "") :
+        InputPosition(cpid, ida, tag)
+    {
+        compute(ida); _rasiLoc = loc; speed = 0;
+    }
+
+    Loc* clone() const override
+    { return new NatalPosition(*this); }
+
+    qreal operator()(double) override
+    {
+        return loc = input().harmonic==1.0
+                ? _rasiLoc : fmod(_rasiLoc*input().harmonic,360.);
+    }
+};
+
+class TransitPosition : public InputPosition {
+public:
     TransitPosition(const ChartPlanetId& cpid,
-                    const InputData& ida) :
-        PlanetLoc(cpid),
-        _ida(ida)
+                    const InputData& ida,
+                    const QString& tag = "") :
+        InputPosition(cpid, ida, tag)
     { }
+
+    TransitPosition(const ChartPlanetId& cpid,
+                    const InputData& ida,
+                    double jd) :
+        InputPosition(cpid, ida)
+    { compute(input(), jd); }
+
+    Loc* clone() const override { return new TransitPosition(*this); }
 
     bool inMotion() const override { return true; }
 
-    qreal operator()(double jd) override { return compute(_ida, jd); }
+    qreal operator()(double jd) override
+    { return compute(input(), jd); }
 };
 
 template <typename T>
@@ -851,7 +926,12 @@ public:
     typedef std::deque<Loc*> Base;
     using Base::Base;
 
-    virtual ~PlanetProfile() { qDeleteAll(*this); }
+    PlanetProfile() { }
+
+    PlanetProfile(const PlanetProfile& other) : Loc(other)
+    { for (auto oloc : other) emplace_back(oloc->clone()); }
+
+    virtual ~PlanetProfile() { qDeleteAll(*this); }    
 
     qreal defaultSpeed() const
     {
@@ -873,13 +953,15 @@ public:
 
     qreal computeSpread(double jd);
 
+    static std::pair<qreal, qreal> computeDelta(const Loc* a,
+                                                const Loc* b,
+                                                int harmonic = 1);
     qreal computePos(double jd);
 
     qreal operator()(double jd) { return computePos(jd); }
 
     bool needsFindMinimalSpread() const { return size() > 2; }
 };
-
 
 typedef std::set<PlanetLoc> PlanetRange;
 typedef std::list<PlanetLoc> PlanetQueue;
@@ -908,9 +990,12 @@ public:
         insert(value_type(plist, planets));
     }
 
-    void insert(const PlanetQueue& planets,
-                unsigned minQuorum = 2);
+    void insert(const PlanetQueue& planets, unsigned minQuorum = 2);
 };
+
+typedef std::tuple<QDateTime, unsigned char/*h*/,
+                   PlanetSet, PlanetRange>          HarmonicEvent;
+typedef std::vector<HarmonicEvent> HarmonicEvents;
 
 typedef std::map<unsigned, PlanetGroups> PlanetHarmonics;
 typedef PlanetHarmonics::iterator HarmonicIter;

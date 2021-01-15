@@ -32,11 +32,11 @@ QToolButton {
 	color: #EEE;
 }
 
-QToolButton:hover { 								/* кнопка при наведении */
+QToolButton:hover { 								/* пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ */
 	background: #888;
 }
 
-QToolButton:pressed { 							/* кнопка при нажатии */
+QToolButton:pressed { 							/* пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ */
 	padding-top: 3px;
 	padding-left: 3px;
 	background: #77A;
@@ -61,7 +61,7 @@ AstroDatabase QLineEdit {
 								stop: 0.3 #525252,
 								stop: 0.7 #525252,
 								stop: 1.0 #424242);
-								
+
 	background-image: url("style/find.png");
 	background-repeat: 0;
 	border: 1px solid #585F6A;
@@ -84,6 +84,29 @@ AstroDatabase QPushButton:pressed {
 	padding-left: 3px;
 }
 
+QTreeView {
+	color: #b5bfdf;
+	alternate-background-color: #424242;
+	background: transparent;
+	border: 0;
+	min-width: 50px;
+}
+
+QHeaderView {
+	/*color: #b5bfdf;*/
+	color: black;
+	background-color: #717b88;
+	background: #717b88;
+	alternate-background-color: #424242;
+	border: 0;
+	min-width: 50px;
+}
+
+QTreeView::item:hover,
+QTreeView::item:selected {
+	color: yellow;
+}
+
 QListWidget {
 	color: #b5bfdf;
 	alternate-background-color: #424242;
@@ -94,13 +117,13 @@ QListWidget {
 
 QListWidget::item:hover,
 QListWidget::item:selected {
-	color: black;
+	color: yellow;
 }
 
 QDockWidget {
 	font-weight: bold;
 	color: #d8e4f4;
-	
+
 }
 
 QDockWidget::title {
@@ -120,7 +143,7 @@ AstroWidget {
 	border-top: 1px solid #202020;
 }
 
-QTabBar::tab {							/* корешок вкладок */
+QTabBar::tab {							/* пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ */
 	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
 								stop: 0 #9F9F9F, stop: 1.0 #7F7F7F);
 	border: 1px solid #525252;
@@ -129,7 +152,7 @@ QTabBar::tab {							/* корешок вкладок */
 	margin-top: 2px;
 }
 
-QTabBar::tab:selected {					/* (при активности)*/
+QTabBar::tab:selected {					/* (пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ)*/
 	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
 								stop: 0 #f8f8f8, stop: 1.0 #dcdfe4);
 	border-right-color: #CCCCCC;

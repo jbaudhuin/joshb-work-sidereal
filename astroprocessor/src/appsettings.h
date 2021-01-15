@@ -43,7 +43,7 @@ class QCheckBox;
 class AppSettings
 {
     private:
-        QMap<QString, QVariant> vals;
+        QMap<QString, QVariant> _values;
 
     public:
         AppSettings ();
@@ -52,9 +52,9 @@ class AppSettings
                        const QVariant& value);
         const QVariant value (const QString& name,
                               const QVariant& defaultValue = QVariant()) const;
-        bool contains(const QString& name) const { return vals.contains(name); }
+        bool contains(const QString& name) const { return _values.contains(name); }
 
-        const QMap<QString, QVariant>& values() const { return vals; }
+        const QMap<QString, QVariant>& values() const { return _values; }
         void setValues (const AppSettings&);
 
         void load (const QString& fileName);
