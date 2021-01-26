@@ -2366,10 +2366,10 @@ void computeTransits(const uintQSet& hset,
     PlanetProfile b = a;
 
     // ** Future config options or control options for transit set **
-    bool includeTransits = false;//true; // todo: could have separate func for stns
+    bool includeTransits = true; // todo: could have separate func for stns
     // having both here allows us to include aspects to stationary planets...
-    bool includeStations = false;//true;
-    bool includeStationAspectsToTransits = false;//true;
+    bool includeStations = true;
+    bool includeStationAspectsToTransits = true;
     bool includeStationAspectsToNatal = true;
     bool includeReturnAspects = true; // todo: solar, solar+lunar, all, none
     bool includeTransitAspectsToReturnPlanet = true;
