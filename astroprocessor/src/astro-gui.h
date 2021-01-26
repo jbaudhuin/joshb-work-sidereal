@@ -12,35 +12,7 @@
 
 class QStandardItemModel;
 
-struct ADateRange : public QPair<QDate,QDate> {
-    typedef QPair<QDate,QDate> Base;
-    using Base::Base;
-
-    ADateRange() : Base() { }
-
-    ADateRange(QVariant& v)
-    {
-        QVariantList vl = v.toList();
-        first = vl.takeFirst().toDate();
-        second = vl.takeFirst().toDate();
-    }
-
-    ADateRange& operator=(const QVariant& v)
-    {
-        if (v.isNull() || v.type() != QVariant::List) {
-            first = QDate();
-            second = QDate();
-        } else {
-            QVariantList vl = v.toList();
-            first = vl.takeFirst().toDate();
-            second = vl.takeFirst().toDate();
-        }
-        return *this;
-    }
-
-    operator QVariant() const
-    { QVariantList vl; vl << first << second; return vl; }
-};
+using A::ADateRange;
 
 Q_DECLARE_METATYPE(ADateRange)
 

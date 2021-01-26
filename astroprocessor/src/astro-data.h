@@ -111,6 +111,13 @@ enum HarmonicSort {
     hscByAge
 };
 
+enum TransitSort {
+    tscByDate,
+    tscByTransitPlanet,
+    tscByNatalPlanet,
+    tscByHarmonic
+};
+
 typedef int ZodiacSignId;
 typedef int ZodiacId;
 typedef int AspectId;
@@ -482,6 +489,12 @@ public:
     bool isMidpt() const { return _pid2 != Planet_None; }
     bool isOppMidpt() const { return isMidpt() && _oppMidpt; }
     bool isSolo() const { return !isMidpt(); }
+
+    bool samePlanetDifferentChart(const ChartPlanetId& cpid) const
+    { return _fid != cpid._fid && _pid==cpid._pid && _pid2 == cpid._pid2; }
+
+    bool samePlanet(const ChartPlanetId& cpid) const
+    { return _pid==cpid._pid && _pid2==cpid._pid2; }
 
     bool operator==(const ChartPlanetId& cpid) const
     { return _fid == cpid._fid && _pid == cpid._pid && _pid2 == cpid._pid2; }
@@ -896,6 +909,14 @@ public:
     { return compute(input(), jd); }
 };
 
+class ProgressedPosition : public InputPosition {
+public:
+};
+
+class SolarArcPosition : public InputPosition {
+public:
+};
+
 template <typename T>
 qreal
 getSpread(const T& range)
@@ -963,7 +984,15 @@ public:
     bool needsFindMinimalSpread() const { return size() > 2; }
 };
 
+struct BySpeed {
+    bool operator()(const PlanetLoc& a,
+                    const PlanetLoc& b) const
+    { return std::abs(a.speed) > std::abs(b.speed); }
+};
+
 typedef std::set<PlanetLoc> PlanetRange;
+typedef std::set<PlanetLoc,BySpeed> PlanetRangeBySpeed;
+
 typedef std::list<PlanetLoc> PlanetQueue;
 
 inline qreal getLoc(const Loc& loc) { return loc.loc; }
@@ -993,9 +1022,95 @@ public:
     void insert(const PlanetQueue& planets, unsigned minQuorum = 2);
 };
 
-typedef std::tuple<QDateTime, unsigned char/*h*/,
-                   PlanetSet, PlanetRange>          HarmonicEvent;
+enum EventType {
+    etcUnknownEvent = 0,
+    etcStation,                 // S
+    etcAspectToStation,         // T=S
+    etcTransitToTransit,        // T=T
+    etcTransitToNatal,          // T=N
+    etcIngress,                 // I
+    etcReturn,                  // R
+    etcAspectToReturn,          // T=R
+    etcReturnTransitToTransit,  // RT=T
+    etcReturnTransitToNatal,    // RT=N
+    etcProgressedToProgressed,  // P=P
+    etcProgressedToNatal,       // P=R
+    etcTransitToProgressed,     // T=P
+    etcSolarArcToNatal,         // D=N
+    etcUserEvent
+};
+
+class HarmonicEvent {
+    QDateTime           _dateTime;   ///< time of event in UTC
+    unsigned char       _harmonic;   ///< harmonic of aspect (or 1)
+    PlanetRangeBySpeed  _locations;  ///< locations of planets
+    qreal               _orb;        ///< orb of aspect (0 if exact)
+    unsigned            _eventType;  ///< type of event
+
+public:
+    HarmonicEvent(const QDateTime     & dt,
+                  unsigned char         h,
+                  PlanetRangeBySpeed && pr,
+                  qreal                 delta,
+                  unsigned              et) :
+        _dateTime(dt),
+        _harmonic(h),
+        _locations(pr),
+        _orb(delta),
+        _eventType(et)
+    { }
+
+    const QDateTime& dateTime() const { return _dateTime; }
+    unsigned int harmonic() const { return _harmonic; }
+    qreal orb() const { return _orb; }
+    unsigned int eventType() const { return _eventType; }
+    const PlanetRangeBySpeed& locations() const { return _locations; }
+
+    PlanetSet planets() const
+    {
+        PlanetSet ret;
+        for (const auto& loc: _locations) ret.insert(loc.planet);
+        return ret;
+    }
+};
+
 typedef std::vector<HarmonicEvent> HarmonicEvents;
+
+struct ADateRange : public QPair<QDate,QDate> {
+    typedef QPair<QDate,QDate> Base;
+    using Base::Base;
+
+    ADateRange() : Base() { }
+
+    ADateRange(QVariant& v)
+    {
+        QVariantList vl = v.toList();
+        first = vl.takeFirst().toDate();
+        second = vl.takeFirst().toDate();
+    }
+
+    ADateRange& operator=(const QVariant& v)
+    {
+        if (v.isNull() || v.type() != QVariant::List) {
+            first = QDate();
+            second = QDate();
+        } else {
+            QVariantList vl = v.toList();
+            first = vl.takeFirst().toDate();
+            second = vl.takeFirst().toDate();
+        }
+        return *this;
+    }
+
+    operator QVariant() const
+    { QVariantList vl; vl << first << second; return vl; }
+};
+
+struct EventScope {
+    unsigned        eventType;
+    ADateRange      range;
+    bool            keepInSync = true;
+};
 
 typedef std::map<unsigned, PlanetGroups> PlanetHarmonics;
 typedef PlanetHarmonics::iterator HarmonicIter;

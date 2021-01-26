@@ -50,32 +50,83 @@ QTreeWidget {
 
 /* =========================== QComboBox ========================================== */
 
+QLabel, QRadioButton {
+/*border: 1px solid #585F6A;
+border-radius: 6px;
+padding: 5px;*/
+margin-bottom: 5px;
+margin-right: 3px;
+color: #EEEEEE;
+background: #202020;
+font:  8pt;
+}
+
+/*
+QHeaderView {
+    color: #EEEEEE;
+    background-color: #202020;
+    font: 8pt;
+}
+
+QRadioButton {
+border: 1px solid #585F6A;
+border-radius: 6px;
+padding: 5px;
+margin-bottom: 5px;
+color: #EEEEEE;
+background: #202020;
+font: 9pt;
+}
+
+QLineEdit {
+border: 1px solid #585F6A;
+border-radius: 6px;
+padding: 5px;
+margin-bottom: 5px;
+color: #EEEEEE;
+background: #424242;
+font: 9pt;
+}
+*/
+
+QLineEdit, QDateTimeEdit {
+border: 1px solid #585F6A;
+border-radius: 4px;
+padding: 3px;
+margin-bottom: 3px;
+color: #EEEEEE;
+background: #424242;
+font: 8pt;
+}
+
+
 QComboBox {
 	border: 1px solid #585F6A;
-	border-radius: 6px;
-	padding: 5px;
-	margin-bottom: 5px;
+        border-radius: 4px;
+        padding: 3px;
+        margin-bottom: 3px;
 	color: #EEEEEE;
 	background: #424242;
-	font: bold 10pt;
+        font: bold 9pt;
 }
 
-QComboBox:hover {
-	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-								stop: 0.0 #585F6A,
-								stop: 0.3 #424242,
-								stop: 0.7 #424242,
-								stop: 1.0 #585F6A);
+
+QLineEdit:hover, QDateTimeEdit:hover, QComboBox:hover {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0.0 #585F6A,
+                                stop: 0.3 #424242,
+                                stop: 0.7 #424242,
+                                stop: 1.0 #585F6A);
 }
 
-QComboBox:on { /* shift the text when the popup opens */
-	padding-top: 6px;
-	padding-left: 6px;
-	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-								stop: 0.0 #323232,
-								stop: 0.3 #424242,
-								stop: 0.7 #424242,
-								stop: 1.0 #323232);
+QDateTimeEdit:on, QComboBox:on { /* shift the text when the popup opens */
+    padding-top: 6px;
+    padding-left: 6px;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                stop: 0.0 #323232,
+                                stop: 0.3 #424242,
+                                stop: 0.7 #424242,
+                                stop: 1.0 #323232);
 }
 
 QComboBox::drop-down {

@@ -143,14 +143,12 @@ void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
 void calculateBaseChartHarmonic(Horoscope& scope);
 
 void calculateTransits(const uintQSet& hs,
-                       const QDate& start,
-                       const QDate& end,
+                       const ADateRange& range,
                        const InputData& trainp,
                        const PlanetSet& tran,
                        HarmonicEvents& ev);
 void calculateTransitsToNatal(const uintQSet& hs,
-                              const QDate& start,
-                              const QDate& end,
+                              const ADateRange& range,
                               const InputData& natinp,
                               const InputData& trainp,
                               const PlanetSet& natal,

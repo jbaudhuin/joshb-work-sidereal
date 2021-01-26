@@ -1310,8 +1310,7 @@ FilesBar::getTabIndex(QString name, bool seekFirstFileOnly)
 void
 FilesBar::addFile(AstroFile* file)
 {
-    if (!file)
-    {
+    if (!file) {
         qWarning() << "FilesBar::addFile: failed to add an empty file";
         return;
     }

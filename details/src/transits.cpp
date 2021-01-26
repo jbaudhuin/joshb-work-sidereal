@@ -132,7 +132,7 @@ Transits::Transits(QWidget* parent) :
     _start = new QDateEdit;
     _duraRB = new QRadioButton(tr("for"));
     _duration = new QLineEdit;
-    _duration->setText(tr("3 months"));
+    _duration->setText(tr("6 months"));
     _endRB = new QRadioButton(tr("til"));
     _end = new QDateEdit;
 
@@ -148,7 +148,7 @@ Transits::Transits(QWidget* parent) :
     l1->addWidget(_duration);
     l1->addWidget(_endRB);
     l1->addWidget(_end);
-    _end->setDate(QDate::currentDate().addMonths(3));
+    _end->setDate(QDate::currentDate().addMonths(6));
 
     _input = new QLineEdit;
 
@@ -231,25 +231,36 @@ Transits::updateTransits()
 
     auto hs = A::dynAspState();
     if (transOnly) {
-        A::calculateTransits(hs, _start->date(), _end->date(),
+        A::calculateTransits(hs, { _start->date(), _end->date() },
                              file()->horoscope().inputData,
                              pst, evs);
     } else {
-        A::calculateTransitsToNatal(hs, _start->date(), _end->date(),
+        A::calculateTransitsToNatal(hs, { _start->date(), _end->date() },
                                     file()->horoscope().inputData,
                                     ida,
-                                    psn, pst, evs);
+                                    psn, pst, evs, true/*include tran to tran*/);
     }
 
     _tm = new QStandardItemModel(this);
-    _tm->setColumnCount(4);
+    _tm->setColumnCount(4/*5*/);
     _tm->setHorizontalHeaderLabels({"Date", "H", "T",
-                                    transOnly? "T" : "N/T"});
+                                    transOnly? "T" : "N/T" /*, "orb"*/});
 
-    auto byDate = [](const auto& a, const auto& b)
-    { return std::get<0>(a) < std::get<0>(b); };
+    auto byDate = [](const A::HarmonicEvent& a, const A::HarmonicEvent& b) {
+        if (a.dateTime() < b.dateTime()) return true;   // date-time
+        if (a.dateTime() > b.dateTime()) return false;
+        if (a.orb() < b.orb()) return true;   // orb
+        if (a.orb() > b.orb()) return false;
+        if (a.harmonic() < b.harmonic()) return true;   // harmonic
+        if (a.harmonic() > b.harmonic()) return false;
+        if (a.locations().size() < b.locations().size())  // planetSet
+            return true;
+        if (a.locations().size() > b.locations().size())
+            return false;
+        return (a.locations() < b.locations());           // planetRange
+    };
 
-    std::stable_sort(evs.begin(), evs.end(), byDate);
+    std::sort(evs.begin(), evs.end(), byDate);
 
     const A::Zodiac& zodiac(scope.zodiac);
     auto getPos = [&zodiac](float deg) {
@@ -263,48 +274,50 @@ Transits::updateTransits()
                 .arg(m >= 10 ? "" : "0").arg(m);
     };
 
+    auto isNatal = [&](const A::ChartPlanetId& cpid) {
+        if (transOnly) return false;
+        return cpid.fileId()==0;
+    };
+
     QFont astroFont("Almagest", 11);
 
     QDateTime prev;
     QStandardItem* previt = nullptr;
     for (const auto& ev: evs) {
-        QDateTime dt =             std::get<0>(ev);
+        QDateTime dt =     ev.dateTime();
         dt.setTimeZone( QTimeZone(ida.tz) );
 
         if (dt != prev) previt = nullptr;
 
-        unsigned char ch =         std::get<1>(ev);
-        const A::PlanetSet& ps =   std::get<2>(ev);
-        const A::PlanetRange& pr = std::get<3>(ev);
+        unsigned char ch = ev.harmonic();
+        A::PlanetSet ps =  ev.planets();
+        const auto& pr =   ev.locations();
 
         itemList il;
 
-        if (prev == dt) { il.append(""); }
-        else {
+        if (prev == dt) {
+            il.append(A::degreeToString(ev.orb()));
+        } else {
             il.append(dt.toLocalTime().date().toString("yyyy/MM/dd"));
             il.last()->setToolTip(dt.toLocalTime().toString());
         }
         il.append(QString("H%1").arg(ch));
 
-        bool station = false;
-        for (auto pit = ps.crbegin(); pit != ps.crend(); ++pit) {
-            const auto& cpid = *pit;
-            auto it = std::find_if(pr.begin(),pr.end(),
-                                 [&](const A::PlanetLoc& pl) {
-                return pl.planet == cpid;
-            });
-            if (it == pr.end()) continue;
-            const auto& s = *it;
-            auto g = s.planet.glyph();
+        bool isStation = false;
+        bool isReturn = ps.size()==2
+                && ps.begin()->samePlanetDifferentChart(*ps.rbegin());
+        for (const auto& s: ev.locations()) {
+            const auto& cpid = s.planet;
+            auto g = cpid.glyph();
             auto desc = s.desc;
             if (!desc.isEmpty()) {
-                if (desc=="SD" || desc=="SR") station = true;
+                if (desc=="SD" || desc=="SR") isStation = true;
                 if (desc=="SD") desc = "%&";
                 else if (desc=="SR") desc = "%#";
                 else if (desc=="r") desc = "";
             }
             if (s.speed < 0 && !s.desc.startsWith("S")) {
-                desc = "#" + desc; // retro
+                desc = "#" + desc; // retro glyph
             }
             il.append(g + " " + getPos(s.rasiLoc()) + " " + desc);
             il.last()->setFont(astroFont);
@@ -313,12 +326,18 @@ Transits::updateTransits()
                     .arg(s.description()) + " "
                     + A::zodiacPosition(s.rasiLoc(),zodiac,A::HighPrecision);
             il.last()->setToolTip(tt);
+            if (isNatal(cpid)) {
+                static QColor nfg = QColor("gold");
+                il.last()->setForeground(nfg);
+            }
         }
         if (il.size() < 4) il.append("");
+        //il.append(ev.orb); // show orb of transits
 
-        if (previt) previt->appendRow(il);
-        else {
-            if (station) previt = il.first();
+        if (previt) {
+            previt->appendRow(il);
+        } else {
+            if (isStation || isReturn) previt = il.first();
             _tm->appendRow(il);
         }
         prev = dt;
