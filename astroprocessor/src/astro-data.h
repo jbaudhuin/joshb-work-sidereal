@@ -12,6 +12,7 @@
 #include <QVariant>
 #include <QMetaType>
 #include <QDebug>
+#include <QMutex>
 
 #include <set>
 #include <deque>
@@ -1028,7 +1029,6 @@ enum EventType {
     etcAspectToStation,         // T=S
     etcTransitToTransit,        // T=T
     etcTransitToNatal,          // T=N
-    etcIngress,                 // I
     etcReturn,                  // R
     etcAspectToReturn,          // T=R
     etcReturnTransitToTransit,  // RT=T
@@ -1037,33 +1037,31 @@ enum EventType {
     etcProgressedToNatal,       // P=R
     etcTransitToProgressed,     // T=P
     etcSolarArcToNatal,         // D=N
-    etcUserEvent
+    etcIngress,                 // T=I
+    etcLunation,                // L
+    etcSolarEclipse,            // SE
+    etcLunarEclipse,            // LE
+    etcHeliacalRising,          // HR
+    etcHeliacalSetting,         // HS
+    etcUserEventNum
 };
 
-class HarmonicEvent {
-    QDateTime           _dateTime;   ///< time of event in UTC
+class HarmonicAspect {
     unsigned char       _harmonic;   ///< harmonic of aspect (or 1)
     PlanetRangeBySpeed  _locations;  ///< locations of planets
-    qreal               _orb;        ///< orb of aspect (0 if exact)
-    unsigned            _eventType;  ///< type of event
+    qreal               _orb;        ///< orb of aspect or span of assembly
 
 public:
-    HarmonicEvent(const QDateTime     & dt,
-                  unsigned char         h,
+    HarmonicAspect(unsigned char         h,
                   PlanetRangeBySpeed && pr,
-                  qreal                 delta,
-                  unsigned              et) :
-        _dateTime(dt),
+                  qreal                 delta = 0.0) :
         _harmonic(h),
         _locations(pr),
-        _orb(delta),
-        _eventType(et)
+        _orb(delta)
     { }
 
-    const QDateTime& dateTime() const { return _dateTime; }
     unsigned int harmonic() const { return _harmonic; }
     qreal orb() const { return _orb; }
-    unsigned int eventType() const { return _eventType; }
     const PlanetRangeBySpeed& locations() const { return _locations; }
 
     PlanetSet planets() const
@@ -1074,7 +1072,39 @@ public:
     }
 };
 
-typedef std::vector<HarmonicEvent> HarmonicEvents;
+typedef std::list<HarmonicAspect> HarmonicAspects;
+
+class HarmonicEvent : public HarmonicAspect {
+    QDateTime       _dateTime;      ///< time of event in UTC
+    unsigned        _eventType;     ///< type of event
+    HarmonicAspects _coincidences;  ///< coincident events
+
+public:
+    HarmonicEvent(const QDateTime     & dt,
+                  unsigned              et,
+                  unsigned char         h,
+                  PlanetRangeBySpeed && pr,
+                  qreal                 delta = 0.0) :
+        HarmonicAspect(h, std::move(pr), delta),
+        _dateTime(dt),
+        _eventType(et)
+    { }
+
+    const QDateTime& dateTime() const { return _dateTime; }
+    unsigned int eventType() const { return _eventType; }
+
+    HarmonicAspects& coincidences() { return _coincidences; }
+    const HarmonicAspects& coincidences() const { return _coincidences; }
+};
+
+typedef std::list<HarmonicEvent> HarmonicEventsBase;
+
+class HarmonicEvents : public HarmonicEventsBase {
+public:
+    using HarmonicEventsBase::HarmonicEventsBase;
+
+    QMutex mutex;
+};
 
 struct ADateRange : public QPair<QDate,QDate> {
     typedef QPair<QDate,QDate> Base;

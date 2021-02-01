@@ -5,13 +5,22 @@
 #include <QFuture>
 
 namespace A {  // Astrology, sort of :)
-template <typename T>
+
+template <typename T> struct modalTrait
+{ static const T& defaultNew() { static T dflt; return dflt; } };
+
+template <>
+struct modalTrait<bool> {
+    static bool defaultNew() { return true; }
+};
+
+template <typename T = bool>
 class modalize {
     T _was;
     T& _state;
 
 public:
-    modalize(T& state, T newState) :
+    modalize(T& state, T newState = modalTrait<T>::defaultNew()) :
         _was(state),
         _state(state)
     { _state = newState; }
@@ -142,19 +151,137 @@ uintSet getPrimes(unsigned top);
 void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
 void calculateBaseChartHarmonic(Horoscope& scope);
 
-void calculateTransits(const uintQSet& hs,
+using uintPair = std::pair<unsigned,unsigned>;
+
+typedef QList<InputData> idlist;
+
+class harmonize {
+    idlist& _ids;
+    QList<double> _was;
+
+public:
+    harmonize(idlist& ids, double harmonic) : _ids(ids)
+    {
+        for (auto idit = _ids.begin(); idit != _ids.end(); ++idit) {
+            _was << idit->harmonic;
+            idit->harmonic = harmonic;
+        }
+    }
+
+    ~harmonize()
+    {
+        auto idit = _ids.begin();
+        auto wit = _was.begin();
+        while (idit != _ids.end()) (*idit++).harmonic = *wit++;
+    }
+};
+
+struct EventFinder : public QRunnable {
+public:
+    EventFinder(HarmonicEvents& evs,
+                const ADateRange& range) :
+        _evs(evs), _range(range)
+    { }
+
+    ~EventFinder()
+    { }
+
+    HarmonicEvents& _evs;
+    ADateRange _range;
+
+    QList<InputData> _ids;
+    PlanetProfile _alist;   ///< the planet objects to compute
+};
+
+class AspectFinder : public EventFinder {
+public:
+    AspectFinder(HarmonicEvents& evs,
+                 const ADateRange& range,
+                 const uintQSet& hset) :
+        EventFinder(evs, range),
+        _hset(hset)
+    { }
+
+    void run() override;
+
+    void setIncludeStations(bool b)
+    {
+        if (!b) {
+            _includeStations =
+                    _includeStationAspectsToNatal =
+                    _includeStationAspectsToTransits = false;
+        } else  _includeStations = true;
+    }
+
+protected:
+    // ** Future config options or control options for transit set **
+    bool _includeTransits = true; // todo: could have separate func for stns
+    // having both here allows us to include aspects to stationary planets...
+    bool _includeAspectsToAngles = true;
+    bool _includeStations = true;
+    bool _includeStationAspectsToTransits = true;
+    bool _includeStationAspectsToNatal = true;
+    bool _includeReturnAspects = true; // todo: solar, solar+lunar, all, none
+    bool _includeTransitAspectsToReturnPlanet = true;
+    bool _filterLowerUnselectedHarmonics = true;
+    unsigned _rate = 4;  // # days
+    double _orb = 2.0;   // orb for aspects to stations or return aspects
+
+    bool keepLooking(unsigned h, unsigned i) const
+    {
+        auto p = dynamic_cast<PlanetLoc*>(_alist[i]);
+        PlanetId pid = p->planet.planetId();
+        if (!_includeAspectsToAngles
+                && (pid == Planet_MC || pid == Planet_Asc))
+        { return h < 2; }
+        if (p->inMotion() && pid == Planet_Moon) return h < 2;
+        return true;
+    }
+
+    uintQSet _hset;         ///< harmonic profile
+    std::list<uintPair> _staff;
+    EventType _evType = etcUnknownEvent;
+
+private:
+};
+
+class TransitFinder : public AspectFinder {
+public:
+    TransitFinder(HarmonicEvents& ev,
+                  const ADateRange& range,
+                  const uintQSet& hs,
+                  const InputData& trainp,
+                  const PlanetSet& tran);
+};
+
+class NatalTransitFinder : public AspectFinder {
+public:
+    NatalTransitFinder(HarmonicEvents& ev,
                        const ADateRange& range,
+                       const uintQSet& hs,
+                       const InputData& natinp,
                        const InputData& trainp,
+                       const PlanetSet& natal,
                        const PlanetSet& tran,
-                       HarmonicEvents& ev);
-void calculateTransitsToNatal(const uintQSet& hs,
-                              const ADateRange& range,
-                              const InputData& natinp,
-                              const InputData& trainp,
-                              const PlanetSet& natal,
-                              const PlanetSet& tran,
-                              HarmonicEvents& ev,
-                              bool includeTransitsToTransits = false);
+                       bool includeTransitsToTransits = false);
+};
+
+class EventFinderFactory {
+public:
+    typedef QMap<EventType,QString>                 eventNameMap;
+    typedef QMap<QString,QString>                   eventGlossMap;
+    typedef QMap<QString,EventType>                 namedEventMap;
+    typedef std::tuple<EventType,QString,QString>   eventRegistration;
+
+    static unsigned addEventType(const eventRegistration& ev);
+    static void addEventTypes(std::initializer_list<eventRegistration> evs);
+    static EventFinder* makeFinder(unsigned et);
+
+private:
+    static eventNameMap     _eventNames;
+    static eventGlossMap    _eventDescrs;
+    static namedEventMap    _eventTypes;
+};
 
 Planet      calculatePlanet      ( PlanetId planet, const InputData& input, const Houses& houses, const Zodiac& zodiac );
 Star calculateStar(const QString&, const InputData& input, const Houses& houses, const Zodiac& zodiac);

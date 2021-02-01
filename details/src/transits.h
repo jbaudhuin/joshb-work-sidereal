@@ -39,9 +39,12 @@ signals:
     void planetSelected(A::PlanetId, int);
     void needToFindIt(const QString&);
     void addChart(const A::InputData&);
+    //void completed();
 
 protected slots:
     void updateTransits();
+    void checkComplete();
+    void onCompleted();
     void clickedCell(const QModelIndex&);
     void doubleClickedCell(const QModelIndex&);
     void headerDoubleClicked(int);
@@ -57,6 +60,8 @@ private:
     bool _expandedAspects;
     bool _inhibitUpdate;
 
+    AstroFile* _trans = nullptr;
+
     QTreeView* _tview;
     QLineEdit* _input;
     QDateEdit* _start;
@@ -66,7 +71,11 @@ private:
     QRadioButton* _duraRB;
     QDateEdit* _end;
 
+    QTimer* _watcher = nullptr;
+
     QStandardItemModel* _tm;
+
+    A::HarmonicEvents _evs;
 };
 
 #endif // Harmonics_H

@@ -23,6 +23,7 @@
 #include <QDateEdit>
 #include <QTimeZone>
 #include <QLineEdit>
+#include <QThreadPool>
 #include <Astroprocessor/Calc>
 #include <Astroprocessor/Output>
 #include "../../astroprocessor/src/astro-data.h"
@@ -197,6 +198,8 @@ Transits::updateTransits()
     qDebug() << "filesCount()" << filesCount();
     if (_tm) return;
 
+    _evs.clear();
+
     auto ftype = file()->getType();
     bool transOnly = (ftype != AstroFile::TypeMale
             && ftype != AstroFile::TypeFemale);
@@ -223,28 +226,59 @@ Transits::updateTransits()
         }
     }
 
-    AstroFile f;
-    MainWindow::theAstroWidget()->setupFile(&f);
-    const auto& ida(f.horoscope().inputData);
-
-    A::HarmonicEvents evs;
-
+    auto tp = QThreadPool::globalInstance();
     auto hs = A::dynAspState();
+    ADateRange r { _start->date(), _end->date() };
     if (transOnly) {
-        A::calculateTransits(hs, { _start->date(), _end->date() },
-                             file()->horoscope().inputData,
-                             pst, evs);
+        QThreadPool::globalInstance()->
+                start(new A::TransitFinder(_evs, r, hs,
+                                           scope.inputData, pst));
     } else {
-        A::calculateTransitsToNatal(hs, { _start->date(), _end->date() },
-                                    file()->horoscope().inputData,
-                                    ida,
-                                    psn, pst, evs, true/*include tran to tran*/);
+        if (!_trans) {
+            _trans = new AstroFile;
+            MainWindow::theAstroWidget()->setupFile(_trans);
+        }
+        const auto& ida(_trans->horoscope().inputData);
+        auto tf = new A::TransitFinder(_evs, r, hs,
+                                       scope.inputData, pst);
+        tf->setIncludeStations(false);
+        tp->start(tf);
+        tp->start(new A::NatalTransitFinder(_evs, r, hs,
+                                          scope.inputData,
+                                          ida, psn, pst));
     }
+
+    if (!_watcher) {
+        _watcher = new QTimer(this);
+        connect(_watcher, SIGNAL(timeout()), this, SLOT(checkComplete()));
+    }
+    _watcher->start(250);
+}
+
+void
+Transits::checkComplete()
+{
+    if (QThreadPool::globalInstance()->activeThreadCount()) {
+        return;
+    }
+    _watcher->stop();
+    onCompleted();
+}
+
+void
+Transits::onCompleted()
+{
+    auto ftype = file()->getType();
+    bool transOnly = (ftype != AstroFile::TypeMale
+            && ftype != AstroFile::TypeFemale);
+    const A::Horoscope& scope(file()->horoscope());
+    const auto& ida(transOnly? file()->horoscope().inputData
+                             : _trans->horoscope().inputData);
 
     _tm = new QStandardItemModel(this);
     _tm->setColumnCount(4/*5*/);
     _tm->setHorizontalHeaderLabels({"Date", "H", "T",
-                                    transOnly? "T" : "N/T" /*, "orb"*/});
+                                    transOnly? "T" : "N/T"});
 
     auto byDate = [](const A::HarmonicEvent& a, const A::HarmonicEvent& b) {
         if (a.dateTime() < b.dateTime()) return true;   // date-time
@@ -260,7 +294,7 @@ Transits::updateTransits()
         return (a.locations() < b.locations());           // planetRange
     };
 
-    std::sort(evs.begin(), evs.end(), byDate);
+    _evs.sort(byDate);
 
     const A::Zodiac& zodiac(scope.zodiac);
     auto getPos = [&zodiac](float deg) {
@@ -281,37 +315,17 @@ Transits::updateTransits()
 
     QFont astroFont("Almagest", 11);
 
-    QDateTime prev;
-    QStandardItem* previt = nullptr;
-    for (const auto& ev: evs) {
-        QDateTime dt =     ev.dateTime();
-        dt.setTimeZone( QTimeZone(ida.tz) );
-
-        if (dt != prev) previt = nullptr;
-
-        unsigned char ch = ev.harmonic();
-        A::PlanetSet ps =  ev.planets();
-        const auto& pr =   ev.locations();
-
-        itemList il;
-
-        if (prev == dt) {
-            il.append(A::degreeToString(ev.orb()));
-        } else {
-            il.append(dt.toLocalTime().date().toString("yyyy/MM/dd"));
-            il.last()->setToolTip(dt.toLocalTime().toString());
-        }
+    auto addAspect =
+            [&](itemList& il, const A::HarmonicAspect& asp)
+    {
+        unsigned char ch = asp.harmonic();
         il.append(QString("H%1").arg(ch));
 
-        bool isStation = false;
-        bool isReturn = ps.size()==2
-                && ps.begin()->samePlanetDifferentChart(*ps.rbegin());
-        for (const auto& s: ev.locations()) {
+        for (const auto& s: asp.locations()) {
             const auto& cpid = s.planet;
             auto g = cpid.glyph();
             auto desc = s.desc;
             if (!desc.isEmpty()) {
-                if (desc=="SD" || desc=="SR") isStation = true;
                 if (desc=="SD") desc = "%&";
                 else if (desc=="SR") desc = "%#";
                 else if (desc=="r") desc = "";
@@ -324,7 +338,7 @@ Transits::updateTransits()
             auto tt = QString(s.planet.fileId()==1
                               ? "<i>%1</i>" : "%1")
                     .arg(s.description()) + " "
-                    + A::zodiacPosition(s.rasiLoc(),zodiac,A::HighPrecision);
+                + A::zodiacPosition(s.rasiLoc(),zodiac,A::HighPrecision);
             il.last()->setToolTip(tt);
             if (isNatal(cpid)) {
                 static QColor nfg = QColor("gold");
@@ -332,21 +346,31 @@ Transits::updateTransits()
             }
         }
         if (il.size() < 4) il.append("");
-        //il.append(ev.orb); // show orb of transits
+    };
 
-        if (previt) {
-            previt->appendRow(il);
-        } else {
-            if (isStation || isReturn) previt = il.first();
-            _tm->appendRow(il);
+    QTimeZone tz(ida.tz);
+    for (const auto& ev: _evs) {
+        QDateTime dt = ev.dateTime();
+        dt.setTimeZone(tz);
+
+        itemList il;
+        il.append(dt.toLocalTime().date().toString("yyyy/MM/dd"));
+        il.last()->setToolTip(dt.toLocalTime().toString());
+
+        addAspect(il, ev);
+        _tm->appendRow(il);
+
+        for (const auto& asp: ev.coincidences()) {
+            itemList cil;
+            cil.append(A::degreeToString(asp.orb()));
+            addAspect(cil, asp);
+
+            il.front()->appendRow(cil);
         }
-        prev = dt;
     }
     _tview->setModel(_tm);
     _tview->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     _tview->expandAll();
-
-
 }
 
 void 
