@@ -56,8 +56,7 @@ void Data::load(QString language)
     f.close();
     f.setFileName("astroprocessor/aspects.csv");
     if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
-    while (f.readRow())
-    {
+    while (f.readRow()) {
         AspectType a;
         auto setId = AspectSetId(f.row(0).toUInt());
         a.set = &aspectSets[setId];
@@ -141,7 +140,7 @@ void Data::load(QString language)
     f.close();
     f.setFileName("astroprocessor/signs.csv");
     if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
-    QHash<QString, ZodiacSignId> signs;            // collect and find signs by tag
+    QMultiHash<QString, ZodiacSignId> signs;    // collect and find signs by tag
     while (f.readRow()) {
         ZodiacSign s;
         s.zodiacId = f.row(0).toInt();
@@ -169,8 +168,7 @@ void Data::load(QString language)
     f.close();
     f.setFileName("astroprocessor/planets.csv");
     if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
-    while (f.readRow())
-    {
+    while (f.readRow()) {
         Planet p;
         p.id = f.row(0).toInt();
         p.name = language == "ru" ? f.row(2) : f.row(1);
@@ -178,10 +176,14 @@ void Data::load(QString language)
         p.sweFlags = f.row(4).toInt();
         p.defaultEclipticSpeed.setX(f.row(5).toFloat());
         p.isReal = f.row(6).toInt();
-        for (const auto& s : f.row(7).split(',')) p.homeSigns << signs.values(s);
-        for (const auto& s : f.row(8).split(',')) p.exaltationSigns << signs.values(s);
-        for (const auto& s : f.row(9).split(',')) p.exileSigns << signs.values(s);
-        for (const auto& s : f.row(10).split(',')) p.downfallSigns << signs.values(s);
+        for (const auto& s : f.row(7).split(','))
+            p.homeSigns << signs.values(s);
+        for (const auto& s : f.row(8).split(','))
+            p.exaltationSigns << signs.values(s);
+        for (const auto& s : f.row(9).split(','))
+            p.exileSigns << signs.values(s);
+        for (const auto& s : f.row(10).split(','))
+            p.downfallSigns << signs.values(s);
 
         for (int i = 11; i < f.columnsCount(); i++)
             p.userData[f.header(i)] = f.row(i);
@@ -271,7 +273,7 @@ Data::getHarmonicColors()
             auto fac = A::getPrimeFactors(i);
             auto num = fac.size();
             qreal red = 0, green = 0, blue = 0;
-            uintSet::value_type lf = 0;
+            uintMSet::value_type lf = 0;
             unsigned u = 0;
             for (auto f: fac) {
                 if (lf != f) ++u;
@@ -417,10 +419,13 @@ QString
 ChartPlanetId::glyph() const
 {
     if (!isMidpt())
-        return QString(Data::getPlanet(_pid).userData["fontChar"].toInt());
-    return QString(_oppMidpt? 0xD1 : 0xC9)
-        + QString(Data::getPlanet(_pid).userData["fontChar"].toInt())
-        + QString(Data::getPlanet(_pid2).userData["fontChar"].toInt());
+        return QString(QChar(Data::getPlanet(_pid)
+                             .userData["fontChar"].toInt()));
+    return QString(QChar(_oppMidpt? 0xD1 : 0xC9))
+        + QString(QChar(Data::getPlanet(_pid)
+                        .userData["fontChar"].toInt()))
+        + QString(QChar(Data::getPlanet(_pid2)
+                        .userData["fontChar"].toInt()));
 }
 
 QString
@@ -565,7 +570,7 @@ bool isWithinPrimeFactorLimit(unsigned h)
 {
     if (_pfl == 0 || h <= _pfl) return true;
     if (_pflCache.contains(h)) return _pflCache[h];
-    uintSet pf = getPrimeFactors(h);
+    uintMSet pf = getPrimeFactors(h);
     return (_pflCache[h] = (!pf.empty() && *pf.rbegin() <= int(_pfl)));
 }
 
@@ -597,16 +602,16 @@ bool dynAspState(unsigned h)
 void setDynAspState(unsigned h, bool b)
 { if (h > 32) return; _haspEnabled[h] = b; }
 
-uintQSet dynAspState()
+uintSSet dynAspState()
 {
-    uintQSet ret;
+    uintSSet ret;
     for (unsigned i = 1; i <= 32; ++i) {
         if (_haspEnabled[i]) ret.insert(i);
     }
     return ret;
 }
 
-void setDynAspState(const uintQSet& state)
+void setDynAspState(const uintSSet& state)
 {
     _haspEnabled.assign(33,false);
     for (unsigned h: state) setDynAspState(h, true);
@@ -616,4 +621,109 @@ qreal _orbFactor = 1.0;
 qreal orbFactor() { return _orbFactor; }
 void setOrbFactor(qreal ofac) { if (ofac > 0) _orbFactor = ofac; }
 
+/// Pare down scope based on what's already been computed. Essentially, we're
+/// merging the input interval, and returning any part of it that is new.
+// Assume we have 1..3 9..12. There are a few scenarios.
+// (1) We want to insert 2..6. Already 1..3 exists, so we need to pare the
+// insertion to 3..6, remove 1..3 and insert 1..6, and return 3..6.
+// (2) We want to insert 0..2. Already 1..3 exists, so we need to pare the
+// insertion to 0..1, remove 1..3, and insert 0..3, and return 0..1.
+// (3) We want to insert 0..13. already 1..3 exists, so we keep a range 0..1,
+// remove 1..3, and insert 0..3.
+
+EventUpdateData
+EventStore::getEventUpdateScope(EventScope evscope,
+                                EventUpdateType uptype)
+{
+    auto it = find(evscope.eventType);
+    if (it == end() || it->ranges.empty()) {
+        it = insert(evscope.eventType, {{evscope.range},{}});
+        return { it->ranges, it->events };
+    }
+    if (it->ranges.size()==1 && *it->ranges.begin() == evscope.range) {
+        throw noNeed();
+    }
+
+    ADateRange addingRange = evscope.range;
+    auto& ranges = it->ranges;
+    if (uptype == etcUpdate) {
+        ADateRangeSet upd = ranges;
+        upd.insert(addingRange);
+        ranges.clear();
+        for (auto pit = upd.begin(); pit != upd.end(); ) {
+            auto r = *pit;
+            auto nit = std::next(pit);
+            while (nit != upd.end() && r.second >= nit->first) {
+                r.second = nit->second;
+            }
+            ranges.insert(r);
+            pit = nit;
+        }
+        auto& evs = it->events;
+        evs.remove_if([&addingRange](const HarmonicEvent& ev) {
+            return addingRange.contains(ev.dateTime());
+        });
+        return { { addingRange }, evs };
+    }
+
+    ADateRangeSet upd, out;
+    bool simple = true, beyondRange = false;
+    for (auto rit = ranges.begin(); rit != ranges.end(); ++rit) {
+        const auto& r = *rit;
+        if (beyondRange || r.second < addingRange.first) {
+            // existing range fully precedes input range
+            upd.insert(r);
+            continue;
+        }
+        if (r.first < addingRange.first && r.second > addingRange.first) {
+            // existing range partly goes beyond input range
+            simple = false;
+            if (r.second > addingRange.second) {
+                if (out.empty()) throw noNeed();
+                upd.insert(r);
+                beyondRange = true;
+            } else {
+                upd.insert(r);
+                addingRange.first = r.second;
+                auto nit = std::next(rit);
+                if (nit == ranges.end()) {
+                    upd.insert(addingRange);
+                    out.insert(addingRange);
+                }
+            }
+            continue;
+        }
+        if (r.first > addingRange.second) { // XXX is this an invariant?
+            // existing range fully exceeds input range
+            if (simple) break;
+            upd.insert(r);
+            upd.insert(addingRange);
+            out.insert(addingRange);
+            beyondRange = true;
+            continue;
+        }
+    }
+    if (simple) {
+        ranges.insert(addingRange);
+        return { { addingRange }, it->events };
+    }
+    if (upd.size()>1) {
+        // Is this actually needed? Won't the above suffice?
+        ranges.clear();
+        for (auto pit = upd.begin(); pit != upd.end(); ) {
+            auto r = *pit;
+            auto nit = std::next(pit);
+            while (nit != upd.end() && r.second >= nit->first) {
+                r.second = nit->second;
+            }
+            ranges.insert(r);
+            pit = nit;
+        }
+    } else {
+        ranges.swap(upd);
+    }
+
+    return { out, it->events };
 }
+
+} // namespace A

@@ -141,7 +141,7 @@ Chart::Chart(QWidget *parent) :
     chartsCount = 0;
     zoom = 1;
 
-    float scale = 0.8, sc2 = 0.5;
+    float scale(0.8), sc2(0.5);
     viewport = QRect(chartRect().x() / scale,
                      chartRect().y() / scale,
                      chartRect().width() / scale,
@@ -161,7 +161,7 @@ Chart::Chart(QWidget *parent) :
     view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
     QVBoxLayout* layout = new QVBoxLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins(0,0,0,0));
     layout->addWidget(view);
 }
 
@@ -218,7 +218,8 @@ Chart::createScene()
     s->addEllipse(chartRect().adjusted(2, 2, -2, -2), penBorder, background);        // fill background (with margin)
 
     circle = new RotatingCircleItem(chartRect(), penZodiac);                      // zodiac circle
-    circle->setCursor(QPixmap("chart/rotate.png"));
+    QCursor curs(QPixmap("chart/rotate.png"));
+    circle->setCursor(curs);
     s->addItem(circle);
     s->addEllipse(chartRect(), penBorder)->setParentItem(circle);                 // zodiac outer border
     s->addEllipse(chartRect().adjusted(zodiacWidth(), zodiacWidth(),              // zodiac inner border
@@ -250,7 +251,7 @@ Chart::createScene()
                    (chartRect().x() + zodiacWidth()) * cos(rad),
                    (chartRect().y() + zodiacWidth()) * sin(rad), penBorder)->setParentItem(circle);
 
-        QString ch = QString(sign.userData["fontChar"].toInt());
+        QString ch = QChar(sign.userData["fontChar"].toInt());
         QGraphicsSimpleTextItem* text = s->addSimpleText(ch, zodiacFont); // zodiac sign icon
         text->setParentItem(circle);
         text->setBrush(coloredZodiac ? signFillColor : sign.userData["fillColor"].toString());
@@ -607,7 +608,7 @@ void Chart::drawPlanets(int fileIndex)
         int charIndex = planet.userData["fontChar"].toInt();
 
         auto text =
-                s->addSimpleText(QString(charIndex),
+                s->addSimpleText(QChar(charIndex),
                                  planet.isReal
                                  ? planetFont
                                  : planetFontSmall);

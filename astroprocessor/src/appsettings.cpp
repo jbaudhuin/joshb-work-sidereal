@@ -71,7 +71,9 @@ const QVariant AppSettings::value(const QString& name, const QVariant& defaultVa
 void AppSettings::load(const QString& fileName)
 {
     QSettings file(fileName, QSettings::IniFormat);
+#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
+#endif
 
     foreach(const QString& key, _values.keys())
         setValue(key, file.value(key, value(key)));
@@ -82,7 +84,9 @@ void AppSettings::load(const QString& fileName)
 void AppSettings::save(const QString& fileName)
 {
     QSettings file(fileName, QSettings::IniFormat);
+#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
+#endif
 
     for (const QString& key : _values.keys()) {
         file.setValue(key, value(key));

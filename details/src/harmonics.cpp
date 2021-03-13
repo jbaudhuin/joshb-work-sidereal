@@ -79,7 +79,7 @@ getFactors(int h)
     if (f.empty() || f.size() < 2) return QVariant();
     QStringList sl;
     for (auto n : f) sl << QString::number(n);
-    return sl.join(" x ");
+    return sl.join("×");
 }
 
 } // anonymous-namespace
@@ -100,7 +100,7 @@ Harmonics::Harmonics(QWidget* parent) :
     _hview->addAction(act);
 
     QVBoxLayout* l2 = new QVBoxLayout(this);
-    l2->setMargin(0);
+    l2->setContentsMargins(QMargins(0,0,0,0));
     l2->addWidget(_hview, 5);
 
     QFile cssfile("Details/style.css");

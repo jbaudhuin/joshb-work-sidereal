@@ -10,6 +10,78 @@ class QLineEdit;
 class QStandardItemModel;
 class QDateEdit;
 class QRadioButton;
+class GeoSearchWidget;
+class TransitEventsModel;
+
+struct ADateDelta {
+    int numDays = 0;
+    int numMonths = 0;
+    int numYears = 0;
+
+    ADateDelta(const QString& str);
+
+    ADateDelta(int days = 0, int months = 0, int years = 0) :
+        numDays(days), numMonths(months), numYears(years)
+    { }
+
+    ADateDelta(QDate from, QDate to);
+
+    QString toString() const
+    {
+        QStringList sl;
+        bool terse = numYears && numMonths && numDays;
+        auto append = [&](const int& v, const QString& un) {
+            if (!v) return;
+            sl << (terse
+                   ? QString("%1%2").arg(v).arg(un.at(0))
+                   : QString("%1 %2%3").arg(v).arg(un).arg(v!=1?"s":""));
+        };
+        append(numYears,"yr");
+        append(numMonths,"mo");
+        append(numDays,"day");
+        return sl.join(terse? " " : ", ");
+    }
+
+    QDate addTo(const QDate& d);
+    QDate subtractFrom(const QDate& d);
+
+    static ADateDelta fromString(const QString& str)
+    { return ADateDelta(str); }
+
+    bool operator==(const ADateDelta& other) const
+    {
+        return numYears == other.numYears
+                && numMonths == other.numMonths
+                && numDays == other.numDays;
+    }
+
+    bool operator!=(const ADateDelta& other) const
+    { return !operator==(other); }
+
+    operator bool() const { return numYears || numMonths || numDays; }
+
+};
+
+class ASignalBlocker {
+    QSet<QObject*> _unblock;
+
+public:
+    ASignalBlocker(QObject* obj) { maybeBlock(obj); }
+
+    ASignalBlocker(std::initializer_list<QObject*> objs)
+    { for (auto obj : objs) maybeBlock(obj); }
+
+    void maybeBlock(QObject* obj)
+    {
+        if (!obj->signalsBlocked()) {
+            obj->blockSignals(true);
+            _unblock.insert(obj);
+        }
+    }
+
+    ~ASignalBlocker()
+    { for (auto obj : _unblock) obj->blockSignals(false); }
+};
 
 class Transits : public AstroFileHandler
 {
@@ -42,6 +114,9 @@ signals:
     //void completed();
 
 protected slots:
+    void onEventSelectionChanged();
+    void onDateRangeChanged();
+
     void updateTransits();
     void checkComplete();
     void onCompleted();
@@ -69,11 +144,18 @@ private:
     QButtonGroup* _grp;
     QRadioButton* _endRB;
     QRadioButton* _duraRB;
+    QPushButton* _back;
+    QPushButton* _forth;
     QDateEdit* _end;
+
+    GeoSearchWidget* _location;
 
     QTimer* _watcher = nullptr;
 
-    QStandardItemModel* _tm;
+    //QStandardItemModel* _tm;
+    TransitEventsModel* _evm;
+
+    ADateDelta _ddelta;
 
     A::HarmonicEvents _evs;
 };

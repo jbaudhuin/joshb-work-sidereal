@@ -10,6 +10,7 @@
 #include <QTreeView>
 #include <QStandardItemModel>
 #include <QStandardItem>
+#include <QStringListModel>
 #include <QHeaderView>
 #include <QTimer>
 #include <QGridLayout>
@@ -19,6 +20,7 @@
 #include <QLineEdit>
 #include <QCheckBox>
 #include <QRadioButton>
+#include <QPushButton>
 #include <QDebug>
 #include <QDateEdit>
 #include <QTimeZone>
@@ -29,7 +31,9 @@
 #include "../../astroprocessor/src/astro-data.h"
 #include "../../zodiac/src/mainwindow.h"
 #include "transits.h"
+#include "geosearch.h"
 #include <math.h>
+#include <vector>
 
 namespace {
 
@@ -93,26 +97,430 @@ protected:
     }
 };
 
-#if 0
-bool _includeOvertones = true;
-bool includeOvertones() { return _includeOvertones; }
-void setIncludeOvertones(bool b = true) { _includeOvertones = b; }
-unsigned _overtoneLimit = 16;
-unsigned overtoneLimit() { return _overtoneLimit; }
-void setOvertoneLimit(unsigned ol) { _overtoneLimit = ol; }
-#endif
-
 QVariant
 getFactors(int h)
 {
     auto f = A::getPrimeFactors(h);
     if (f.empty() || f.size() < 2) return QVariant();
+
     QStringList sl;
     for (auto n : f) sl << QString::number(n);
-    return sl.join(" x ");
+    return sl.join("×");
 }
 
 } // anonymous-namespace
+
+class TransitEventsModel : public QAbstractItemModel {
+    Q_OBJECT
+
+public:
+    enum {
+        sortByDate,
+        sortByHarmonic,
+        sortByTransitBody,
+        sortByNatalBody
+    };
+
+    enum {
+        dateCol             = 0,
+        orbCol              = 0,
+        harmonicCol         = 1,
+        transitBodyCol      = 2,
+        natalTransitBodyCol = 3
+    };
+
+    TransitEventsModel(QObject* parent = nullptr) :
+        QAbstractItemModel(parent)
+    { }
+
+    QModelIndex index(int row, int column,
+                      const QModelIndex& parent = QModelIndex()) const override
+    {
+        return createIndex(row, column,
+                           parent.isValid()? quintptr(parent.row())
+                                           : quintptr(-1));
+    }
+
+    QModelIndex parent(const QModelIndex& inx) const override
+    {
+        if (inx.isValid() && inx.internalId() != quintptr(-1)) {
+            return createIndex(int(inx.internalId()),0,quintptr(-1));
+        }
+        return QModelIndex();
+    }
+
+    int rowCount(const QModelIndex& parent = QModelIndex()) const override
+    {
+        if (parent.isValid()) {
+            int parentRow = parent.row();
+            if (parentRow < 0 || size_t(parentRow) >= _evs.size()) {
+                return 0;
+            }
+            return int(_evs[parentRow]->coincidences().size());
+        }
+        return int(_evs.size());
+    }
+
+    int columnCount(const QModelIndex& =QModelIndex()) const override
+    { return 4; }
+
+    QVariant headerData(int col,
+                        Qt::Orientation /*dir*/,
+                        int role = Qt::DisplayRole) const override
+    {
+        if (role == Qt::TextAlignmentRole) {
+            return Qt::AlignCenter;
+        }
+        if (role != Qt::DisplayRole) return QVariant();
+        switch (col) {
+        case dateCol: return tr("Date");
+        case harmonicCol: return tr("Asp");
+        case transitBodyCol: return tr("Trans");
+        case natalTransitBodyCol: return tr("T/N");
+        }
+        return QVariant();
+    }
+
+    void setZodiac(const A::Zodiac& zod) { _zodiac = zod; }
+
+    QString getPos(float deg) const
+    {
+        const auto& sign = A::getSign(deg, _zodiac);
+        QString glyph(QChar(sign.userData["fontChar"].toInt()));
+        int ang = floor(deg) - sign.startAngle;
+        if (ang < 0) ang += 360;
+
+        int m = (int)(60.0*(deg - (int)deg));
+        return QString("%1%2%3%4").arg(ang).arg(glyph)
+                .arg(m >= 10 ? "" : "0").arg(m);
+    };
+
+    bool singleColumn(const A::PlanetRangeBySpeed& locs) const
+    {
+        return locs.size()==1
+                || (locs.size()>2
+                    && (locs.begin()->planet.fileId()
+                        == locs.rbegin()->planet.fileId()));
+    }
+
+    bool mixedMode(const A::PlanetRangeBySpeed& locs) const
+    {
+        return locs.begin()->planet.fileId()
+                != locs.rbegin()->planet.fileId();
+    }
+
+    template <typename Iter>
+    QVariant glyphic(int role, Iter its) const
+    {
+        if (role==Qt::FontRole) {
+            static QFont f("Almagest", 11);
+            return f;
+        }
+
+        auto count = std::distance(its.first, its.second);
+        if (count == 1) {
+            const A::PlanetLoc& s = *its.first;
+            if (role == Qt::DisplayRole || role == Qt::EditRole) {
+                const A::ChartPlanetId& cpid = s.planet;
+                auto g = cpid.glyph();
+                auto desc = s.desc;
+                if (!desc.isEmpty()) {
+                    if (desc=="SD") desc = "%&";
+                    else if (desc=="SR") desc = "%#";
+                    else if (desc=="n") desc = "";
+                }
+                if (s.speed < 0 && !s.desc.startsWith("S")) {
+                    desc = "#" + desc; // retrograde
+                }
+                return g + " " + getPos(s.rasiLoc()) + " " + desc;
+            } else if (role == Qt::ToolTipRole) {
+                return QString(s.planet.fileId()==1
+                               ? "<i>%1</i>" : "%1")
+                        .arg(s.description())
+                        + " " + A::zodiacPosition(s.rasiLoc(), _zodiac,
+                                                  A::HighPrecision);
+            }
+        }
+
+        if (role == Qt::ToolTipRole) {
+            QStringList sl;
+            for (auto it = its.first; it != its.second; ++it)
+                sl << it->planet.name();
+            return sl.join("-");
+        }
+        A::PlanetSet ps;
+        for (auto it = its.first; it != its.second; ++it) {
+            ps.insert(it->planet);
+        }
+        return ps.glyphs();
+    }
+
+    auto getNTColIters(const A::PlanetRangeBySpeed& locs) const
+    {
+        if (singleColumn(locs)) {
+            return std::make_pair(locs.rend(),locs.rend());
+        }
+        if (mixedMode(locs)) {
+            auto it = locs.rbegin();
+            auto f = it->planet.fileId();
+            auto end = it;
+            while (end != locs.rend() && f==end->planet.fileId()) ++end;
+            return std::make_pair(it, end);
+        }
+        auto it = locs.rbegin();
+        return std::make_pair(it, std::next(it));
+    }
+
+    auto getTColIters(const A::PlanetRangeBySpeed& locs) const
+    {
+        if (singleColumn(locs)) {
+            return std::make_pair(locs.begin(),locs.end());
+        }
+        if (mixedMode(locs)) {
+            auto it = locs.begin();
+            auto f = it->planet.fileId();
+            auto end = it;
+            while (end != locs.end() && f==end->planet.fileId()) ++end;
+            return std::make_pair(it, end);
+        }
+        auto it = locs.begin();
+        return std::make_pair(it, std::next(it));
+    }
+
+    QVariant data(const QModelIndex& index,
+                  int role = Qt::DisplayRole) const override
+    {
+        if (role == Qt::TextAlignmentRole && index.column() == harmonicCol)
+        { return Qt::AlignHCenter; }
+
+        if (role  != Qt::DisplayRole
+                && role != Qt::ToolTipRole
+                && role != Qt::EditRole
+                && (index.column() < transitBodyCol
+                    || (role != Qt::FontRole && role != Qt::ForegroundRole)))
+        { return QVariant(); }
+
+        int row = index.row();
+        int prow = int(index.internalId());
+        int col = index.column();
+        const A::HarmonicAspect& asp(prow==-1? *_evs[row]
+                                               : _evs[prow]->coincidence(row));
+        switch (col) {
+        case dateCol:
+            if (prow == -1) {
+                // HarmonicEvent
+                auto dt = _evs[row]->dateTime().toLocalTime();
+                if (role == Qt::ToolTipRole)
+                    return dt.toString();   // XXX format
+                return dt.toString("yyyy/MM/dd");
+            }
+
+            // HarmonicAspect
+            return A::degreeToString(asp.orb());
+
+        case harmonicCol:
+            return "H" + QString::number(asp.harmonic());
+
+        case transitBodyCol:
+            return glyphic(role, getTColIters(asp.locations()));
+
+        case natalTransitBodyCol:
+            if (role == Qt::ForegroundRole) {
+                if (mixedMode(asp.locations())) return QColor("gold");
+                // else falls through to default return
+                break;
+            }
+            return glyphic(role, getNTColIters(asp.locations()));
+
+        default:
+            break;
+        }
+        return QVariant();
+    }
+
+    void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override
+    {
+        _sortPending = false;
+
+        typedef const A::HarmonicEvent* HEv;
+        typedef std::function<bool(HEv, HEv)> Cmptor;
+        Cmptor less = [&](HEv a, HEv b) {
+            switch (column) {
+            case dateCol:
+                if (a->dateTime() < b->dateTime()) return true; // date-time
+                if (a->dateTime() > b->dateTime()) return false;
+                if (a->orb() < b->orb()) return true;   // orb
+                if (a->orb() > b->orb()) return false;
+                if (a->harmonic() < b->harmonic()) return true; // harmonic
+                if (a->harmonic() > b->harmonic()) return false;
+                if (a->locations().size() < b->locations().size())  // planetSet
+                    return true;
+                if (a->locations().size() > b->locations().size())
+                    return false;
+                return (a->locations() < b->locations());       // planetRange
+
+            case harmonicCol:
+                if (a->harmonic() < b->harmonic()) return true; // harmonic
+                if (a->harmonic() > b->harmonic()) return false;
+                if (a->dateTime() < b->dateTime()) return true; // date-time
+                if (a->dateTime() > b->dateTime()) return false;
+                if (a->orb() < b->orb()) return true;   // orb
+                if (a->orb() > b->orb()) return false;
+                if (a->locations().size() < b->locations().size())  // planetSet
+                    return true;
+                if (a->locations().size() > b->locations().size())
+                    return false;
+                return (a->locations() < b->locations());       // planetRange
+
+            case transitBodyCol:
+            {
+                A::PlanetRangeLess prless(true/*fast*/);
+                if (prless(a->locations(),b->locations())) return true;
+                if (prless(b->locations(),a->locations())) return false;
+                if (a->dateTime() < b->dateTime()) return true;     // date-time
+                if (a->dateTime() > b->dateTime()) return false;
+                if (a->orb() < b->orb()) return true;   // orb
+                if (a->orb() > b->orb()) return false;
+                return (a->harmonic() < b->harmonic()); // harmonic
+            }
+
+            case natalTransitBodyCol:   // XXX
+            {
+                A::PlanetRangeLess prless(false/*not fast*/);
+                if (prless(a->locations(),b->locations())) return true;
+                if (prless(b->locations(),a->locations())) return false;
+                if (a->dateTime() < b->dateTime()) return true;     // date-time
+                if (a->dateTime() > b->dateTime()) return false;
+                if (a->orb() < b->orb()) return true;   // orb
+                if (a->orb() > b->orb()) return false;
+                return (a->harmonic() < b->harmonic()); // harmonic
+            }
+            }
+            return false;
+        };
+
+        Cmptor more = [&](HEv a, HEv b)
+        { return less(b,a); };
+
+        beginResetModel();
+        std::sort(_evs.begin(), _evs.end(),
+                  order==Qt::AscendingOrder? less : more);
+        endResetModel();
+    }
+
+    void addEvents(const A::HarmonicEvents& evs)
+    {
+        auto ins = _evls.insert(evs);
+        if (!ins.second) return;
+
+        beginResetModel();
+        _evs.insert(_evs.end(),evs.cbegin(),evs.cend());
+        sort();
+        endResetModel();
+    }
+
+    void removeEvents(const A::HarmonicEvents& evs)
+    {
+        auto it = _evls.find(&evs);
+        if (it == _evls.end()) return;
+
+        beginResetModel();
+        rebuild();
+        sort();
+        endResetModel();
+    }
+
+    void clearAllEvents()
+    {
+        if (_evls.empty()) return;
+        beginResetModel();
+        _evls.clear();
+        _evs.clear();
+        endResetModel();
+    }
+
+public slots:
+    void rebuild()
+    {
+        _evs.clear();
+        for (const auto& evs : _evls) {
+            _evs.insert(_evs.end(), evs->begin(), evs->end());
+        }
+        sort();
+    }
+
+    void triggerSort()
+    {
+        if (!_sortPending) {
+            _sortPending = true;
+            QTimer::singleShot(0,this,SLOT(sort()));
+        }
+    }
+
+    void onSortChange(int col, Qt::SortOrder order)
+    {
+        if (col != _sortBy || _sortOrder != order) {
+            _sortBy = col;
+            _sortOrder = order;
+            triggerSort();
+        }
+    }
+
+    void sort() { sort(_sortBy, _sortOrder); }
+
+private:
+    std::vector<const A::HarmonicEvent*> _evs;
+    std::set<const A::HarmonicEvents*> _evls;
+
+    bool _sortPending           = false;
+    int _sortBy                 = sortByDate;
+    Qt::SortOrder _sortOrder    = Qt::AscendingOrder;
+
+    A::Zodiac _zodiac;
+};
+
+#include "transits.moc"
+
+ADateDelta::ADateDelta(const QString& str)
+{
+    QRegularExpression re("(\\d+) ?((y(ea)?r?|m(o(n(th)?)?)?|d(a?y)?)s?)");
+    re.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
+
+    auto mit = re.globalMatch(str);
+    while (mit.hasNext()) {
+        auto match = mit.next();
+        auto val = match.captured(1).toInt();
+        auto unit = match.captured(2).toLower();
+        if (unit.startsWith("y")) numYears = val;
+        else if (unit.startsWith("m")) numMonths = val;
+        else if (unit.startsWith("d")) numDays = val;
+    }
+}
+
+ADateDelta::ADateDelta(QDate from, QDate to)
+{
+    if (from > to) qSwap(from, to);
+    auto dd = from.daysTo(to);
+    numYears = dd / 365;
+    dd %= 365;
+    numMonths = dd / 30;
+    dd %= 30;
+    auto num = to.day() - from.day();
+    numDays = (numDays >= 0)? num : dd;
+}
+
+QDate
+ADateDelta::addTo(const QDate &d)
+{
+    return d.addYears(numYears).addMonths(numMonths).addDays(numDays);
+}
+
+QDate
+ADateDelta::subtractFrom(const QDate &d)
+{
+    return d.addYears(-numYears).addMonths(-numMonths).addDays(-numDays);
+}
+
 
 Transits::Transits(QWidget* parent) :
     AstroFileHandler(parent),
@@ -120,52 +528,92 @@ Transits::Transits(QWidget* parent) :
     _fileIndex(0),
     _inhibitUpdate(false),
     _tview(nullptr),
-    _tm(nullptr)
+#if OLDMODEL
+    _tm(nullptr),
+#endif
+    _evm(nullptr),
+    _ddelta(0,1,0)
+
 {
     _tview = new QTreeView;
     _tview->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    _tview->expandAll();
+
+    _evm = new TransitEventsModel(this);
+    _tview->setModel(_evm);
+
+    auto hdr = _tview->header();
+    connect(hdr, &QHeaderView::sortIndicatorChanged,
+            _evm, &TransitEventsModel::onSortChange);
+    hdr->setSectionsClickable(true);
+    hdr->setSortIndicatorShown(true);
+    hdr->setSortIndicator(0, Qt::AscendingOrder);
+    hdr->setSectionResizeMode(QHeaderView::ResizeToContents);
 
     QAction* act = new QAction("Copy");
     act->setShortcut(QKeySequence::Copy);
     connect(act, SIGNAL(triggered()), this, SLOT(copySelection()));
     _tview->addAction(act);
 
-    _start = new QDateEdit;
+    _start = new QDateEdit;    
     _duraRB = new QRadioButton(tr("for"));
+    _duraRB->setFocusPolicy(Qt::NoFocus);
     _duration = new QLineEdit;
-    _duration->setText(tr("6 months"));
+    _duration->setText(_ddelta.toString());
     _endRB = new QRadioButton(tr("til"));
+    _endRB->setFocusPolicy(Qt::NoFocus);
     _end = new QDateEdit;
+
+    _back = new QPushButton("«");
+    _back->setMaximumWidth(20);
+    _forth = new QPushButton("»");
+    _forth->setMaximumWidth(20);
 
     _grp = new QButtonGroup(this);
     _grp->addButton(_duraRB,0);
     _grp->addButton(_endRB,1);
+    _duraRB->setChecked(true);
 
     auto l1 = new QHBoxLayout;
-    l1->addWidget(new QLabel(tr("from")));
+    l1->addWidget(_back);
+    l1->addWidget(_forth);
+    //l1->addWidget(new QLabel(tr("from")));
     l1->addWidget(_start);
-    _start->setDate(QDate::currentDate());
     l1->addWidget(_duraRB);
     l1->addWidget(_duration);
     l1->addWidget(_endRB);
     l1->addWidget(_end);
-    _end->setDate(QDate::currentDate().addMonths(6));
-
+    l1->setSpacing(4);
+    
     _input = new QLineEdit;
 
-    QVBoxLayout* l2 = new QVBoxLayout;
-    l2->setMargin(0);
-    l2->addWidget(_tview, 5);
-    int i1 = l2->count();
+    auto l2 = new QVBoxLayout;
     l2->addItem(l1);
-    l2->setStretch(i1, 0);
     l2->addWidget(_input,0);
+    l2->setContentsMargins(QMargins(4,4,4,4));
 
-    setLayout(l2);
+    QVBoxLayout* l3 = new QVBoxLayout;
+    l3->setContentsMargins(QMargins(0,0,0,0));
+    int i1 = l3->count();
+    l3->addItem(l2);
+    l3->setStretch(i1, 0);
+    l3->addWidget(_tview, 5);
+
+    _location = new GeoSearchWidget(false/*hbox*/);
+    connect(_location, &GeoSearchWidget::locationChanged,
+            [this] {
+        if (!_trans) return;
+        _trans->setLocation(_location->location());
+        _trans->setLocationName(_location->locationName());
+    });
+    l3->addWidget(_location);
+
+    setLayout(l3);
 
     QFile cssfile("Details/style.css");
     cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
     setStyleSheet(cssfile.readAll());
+    cssfile.close();
 
 #if 0
     QTimer::singleShot(0, [this]() {
@@ -183,11 +631,96 @@ Transits::Transits(QWidget* parent) :
 
     connect(this, SIGNAL(needToFindIt(const QString&)), 
             this, SLOT(findIt(const QString&)));
+    
+    _start->setCalendarPopup(true);
+    _end->setCalendarPopup(true);
+
+    connect(_back, &QAbstractButton::clicked, [this] {
+        auto sd = _start->date();
+        auto dd = sd.daysTo(_end->date()) / 2;
+        if (dd) _start->setDate(sd.addDays(-dd));
+    });
+
+    connect(_forth, &QAbstractButton::clicked, [this] {
+        auto ed = _end->date();
+        auto dd = _start->date().daysTo(ed) / 2;
+        if (dd) _end->setDate(ed.addDays(dd));
+    });
+
+    auto updateDelta = [this](const QDate& ed) {
+        ADateDelta delta(_start->date(), ed);
+        if (delta != _ddelta) {
+            _ddelta = delta;
+            /*block*/ {
+                ASignalBlocker sb(_duration);
+                _duration->setText(_ddelta.toString());
+            }
+            onDateRangeChanged();
+        }
+    };
+    
+    connect(_start, &QDateEdit::dateChanged,
+            [this, updateDelta](const QDate& sd)
+    {
+        if (_grp->checkedId()==0) {
+            auto newDate = _ddelta.addTo(sd);
+            if (_end->date() != newDate) {
+                /*block*/ {
+                    ASignalBlocker sb(_end);
+                    _end->setDate(newDate);
+                }
+                onDateRangeChanged();
+            }
+        } else {
+            updateDelta(_end->date());
+        }
+    });
+    connect(_end, &QDateEdit::dateChanged,
+            [this, updateDelta](const QDate& sd)
+    {
+        if (_grp->checkedId()==0) {
+            auto newDate = _ddelta.subtractFrom(sd);
+            if (_start->date() != newDate) {
+                /*block*/ {
+                    ASignalBlocker sb(_start); _start->setDate(newDate);
+                }
+                onDateRangeChanged();
+            }
+        } else {
+            updateDelta(sd);
+        }
+    });
+    connect(_duration, &QLineEdit::editingFinished,
+            [this]
+    {
+        ADateDelta delta = _duration->text();
+        if (!delta) delta = QString("1 mo"); // revert to default
+
+        if (delta != _ddelta) {
+            _ddelta = delta;
+            auto str = _ddelta.toString();
+            if (str != _duration->text()) {
+                /*block*/ {
+                ASignalBlocker sb(_duration); _duration->setText(str);
+                }
+            }
+            _end->setDate(_ddelta.addTo(_start->date()));
+            onDateRangeChanged();
+        }
+    });
+
+    auto today = QDate::currentDate();
+    auto startOfMonth = QDate(today.year(),today.month(),1);
+    _start->setDate(startOfMonth);
 }
 
 void 
 Transits::describePlanet()
 {
+#if 0
+    // TODO filter by planet?
+#endif
+
     _fileIndex = qBound(0, _fileIndex, filesCount() - 1);
     updateTransits();
 }
@@ -195,8 +728,9 @@ Transits::describePlanet()
 void
 Transits::updateTransits()
 {
+    if (filesCount() == 0) return;
+
     qDebug() << "filesCount()" << filesCount();
-    if (_tm) return;
 
     _evs.clear();
 
@@ -226,6 +760,21 @@ Transits::updateTransits()
         }
     }
 
+    if (!_trans) {
+        _trans = new AstroFile;
+        MainWindow::theAstroWidget()->setupFile(_trans);
+        auto s = MainWindow::theAstroWidget()->currentSettings();
+        auto v = s.value("Scope/defaultLocation").toString().split(" ");
+        _location->setLocation(QVector3D(v.at(0).toFloat(),
+                                         v.at(1).toFloat(),
+                                         v.at(2).toFloat()));
+        _location->setLocationName(s.value("Scope/defaultLocationName")
+                                   .toString());
+    } else {
+        _trans->setLocation(_location->location());
+        _trans->setLocationName(_location->locationName());
+    }
+
     auto tp = QThreadPool::globalInstance();
     auto hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
@@ -234,18 +783,14 @@ Transits::updateTransits()
                 start(new A::TransitFinder(_evs, r, hs,
                                            scope.inputData, pst));
     } else {
-        if (!_trans) {
-            _trans = new AstroFile;
-            MainWindow::theAstroWidget()->setupFile(_trans);
-        }
         const auto& ida(_trans->horoscope().inputData);
         auto tf = new A::TransitFinder(_evs, r, hs,
                                        scope.inputData, pst);
         tf->setIncludeStations(false);
         tp->start(tf);
         tp->start(new A::NatalTransitFinder(_evs, r, hs,
-                                          scope.inputData,
-                                          ida, psn, pst));
+                                            scope.inputData,
+                                            ida, psn, pst));
     }
 
     if (!_watcher) {
@@ -274,103 +819,13 @@ Transits::onCompleted()
     const A::Horoscope& scope(file()->horoscope());
     const auto& ida(transOnly? file()->horoscope().inputData
                              : _trans->horoscope().inputData);
-
-    _tm = new QStandardItemModel(this);
-    _tm->setColumnCount(4/*5*/);
-    _tm->setHorizontalHeaderLabels({"Date", "H", "T",
-                                    transOnly? "T" : "N/T"});
-
-    auto byDate = [](const A::HarmonicEvent& a, const A::HarmonicEvent& b) {
-        if (a.dateTime() < b.dateTime()) return true;   // date-time
-        if (a.dateTime() > b.dateTime()) return false;
-        if (a.orb() < b.orb()) return true;   // orb
-        if (a.orb() > b.orb()) return false;
-        if (a.harmonic() < b.harmonic()) return true;   // harmonic
-        if (a.harmonic() > b.harmonic()) return false;
-        if (a.locations().size() < b.locations().size())  // planetSet
-            return true;
-        if (a.locations().size() > b.locations().size())
-            return false;
-        return (a.locations() < b.locations());           // planetRange
-    };
-
-    _evs.sort(byDate);
-
-    const A::Zodiac& zodiac(scope.zodiac);
-    auto getPos = [&zodiac](float deg) {
-        const auto& sign = A::getSign(deg, zodiac);
-        QString glyph(sign.userData["fontChar"].toInt());
-        int ang = floor(deg) - sign.startAngle;
-        if (ang < 0) ang += 360;
-
-        int m = (int)(60.0*(deg - (int)deg));
-        return QString("%1%2%3%4").arg(ang).arg(glyph)
-                .arg(m >= 10 ? "" : "0").arg(m);
-    };
-
-    auto isNatal = [&](const A::ChartPlanetId& cpid) {
-        if (transOnly) return false;
-        return cpid.fileId()==0;
-    };
-
-    QFont astroFont("Almagest", 11);
-
-    auto addAspect =
-            [&](itemList& il, const A::HarmonicAspect& asp)
-    {
-        unsigned char ch = asp.harmonic();
-        il.append(QString("H%1").arg(ch));
-
-        for (const auto& s: asp.locations()) {
-            const auto& cpid = s.planet;
-            auto g = cpid.glyph();
-            auto desc = s.desc;
-            if (!desc.isEmpty()) {
-                if (desc=="SD") desc = "%&";
-                else if (desc=="SR") desc = "%#";
-                else if (desc=="r") desc = "";
-            }
-            if (s.speed < 0 && !s.desc.startsWith("S")) {
-                desc = "#" + desc; // retro glyph
-            }
-            il.append(g + " " + getPos(s.rasiLoc()) + " " + desc);
-            il.last()->setFont(astroFont);
-            auto tt = QString(s.planet.fileId()==1
-                              ? "<i>%1</i>" : "%1")
-                    .arg(s.description()) + " "
-                + A::zodiacPosition(s.rasiLoc(),zodiac,A::HighPrecision);
-            il.last()->setToolTip(tt);
-            if (isNatal(cpid)) {
-                static QColor nfg = QColor("gold");
-                il.last()->setForeground(nfg);
-            }
-        }
-        if (il.size() < 4) il.append("");
-    };
-
     QTimeZone tz(ida.tz);
-    for (const auto& ev: _evs) {
-        QDateTime dt = ev.dateTime();
-        dt.setTimeZone(tz);
-
-        itemList il;
-        il.append(dt.toLocalTime().date().toString("yyyy/MM/dd"));
-        il.last()->setToolTip(dt.toLocalTime().toString());
-
-        addAspect(il, ev);
-        _tm->appendRow(il);
-
-        for (const auto& asp: ev.coincidences()) {
-            itemList cil;
-            cil.append(A::degreeToString(asp.orb()));
-            addAspect(cil, asp);
-
-            il.front()->appendRow(cil);
-        }
+    for (auto& ev: _evs) {
+        ev.dateTime().setTimeZone(tz);
     }
-    _tview->setModel(_tm);
-    _tview->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    _tview->expandAll();
+    _evm->setZodiac(scope.zodiac);
+    _evm->addEvents(_evs);
+    //QTimer::singleShot(0,[this]{ _tview->expandAll(); });
 }
 
 void 
@@ -524,6 +979,26 @@ Transits::tvm() const
     return qobject_cast<QStandardItemModel*>(_tview->model());
 }
 
+void Transits::onEventSelectionChanged()
+{
+#if OLDMODEL
+    if (_tm) { delete _tm; _tm = nullptr; }
+#else
+    if (_evm) { _evm->clearAllEvents(); }
+#endif
+    updateTransits();
+}
+
+void Transits::onDateRangeChanged()
+{
+#if OLDMODEL
+    if (_tm) { delete _tm; _tm = nullptr; }
+#else
+    if (_evm) { _evm->clearAllEvents(); }
+#endif
+    updateTransits();
+}
+
 void 
 Transits::filesUpdated(MembersList m)
 {
@@ -534,14 +1009,20 @@ Transits::filesUpdated(MembersList m)
 
     bool any = false;
     for (auto ml: m) {
-        any |= (ml & ~(AstroFile::GMT
-                       | AstroFile::Timezone));
+        any |= (ml & (AstroFile::GMT
+                      | AstroFile::Timezone
+                      | AstroFile::Zodiac
+                      | AstroFile::AspectSet));
     }
     if (any) {
+#if OLDMODEL
         auto zap = _tm;
         _tview->setModel(nullptr);
         _tm = nullptr;
         zap->deleteLater();
+#else
+        _evm->clearAllEvents();
+#endif
         describePlanet();
     }
 }

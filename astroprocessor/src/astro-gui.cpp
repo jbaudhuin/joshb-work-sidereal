@@ -37,7 +37,6 @@ QString
 AstroFile::typeToString(unsigned ft)
 {
     switch (ft) {
-    case TypeEvents: return "Event";
     case TypeSearch: return "Search";
     case TypeDerivedSA: return "SA";
     case TypeDerivedProg: return "Prog";
@@ -61,7 +60,6 @@ AstroFile::typeFromString(const QString& str)
     if (str == "Prog") return TypeDerivedProg;
     if (str == "SA") return TypeDerivedSA;
     if (str == "Search") return TypeSearch;
-    if (str == "Event") return TypeEvents;
     return TypeOther;
 }
 
@@ -127,7 +125,9 @@ AstroFile::save()
                           _fileInfo.fileName());
     }
     QSettings file(fileName(), QSettings::IniFormat);
+#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
+#endif
 
     file.setValue("name", getName());
     file.setValue("type", typeToString(getType()));
@@ -162,17 +162,26 @@ AstroFile::load(const AFileInfo& fi/*, bool recalculate*/)
 {
     QString name = fi.baseName();
     if (name.isEmpty()) return;
-    qDebug() << "Loading file" << getName() << "from" << name;
+    qDebug() << "Overwriting" << getName() << "from" << fi.absoluteFilePath();
 
     suspendUpdate();
     _fileInfo = fi;
 
     QSettings file(fileName(), QSettings::IniFormat);
+#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
+#endif
+
+    for (const QString& val : file.allKeys()) {
+        qDebug() << val << file.value(val);
+    }
 
     setType(typeFromString(file.value("type").toString()));
-    setGMT(QDateTime::fromString(file.value("GMT").toString() + "Z",
-                                 Qt::ISODate));
+
+    auto dts = file.value("GMT").toString();
+    if (!dts.endsWith('Z')) dts += 'Z';
+    setGMT(QDateTime::fromString(dts, Qt::ISODate));
+
     setTimezone(file.value("timezone").toFloat());
     setLocation(QVector3D(file.value("lon").toFloat(),
                           file.value("lat").toFloat(),
@@ -208,10 +217,13 @@ AstroFile::loadComposite(const AFileInfoList& names)
     setFileInfo(names.first());
 
     auto file = std::make_unique<QSettings>(fileName(), QSettings::IniFormat);
+#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
     file->setIniCodec(QTextCodec::codecForName("UTF-8"));
+#endif
 
-    setGMT(QDateTime::fromString(file->value("GMT").toString() + "Z",
-                                 Qt::ISODate));
+    auto dts = file->value("GMT").toString();
+    if (!dts.endsWith('Z')) dts += 'Z';
+    setGMT(QDateTime::fromString(dts, Qt::ISODate));
 }
 
 void
@@ -325,8 +337,7 @@ AstroFile::setComment(const QString& comment)
 void
 AstroFile::setHouseSystem(A::HouseSystemId system)
 {
-    if (getHouseSystem() != system)
-    {
+    if (getHouseSystem() != system) {
         scope.inputData.houseSystem = system;
         change(HouseSystem);
     }
@@ -335,8 +346,7 @@ AstroFile::setHouseSystem(A::HouseSystemId system)
 void
 AstroFile::setZodiac(A::ZodiacId zod)
 {
-    if (getZodiac() != zod)
-    {
+    if (getZodiac() != zod) {
         scope.inputData.zodiac = zod;
         change(Zodiac);
     }
@@ -345,8 +355,7 @@ AstroFile::setZodiac(A::ZodiacId zod)
 void
 AstroFile::setAspectSet(A::AspectSetId set, bool force)
 {
-    if (getAspectSet().id != set || force)
-    {
+    if (getAspectSet().id != set || force) {
         scope.inputData.aspectSet = set;
         change(AspectSet);
     }

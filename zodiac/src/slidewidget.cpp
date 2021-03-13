@@ -14,7 +14,7 @@ SlideWidget :: SlideWidget(QWidget *parent) : QWidget(parent)
   animating = false;
 
   layout = new QHBoxLayout(this);
-  layout->setMargin(0);
+  layout->setContentsMargins(QMargins(0,0,0,0));
  }
 
 void SlideWidget :: addSlide(QWidget* wdg, int number)

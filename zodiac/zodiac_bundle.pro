@@ -1,4 +1,8 @@
 QT += widgets network quick concurrent
+greaterThan(QT_MAJOR_VERSION,5) {
+    QT += core5compat
+}
+
 DESTDIR = $$_PRO_FILE_PWD_/../bin
 TARGET = zodiac
 TEMPLATE = app

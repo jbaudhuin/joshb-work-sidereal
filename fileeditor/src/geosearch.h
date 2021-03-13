@@ -10,6 +10,7 @@
 class QLineEdit;
 class QNetworkReply;
 class QTimer;
+class QToolButton;
 class QTreeWidget;
 class QDoubleSpinBox;
 class GeoSearchBox;
@@ -89,6 +90,7 @@ class GeoSearchWidget : public QWidget
     private:
        QAction *googleAct, *yandexAct, *editAct;
        QStackedLayout* modes;
+       QToolButton* _tbtn;
        GeoSearchBox* geoSearchBox;
        QDoubleSpinBox* latitude;
        QDoubleSpinBox* longitude;
@@ -106,7 +108,7 @@ class GeoSearchWidget : public QWidget
        void locationChanged() const;
 
     public:
-       GeoSearchWidget(QWidget* parent = nullptr);
+       GeoSearchWidget(bool vbox = true, QWidget* parent = nullptr);
        QVector3D location() const;
        QString locationName() const;
 

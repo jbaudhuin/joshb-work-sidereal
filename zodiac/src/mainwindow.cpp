@@ -3,6 +3,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStatusBar>
+#include <QActionGroup>
 
 #include <QStandardItemModel>
 #include <QTreeView>
@@ -67,14 +68,13 @@ AstroFileInfo::refresh()
 {
     qDebug() << "AstroFileInfo::refresh";
     QDateTime dt = currentFile()->getLocalTime();
+    auto date = QLocale().toString(dt.date(),QLocale::ShortFormat);
 
-    QString date = dt.date().toString(Qt::DefaultLocaleShortDate);
     QString dayOfWeek = dt.date().toString("ddd");
     QString time = dt.time().toString();
 
     QString age;
-    if (showAge)
-    {
+    if (showAge) {
         float a1 = dt.daysTo(QDateTime::currentDateTime()) / 365.25;
         char a[7];
         snprintf(a, sizeof(a), "%5.2f", a1);
@@ -180,14 +180,14 @@ AstroWidget::AstroWidget(QWidget *parent) : QWidget(parent)
     fileView2nd->setObjectName("secondFile");
 
     QGridLayout* layout = new QGridLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins(0,0,0,0));
     layout->addWidget(slides, 0, 0, 1, 1);
     layout->addWidget(fileView, 0, 0, 1, 1, Qt::AlignLeft | Qt::AlignTop);
     layout->addWidget(fileView2nd, 0, 0, 1, 1, Qt::AlignRight | Qt::AlignTop);
 
     addDockWidget(new Details, tr("Details"), true/*scrollable*/);
     addDockWidget(new Harmonics, tr("Harmonics"), false/*not scrollable*/);
-    addDockWidget(new Transits, tr("Transits"), false/*notScroll*/);
+    addDockWidget(new Transits, tr("Events"), false/*notScroll*/);
     addSlide(new Chart, QIcon("style/natal.png"), tr("Chart"));
     addSlide(new Planets, QIcon("style/planets.png"), tr("Planets"));
     addSlide(new Plain, QIcon("style/plain.png"), tr("Text"));
@@ -205,7 +205,7 @@ AstroWidget::setupFile(AstroFile* file, bool suspendUpdate)
     bool hasChanges = file->hasUnsavedChanges();
     file->suspendUpdate();
 
-    if (file->getGMT() == QDateTime::fromTime_t(0))  // set current date, time, timezone
+    if (file->getGMT() == QDateTime::fromSecsSinceEpoch(0))  // set current date, time, timezone
     {
         QDateTime current = QDateTime::currentDateTime();
         QTimeZone tz = current.timeZone();
@@ -228,7 +228,7 @@ AstroWidget::setupFile(AstroFile* file, bool suspendUpdate)
     bool ok = false;
     auto h = val.toDouble(&ok);
     if (!ok) {
-        auto ops = val.split(QRegExp("\\s*\\*\\s*"));
+        auto ops = val.split(QRegularExpression("\\s*\\*\\s*"));
         if (ops.size()>=2) {
             double v = 1;
             for (auto m : ops) {
@@ -237,7 +237,7 @@ AstroWidget::setupFile(AstroFile* file, bool suspendUpdate)
             }
             if (ok) file->setHarmonic(v);
         } else {
-            ops = val.split(QRegExp("\\s*/\\s*"));
+            ops = val.split(QRegularExpression("\\s*/\\s*"));
             if (ops.size()>=2) {
                 double v = ops.takeFirst().toDouble(&ok);
                 for (auto m : ops) {
@@ -942,7 +942,7 @@ AstroDatabase::AstroDatabase(QWidget *parent /*=nullptr*/) :
 void
 AstroDatabase::searchFilter(const QString& nf)
 {
-    searchProxy->setFilterRegExp(nf);
+    searchProxy->setFilterRegularExpression(nf);
 }
 
 AFileInfoList
@@ -1337,7 +1337,7 @@ FilesBar::editNewChart()
     MainWindow::theAstroWidget()->setupFile(f);
     pafe->setFiles( {f} );
     lay->addWidget(pafe);
-    pafe->layout()->setMargin(0);
+    pafe->layout()->setContentsMargins(QMargins(0,0,0,0));
     auto dbb = new QDialogButtonBox(QDialogButtonBox::Ok
                                     |QDialogButtonBox::Cancel,
                                     dlg);
@@ -1369,11 +1369,11 @@ FilesBar::findChart()
     auto pafe = new AstroFileEditor(dlg);
     auto f = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(f, true/*suspendUpdate*/);
-    f->setType(AstroFile::TypeEvents);
+    f->setType(AstroFile::TypeSearch);
     pafe->setFiles( {f} );
 
     lay->addWidget(pafe);
-    pafe->layout()->setMargin(0);
+    pafe->layout()->setContentsMargins(QMargins(0,0,0,0));
     auto dbb = new QDialogButtonBox(QDialogButtonBox::Ok
                                     | QDialogButtonBox::Cancel,
                                     dlg);
@@ -1696,7 +1696,7 @@ MainWindow::MainWindow(QWidget *parent) :
     wdg->setContextMenuPolicy(Qt::CustomContextMenu);
     QVBoxLayout* layout = new QVBoxLayout(wdg);
     layout->setSpacing(0);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins(0,0,0,0));
     layout->addWidget(filesBar, 0, Qt::AlignLeft);
     layout->addWidget(astroWidget);
 
@@ -1971,7 +1971,7 @@ MainWindow::showAbout()
     s->setTransitionEffect(SlideWidget::Transition_Overlay);
 
     QHBoxLayout* h = new QHBoxLayout;
-    h->setMargin(10);
+    h->setContentsMargins(QMargins(10,10,10,10));
     h->addWidget(b);
     h->addStretch();
     h->addWidget(b1);
@@ -1979,7 +1979,7 @@ MainWindow::showAbout()
     h->addWidget(b3);
 
     QVBoxLayout* v = new QVBoxLayout(d);
-    v->setMargin(0);
+    v->setContentsMargins(QMargins(0,0,0,0));
     v->addWidget(s);
     v->addLayout(h);
 

@@ -18,13 +18,14 @@ Q_DECLARE_METATYPE(ADateRange)
 
 /* =========================== ASTRO FILE ================================== */
 
-class AstroFile : public QObject
+class AstroFile :
+        public QObject,
+        public A::EventStore
 {
     Q_OBJECT;
 
 public:
-    enum FileType { TypeOther, TypeMale, TypeFemale,
-                    TypeEvents, TypeSearch,
+    enum FileType { TypeOther, TypeMale, TypeFemale, TypeSearch,
                     TypeDerivedSA, TypeDerivedProg, TypeDerivedPD,
                     TypeDerivedSearch, TypeCount };
 

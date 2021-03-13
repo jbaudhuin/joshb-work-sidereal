@@ -2,7 +2,7 @@
 #define A_CALC_H
 
 #include "astro-data.h"
-#include <QFuture>
+#include <QRunnable>
 
 namespace A {  // Astrology, sort of :)
 
@@ -143,10 +143,10 @@ bool    isEarlier                ( const Planet& planet, const Planet& sun );
 //const Planet& ruler          ( int house, const Horoscope& scope );
 PlanetId receptionWith           ( const Planet& planet, const Horoscope& scope );
 
-uintSet getAllFactors(unsigned h);
-uintSet getPrimeFactors(unsigned h);
+uintMSet getAllFactors(unsigned h);
+uintMSet getPrimeFactors(unsigned h);
 std::vector<bool> getPrimeSieve(unsigned top);
-uintSet getPrimes(unsigned top);
+uintMSet getPrimes(unsigned top);
 
 void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
 void calculateBaseChartHarmonic(Horoscope& scope);
@@ -176,6 +176,12 @@ public:
     }
 };
 
+class EventFinderBase : public QRunnable {
+public:
+    virtual void find() = 0;
+    void run(); // sets ephemeris path and then runs
+};
+
 struct EventFinder : public QRunnable {
 public:
     EventFinder(HarmonicEvents& evs,
@@ -183,8 +189,7 @@ public:
         _evs(evs), _range(range)
     { }
 
-    ~EventFinder()
-    { }
+    ~EventFinder() { }
 
     HarmonicEvents& _evs;
     ADateRange _range;
@@ -197,7 +202,7 @@ class AspectFinder : public EventFinder {
 public:
     AspectFinder(HarmonicEvents& evs,
                  const ADateRange& range,
-                 const uintQSet& hset) :
+                 const uintSSet& hset) :
         EventFinder(evs, range),
         _hset(hset)
     { }
@@ -238,18 +243,27 @@ protected:
         return true;
     }
 
-    uintQSet _hset;         ///< harmonic profile
+    uintSSet _hset;         ///< harmonic profile
     std::list<uintPair> _staff;
     EventType _evType = etcUnknownEvent;
 
 private:
 };
 
+class CoincidenceFinder : public QRunnable {
+    HarmonicAspects& _coins;
+
+public:
+    CoincidenceFinder(AspectFinder* from,
+                      HarmonicAspects& coincidents);
+    void run() override;
+};
+
 class TransitFinder : public AspectFinder {
 public:
     TransitFinder(HarmonicEvents& ev,
                   const ADateRange& range,
-                  const uintQSet& hs,
+                  const uintSSet& hs,
                   const InputData& trainp,
                   const PlanetSet& tran);
 };
@@ -258,12 +272,31 @@ class NatalTransitFinder : public AspectFinder {
 public:
     NatalTransitFinder(HarmonicEvents& ev,
                        const ADateRange& range,
-                       const uintQSet& hs,
+                       const uintSSet& hs,
                        const InputData& natinp,
                        const InputData& trainp,
                        const PlanetSet& natal,
                        const PlanetSet& tran,
                        bool includeTransitsToTransits = false);
+};
+
+class EventTypeManager {
+public:
+    typedef std::tuple<unsigned char,QString,QString> eventTypeInfo;
+
+    static EventTypeManager& singleton();
+    static unsigned registerEventType(unsigned char chnum,
+                                      const QString& abbr,
+                                      const QString& desc);
+    static unsigned registerEventType(const eventTypeInfo& evtinf);
+
+private:
+    unsigned _numEvents = etcUserEventStart;
+    QMap<unsigned,eventTypeInfo> _eventIdToString;
+    QMap<QString,unsigned> _eventStringToId;
+
+    EventTypeManager();
+    ~EventTypeManager() { }
 };
 
 class EventFinderFactory {

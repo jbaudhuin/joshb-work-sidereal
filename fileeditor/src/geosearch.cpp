@@ -3,6 +3,7 @@
 #include <QTreeWidget>
 #include <QHeaderView>
 #include <QToolBar>
+#include <QToolButton>
 #include <QAction>
 #include <QLabel>
 #include <QDoubleSpinBox>
@@ -14,6 +15,8 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QXmlStreamReader>
+#include <QStringView>
+#include <QActionGroup>
 #include <QLocale>
 #include <QDebug>
 #include "geosearch.h"
@@ -134,7 +137,7 @@ GeoSuggestCompletion::showCompletion(const QStringList &cities,
         item->setText(1, descr[i]);
         item->setText(2, pos[i]);
 
-        item->setTextColor(1, color);
+        item->setForeground(1, color);
 
         item->setToolTip(0, descr[i]);
         item->setToolTip(1, descr[i]);
@@ -229,31 +232,38 @@ GeoSuggestCompletion::handleNetworkData(QNetworkReply *networkReply)
             xml.readNext();
 
             if (source == Google) {
+                static const QString shortName("short_name");
+                static const QString formattedAddress("formatted_address");
+                static const QString lat("lat");
+                static const QString lng("lng");
                 if (xml.tokenType() == QXmlStreamReader::StartElement) {
-                    if (xml.name() == "short_name")
+                    if (xml.name() == shortName)
                         shortNames << xml.readElementText();
 
-                    if (xml.name() == "formatted_address")
+                    if (xml.name() == formattedAddress)
                         fullText << xml.readElementText();
 
-                    if (xml.name() == "lat")
+                    if (xml.name() == lat)
                         pos << xml.readElementText();
 
-                    if (xml.name() == "lng")
+                    if (xml.name() == lng)
                         pos.last().prepend(xml.readElementText() + " ");
                 }
             }
             else if (source == Yandex)
             {
+                static const QString name("name");
+                static const QString text("text");
+                static const QString spos("pos");
                 if (xml.tokenType() == QXmlStreamReader::StartElement)
                 {
-                    if (xml.name() == "name")
+                    if (xml.name() == name)
                         shortNames << xml.readElementText();
 
-                    if (xml.name() == "text")
+                    if (xml.name() == text)
                         fullText << xml.readElementText();
 
-                    if (xml.name() == "pos")
+                    if (xml.name() == spos)
                         pos << xml.readElementText();
                 }
             }
@@ -266,37 +276,46 @@ GeoSuggestCompletion::handleNetworkData(QNetworkReply *networkReply)
     networkReply->deleteLater();
 }
 
-GeoSuggestCompletion      :: ~GeoSuggestCompletion()
+GeoSuggestCompletion::~GeoSuggestCompletion()
 {
     delete popup;
 }
 
 
-GeoSearchBox :: GeoSearchBox(QWidget *parent) : QLineEdit(parent)
+GeoSearchBox::GeoSearchBox(QWidget *parent) : QLineEdit(parent)
 {
     completer = new GeoSuggestCompletion(this);
     setFocus();
     connect(this, SIGNAL(returnPressed()),this, SLOT(doSearch()));
 }
 
-void GeoSearchBox :: doSearch()
+void GeoSearchBox::doSearch()
 {
     if (!isValid()) coord = QVector3D();
 }
 
 
 
-GeoSearchWidget :: GeoSearchWidget(QWidget *parent) : QWidget(parent)
+GeoSearchWidget::GeoSearchWidget(bool vbox /*=true*/,
+                                 QWidget *parent /*=nullptr*/) :
+    QWidget(parent)
 {
     geoSearchBox = new GeoSearchBox;
     longitude    = new QDoubleSpinBox;
     latitude     = new QDoubleSpinBox;
     indicator    = new QLabel;
-    googleAct    = new QAction(QIcon("fileeditor/google.png"),   tr("Search using Google Maps"), this);
-    yandexAct    = new QAction(QIcon("fileeditor/yandex.png"),   tr("Search using Yandex.Maps"), this);
-    editAct      = new QAction(QIcon("fileeditor/edit.png"),     tr("Input coordinates"), this);
+    googleAct    = new QAction(QIcon("fileeditor/google.png"),
+                               tr("Search using Google Maps"), this);
+    yandexAct    = new QAction(QIcon("fileeditor/yandex.png"),
+                               tr("Search using Yandex.Maps"), this);
+    editAct      = new QAction(QIcon("fileeditor/edit.png"),
+                               tr("Input coordinates"), this);
 
-    QToolBar* toolBar = new QToolBar(this);
+    QToolBar* toolBar = nullptr;
+    _tbtn = nullptr;
+    if (vbox) toolBar = new QToolBar(this);
+    else _tbtn = new QToolButton(this);
+
     QActionGroup* acts = new QActionGroup(this);
     QWidget* backSite = new QWidget;
 
@@ -305,9 +324,15 @@ GeoSearchWidget :: GeoSearchWidget(QWidget *parent) : QWidget(parent)
     acts         -> addAction(yandexAct);
     acts         -> addAction(editAct);
     acts         -> setExclusive(true);
-    toolBar      -> setIconSize(QSize(16,16));
-    toolBar      -> addSeparator();
-    toolBar      -> addActions(acts->actions());
+    if (toolBar) {
+        toolBar      -> setIconSize(QSize(16,16));
+        toolBar      -> addSeparator();
+        toolBar      -> addActions(acts->actions());
+    } else {
+        _tbtn->setIconSize(QSize(16,16));
+        _tbtn->addActions(acts->actions());
+        _tbtn->setPopupMode(QToolButton::MenuButtonPopup);
+    }
     geoSearchBox -> setPlaceholderText(tr("Input place here"));
     longitude    -> setSingleStep(1);
     latitude     -> setSingleStep(1);
@@ -320,13 +345,13 @@ GeoSearchWidget :: GeoSearchWidget(QWidget *parent) : QWidget(parent)
 
     QWidget* w1 = new QWidget;
     QHBoxLayout* l1 = new QHBoxLayout(w1);
-    l1->setMargin(5);
+    l1->setContentsMargins(QMargins(5,5,5,5));
     l1->addWidget(geoSearchBox);
     l1->addWidget(indicator);
 
     QWidget* w2 = new QWidget;
     QHBoxLayout* l2 = new QHBoxLayout(w2);
-    l2->setMargin(5);
+    l2->setContentsMargins(QMargins(5,5,5,5));
     l2->addWidget(new QLabel(tr("lon:")));
     l2->addWidget(longitude);
     l2->addWidget(new QLabel(tr("lat:")));
@@ -336,13 +361,17 @@ GeoSearchWidget :: GeoSearchWidget(QWidget *parent) : QWidget(parent)
     modes->addWidget(w1);
     modes->addWidget(w2);
 
-    QVBoxLayout* layout = new QVBoxLayout(this);
-    layout->setMargin(0);
+    QBoxLayout* layout = nullptr;
+    if (vbox) layout = new QVBoxLayout(this);
+    else layout = new QHBoxLayout(this);
+    layout->setContentsMargins(QMargins(0,0,0,0));
     layout->setSpacing(0);
     layout->addWidget(backSite);
-    layout->addWidget(toolBar);
-
-
+    if (toolBar) layout->addWidget(toolBar);
+    else {
+        layout->addWidget(_tbtn);
+        layout->setStretch(0,1);
+    }
 
     QFile cssfile ( "fileeditor/style.css" );
     cssfile.open  ( QIODevice::ReadOnly | QIODevice::Text );
@@ -362,27 +391,30 @@ GeoSearchWidget :: GeoSearchWidget(QWidget *parent) : QWidget(parent)
     connect(geoSearchBox, SIGNAL(textChanged(QString)), this, SIGNAL(locationChanged()));
 }
 
-void GeoSearchWidget :: turnGoogleSearch()
+void GeoSearchWidget::turnGoogleSearch()
 {
     modes->setCurrentIndex(0);
     googleAct->setChecked(true);
     geoSearchBox->setSource(GeoSuggestCompletion::Google);
+    if (_tbtn) _tbtn->setIcon(googleAct->icon());
 }
 
-void GeoSearchWidget :: turnYandexSearch()
+void GeoSearchWidget::turnYandexSearch()
 {
     modes->setCurrentIndex(0);
     yandexAct->setChecked(true);
     geoSearchBox->setSource(GeoSuggestCompletion::Yandex);
+    if (_tbtn) _tbtn->setIcon(yandexAct->icon());
 }
 
-void GeoSearchWidget :: turnGeoInput()
+void GeoSearchWidget::turnGeoInput()
 {
     modes->setCurrentIndex(1);
     editAct->setChecked(true);
+    if (_tbtn) _tbtn->setIcon(editAct->icon());
 }
 
-void GeoSearchWidget :: proofCoordinates()
+void GeoSearchWidget::proofCoordinates()
 {
     //if (geoSearchBox->isValid())
     // {
@@ -404,12 +436,12 @@ void GeoSearchWidget :: proofCoordinates()
    }*/
 }
 
-QVector3D GeoSearchWidget :: spinBoxesCoord() const
+QVector3D GeoSearchWidget::spinBoxesCoord() const
 {
     return QVector3D(longitude->value(), latitude->value(), 0);
 }
 
-QVector3D GeoSearchWidget :: location() const
+QVector3D GeoSearchWidget::location() const
 {
     if (modes->currentIndex() == 0)
         return geoSearchBox->coordinate();
@@ -417,7 +449,7 @@ QVector3D GeoSearchWidget :: location() const
     return spinBoxesCoord();
 }
 
-QString GeoSearchWidget :: locationName() const
+QString GeoSearchWidget::locationName() const
 {
     if (modes->currentIndex() == 0 ||
             spinBoxesCoord() == geoSearchBox->coordinate())
@@ -426,7 +458,7 @@ QString GeoSearchWidget :: locationName() const
     return "";
 }
 
-void GeoSearchWidget :: setLocation(const QVector3D& coord)
+void GeoSearchWidget::setLocation(const QVector3D& coord)
 {
     geoSearchBox->setCoordinate(coord);
 
@@ -439,7 +471,7 @@ void GeoSearchWidget :: setLocation(const QVector3D& coord)
         turnGeoInput();
 }
 
-void GeoSearchWidget :: setLocation(const QVector3D& coord, const QString& name)
+void GeoSearchWidget::setLocation(const QVector3D& coord, const QString& name)
 {
     setLocation(coord);
     geoSearchBox->setCoordinate(coord, name);
@@ -449,7 +481,7 @@ void GeoSearchWidget :: setLocation(const QVector3D& coord, const QString& name)
         turnGoogleSearch();
 }
 
-void GeoSearchWidget :: setLocationName(const QString& name)
+void GeoSearchWidget::setLocationName(const QString& name)
 {
     geoSearchBox->setText(name);
 

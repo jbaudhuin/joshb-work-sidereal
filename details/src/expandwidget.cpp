@@ -34,7 +34,7 @@ void ExpandWidget :: constructor()
   title->setChecked(true);
 
   layout = new QVBoxLayout(this);
-   layout->setMargin(0);
+  layout->setContentsMargins(QMargins());
    layout->setSpacing(0);
    layout->addWidget(title, 0, Qt::AlignTop);
 

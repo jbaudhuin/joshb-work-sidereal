@@ -27,7 +27,7 @@ HelpWidget :: HelpWidget(QString textsPath, QWidget *parent) : QWidget(parent)
   slides->setTransitionEffect(SlideWidget::Transition_Overlay);
 
   QGridLayout* layout = new QGridLayout(this);
-   layout->setMargin(0);
+   layout->setContentsMargins(QMargins(0,0,0,0));
    layout->setSpacing(0);
    layout->addWidget(title,  0,0, 1,1);
    //layout->addWidget(more,   0,1, 1,1);

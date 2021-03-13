@@ -2,6 +2,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QRadioButton>
+#include <QRegularExpression>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <Astroprocessor/Calc>
@@ -77,124 +78,124 @@ Planets :: Planets(QWidget *parent) : AstroFileHandler(parent)
   setStyleSheet  ( cssfile.readAll() );
  }
 
-void Planets :: drawPlanets()
- {
-  qDebug() << "Planets::drawPlanets";
-  if (view->source().isEmpty())
-   {
-      QString abs(QDir::current().absoluteFilePath("planets/Planets.qml"));
-      QUrl url(QUrl::fromLocalFile(abs));
-      bool urlIsRel = url.isRelative();
-      auto ulf = QQmlFile::urlToLocalFileOrQrc(url);
-      bool qfEmpty = ulf.isEmpty();
-      bool qdIsRel = QDir::isRelativePath(ulf);
-    view->setSource(url);
-    //auto items = view->rootObject()->findChildren<QQuickItem*>();
-    cardItems  = view->rootObject()->findChildren<QQuickItem*>(QRegExp("card*"));   // select all items where
-    labelItems = view->rootObject()->findChildren<QQuickItem*>(QRegExp("label*"));  // objectName = "card..." and "label..."
-   }
+void
+Planets::drawPlanets()
+{
+    qDebug() << "Planets::drawPlanets";
+    if (view->source().isEmpty())
+    {
+        QString abs(QDir::current().absoluteFilePath("planets/Planets.qml"));
+        QUrl url(QUrl::fromLocalFile(abs));
+        bool urlIsRel = url.isRelative();
+        auto ulf = QQmlFile::urlToLocalFileOrQrc(url);
+        bool qfEmpty = ulf.isEmpty();
+        bool qdIsRel = QDir::isRelativePath(ulf);
+        view->setSource(url);
+        //auto items = view->rootObject()->findChildren<QQuickItem*>();
+        cardItems  = view->rootObject()->findChildren<QQuickItem*>(QRegularExpression("card*"));   // select all items where
+        labelItems = view->rootObject()->findChildren<QQuickItem*>(QRegularExpression("label*"));  // objectName = "card..." and "label..."
+    }
 
-  A::PlanetList planets = file()->horoscope().planets.values();   // create list of planets
-  while(planets.count() > cardItems.count()) planets.removeLast();
-  A::sortPlanets(planets, order);
+    A::PlanetList planets = file()->horoscope().planets.values();   // create list of planets
+    while(planets.count() > cardItems.count()) planets.removeLast();
+    A::sortPlanets(planets, order);
 
-  int i = 0;
-  foreach (QQuickItem* item, cardItems)
-   {
-    if (i >= planets.count() || planets[i].getPlanetId() < A::Planet_Sun)
-     {
-		item->setVisible(false);	// ensure item hide
-      continue;
-     }
+    int i = 0;
+    for (QQuickItem* item: cardItems) {
+        if (i >= planets.count() || planets[i].getPlanetId() < A::Planet_Sun)
+        {
+            item->setVisible(false);	// ensure item hide
+            continue;
+        }
 
-    const A::Planet& planet = planets[i];
+        const A::Planet& planet = planets[i];
 
-    item->setVisible(true);	// ensure item visible
-    item->setProperty("objectName",   QString("card_%1").arg(planet.id));
-    item->setProperty("title",        planet.name.toUpper());
-    item->setProperty("house",        A::houseNum(planet));
-    item->setProperty("sign",         planet.sign->id);
-    item->setProperty("degreeStr",    A::zodiacPosition(planet,file()->horoscope().zodiac).toLower());
-    item->setProperty("isRetro",      planet.eclipticSpeed.x() < 0);
-    item->setProperty("dignityVal",   planet.power.dignity);
-    item->setProperty("deficientVal", planet.power.deficient);
-    item->setProperty("imageTip",     planet.name + "+" + planet.sign->name);
-    item->setProperty("imageSignTip", planet.sign->name);
-    item->setProperty("degreeTip",    QString("%1°").arg((int)planet.eclipticPos.x()));
+        item->setVisible(true);	// ensure item visible
+        item->setProperty("objectName",   QString("card_%1").arg(planet.id));
+        item->setProperty("title",        planet.name.toUpper());
+        item->setProperty("house",        A::houseNum(planet));
+        item->setProperty("sign",         planet.sign->id);
+        item->setProperty("degreeStr",    A::zodiacPosition(planet,file()->horoscope().zodiac).toLower());
+        item->setProperty("isRetro",      planet.eclipticSpeed.x() < 0);
+        item->setProperty("dignityVal",   planet.power.dignity);
+        item->setProperty("deficientVal", planet.power.deficient);
+        item->setProperty("imageTip",     planet.name + "+" + planet.sign->name);
+        item->setProperty("imageSignTip", planet.sign->name);
+        item->setProperty("degreeTip",    QString("%1°").arg((int)planet.eclipticPos.x()));
 
-    if (planet.houseRuler > 0)
-     {
-      item->setProperty("ruler",   tr("ruler of %1").arg(A::romanNum(planet.houseRuler)));
-      item->setProperty("ruleTip",    planet.name + "+" + A::houseNum(planet) + "+" +
-                                      "ruler" + A::romanNum(planet.houseRuler));
-     }
-    else
-     {
-      item->setProperty("ruler", "");
-     }
+        if (planet.houseRuler > 0)
+        {
+            item->setProperty("ruler",   tr("ruler of %1").arg(A::romanNum(planet.houseRuler)));
+            item->setProperty("ruleTip",    planet.name + "+" + A::houseNum(planet) + "+" +
+                              "ruler" + A::romanNum(planet.houseRuler));
+        }
+        else
+        {
+            item->setProperty("ruler", "");
+        }
 
-    // TODO: check through all data and verify a result
-    QString imgSrc = "file:///" + QDir::currentPath() + '/' + planet.userData["iconHuge"].toString();
+        // TODO: check through all data and verify a result
+        QString imgSrc = "file:///" + QDir::currentPath() + '/' + planet.userData["iconHuge"].toString();
 
-    if (planet.id == A::Planet_Moon)
-     {
-      int sunAngle = A::angle(planet, file()->horoscope().sun);
+        if (planet.id == A::Planet_Moon)
+        {
+            int sunAngle = A::angle(planet, file()->horoscope().sun);
 
-      for (int i = 0; i < 360; i+=30)
-       {
-        int i2 = (i+30) % 360;
+            for (int i = 0; i < 360; i+=30)
+            {
+                int i2 = (i+30) % 360;
 
-        if (i <= sunAngle && i2 > sunAngle)
-         {
-          if (qAbs(i-sunAngle) > qAbs(i2-sunAngle)) i = i2;
-          imgSrc = imgSrc.arg(i);
-         }
-       }
-     }
+                if (i <= sunAngle && i2 > sunAngle)
+                {
+                    if (qAbs(i-sunAngle) > qAbs(i2-sunAngle)) i = i2;
+                    imgSrc = imgSrc.arg(i);
+                }
+            }
+        }
 
-    item->setProperty("imageSrc", imgSrc);
+        item->setProperty("imageSrc", imgSrc);
 
 
-    /*if (planet.id == planetViewer->selectedPlanet())      // highlight current planet
+        /*if (planet.id == planetViewer->selectedPlanet())      // highlight current planet
       item->setScale(1.07);
     else
       item->setScale(1);*/
 
 
-    QStringList labels;
-    QString tip;
-    if (planet.id == A::almuten(file()->horoscope())->id)
-     {
-      labels << tr("Almuten");
-      tip = planet.name + "+" + tr("Almuten");
-     }
-    if (planet.id == A::auriga(file()->horoscope())->id)
-     {
-      labels << tr("Auriga");
-      tip = planet.name + "+" + tr("Auriga");
-     }
-    if (planet.id == A::doryphoros(file()->horoscope())->id)
-     {
-      labels << tr("Doryphoros");
-      tip = planet.name + "+" + tr("Doryphoros");
-     }
-    labelItems[i]->setProperty("text", labels.join(", "));
-    labelItems[i]->setProperty("helpTip", tip);
+        QStringList labels;
+        QString tip;
+        if (planet.id == A::almuten(file()->horoscope())->id)
+        {
+            labels << tr("Almuten");
+            tip = planet.name + "+" + tr("Almuten");
+        }
+        if (planet.id == A::auriga(file()->horoscope())->id)
+        {
+            labels << tr("Auriga");
+            tip = planet.name + "+" + tr("Auriga");
+        }
+        if (planet.id == A::doryphoros(file()->horoscope())->id)
+        {
+            labels << tr("Doryphoros");
+            tip = planet.name + "+" + tr("Doryphoros");
+        }
+        labelItems[i]->setProperty("text", labels.join(", "));
+        labelItems[i]->setProperty("helpTip", tip);
 
-    i++;
-   }
- }
+        i++;
+    }
+}
 
 void Planets :: filesUpdated(MembersList m)
- { 
-  if (!filesCount())
-   {
-    view->setSource(QUrl());
-    return;
-   }
+{
+    if (!filesCount())
+    {
+        view->setSource(QUrl());
+        return;
+    }
 
-  if (m[0]) drawPlanets();
- }
+    if (m[0]) drawPlanets();
+}
 
 void Planets :: orderChanged()
  {

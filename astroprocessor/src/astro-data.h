@@ -18,6 +18,8 @@
 #include <deque>
 #include <algorithm>
 
+#include <math.h>
+
 namespace A {
 
 // FIXME: move all these to Data or config or something?
@@ -64,11 +66,11 @@ qreal orbFactor();
 void setOrbFactor(qreal ofac);
 
 typedef QMap<unsigned,bool> uintBoolMap;
-typedef QSet<unsigned> uintQSet;
+typedef std::set<unsigned> uintSSet;    /// solo-item sorted set
 
 bool dynAspState(unsigned);
 void setDynAspState(unsigned, bool);
-uintQSet dynAspState();
+uintSSet dynAspState();
 
 inline bool getDynAspState(QVariant& var)
 {
@@ -84,11 +86,11 @@ inline bool getDynAspState(QVariant& var)
     return true;
 }
 
-void setDynAspState(const uintQSet&);
+void setDynAspState(const uintSSet&);
 
 inline void setDynAspState(const QVariant& var)
 {
-    setDynAspState(uintQSet());
+    setDynAspState(uintSSet());
     if (var.isNull()) return;
     if (var.type()==QVariant::String) {
         auto str = var.toString();
@@ -178,11 +180,16 @@ struct ZodiacSign {
 };
 
 struct Zodiac {
-  ZodiacId id;
-  QString name;
-  QList<ZodiacSign> signs;
+    ZodiacId id;
+    QString name;
+    QList<ZodiacSign> signs;
 
-  Zodiac() { id = Zodiac_None; }
+    Zodiac() { id = Zodiac_None; }
+    Zodiac(const Zodiac& zod) :
+        id(zod.id), name(zod.name), signs(zod.signs)
+    { }
+
+    bool isValid() const { return id != Zodiac_None; }
 };
 
 struct HouseSystem {
@@ -211,7 +218,7 @@ struct InputData
     InputData()
     {
         GMT.setTimeSpec(Qt::UTC);
-        GMT.setTime_t(0);
+        GMT.setSecsSinceEpoch(0);
         location    = QVector3D(0,0,0);
         houseSystem = Housesystem_Placidus;
         zodiac      = Zodiac_Tropical;
@@ -950,7 +957,9 @@ public:
 
     PlanetProfile() { }
 
-    PlanetProfile(const PlanetProfile& other) : Loc(other)
+    PlanetProfile(const PlanetProfile& other) :
+        Loc(other),
+        Base()
     { for (auto oloc : other) emplace_back(oloc->clone()); }
 
     virtual ~PlanetProfile() { qDeleteAll(*this); }    
@@ -994,6 +1003,40 @@ struct BySpeed {
 typedef std::set<PlanetLoc> PlanetRange;
 typedef std::set<PlanetLoc,BySpeed> PlanetRangeBySpeed;
 
+struct PlanetRangeLess {
+    bool _fast;
+
+    PlanetRangeLess(bool fast = true) : _fast(fast) { }
+
+    template <typename T>
+    bool less(T ait, T aend, T bit, T bend) const
+    {
+        auto f = ait->planet.fileId();
+        auto g = bit->planet.fileId();
+        if (f < g) return true;
+        if (g < f) return false;
+        while (ait != aend && bit != bend
+               && ait->planet.fileId() == f
+               && bit->planet.fileId() == f)
+        {
+            if (ait->planet != bit->planet) return ait->planet < bit->planet;
+            ++ait; ++bit;
+        }
+        if ((ait != aend) < (bit != bend)) return true;
+        if ((ait != aend) > (bit != bend)) return false;
+        if (ait == aend && bit == bend) return false;
+        return ((ait->planet.fileId()==f)
+                < (bit->planet.fileId()==f));
+    }
+
+    bool operator()(const PlanetRangeBySpeed& a,
+                    const PlanetRangeBySpeed& b) const
+    {
+        return _fast? less(a.begin(), a.end(), b.begin(), b.end())
+                    : less(a.rbegin(), a.rend(), b.rbegin(), b.rend());
+    }
+};
+
 typedef std::list<PlanetLoc> PlanetQueue;
 
 inline qreal getLoc(const Loc& loc) { return loc.loc; }
@@ -1023,27 +1066,44 @@ public:
     void insert(const PlanetQueue& planets, unsigned minQuorum = 2);
 };
 
+enum DerivedEventFlag {
+    etcEventToTransitAspect = 1,    // *T
+    etcEventToNatalAspect   = 2,    // *N
+    etcEventTransitToTransitAspect = 4, // *TT
+    etcEventTransitToNatalAspect = 8, // *TN
+    etcEventAspectPattern   = 16,    // *A
+    etcEventTypeStart       = etcEventAspectPattern << 1,
+    etcDerivedEventMask     = etcEventTypeStart - 1
+};
+Q_DECLARE_FLAGS(DerivedEventFlags, DerivedEventFlag);
+
 enum EventType {
-    etcUnknownEvent = 0,
-    etcStation,                 // S
-    etcAspectToStation,         // T=S
+    etcUnknownEvent         = 0,
+    etcStation              = etcEventTypeStart, // S
     etcTransitToTransit,        // T=T
     etcTransitToNatal,          // T=N
+    etcOuterTransitToNatal,     // OT=N
     etcReturn,                  // R
-    etcAspectToReturn,          // T=R
-    etcReturnTransitToTransit,  // RT=T
-    etcReturnTransitToNatal,    // RT=N
     etcProgressedToProgressed,  // P=P
-    etcProgressedToNatal,       // P=R
+    etcProgressedToNatal,       // P=N
+    etcInnerProgressedToNatal,  // IP=N
     etcTransitToProgressed,     // T=P
     etcSolarArcToNatal,         // D=N
-    etcIngress,                 // T=I
+    etcSignIngress,             // T=I
+    etcHouseIngress,            // T=H
     etcLunation,                // L
+    etcEclipse,                 // E
     etcSolarEclipse,            // SE
     etcLunarEclipse,            // LE
-    etcHeliacalRising,          // HR
-    etcHeliacalSetting,         // HS
-    etcUserEventNum
+    etcHeliacalEvents,          // HRS
+    etcTransitAspectPattern,    // TA
+    etcTransitNatalAspectPattern,   // TNA
+    etcUserEventStart
+};
+
+enum EventUpdateType {
+    etcMerge,
+    etcUpdate
 };
 
 class HarmonicAspect {
@@ -1052,8 +1112,8 @@ class HarmonicAspect {
     qreal               _orb;        ///< orb of aspect or span of assembly
 
 public:
-    HarmonicAspect(unsigned char         h,
-                  PlanetRangeBySpeed && pr,
+    HarmonicAspect(unsigned char         h = 0,
+                   PlanetRangeBySpeed && pr = { },
                   qreal                 delta = 0.0) :
         _harmonic(h),
         _locations(pr),
@@ -1090,11 +1150,23 @@ public:
         _eventType(et)
     { }
 
+    QDateTime& dateTime() { return _dateTime; }
     const QDateTime& dateTime() const { return _dateTime; }
     unsigned int eventType() const { return _eventType; }
 
     HarmonicAspects& coincidences() { return _coincidences; }
     const HarmonicAspects& coincidences() const { return _coincidences; }
+
+    const HarmonicAspect& coincidence(int n) const
+    {
+        static HarmonicAspect dummy;
+        if (n < 0 || unsigned(n) >= _coincidences.size()) return dummy;
+        auto it = _coincidences.begin();
+        if (n==0) return *it;
+        return *std::next(it, n);
+    }
+
+    operator const HarmonicEvent*() const { return this; }
 };
 
 typedef std::list<HarmonicEvent> HarmonicEventsBase;
@@ -1102,6 +1174,29 @@ typedef std::list<HarmonicEvent> HarmonicEventsBase;
 class HarmonicEvents : public HarmonicEventsBase {
 public:
     using HarmonicEventsBase::HarmonicEventsBase;
+
+    bool syncDateRange = true;
+    unsigned eventsType = etcUnknownEvent;
+
+    HarmonicEvents() { }
+
+    HarmonicEvents(const HarmonicEvents& other) :
+        HarmonicEventsBase(other),
+        syncDateRange(other.syncDateRange),
+        eventsType(other.eventsType)
+    { }
+
+    HarmonicEvents& operator=(const HarmonicEvents& other)
+    {
+        HarmonicEventsBase& me(*this);
+        const HarmonicEventsBase& you(other);
+        me = you;
+        syncDateRange = other.syncDateRange;
+        eventsType = other.eventsType;
+        return *this;
+    }
+
+    operator const HarmonicEvents*() const { return this; }
 
     QMutex mutex;
 };
@@ -1132,25 +1227,57 @@ struct ADateRange : public QPair<QDate,QDate> {
         return *this;
     }
 
+    bool contains(const QDate& d) const
+    { return d >= first && d <= second; }
+
+    bool contains(const QDateTime& dt) const
+    { return contains(dt.date()); }
+
     operator QVariant() const
     { QVariantList vl; vl << first << second; return vl; }
+};
+
+typedef std::set<ADateRange> ADateRangeSet;
+struct EventStoreData {
+    ADateRangeSet   ranges;
+    HarmonicEvents  events;
+};
+
+struct EventUpdateData {
+    ADateRangeSet   ranges;
+    HarmonicEvents& events;
 };
 
 struct EventScope {
     unsigned        eventType;
     ADateRange      range;
-    bool            keepInSync = true;
+};
+
+// @todo need to include harmonic list, right?
+
+typedef QMap<unsigned, EventStoreData> EventStoreBase;
+class EventStore : public EventStoreBase {
+public:
+    using EventStoreBase::EventStoreBase;
+
+    class noNeed : public std::exception {
+    public:
+        using std::exception::exception;
+    };
+
+    EventUpdateData getEventUpdateScope(EventScope evscope,
+                                        EventUpdateType uptype);
 };
 
 typedef std::map<unsigned, PlanetGroups> PlanetHarmonics;
 typedef PlanetHarmonics::iterator HarmonicIter;
 typedef PlanetHarmonics::const_iterator HarmonicCIter;
 
-typedef std::multiset<unsigned> uintSet;
-typedef uintSet::iterator intIter;
-typedef uintSet::const_iterator intCIter;
+typedef std::multiset<unsigned> uintMSet;   /// Multi-item sorted set
+typedef uintMSet::iterator intIter;
+typedef uintMSet::const_iterator intCIter;
 
-typedef std::map<unsigned, uintSet> factorMap;
+typedef std::map<unsigned, uintMSet> factorMap;
 typedef factorMap::iterator factorIter;
 typedef factorMap::const_iterator factorCIter;
 

@@ -11,4 +11,5 @@ HEADERS += src/details.h \
        src/harmonics.h \
        src/transits.h
 
-INCLUDEPATH += ../astroprocessor/include/
+INCLUDEPATH += ../astroprocessor/include/ \
+        ../fileeditor/src/

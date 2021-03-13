@@ -235,7 +235,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
                 qOverload<int>(&QComboBox::currentIndexChanged),
                 [this,lblw,fndlblw](int i)
         {
-            bool isEventSearch = (i == AstroFile::TypeEvents);
+            bool isEventSearch = (i == AstroFile::TypeSearch);
             startDateLbl->setVisible(isEventSearch);
             startDate->setVisible(isEventSearch);
             endDate->setVisible(isEventSearch);
@@ -431,7 +431,7 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     dst->suspendUpdate();
 
     if ((resume || setNeedsSaveFlag)
-            && type->currentIndex()==AstroFile::TypeEvents)
+            && type->currentIndex()==AstroFile::TypeSearch)
     {
         auto lw = findChild<QListWidget*>();
         auto sel = lw->selectedItems();
@@ -561,14 +561,14 @@ AstroFileEditor::onEditingFinished()
             typedef std::function<A::Loc*(const A::ChartPlanetId& cpid)> fun;
             QMap<QChar, fun> funs;
 
-            funs[0] = [&](const A::ChartPlanetId& cpid)
-            { return new A::TransitPosition(cpid, inda); };
+            funs.insert('\0', [&](const A::ChartPlanetId& cpid)
+            { return new A::TransitPosition(cpid, inda); });
 
-            funs['t'] = [&](const A::ChartPlanetId& cpid)
-            { return new A::TransitPosition(cpid, inda); };
+            funs.insert('t',[&](const A::ChartPlanetId& cpid)
+            { return new A::TransitPosition(cpid, inda); });
 
-            funs['r'] = [&](const A::ChartPlanetId& cpid)
-            { return new A::NatalLoc(cpid, indb); };
+            funs.insert('r', [&](const A::ChartPlanetId& cpid)
+            { return new A::NatalLoc(cpid, indb); });
 
             if (currentFile>0) {
                 // preview planets to determine a default pick.
@@ -576,7 +576,7 @@ AstroFileEditor::onEditingFinished()
                 for (const auto& pln : asp.split("=")) {
                     for (const auto& ppln : pln.split('/')) {
                         auto ps = ppln.split('-');
-                        if (ps.size()==1) ++pop[0];
+                        if (ps.size()==1) ++pop['\0'];
                         else if (ps[1].isEmpty()) {
                             return;
                         } else {
@@ -589,17 +589,19 @@ AstroFileEditor::onEditingFinished()
                         }
                     }
                 }
-                if (pop.contains(0) && pop.size()>2) {
+                if (pop.contains('\0') && pop.size()>2) {
                     // ambiguous: TODO warn
                     return;
                 }
-                if (pop.contains(0) && pop.contains('r')) funs[0] = funs['t'];
-                else if (pop.contains(0) && pop.contains('t')) funs[0] = funs['r'];
+                if (pop.contains('\0') && pop.contains('r'))
+                    funs['\0'] = funs['t'];
+                else if (pop.contains('\0') && pop.contains('t'))
+                    funs['\0'] = funs['r'];
             }
 
             for (auto ps : asp.split("=")) {
                 auto psp = ps.split('-');
-                QChar t = 0;
+                QChar t = '\0';
                 if (psp.size()>1 && !psp.at(1).isEmpty()) t = psp[1][0];
                 ps = psp.first();
                 if (ps.indexOf('/') == -1) {

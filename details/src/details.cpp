@@ -46,7 +46,7 @@ Details::Details(QWidget* parent) :
     power->setWidget(powerLabel);
 
     QVBoxLayout* l2 = new QVBoxLayout(this);
-    l2->setMargin(0);
+    l2->setContentsMargins(QMargins(0,0,0,0));
     l2->addWidget(planetSelector, 0, Qt::AlignTop);
     l2->addWidget(position, 0, Qt::AlignTop);
     l2->addWidget(aspects, 0, Qt::AlignTop);

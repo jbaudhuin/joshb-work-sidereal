@@ -1,5 +1,6 @@
 ﻿#include <QObject>
 #include <QStringList>
+#include <QRegularExpression>
 #include <stdio.h>
 #include <math.h>
 #include "astro-calc.h"
@@ -7,6 +8,12 @@
 //#include <QDebug>
 
 namespace A {
+
+#if (QT_VERSION < QT_VERSION_CHECK(6,0,0)) && defined(_MSC_VER)
+#define A_DECODE(s) QString::fromLocal8Bit(s)
+#else
+#define A_DECODE(s) QString::fromUtf8(s)
+#endif
 
 QString romanNum(int num)
 {
@@ -61,22 +68,22 @@ QString degreeToString(float deg, AnglePrecision precision)
     QString ret;
     if (precision == HighPrecision) {
         s = (int)((deg - (d + m / 60.0)) * 3600.0);
-        ret = QString(QString::fromLatin1("%1%2°%3'%4\""))
+        ret = QString(A_DECODE("%1%2°%3'%4\""))
               .arg((polarity < 0) ? "-" : "")
               .arg(d)
               .arg(m,2,10,QChar('0'))
               .arg(s,2,10,QChar('0'));
     } else if (precision == LowPrecision) {
-        ret = QString(QString::fromLatin1("%1%2°"))
+        ret = QString(A_DECODE("%1%2°"))
               .arg((polarity < 0) ? "-" : "")
               .arg(d + int(m >= 30));
     } else {
         if (m)
-            ret = QString(QString::fromLatin1("%1%2°%3'"))
+            ret = QString(A_DECODE("%1%2°%3'"))
                   .arg((polarity < 0) ? "-" : "")
                   .arg(d).arg(m,2,10,QChar('0'));
         else
-            ret = QString(QString::fromLatin1("%1%2°"))
+            ret = QString(A_DECODE("%1%2°"))
                   .arg((polarity < 0) ? "-" : "")
                   .arg(d);
     }
@@ -94,11 +101,12 @@ zodiacPosition(float deg,
 
     if (precision) {
         QString str = degreeToString(deg, precision);
-        str.remove(0, str.indexOf(QString::fromLatin1("°")));
+        str.remove(0, str.indexOf(A_DECODE("°")));
         return QString("%1%2 %3").arg(ang).arg(str).arg(sign.tag);
     } else {
         int m = (int)(60.0*(deg - (int)deg));
-        return QString("%1 %2 %3%4").arg(ang).arg(sign.tag).arg(m >= 10 ? "" : "0").arg(m);
+        return QString("%1 %2 %3%4").arg(ang).arg(sign.tag)
+                .arg(m >= 10 ? "" : "0").arg(m);
     }
 }
 
@@ -152,17 +160,13 @@ void sortPlanets(PlanetList &planets, PlanetsOrder order)
     }
 }
 
-
-
-
-
-
-QString     describeInput(const InputData& data)
+QString
+describeInput(const InputData& data)
 {
     QString ret;
 
-    QString date = data.GMT.date().toString(Qt::DefaultLocaleLongDate);
-    QString time = data.GMT.time().toString(Qt::DefaultLocaleLongDate);
+    auto date = QLocale().toString(data.GMT.date(),QLocale::LongFormat);
+    auto time = QLocale().toString(data.GMT.time(),QLocale::LongFormat);
     QString dayOfWeek = data.GMT.date().toString("ddd");
 
     ret += QObject::tr("Date: %1, %2 %3 GMT\n").arg(dayOfWeek).arg(date).arg(time);
@@ -172,7 +176,9 @@ QString     describeInput(const InputData& data)
     return ret;
 }
 
-QString     describeHouses(const Houses& houses, const Zodiac& zodiac)
+QString
+describeHouses(const Houses& houses,
+               const Zodiac& zodiac)
 {
     QString ret;
     ret += QObject::tr("Houses (%1)\n").arg(houses.system->name);
@@ -276,16 +282,18 @@ QString     describePlanetCoord(const Planet& planet)
     return ret;
 }
 
-QString     describePlanetCoordInHtml(const Planet& planet)
+QString
+describePlanetCoordInHtml(const Planet& planet)
 {
     QString ret = describePlanetCoord(planet);
-    ret.replace(QRegExp(QString::fromLocal8Bit("(: [!-° ]+)")),
+    ret.replace(QRegularExpression(QString::fromLocal8Bit("(: [!-° ]+)")),
                 "<font color='#e9e9e4'>\\1</font>");  // replaces values
     ret.replace("\n", "<br>");
     return ret;
 }
 
-QString     describePower(const Planet& planet, const Horoscope& scope)
+QString
+describePower(const Planet& planet, const Horoscope& scope)
 {
     if (!planet.isReal) return "";
 
@@ -454,8 +462,8 @@ QString     describePowerInHtml(const Planet& planet, const Horoscope& scope)
     if (ret.isEmpty()) return ret;
 
     ret.replace("\n", "</p><p>");
-    ret.replace(QRegExp("(-\\d:)"), "<font color='#dfb096'><b>\\1</b></font>");  // replaces negative values
-    ret.replace(QRegExp("(\\+\\d:)"), "<font color='#71aeec'><b>\\1</b></font>");  // replaces positive values
+    ret.replace(QRegularExpression("(-\\d:)"), "<font color='#dfb096'><b>\\1</b></font>");  // replaces negative values
+    ret.replace(QRegularExpression("(\\+\\d:)"), "<font color='#71aeec'><b>\\1</b></font>");  // replaces positive values
 
     return "<p>" + ret + "</p>";
 }
