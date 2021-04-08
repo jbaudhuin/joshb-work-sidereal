@@ -321,6 +321,7 @@ Star calculateStar(const QString&, const InputData& input, const Houses& houses,
 PlanetPower calculatePlanetPower ( const Planet& planet, const Horoscope& scope );
 Houses      calculateHouses      ( const InputData& input );
 Aspect      calculateAspect      ( const AspectsSet& aspectSet, const Planet& planet1, const Planet& planet2 );
+Aspect calculateAspect(const AspectsSet&, const PlanetLoc*, const PlanetLoc*);
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets );
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets1, const PlanetMap& planets2 );   // synastry
 

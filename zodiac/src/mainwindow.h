@@ -121,6 +121,15 @@ public:
     QToolBar* getDynAspectControls() const { return dynAspectControls; }
     QComboBox* getAspectsSelector() const { return aspectsSelector; }
     const QList<QDockWidget*>& getDockPanels() { return docks; }
+    template <class T> T* findDockHdlr() const
+    {
+        for (auto d: dockHandlers) {
+            if (auto td = qobject_cast<T*>(d)) {
+                return td;
+            }
+        }
+        return nullptr;
+    }
 
     void setFiles(const AstroFileList& files);
 
@@ -205,15 +214,20 @@ private slots:
     void fileDestroyed();
 
 public slots:
+    void addFile(AstroFile* file);
     void addNewFile() { addFile(new AstroFile); }
     void editNewChart();
     void findChart();
     void swapCurrentFiles(int, int);
     void openFile(const AFileInfo& name);
+    void openFile(AstroFile* af);
     void openFileInNewTab(const AFileInfo& name);
     void openFileInNewTabWithTransits(const AFileInfo& name);
+    void openFileInNewTabWithTransits(const AFileInfo& name,
+                                      AstroFile* af);
     void openTransits(int);
     void openFileAsSecond(const AFileInfo& name = AFileInfo());
+    void openTransitsAsSecond(AstroFile* af);
     void openFileComposite(const AFileInfoList& names);
     void openFileReturn(const AFileInfo& name, const QString& body);
     void findDerivedChart(const AFileInfo& name);
@@ -224,7 +238,6 @@ public slots:
 public:
     FilesBar(QWidget *parent = nullptr);
 
-    void addFile(AstroFile* file);
     void setAskToSave(bool b) { askToSave = b; }
     const AstroFileList& currentFiles()
     {

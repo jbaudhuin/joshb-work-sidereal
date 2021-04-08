@@ -113,6 +113,7 @@ AstroFileInfo::filesUpdated(MembersList m)
         setText("");
         return;
     }
+    while (currentIndex >= m.size()) m << 0;
     if (m[currentIndex] & (AstroFile::Name
                            | AstroFile::GMT
                            | AstroFile::Timezone
@@ -1000,7 +1001,7 @@ AstroDatabase::updateList()
         QDir dir(diritem->data().toString());
         diritem->removeRows(0,diritem->rowCount());
 
-        for (auto dn : dir.entryList(QDir::Dirs)) {
+        for (const auto& dn : dir.entryList(QDir::Dirs)) {
             if (dn == "." || dn == "..") continue;
 
             QFileInfo fi(dir, dn);
@@ -1021,14 +1022,12 @@ AstroDatabase::updateList()
             updir(sdmi);
         }
 
-        QStringList list;
-        for (auto fn :
-                dir.entryList(AFileInfo::wildcard(),
-                              QDir::Files,
-                              QDir::Name | QDir::IgnoreCase))
-        {
+        QStringList list = dir.entryList(AFileInfo::wildcard(),
+                                         QDir::Files,
+                                         QDir::Name | QDir::IgnoreCase);
+        for (QString& fn : list) {
             fn.replace(AFileInfo::suff(), "");
-            list << AFileInfo::decodeName(fn);
+            fn = AFileInfo::decodeName(fn);
         }
         list.sort();
 
@@ -1518,6 +1517,15 @@ FilesBar::openFile(const AFileInfo& fi)
     if (i != -1) updateTab(i);
 }
 
+void FilesBar::openFile(AstroFile* af)
+{
+    auto i = currentIndex();
+    if (i != -1) {
+        files[currentIndex()][0] = af;
+        updateTab(i);
+    }
+}
+
 void
 FilesBar::openFileInNewTab(const AFileInfo& fi)
 {
@@ -1546,6 +1554,21 @@ FilesBar::openFileInNewTabWithTransits(const AFileInfo& fi)
 }
 
 void
+FilesBar::openFileInNewTabWithTransits(const AFileInfo &fi,
+                                       AstroFile* af)
+{
+    AstroFile* file1 = new AstroFile;
+    file1->load(fi);
+    addFile(file1);
+    af->setParent(this);
+    files[currentIndex()] << af;
+    updateTab(currentIndex());
+    connect(af, SIGNAL(changed(AstroFile::Members)), this, SLOT(fileUpdated(AstroFile::Members)));
+    connect(af, SIGNAL(destroyRequested()), this, SLOT(fileDestroyed()));
+    emit currentChanged(currentIndex());
+}
+
+void
 FilesBar::openFileAsSecond(const AFileInfo& fi)
 {
     if (files[currentIndex()].count() < 2) {
@@ -1554,11 +1577,31 @@ FilesBar::openFileAsSecond(const AFileInfo& fi)
         file->setParent(this);
         files[currentIndex()] << file;
         updateTab(currentIndex());
-        connect(file, SIGNAL(changed(AstroFile::Members)), this, SLOT(fileUpdated(AstroFile::Members)));
+        connect(file, SIGNAL(changed(AstroFile::Members)),
+                this, SLOT(fileUpdated(AstroFile::Members)));
         connect(file, SIGNAL(destroyRequested()), this, SLOT(fileDestroyed()));
         emit currentChanged(currentIndex());
     } else {
         files[currentIndex()][1]->load(fi);
+    }
+}
+
+void
+FilesBar::openTransitsAsSecond(AstroFile* af)
+{
+    if (files[currentIndex()].count() < 2) {
+        // XXX ownership changing?
+        af->setParent(this);
+        files[currentIndex()] << af;
+        updateTab(currentIndex());
+        connect(af, SIGNAL(changed(AstroFile::Members)),
+                this, SLOT(fileUpdated(AstroFile::Members)));
+        connect(af, SIGNAL(destroyRequested()),
+                this, SLOT(fileDestroyed()));
+        emit currentChanged(currentIndex());
+    } else if (files[currentIndex()][1] == af) {
+        //files[currentIndex()][1]->setGMT(dt);
+        emit currentChanged(currentIndex());
     }
 }
 
@@ -1776,6 +1819,19 @@ MainWindow::MainWindow(QWidget *parent) :
             filesBar, SLOT(openFileReturn(const AFileInfo&, const QString&)));
     connect(astroDatabase, SIGNAL(openFileInNewTabWithReturn(const AFileInfo&, const QString&)),
             filesBar, SLOT(openFileInNewTabWithReturn(const AFileInfo&, const QString&)));
+
+    if (auto transits = astroWidget->findDockHdlr<Transits>()) {
+        connect(transits, SIGNAL(updateFirst(AstroFile*)),
+                filesBar, SLOT(openFile(AstroFile*)));
+        connect(transits, &Transits::updateSecond,
+                filesBar, &FilesBar::openTransitsAsSecond);
+        connect(transits, SIGNAL(addChart(AstroFile*)),
+                filesBar, SLOT(addFile(AstroFile*)));
+        connect(transits, SIGNAL(addChartWithTransits(const AFileInfo&,
+                                                      AstroFile*)),
+                filesBar, SLOT(openFileInNewTabWithTransits(const AFileInfo&,
+                                                            AstroFile*)));
+    }
 
     loadSettings();
     filesBar->addNewFile();

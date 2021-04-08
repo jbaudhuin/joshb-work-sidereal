@@ -102,6 +102,7 @@ public:
     const A::Horoscope& horoscope()    const { return scope; }
     A::HouseSystemId getHouseSystem()  const { return scope.inputData.houseSystem; }
     A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac; }
+    A::AspectSetId   getAspectSetId() const { return scope.inputData.aspectSet; }
     const A::AspectsSet& getAspectSet()  const { return A::getAspectSet(scope.inputData.aspectSet); }
     A::aspectModeEnum getAspectMode()  const { return A::aspectMode; }
     const QList<QDateTime>& getEventList() const { return _eventList; }
@@ -201,11 +202,11 @@ class AstroFileHandler : public QWidget, public Customizable
         void resumeUpdate();
         void setFiles(const AstroFileList& files);
 
-        AstroFile* file(int index = 0)
+        AstroFile* file(int index = 0) const
         { return (f.count() > index) ? f[index] : nullptr; }
 
-        AstroFileList files() { return f; }
-        int filesCount()      { return f.count(); }
+        AstroFileList files() const { return f; }
+        int filesCount() const { return f.count(); }
 };
 
 

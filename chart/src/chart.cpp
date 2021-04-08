@@ -858,6 +858,7 @@ void Chart::refreshAll()
 
 void Chart::filesUpdated(MembersList m)
 {
+    while (m.size() < filesCount()) m << 0;
     if (chartsCount && (chartsCount != filesCount() ||     // clear if charts count or zodiac has changed
                         (filesCount() && (m[0] & AstroFile::Zodiac))))
         clearScene();

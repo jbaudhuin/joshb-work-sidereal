@@ -1074,6 +1074,18 @@ calculateAspect( const AspectsSet& aspectSet,
     return a;
 }
 
+Aspect
+calculateAspect( const AspectsSet& aspectSet,
+                 const PlanetLoc* p1loc,
+                 const PlanetLoc* p2loc )
+{
+    Aspect a;
+    a.angle = angle(p1loc->rasiLoc(), p2loc->rasiLoc());
+    a.d = &getAspect(aspect(a.angle, aspectSet), aspectSet);
+    a.orb = fabs(a.d->angle - a.angle);
+    return a;
+}
+
 AspectList
 calculateAspects( const AspectsSet& aspectSet,
                   const PlanetMap &planets )

@@ -132,6 +132,10 @@ typedef int AspectSetId;
 const PlanetId      Planet_None          = -1;
 const PlanetId      Planet_MC = 20;
 const PlanetId      Planet_Asc = 21;
+const PlanetId      Planet_IC = 22;
+const PlanetId      Planet_Desc = 23;
+const PlanetId      Planet_PoFortune = 24;
+const PlanetId      Planet_PoSpirit = 25;
 const PlanetId      Planet_Sun           =  0;
 const PlanetId      Planet_Moon          =  1;
 const PlanetId      Planet_Mercury       =  2;
@@ -1067,6 +1071,7 @@ public:
 };
 
 enum DerivedEventFlag {
+    etcNoDerivedEvent  = 0,
     etcEventToTransitAspect = 1,    // *T
     etcEventToNatalAspect   = 2,    // *N
     etcEventTransitToTransitAspect = 4, // *TT
@@ -1114,11 +1119,16 @@ class HarmonicAspect {
 public:
     HarmonicAspect(unsigned char         h = 0,
                    PlanetRangeBySpeed && pr = { },
-                  qreal                 delta = 0.0) :
+                   qreal                 delta = 0.0) :
         _harmonic(h),
         _locations(pr),
         _orb(delta)
     { }
+
+    void reset(unsigned char h = 0,
+               PlanetRangeBySpeed&& pr = { },
+               qreal delta = 0.0)
+    { _harmonic = h; _locations = std::move(pr); _orb = delta; }
 
     unsigned int harmonic() const { return _harmonic; }
     qreal orb() const { return _orb; }
@@ -1129,6 +1139,12 @@ public:
         PlanetSet ret;
         for (const auto& loc: _locations) ret.insert(loc.planet);
         return ret;
+    }
+
+    bool operator==(const HarmonicAspect& asp) const
+    {
+        return _harmonic == asp._harmonic
+                && planets() == asp.planets();
     }
 };
 
@@ -1150,6 +1166,20 @@ public:
         _eventType(et)
     { }
 
+    HarmonicEvent(const QDateTime& dt = { }) :
+        HarmonicAspect(),
+        _dateTime(dt),
+        _eventType(etcUnknownEvent)
+    { }
+
+    void clear()
+    {
+        reset();
+        _dateTime = { };
+        _eventType = etcUnknownEvent;
+        _coincidences.clear();
+    }
+
     QDateTime& dateTime() { return _dateTime; }
     const QDateTime& dateTime() const { return _dateTime; }
     unsigned int eventType() const { return _eventType; }
@@ -1167,6 +1197,16 @@ public:
     }
 
     operator const HarmonicEvent*() const { return this; }
+
+    bool isNull() const
+    { return operator==(HarmonicEvent()); }
+
+    bool operator==(const HarmonicEvent& ev) const
+    {
+        return _dateTime == ev._dateTime
+                && HarmonicAspect::operator==(ev)
+                && _eventType == ev._eventType;
+    }
 };
 
 typedef std::list<HarmonicEvent> HarmonicEventsBase;

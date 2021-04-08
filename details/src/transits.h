@@ -12,6 +12,7 @@ class QDateEdit;
 class QRadioButton;
 class GeoSearchWidget;
 class TransitEventsModel;
+class AChangeSignalFrame;
 
 struct ADateDelta {
     int numDays = 0;
@@ -104,14 +105,24 @@ protected:                            // AstroFileHandler implementation
     void describePlanet();
     void clear();
 
-    QStandardItemModel* tvm() const;
+    TransitEventsModel* tvm() const;
+
+    bool transitsOnly() const;
+
+    AstroFile* transitsAF();
 
 signals:
     //void updateTransits(double);
     void planetSelected(A::PlanetId, int);
     void needToFindIt(const QString&);
-    void addChart(const A::InputData&);
+    //void addChart(const A::InputData&);
     //void completed();
+
+    void updateFirst(AstroFile*);
+    void updateSecond(AstroFile*);
+    void addChart(AstroFile*);
+    void addChartWithTransits(const AFileInfo&,
+                              AstroFile*);
 
 protected slots:
     void onEventSelectionChanged();
@@ -120,11 +131,13 @@ protected slots:
     void updateTransits();
     void checkComplete();
     void onCompleted();
-    void clickedCell(const QModelIndex&);
-    void doubleClickedCell(const QModelIndex&);
+    void clickedCell(QModelIndex);
+    void doubleClickedCell(QModelIndex);
     void headerDoubleClicked(int);
     void copySelection();
     void findIt(const QString&);
+    void saveScrollPos();
+    void restoreScrollPos();
 
 public slots:
     void setCurrentPlanet(A::PlanetId, int);
@@ -148,6 +161,11 @@ private:
     QPushButton* _forth;
     QDateEdit* _end;
 
+    A::HarmonicEvent        _anchorTop, _anchorCur;
+    int                     _anchorSort;
+    Qt::SortOrder           _anchorOrder;
+    int                     _anchorVisibleRow;
+
     GeoSearchWidget* _location;
 
     QTimer* _watcher = nullptr;
@@ -158,6 +176,8 @@ private:
     ADateDelta _ddelta;
 
     A::HarmonicEvents _evs;
+
+    AChangeSignalFrame* _chs;
 };
 
 #endif // Harmonics_H
