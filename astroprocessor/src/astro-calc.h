@@ -219,10 +219,12 @@ public:
     }
 
 protected:
+    bool _includeMidpoints = false;
     // ** Future config options or control options for transit set **
     bool _includeTransits = true; // todo: could have separate func for stns
     // having both here allows us to include aspects to stationary planets...
     bool _includeAspectsToAngles = true;
+    bool _includeAspectPatterns = true;
     bool _includeStations = true;
     bool _includeStationAspectsToTransits = true;
     bool _includeStationAspectsToNatal = true;
@@ -232,9 +234,25 @@ protected:
     unsigned _rate = 4;  // # days
     double _orb = 2.0;   // orb for aspects to stations or return aspects
 
+    bool outOfOrb(unsigned h,
+                  std::initializer_list<const Loc*> locs,
+                  qreal& d) const
+    {
+        auto delta = PlanetProfile::computeSpread(locs, h);
+        d = delta.first;
+        bool anyMidPoints = false;
+        for (auto loc : locs) {
+            if (auto ploc = dynamic_cast<const PlanetLoc*>(loc)) {
+                if (ploc->planet.isMidpt()) { anyMidPoints = true; break; }
+            }
+        }
+        return d > (anyMidPoints? _orb/8 : _orb);
+    }
+
     bool keepLooking(unsigned h, unsigned i) const
     {
         auto p = dynamic_cast<PlanetLoc*>(_alist[i]);
+        if (!p) return true;
         PlanetId pid = p->planet.planetId();
         if (!_includeAspectsToAngles
                 && (pid == Planet_MC || pid == Planet_Asc))
@@ -245,7 +263,7 @@ protected:
 
     uintSSet _hset;         ///< harmonic profile
     std::list<uintPair> _staff;
-    EventType _evType = etcUnknownEvent;
+    unsigned _evType = etcUnknownEvent;
 
 private:
 };
@@ -265,7 +283,8 @@ public:
                   const ADateRange& range,
                   const uintSSet& hs,
                   const InputData& trainp,
-                  const PlanetSet& tran);
+                  const PlanetSet& tran,
+                  unsigned eventsType = etcTransitToTransit);
 };
 
 class NatalTransitFinder : public AspectFinder {
@@ -277,6 +296,7 @@ public:
                        const InputData& trainp,
                        const PlanetSet& natal,
                        const PlanetSet& tran,
+                       unsigned eventsType = etcTransitToNatal,
                        bool includeTransitsToTransits = false);
 };
 
@@ -315,6 +335,16 @@ private:
     static eventGlossMap    _eventDescrs;
     static namedEventMap    _eventTypes;
 };
+
+PlanetClusterMap findClusters(unsigned h,
+                              const PlanetProfile& prof,
+                              const PlanetSet& need = {},
+                              bool skipAllNatal = false);
+
+PlanetClusterMap findClusters(unsigned h, double jd,
+                              const PlanetProfile& prof,
+                              const QList<InputData>& ids,
+                              const PlanetSet& need = {});
 
 Planet      calculatePlanet      ( PlanetId planet, const InputData& input, const Houses& houses, const Zodiac& zodiac );
 Star calculateStar(const QString&, const InputData& input, const Houses& houses, const Zodiac& zodiac);

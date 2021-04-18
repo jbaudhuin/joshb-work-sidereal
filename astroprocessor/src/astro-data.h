@@ -495,8 +495,16 @@ public:
         }
     }
 
+    ChartPlanetId(const ChartPlanetId& otro) :
+        _fid(otro._fid), _pid(otro._pid), _pid2(otro._pid2),
+        _oppMidpt(otro._oppMidpt)
+    { }
+
     QString name() const;
     QString glyph() const;
+
+    bool contains(PlanetId pid) const
+    { return _pid == pid || _pid2 == pid; }
 
     bool isMidpt() const { return _pid2 != Planet_None; }
     bool isOppMidpt() const { return isMidpt() && _oppMidpt; }
@@ -618,6 +626,12 @@ public:
     bool containsSolo(const ChartPlanetId& pid) const
     { return std::any_of(begin(), end(), samePlanet(pid, true/*notwo*/, 
                                                     true/*cmpFID*/)); }
+
+    bool containsAny(const PlanetSet& pset) const
+    {
+        for (auto cpid: pset) if (contains(cpid)) return true;
+        return false;
+    }
 
     bool containsMidPt() const
     {
@@ -846,6 +860,9 @@ struct PlanetLoc : public Loc {
 
     qreal compute(const InputData& ida);
     qreal compute(const InputData& ida, double jd);
+    static std::pair<qreal,qreal> compute(const ChartPlanetId& pid,
+                                          const InputData& ida,
+                                          double jd);
 
     QString description() const override
     { return desc.isEmpty()? planet.name() : (planet.name() + "-" + desc) ; }
@@ -853,16 +870,19 @@ struct PlanetLoc : public Loc {
     virtual qreal defaultSpeed() const override;
 };
 
+typedef std::list<Loc*> Locs;
+
+typedef std::map<PlanetSet, qreal> PlanetClusterMap;
+
 class NatalLoc : public PlanetLoc {
 public:
     NatalLoc(const ChartPlanetId& cpid,
-                  const InputData& ida) :
+             const InputData& ida) :
         PlanetLoc(cpid)
     { compute(ida); speed = 0; }
 
     Loc* clone() const override { return new NatalLoc(*this); }
 };
-
 
 class InputPosition : public PlanetLoc {
 public:
@@ -960,6 +980,7 @@ public:
     using Base::Base;
 
     PlanetProfile() { }
+    PlanetProfile(std::initializer_list<Loc*> locs) : Base(locs) { }
 
     PlanetProfile(const PlanetProfile& other) :
         Loc(other),
@@ -987,10 +1008,14 @@ public:
     qreal speed() const { return Loc::speed; }
 
     qreal computeSpread(double jd);
+    qreal computeSpread();
 
     static std::pair<qreal, qreal> computeDelta(const Loc* a,
                                                 const Loc* b,
-                                                int harmonic = 1);
+                                                unsigned int harmonic = 1);
+    static std::pair<qreal, qreal> computeSpread(std::initializer_list<const Loc *>,
+                                                 unsigned int =1);
+
     qreal computePos(double jd);
 
     qreal operator()(double jd) { return computePos(jd); }
@@ -1112,38 +1137,70 @@ enum EventUpdateType {
 };
 
 class HarmonicAspect {
+    unsigned            _eventType;  ///< type of event
     unsigned char       _harmonic;   ///< harmonic of aspect (or 1)
+    PlanetSet           _pattern;    ///< pattern
     PlanetRangeBySpeed  _locations;  ///< locations of planets
     qreal               _orb;        ///< orb of aspect or span of assembly
 
 public:
-    HarmonicAspect(unsigned char         h = 0,
+    HarmonicAspect(unsigned              et = 0,
+                   unsigned char         h = 0,
                    PlanetRangeBySpeed && pr = { },
                    qreal                 delta = 0.0) :
+        _eventType(et),
         _harmonic(h),
         _locations(pr),
         _orb(delta)
+    { for (const auto& loc: _locations) _pattern.insert(loc.planet); }
+
+    HarmonicAspect(unsigned         et,
+                   unsigned char    h,
+                   PlanetSet     && ps,
+                   qreal            delta = 0.0) :
+        _eventType(et),
+        _harmonic(h),
+        _pattern(ps),
+        _orb(delta)
     { }
 
-    void reset(unsigned char h = 0,
+    void reset(unsigned et = etcUnknownEvent,
+               unsigned char h = 0,
                PlanetRangeBySpeed&& pr = { },
                qreal delta = 0.0)
-    { _harmonic = h; _locations = std::move(pr); _orb = delta; }
+    {
+        _eventType = et;
+        _harmonic = h;
+        _locations = std::move(pr);
+        _pattern.clear();
+        for (const auto& loc: _locations) _pattern.insert(loc.planet);
+        _orb = delta;
+    }
 
+    void reset(unsigned et,
+               unsigned char h,
+               PlanetSet&& ps,
+               qreal delta = 0.0)
+    {
+        _eventType = et;
+        _harmonic = h;
+        _locations.clear();
+        _pattern = std::move(ps);
+        _orb = delta;
+    }
+
+    unsigned int eventType() const { return _eventType; }
     unsigned int harmonic() const { return _harmonic; }
     qreal orb() const { return _orb; }
     const PlanetRangeBySpeed& locations() const { return _locations; }
 
-    PlanetSet planets() const
-    {
-        PlanetSet ret;
-        for (const auto& loc: _locations) ret.insert(loc.planet);
-        return ret;
-    }
+    const PlanetSet& planets() const
+    { return _pattern; }
 
     bool operator==(const HarmonicAspect& asp) const
     {
         return _harmonic == asp._harmonic
+                && _eventType == asp._eventType
                 && planets() == asp.planets();
     }
 };
@@ -1152,7 +1209,6 @@ typedef std::list<HarmonicAspect> HarmonicAspects;
 
 class HarmonicEvent : public HarmonicAspect {
     QDateTime       _dateTime;      ///< time of event in UTC
-    unsigned        _eventType;     ///< type of event
     HarmonicAspects _coincidences;  ///< coincident events
 
 public:
@@ -1161,28 +1217,24 @@ public:
                   unsigned char         h,
                   PlanetRangeBySpeed && pr,
                   qreal                 delta = 0.0) :
-        HarmonicAspect(h, std::move(pr), delta),
-        _dateTime(dt),
-        _eventType(et)
+        HarmonicAspect(et, h, std::move(pr), delta),
+        _dateTime(dt)
     { }
 
     HarmonicEvent(const QDateTime& dt = { }) :
         HarmonicAspect(),
-        _dateTime(dt),
-        _eventType(etcUnknownEvent)
+        _dateTime(dt)
     { }
 
     void clear()
     {
         reset();
         _dateTime = { };
-        _eventType = etcUnknownEvent;
         _coincidences.clear();
     }
 
     QDateTime& dateTime() { return _dateTime; }
     const QDateTime& dateTime() const { return _dateTime; }
-    unsigned int eventType() const { return _eventType; }
 
     HarmonicAspects& coincidences() { return _coincidences; }
     const HarmonicAspects& coincidences() const { return _coincidences; }
@@ -1204,8 +1256,7 @@ public:
     bool operator==(const HarmonicEvent& ev) const
     {
         return _dateTime == ev._dateTime
-                && HarmonicAspect::operator==(ev)
-                && _eventType == ev._eventType;
+                && HarmonicAspect::operator==(ev);
     }
 };
 

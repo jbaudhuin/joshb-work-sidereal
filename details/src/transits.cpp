@@ -256,19 +256,63 @@ public:
                 .arg(m >= 10 ? "" : "0").arg(m);
     };
 
-    bool singleColumn(const A::PlanetRangeBySpeed& locs) const
+    static int fid(const A::ChartPlanetId& cpid) { return cpid.fileId(); }
+    static int fid(const A::PlanetLoc& ploc) { return ploc.planet.fileId(); }
+
+    QString display(const A::ChartPlanetId& cpid) const
+    {
+        return cpid.name();
+    }
+
+    QString display(const A::PlanetLoc& s) const
+    {
+        return QString(s.planet.fileId()==1
+                       ? "<i>%1</i>" : "%1").arg(s.description())
+                + " " + A::zodiacPosition(s.rasiLoc(), _zodiac,
+                                          A::HighPrecision);
+    }
+
+    QString glyph(const A::ChartPlanetId& cpid) const
+    { return cpid.glyph(); }
+
+    QString glyph(const A::PlanetLoc& s) const
+    {
+        const A::ChartPlanetId& cpid = s.planet;
+        auto g = cpid.glyph();
+        if (cpid.isMidpt()) g = g.mid(1);   // skip conj/opp
+        auto desc = s.desc;
+        if (!desc.isEmpty()) {
+            if (desc=="SD") desc = "%&";
+            else if (desc=="SR") desc = "%#";
+            else if (desc=="n") desc = "";
+        }
+        if (s.speed < 0 && !s.desc.startsWith("S")) {
+            desc = "#" + desc; // retrograde
+        }
+        return g + " " + getPos(s.rasiLoc()) + " " + desc;
+    }
+
+    QString summary(const A::ChartPlanetId& cpid) const
+    { return cpid.name(); }
+
+    QString summary(const A::PlanetLoc& s) const
+    {
+        auto str = s.planet.name();
+        if (!s.desc.isEmpty()) str += "-" + s.desc;
+        return str;
+    }
+
+    template <typename T>
+    bool singleColumn(const T& locs) const
     {
         return locs.size()==1
                 || (locs.size()>2
-                    && (locs.begin()->planet.fileId()
-                        == locs.rbegin()->planet.fileId()));
+                    && fid(*locs.begin()) == fid(*locs.rbegin()));
     }
 
-    bool mixedMode(const A::PlanetRangeBySpeed& locs) const
-    {
-        return locs.begin()->planet.fileId()
-                != locs.rbegin()->planet.fileId();
-    }
+    template <typename T>
+    bool mixedMode(const T& locs) const
+    { return locs.size()>=2 && fid(*locs.begin()) != fid(*locs.rbegin()); }
 
     template <typename Iter>
     QVariant glyphic(int role, Iter its) const
@@ -278,74 +322,49 @@ public:
             return f;
         }
 
-        auto count = std::distance(its.first, its.second);
-        if (count == 1) {
-            const A::PlanetLoc& s = *its.first;
+        QStringList sl;
+        for (auto it = its.first; it != its.second; ++it) {
+            const auto& s = *it;
             if (role == Qt::DisplayRole || role == Qt::EditRole) {
-                const A::ChartPlanetId& cpid = s.planet;
-                auto g = cpid.glyph();
-                auto desc = s.desc;
-                if (!desc.isEmpty()) {
-                    if (desc=="SD") desc = "%&";
-                    else if (desc=="SR") desc = "%#";
-                    else if (desc=="n") desc = "";
-                }
-                if (s.speed < 0 && !s.desc.startsWith("S")) {
-                    desc = "#" + desc; // retrograde
-                }
-                return g + " " + getPos(s.rasiLoc()) + " " + desc;
+                sl << glyph(s);
             } else if (role == Qt::ToolTipRole) {
-                return QString(s.planet.fileId()==1
-                               ? "<i>%1</i>" : "%1")
-                        .arg(s.description())
-                        + " " + A::zodiacPosition(s.rasiLoc(), _zodiac,
-                                                  A::HighPrecision);
+                sl << display(s);
             } else if (role == SummaryRole) {
-                auto str = s.planet.name();
-                if (!s.desc.isEmpty()) str += "-" + s.desc;
-                return str;
+                sl << summary(s);
             }
         }
 
-        if (role == Qt::ToolTipRole) {
-            QStringList sl;
-            for (auto it = its.first; it != its.second; ++it)
-                sl << it->planet.name();
-            return sl.join("-");
-        }
-        A::PlanetSet ps;
-        for (auto it = its.first; it != its.second; ++it) {
-            ps.insert(it->planet);
-        }
-        return ps.glyphs();
+        return sl.join((role == Qt::ToolTipRole)? "-" : ",");
     }
 
-    auto getNTColIters(const A::PlanetRangeBySpeed& locs) const
+    template <typename T>
+    auto getNTColIters(const T& locs) const
     {
         if (singleColumn(locs)) {
             return std::make_pair(locs.rend(),locs.rend());
         }
         if (mixedMode(locs)) {
             auto it = locs.rbegin();
-            auto f = it->planet.fileId();
+            auto f = fid(*it);
             auto end = it;
-            while (end != locs.rend() && f==end->planet.fileId()) ++end;
+            while (end != locs.rend() && f==fid(*end)) ++end;
             return std::make_pair(it, end);
         }
         auto it = locs.rbegin();
         return std::make_pair(it, std::next(it));
     }
 
-    auto getTColIters(const A::PlanetRangeBySpeed& locs) const
+    template <typename T>
+    auto getTColIters(const T& locs) const
     {
         if (singleColumn(locs)) {
             return std::make_pair(locs.begin(),locs.end());
         }
         if (mixedMode(locs)) {
             auto it = locs.begin();
-            auto f = it->planet.fileId();
+            auto f = fid(*it);
             auto end = it;
-            while (end != locs.end() && f==end->planet.fileId()) ++end;
+            while (end != locs.end() && f==fid(*end)) ++end;
             return std::make_pair(it, end);
         }
         auto it = locs.begin();
@@ -383,9 +402,8 @@ public:
         int row = index.row();
         int prow = int(index.internalId());
         int col = index.column();
-        const A::HarmonicAspect& asp(prow==-1
-                                     ? *_evs[row]
-                                       : _evs[prow]->coincidence(row));
+        const auto& asp(prow==-1 ? (*_evs[row])
+                                 : _evs[prow]->coincidence(row));
         switch (col) {
         case dateCol:
             if (prow == -1) {
@@ -402,21 +420,41 @@ public:
         case harmonicCol:
             if (role == Qt::ToolTipRole) {
                 if (singleColumn(asp.locations())) return "station";
-                planetPair pp;
-                if (getPlanetPair(asp.locations(), pp)) {
-                    auto a = A::calculateAspect(aspects(),pp.first,pp.second);
-                    return a.d->name;
+                if (!asp.locations().empty()) {
+                    planetPair pp;
+                    if (getPlanetPair(asp.locations(), pp)) {
+                        auto a = A::calculateAspect(aspects(),
+                                                    pp.first,
+                                                    pp.second);
+                        return a.d->name;
+                    }
                 }
             }
             return "H" + QString::number(asp.harmonic());
 
         case transitBodyCol:
+            if (asp.locations().empty()) {
+                // goofiness due to different sorts for planets
+                // and locations
+                if (singleColumn(asp.planets())) {
+                    return glyphic(role, getTColIters(asp.planets()));
+                }
+                return glyphic(role, getNTColIters(asp.planets()));
+            }
             return glyphic(role, getTColIters(asp.locations()));
 
         case natalTransitBodyCol:
             if (role == Qt::ForegroundRole) {
-                if (mixedMode(asp.locations())) return QColor("gold");
+                if (mixedMode(asp.planets())) return QColor("gold");
                 // else falls through to default return
+                break;
+            }
+            if (asp.locations().empty()) {
+                // goofiness due to different sorts for planets
+                // and locations
+                if (!singleColumn(asp.planets())) {
+                    return glyphic(role, getTColIters(asp.planets()));
+                }
                 break;
             }
             return glyphic(role, getNTColIters(asp.locations()));
