@@ -2482,7 +2482,9 @@ AspectFinder::run()
 
     harmonize hmm(_ids, 1);
     double pjd = jd;
-    auto nd = d.addDays(_rate);
+    int ndays = int(_rate);
+    int nsecs = (_rate - double(ndays)) * 24.*60.*60.;
+    auto nd = d.addDays(ndays).addSecs(nsecs);
     unsigned char harm1 = 1;
     while (d < e) {
         jd = getJulianDate(nd);
@@ -2856,7 +2858,8 @@ AspectFinder::run()
         }
 
         d = nd;
-        nd = d.addDays(_rate);
+        nd = d.addDays(ndays).addSecs(nsecs);
+        //nd = d.addDays(_rate);
         pjd = jd;
 
         _alist.swap(b);

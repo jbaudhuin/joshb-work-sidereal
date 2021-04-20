@@ -198,7 +198,7 @@ Harmonics::updateHarmonics()
         std::multimap<A::ChartPlanetBitmap, itemList> firstHxItems;
         typedef std::pair<int, A::ChartPlanetBitmap> harmInst;
         QMap<QStandardItem*, harmInst> prev;
-        for (auto ph : hx) {
+        for (const auto& ph : hx) {
             intSet divs;
             QList<itemList> hits;
             auto factors = getFactors(ph.first);
@@ -319,8 +319,8 @@ Harmonics::updateHarmonics()
         QList<itemList> items;
         QMap<A::PlanetSet, int> dir;
         int n = 0;
-        for (auto ph : hx) {
-            for (auto hp : ph.second) {
+        for (const auto& ph : hx) {
+            for (const auto& hp : ph.second) {
                 if (_planet != A::Planet_None && !hp.first.contains(_planet))
                     continue;
 
@@ -366,8 +366,8 @@ Harmonics::updateHarmonics()
         sim->setHorizontalHeaderLabels({tr("Spread"), tr("Harmonic"), tr("Planets")});
 
         QMultiMap<qreal, itemList> om;
-        for (auto ph : hx) {
-            for (auto hp : ph.second) {
+        for (const auto& ph : hx) {
+            for (const auto& hp : ph.second) {
                 if (_planet != A::Planet_None && !hp.first.contains(_planet))
                     continue;
 
@@ -393,7 +393,7 @@ Harmonics::updateHarmonics()
     }
     }
 
-    for (const QString& str: expo) {
+    for (const QString& str: qAsConst(expo)) {
         for (auto sit : sim->findItems(str, Qt::MatchExactly)) {
             htv()->setExpanded(sit->index(), true);
             break;
@@ -519,22 +519,23 @@ Harmonics::headerDoubleClicked(int col)
 void
 Harmonics::copySelection()
 {
-    if (auto sim = tvm()) {
-        QClipboard* cb = QApplication::clipboard();
-        if (const QMimeData* md = cb->mimeData()) {
-            if (md->hasText()) {
-                qDebug() << md->text();
-            } else if (md->hasHtml()) {
-                qDebug() << md->html();
-            }
+    auto sim = tvm();
+    if (!sim) return;
+
+    QClipboard* cb = QApplication::clipboard();
+    if (const QMimeData* md = cb->mimeData()) {
+        if (md->hasText()) {
+            qDebug() << md->text();
+        } else if (md->hasHtml()) {
+            qDebug() << md->html();
         }
-        QItemSelectionModel* sm = _hview->selectionModel();
-        QModelIndexList qmil = sm->selectedIndexes();
-        qDebug() << qmil;
-        QMimeData* md = sim->mimeData(qmil);
-        qDebug() << md->formats();
-        cb->setMimeData(sim->mimeData(qmil));
     }
+    QItemSelectionModel* sm = _hview->selectionModel();
+    QModelIndexList qmil = sm->selectedIndexes();
+    qDebug() << qmil;
+    QMimeData* md = sim->mimeData(qmil);
+    qDebug() << md->formats();
+    cb->setMimeData(sim->mimeData(qmil));
 }
 
 void 

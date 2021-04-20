@@ -138,7 +138,8 @@ public:
     };
 
     enum roles {
-        SummaryRole = Qt::UserRole
+        SummaryRole = Qt::UserRole,
+        RawRole
     };
 
     TransitEventsModel(QObject* parent = nullptr) :
@@ -395,6 +396,7 @@ public:
                 && role != Qt::ToolTipRole
                 && role != Qt::EditRole
                 && role != SummaryRole
+                && role != RawRole
                 && (index.column() < transitBodyCol
                     || (role != Qt::FontRole && role != Qt::ForegroundRole)))
         { return QVariant(); }
@@ -409,6 +411,7 @@ public:
             if (prow == -1) {
                 // HarmonicEvent
                 auto dt = _evs[row]->dateTime().toLocalTime();
+                if (role == RawRole) return dt;
                 if (role == Qt::ToolTipRole)
                     return dt.toString();   // XXX format
                 return dt.toString("yyyy/MM/dd");
@@ -430,6 +433,7 @@ public:
                     }
                 }
             }
+            if (role == RawRole) return asp.harmonic();
             return "H" + QString::number(asp.harmonic());
 
         case transitBodyCol:
@@ -728,7 +732,7 @@ Transits::Transits(QWidget* parent) :
     connect(act, SIGNAL(triggered()), this, SLOT(copySelection()));
     _tview->addAction(act);
 
-    _start = new QDateEdit;    
+    _start = new QDateEdit;
     _duraRB = new QRadioButton(tr("for"));
     _duraRB->setFocusPolicy(Qt::NoFocus);
     _duration = new QLineEdit;
@@ -797,7 +801,7 @@ Transits::Transits(QWidget* parent) :
 
     connect(_tview, SIGNAL(doubleClicked(const QModelIndex&)),
             this, SLOT(doubleClickedCell(const QModelIndex&)));
-    connect(_tview, SIGNAL(clicked(const QModelIndex&)),
+    connect(_tview, SIGNAL(pressed(const QModelIndex&)),
             this, SLOT(clickedCell(const QModelIndex&)));
     connect(_tview->header(), SIGNAL(sectionDoubleClicked(int)),
             this, SLOT(headerDoubleClicked(int)));
@@ -888,6 +892,11 @@ Transits::Transits(QWidget* parent) :
 
     connect(_evm, SIGNAL(aboutToChange()), this, SLOT(saveScrollPos()));
     connect(_evm, SIGNAL(changeDone()), this, SLOT(restoreScrollPos()));
+
+    QTimer::singleShot(0, [this]() {
+        connect(this, SIGNAL(updateHarmonics(double)),
+                MainWindow::theAstroWidget(), SLOT(setHarmonic(double)));
+    });
 }
 
 void 
@@ -967,9 +976,10 @@ Transits::updateTransits()
     auto hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
     if (transOnly) {
-        QThreadPool::globalInstance()->
-                start(new A::TransitFinder(_evs, r, hs,
-                                           scope.inputData, pst));
+        auto tf = new A::TransitFinder(_evs, r, hs,
+                                       scope.inputData, pst);
+        tf->setIncludeStations(true);
+        tp->start(tf);
     } else {
         const auto& ida(transitsAF()->horoscope().inputData);
         auto tf = new A::TransitFinder(_evs, r, hs,
@@ -1130,10 +1140,26 @@ Transits::restoreScrollPos()
 void
 Transits::clickedCell(QModelIndex inx)
 {
+    auto btns = QGuiApplication::mouseButtons();
+    bool mbtn = (btns & Qt::MiddleButton);
+    bool lbtn = (btns & Qt::LeftButton);
     bool ctrl = (QApplication::keyboardModifiers() & Qt::ControlModifier);
+    if (lbtn && ctrl) lbtn = false, mbtn = true;
+
+    if (inx.column()==TransitEventsModel::harmonicCol)  {
+        auto v = inx.data(TransitEventsModel::RawRole);
+        qDebug() << v;
+        if (v.canConvert<unsigned>()) {
+            double h = v.toUInt();
+            emit updateHarmonics(h);
+        }
+    } else {
+        emit updateHarmonics(1);
+    }
+
     auto par = inx.parent();
     if (par.isValid()) inx = par;
-    if (ctrl) {
+    if (mbtn) {
         doubleClickedCell(inx);
         return;
     }

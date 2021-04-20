@@ -124,6 +124,8 @@ signals:
     void addChartWithTransits(const AFileInfo&,
                               AstroFile*);
 
+    void updateHarmonics(double);
+
 protected slots:
     void onEventSelectionChanged();
     void onDateRangeChanged();

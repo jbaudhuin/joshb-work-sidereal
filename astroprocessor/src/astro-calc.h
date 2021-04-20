@@ -205,7 +205,9 @@ public:
                  const uintSSet& hset) :
         EventFinder(evs, range),
         _hset(hset)
-    { }
+    {
+        if (_includeMidpoints || *hset.rbegin()>4) _rate = .5;
+    }
 
     void run() override;
 
@@ -231,7 +233,7 @@ protected:
     bool _includeReturnAspects = true; // todo: solar, solar+lunar, all, none
     bool _includeTransitAspectsToReturnPlanet = true;
     bool _filterLowerUnselectedHarmonics = true;
-    unsigned _rate = 4;  // # days
+    double _rate = 4.0;  // # days
     double _orb = 2.0;   // orb for aspects to stations or return aspects
 
     bool outOfOrb(unsigned h,
