@@ -987,7 +987,25 @@ public:
         Base()
     { for (auto oloc : other) emplace_back(oloc->clone()); }
 
-    virtual ~PlanetProfile() { qDeleteAll(*this); }    
+    PlanetProfile(PlanetProfile&& other) :
+        Loc(other),
+        Base(std::move(other))
+    { }
+
+    virtual ~PlanetProfile() { qDeleteAll(*this); }
+
+    PlanetProfile* profile(const PlanetSet& psp) const
+    {
+        auto ret = new PlanetProfile;
+        for (auto loc : *this) {
+            if (auto ploc = dynamic_cast<const PlanetLoc*>(loc)) {
+                if (psp.count(ploc->planet)) {
+                    ret->emplace_back(ploc->clone());
+                }
+            }
+        }
+        return ret;
+    }
 
     qreal defaultSpeed() const
     {
@@ -1218,6 +1236,15 @@ public:
                   PlanetRangeBySpeed && pr,
                   qreal                 delta = 0.0) :
         HarmonicAspect(et, h, std::move(pr), delta),
+        _dateTime(dt)
+    { }
+
+    HarmonicEvent(const QDateTime     & dt,
+                  unsigned              et,
+                  unsigned char         h,
+                  PlanetSet          && ps,
+                  qreal                 delta = 0.0) :
+        HarmonicAspect(et, h, std::move(ps), delta),
         _dateTime(dt)
     { }
 

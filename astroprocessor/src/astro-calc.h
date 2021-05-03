@@ -209,6 +209,8 @@ public:
         if (_includeMidpoints || *hset.rbegin()>4) _rate = .5;
     }
 
+    void findAspects();
+    void findPatterns();
     void run() override;
 
     void setIncludeStations(bool b)
@@ -244,8 +246,10 @@ protected:
         d = delta.first;
         bool anyMidPoints = false;
         for (auto loc : locs) {
-            if (auto ploc = dynamic_cast<const PlanetLoc*>(loc)) {
-                if (ploc->planet.isMidpt()) { anyMidPoints = true; break; }
+            auto ploc = dynamic_cast<const PlanetLoc*>(loc);
+            if (ploc && ploc->planet.isMidpt()) {
+                anyMidPoints = true;
+                break;
             }
         }
         return d > (anyMidPoints? _orb/8 : _orb);
@@ -341,12 +345,17 @@ private:
 PlanetClusterMap findClusters(unsigned h,
                               const PlanetProfile& prof,
                               const PlanetSet& need = {},
-                              bool skipAllNatal = false);
+                              bool skipAllNatalOnly = false);
 
 PlanetClusterMap findClusters(unsigned h, double jd,
                               const PlanetProfile& prof,
                               const QList<InputData>& ids,
                               const PlanetSet& need = {});
+
+qreal computeSpread(unsigned h,
+                    double jd,
+                    const PlanetProfile& prof,
+                    const QList<InputData>& ids);
 
 Planet      calculatePlanet      ( PlanetId planet, const InputData& input, const Houses& houses, const Zodiac& zodiac );
 Star calculateStar(const QString&, const InputData& input, const Houses& houses, const Zodiac& zodiac);

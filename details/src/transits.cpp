@@ -406,6 +406,8 @@ public:
         int col = index.column();
         const auto& asp(prow==-1 ? (*_evs[row])
                                  : _evs[prow]->coincidence(row));
+        auto et = asp.eventType();
+
         switch (col) {
         case dateCol:
             if (prow == -1) {
@@ -982,10 +984,12 @@ Transits::updateTransits()
         tp->start(tf);
     } else {
         const auto& ida(transitsAF()->horoscope().inputData);
+#if 0
         auto tf = new A::TransitFinder(_evs, r, hs,
                                        scope.inputData, pst);
         tf->setIncludeStations(false);
         tp->start(tf);
+#endif
         tp->start(new A::NatalTransitFinder(_evs, r, hs,
                                             scope.inputData,
                                             ida, psn, pst));
@@ -1154,7 +1158,7 @@ Transits::clickedCell(QModelIndex inx)
             emit updateHarmonics(h);
         }
     } else {
-        emit updateHarmonics(1);
+        //emit updateHarmonics(1);
     }
 
     auto par = inx.parent();
