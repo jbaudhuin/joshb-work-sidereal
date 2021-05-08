@@ -2898,7 +2898,7 @@ AspectFinder::findPatterns()
     for (unsigned h = 1; h <= maxH; ++h) {
         bool unsel = hs.count(h)==0;
         if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-        starts[h] = findClusters(h, jd, _alist, _ids);
+        starts[h] = findClusters(h, jd, _alist, _ids, {}, false, 2);
 
         for (auto& cl: starts[h]) cl.second = jd;
     }
@@ -2918,7 +2918,7 @@ AspectFinder::findPatterns()
         for (unsigned h = maxH; h >= 1; --h) {
             bool unsel = hs.count(h)==0;
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-            auto hpc = findClusters(h, jd, _alist, _ids);
+            auto hpc = findClusters(h, jd, _alist, _ids, {}, false, 2);
 
             for (auto sit = starts[h].begin(); sit != starts[h].end(); ) {
                 const auto& ps = sit->first;
@@ -2957,6 +2957,14 @@ AspectFinder::findPatterns()
                         auto& startf = starts.at(f);
                         auto lwrit = startf.find(ps);
                         if (lwrit != startf.end()) {
+#if 1
+                            cancel = true;
+                            qDebug() << QString("H%1").arg(f)
+                                     << ps.names()
+                                     << "exists, so skipping"
+                                     << QString("H%1").arg(h);
+                            break;
+#else
                             if (lwrit->second == 0) {
                                 cancel = true;
                                 qDebug() << QString("H%1").arg(f)
@@ -2970,6 +2978,7 @@ AspectFinder::findPatterns()
                                      << "hijacking" << QString("H%1").arg(f)
                                      << "for" << ps.names();
                             lwrit->second = 0;
+#endif
                         }
                         prev = f;
                     }
@@ -3025,7 +3034,7 @@ AspectFinder::findPatterns()
                                      << QList<qreal>({csprd(a),csprd(mid),csprd(b)});
                             if (it > 2) break;
                             m *= 10;
-                            auto q = (mid - a)/2.;
+                            auto q = (mid - a)/4.;
                             if (jd == to) a = b - q, b += q;
                             else b = a + q, a -= q;
                         } else break;
@@ -3053,7 +3062,20 @@ AspectFinder::findPatterns()
             // so we need to add the remainder of hpc to starts[h] with the
             // new date.
             for (const auto& cl: hpc) {
-                starts[h].emplace(cl.first, pjd);
+                bool add = true;
+                unsigned prev = 0;
+                const auto& ps(cl.first);
+                for (unsigned f: getAllFactors(h)) {
+                    if (f == h) break;
+                    if (prev == f) continue;
+                    auto& startf = starts.at(f);
+                    auto lwrit = startf.find(ps);
+                    if (lwrit != startf.end()) {
+                        add = false;
+                        break;
+                    }
+                }
+                if (add) starts[h].emplace(ps, pjd);
             }
         }
 
@@ -3087,7 +3109,12 @@ void AspectFinder::run()
 #endif
     swe_set_ephe_path(ephePath);
 
-    findPatterns();
+    switch (_gt) {
+    case afcFindPatterns:
+        findPatterns(); break;
+    case afcFindAspects:
+        findAspects(); break;
+    }
 }
 
 TransitFinder::TransitFinder(HarmonicEvents& evs,
@@ -3096,7 +3123,9 @@ TransitFinder::TransitFinder(HarmonicEvents& evs,
                              const InputData& trainp,
                              const PlanetSet& tran,
                              unsigned eventsType /*=etcTransitToTransit*/) :
-    AspectFinder(evs, range, hs)
+    AspectFinder(evs, range, hs,
+                 eventsType==etcTransitAspectPattern
+                 ? afcFindPatterns : afcFindAspects)
 {
     _evType = eventsType & ~etcDerivedEventMask;
 
@@ -3146,7 +3175,9 @@ NatalTransitFinder::NatalTransitFinder(HarmonicEvents& evs,
                                        const PlanetSet& tran,
                                        unsigned eventsType /*=etcTransitToNatal*/,
                                        bool includeTransitsToTransits /*=false*/) :
-    AspectFinder(evs, range, hs)
+    AspectFinder(evs, range, hs,
+                 eventsType==etcTransitNatalAspectPattern
+                 ? afcFindPatterns : afcFindAspects)
 {
     _evType = eventsType & ~etcDerivedEventMask;
 
@@ -3310,7 +3341,8 @@ containsAnyTrans(const positions& pos)
 {
     return std::any_of(pos.begin(), pos.end(),
                        [&](const position& p) {
-        return p.second.fileId() == 1;
+        return p.second.fileId() == 1
+                && p.second.planetId() != Planet_Moon;
     });
 }
 
@@ -3341,14 +3373,20 @@ sizeWithoutTransitingMoon(const positions& grp,
 PlanetClusterMap
 findClusters(const positions& posits,
              const PlanetSet& need /*={}*/,
-             bool skipAllNatalOnly = false)
+             bool skipAllNatalOnly = false,
+             bool restrictMoon = true,
+             qreal maxOrb = 8.)
 {
     bool moonIn1 = skipAllNatalOnly;
     PlanetClusterMap ret;
     for (auto it = posits.begin(); it != posits.end(); ++it) {
         positions grp;
         auto maybeAddGroup = [&] {
-            if (sizeWithoutTransitingMoon(grp,moonIn1) < 3) return;
+            if ((restrictMoon? sizeWithoutTransitingMoon(grp,moonIn1)
+                 : grp.size()) < 3)
+            {
+                return;
+            }
             if ((!need.empty() && !containsAny(grp,need))
                     || (skipAllNatalOnly && !containsAnyTrans(grp)))
             {
@@ -3358,7 +3396,7 @@ findClusters(const positions& posits,
             ret[getSet(grp)] = spread;
         };
 
-        auto e = posits.lower_bound(position(it->first + 8.,
+        auto e = posits.lower_bound(position(it->first + maxOrb,
                                              ChartPlanetId()));
         for (auto jit = it; jit != e; ++jit) {
             maybeAddGroup();
@@ -3373,7 +3411,9 @@ PlanetClusterMap
 findClusters(unsigned h,
              const PlanetProfile& plist,
              const PlanetSet& need /*={}*/,
-             bool skipAllNatalOnly /*=false*/)
+             bool skipAllNatalOnly /*=false*/,
+             bool restrictMoon /*=true*/,
+             qreal maxOrb /*=8.*/)
 {
     positions posits;
     for (auto loc : plist) {
@@ -3389,14 +3429,16 @@ findClusters(unsigned h,
         }
     }
 
-    return findClusters(posits, need, skipAllNatalOnly);
+    return findClusters(posits, need, skipAllNatalOnly,restrictMoon,maxOrb);
 }
 
 PlanetClusterMap
 findClusters(unsigned h, double jd,
              const PlanetProfile& plist,
              const QList<InputData>& ids,
-             const PlanetSet& need /*={}*/)
+             const PlanetSet& need /*={}*/,
+             bool restrictMoon /*=true*/,
+             qreal maxOrb /*=8.*/)
 {
     std::vector<unsigned> pfid { 0, 0, 0 };
     positions posits;
@@ -3427,7 +3469,7 @@ findClusters(unsigned h, double jd,
         }
     }
 
-    return findClusters(posits, need, pfid[0] && pfid[1]);
+    return findClusters(posits, need, pfid[0] && pfid[1],restrictMoon,maxOrb);
 }
 
 qreal
@@ -3436,7 +3478,9 @@ computeSpread(unsigned h,
               const PlanetProfile& prof,
               const QList<InputData>& ids)
 {
+    std::vector<qreal> sums(2, 0);
     std::vector<qreal> locs;
+    std::vector<unsigned> c(2, 0);
     for (auto loc: prof) {
         auto ploc = dynamic_cast<PlanetLoc*>(loc);
         if (!ploc) continue;
@@ -3444,14 +3488,29 @@ computeSpread(unsigned h,
         auto cpid = ploc->planet;
         const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );
 
-        qreal pos = (ploc->inMotion())
+        unsigned vroom(ploc->inMotion());
+        qreal pos = vroom
                 ? PlanetLoc::compute(cpid,ida,jd).first
                 : ploc->_rasiLoc;
-        locs.emplace_back(h==1? pos : harmonic(h,pos));
+        if (h > 1) pos = harmonic(h,pos);
+        if (vroom) locs.emplace_back(pos);
+        sums[vroom] += pos;
+        ++c[vroom];
     }
 
-    if (locs.size()==2) {
-        return angle(locs[0],locs[1]);
+    if (c[1] == 0) return 0;    // this is an error
+
+    if (c[0] != 0) {
+#if 1
+        // try to minimize distance to center of natal configuration
+        locs.emplace_back(sums[0]/c[0]);
+#else
+        // try to minimize distance between center of moving
+        // and center of natal configuration
+        auto fixed = sums[0]/c[0];
+        auto movie = sums[1]/c[1];
+        return angle(fixed,movie);
+#endif
     }
 
     qreal maxa = 0;

@@ -200,11 +200,15 @@ public:
 
 class AspectFinder : public EventFinder {
 public:
+    enum goalType { afcFindAspects, afcFindPatterns };
+
     AspectFinder(HarmonicEvents& evs,
                  const ADateRange& range,
-                 const uintSSet& hset) :
+                 const uintSSet& hset,
+                 goalType gt = afcFindAspects) :
         EventFinder(evs, range),
-        _hset(hset)
+        _hset(hset),
+        _gt(gt)
     {
         if (_includeMidpoints || *hset.rbegin()>4) _rate = .5;
     }
@@ -223,6 +227,8 @@ public:
     }
 
 protected:
+    goalType _gt;
+
     bool _includeMidpoints = false;
     // ** Future config options or control options for transit set **
     bool _includeTransits = true; // todo: could have separate func for stns
@@ -345,12 +351,16 @@ private:
 PlanetClusterMap findClusters(unsigned h,
                               const PlanetProfile& prof,
                               const PlanetSet& need = {},
-                              bool skipAllNatalOnly = false);
+                              bool skipAllNatalOnly = false,
+                              bool restrictMoon = true,
+                              qreal maxOrb = 8.);
 
 PlanetClusterMap findClusters(unsigned h, double jd,
                               const PlanetProfile& prof,
                               const QList<InputData>& ids,
-                              const PlanetSet& need = {});
+                              const PlanetSet& need = {},
+                              bool restrictMoon = true,
+                              qreal maxOrb = 8.);
 
 qreal computeSpread(unsigned h,
                     double jd,

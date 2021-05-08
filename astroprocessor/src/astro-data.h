@@ -1050,30 +1050,45 @@ struct BySpeed {
 typedef std::set<PlanetLoc> PlanetRange;
 typedef std::set<PlanetLoc,BySpeed> PlanetRangeBySpeed;
 
-struct PlanetRangeLess {
+struct PlanetClusterLess {
     bool _fast;
 
-    PlanetRangeLess(bool fast = true) : _fast(fast) { }
+    PlanetClusterLess(bool fast = true) : _fast(fast) { }
+
+    static int fileId(const ChartPlanetId& cpid)
+    { return cpid.fileId(); }
+
+    static int fileId(const PlanetLoc& ploc)
+    { return ploc.planet.fileId(); }
+
+    static const ChartPlanetId& planet(const ChartPlanetId& cpid)
+    { return cpid; }
+
+    static const ChartPlanetId& planet(const PlanetLoc& ploc)
+    { return ploc.planet; }
 
     template <typename T>
     bool less(T ait, T aend, T bit, T bend) const
     {
-        auto f = ait->planet.fileId();
-        auto g = bit->planet.fileId();
+        if (ait == aend && bit == bend) return false;
+        if (ait == aend && bit != bend) return true;
+        if (ait != aend && bit == bend) return false;
+        auto f = fileId(*ait);
+        auto g = fileId(*bit);
         if (f < g) return true;
         if (g < f) return false;
         while (ait != aend && bit != bend
-               && ait->planet.fileId() == f
-               && bit->planet.fileId() == f)
+               && fileId(*ait) == f
+               && fileId(*bit) == f)
         {
-            if (ait->planet != bit->planet) return ait->planet < bit->planet;
+            if (planet(*ait) != planet(*bit)) return planet(*ait) < planet(*bit);
             ++ait; ++bit;
         }
         if ((ait != aend) < (bit != bend)) return true;
         if ((ait != aend) > (bit != bend)) return false;
         if (ait == aend && bit == bend) return false;
-        return ((ait->planet.fileId()==f)
-                < (bit->planet.fileId()==f));
+        return ((fileId(*ait)==f)
+                < (fileId(*bit)==f));
     }
 
     bool operator()(const PlanetRangeBySpeed& a,
@@ -1081,6 +1096,13 @@ struct PlanetRangeLess {
     {
         return _fast? less(a.begin(), a.end(), b.begin(), b.end())
                     : less(a.rbegin(), a.rend(), b.rbegin(), b.rend());
+    }
+
+    bool operator()(const PlanetSet& a,
+                    const PlanetSet& b)
+    {
+        return _fast? less(a.rbegin(), a.rend(), b.rbegin(), b.rend())
+                    : less(a.begin(), a.end(), b.begin(), b.end());
     }
 };
 

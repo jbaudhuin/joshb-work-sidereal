@@ -513,9 +513,14 @@ public:
 
             case transitBodyCol:
             {
-                A::PlanetRangeLess prless(true/*fast*/);
-                if (prless(a->locations(),b->locations())) return true;
-                if (prless(b->locations(),a->locations())) return false;
+                A::PlanetClusterLess prless(true/*fast*/);
+                if (true || a->locations().empty() && b->locations().empty()) {
+                    if (prless(a->planets(),b->planets())) return true;
+                    if (prless(b->planets(),a->planets())) return false;
+                } else {
+                    if (prless(a->locations(),b->locations())) return true;
+                    if (prless(b->locations(),a->locations())) return false;
+                }
                 if (a->dateTime() < b->dateTime()) return true;     // date-time
                 if (a->dateTime() > b->dateTime()) return false;
                 if (a->orb() < b->orb()) return true;   // orb
@@ -525,9 +530,14 @@ public:
 
             case natalTransitBodyCol:   // XXX
             {
-                A::PlanetRangeLess prless(false/*not fast*/);
-                if (prless(a->locations(),b->locations())) return true;
-                if (prless(b->locations(),a->locations())) return false;
+                A::PlanetClusterLess prless(false/*not fast*/);
+                if (true || a->locations().empty() && b->locations().empty()) {
+                    if (prless(a->planets(),b->planets())) return true;
+                    if (prless(b->planets(),a->planets())) return false;
+                } else {
+                    if (prless(a->locations(),b->locations())) return true;
+                    if (prless(b->locations(),a->locations())) return false;
+                }
                 if (a->dateTime() < b->dateTime()) return true;     // date-time
                 if (a->dateTime() > b->dateTime()) return false;
                 if (a->orb() < b->orb()) return true;   // orb
@@ -548,6 +558,13 @@ public:
                 hevLess(column, order==Qt::DescendingOrder);
 
         beginResetModel();
+#if 1
+        _evs.clear();
+        for (auto evs: _evls) {
+            QMutexLocker ml(const_cast<QMutex*>(&evs->mutex));
+            _evs.insert(_evs.end(),evs->cbegin(),evs->cend());
+        }
+#endif
         std::sort(_evs.begin(), _evs.end(), less);
         endResetModel();
 
@@ -978,10 +995,14 @@ Transits::updateTransits()
     auto hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
     if (transOnly) {
+#if 0
         auto tf = new A::TransitFinder(_evs, r, hs,
                                        scope.inputData, pst);
         tf->setIncludeStations(true);
         tp->start(tf);
+#endif
+        tp->start(new A::TransitFinder(_evs, r, hs, scope.inputData, pst,
+                                       A::etcTransitAspectPattern));
     } else {
         const auto& ida(transitsAF()->horoscope().inputData);
 #if 0
@@ -989,10 +1010,14 @@ Transits::updateTransits()
                                        scope.inputData, pst);
         tf->setIncludeStations(false);
         tp->start(tf);
-#endif
         tp->start(new A::NatalTransitFinder(_evs, r, hs,
                                             scope.inputData,
                                             ida, psn, pst));
+#endif
+        tp->start(new A::NatalTransitFinder(_evs, r, hs,
+                                            scope.inputData, ida,
+                                            psn, pst,
+                                            A::etcTransitNatalAspectPattern));
     }
 
     if (!_watcher) {
@@ -1157,8 +1182,8 @@ Transits::clickedCell(QModelIndex inx)
             double h = v.toUInt();
             emit updateHarmonics(h);
         }
-    } else {
-        //emit updateHarmonics(1);
+    } else if (inx.column()==TransitEventsModel::dateCol) {
+        emit updateHarmonics(1);
     }
 
     auto par = inx.parent();
