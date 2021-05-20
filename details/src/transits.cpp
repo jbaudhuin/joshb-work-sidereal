@@ -995,17 +995,14 @@ Transits::updateTransits()
     auto hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
     if (transOnly) {
-#if 0
         auto tf = new A::TransitFinder(_evs, r, hs,
                                        scope.inputData, pst);
         tf->setIncludeStations(true);
         tp->start(tf);
-#endif
         tp->start(new A::TransitFinder(_evs, r, hs, scope.inputData, pst,
                                        A::etcTransitAspectPattern));
     } else {
         const auto& ida(transitsAF()->horoscope().inputData);
-#if 0
         auto tf = new A::TransitFinder(_evs, r, hs,
                                        scope.inputData, pst);
         tf->setIncludeStations(false);
@@ -1013,7 +1010,6 @@ Transits::updateTransits()
         tp->start(new A::NatalTransitFinder(_evs, r, hs,
                                             scope.inputData,
                                             ida, psn, pst));
-#endif
         tp->start(new A::NatalTransitFinder(_evs, r, hs,
                                             scope.inputData, ida,
                                             psn, pst,
@@ -1331,168 +1327,116 @@ AppSettings
 Transits::defaultSettings()
 {
     AppSettings s;
-#if 0
-    s.setValue("Harmonics/order", A::hscByHarmonic);
-    s.setValue("Harmonics/includeAscMC", false);
-    s.setValue("Harmonics/includeChiron", true);
-    s.setValue("Harmonics/includeNodes", true);
-    s.setValue("Harmonics/includeOvertones", true);
-    s.setValue("Harmonics/overtoneLimit", 16);
-    s.setValue("Harmonics/includeMidpoints", false);
-    s.setValue("Harmonics/requireMidpointAnchor", true);
-    s.setValue("Harmonics/filterFew", true);
-    s.setValue("Harmonics/max", 240);
-    s.setValue("Harmonics/primeFactorLimit", 32);
-    s.setValue("Harmonics/minQuorum", 2);
-    s.setValue("Harmonics/maxQuorum", 4);
-    s.setValue("Harmonics/minQOrb", 4.0);
-    s.setValue("Harmonics/maxQOrb", 20.0);
-#endif
+    s.setValue("Events/secondaryOrb",                   2.);
+    s.setValue("Events/patternsQuorum",                 3);
+    s.setValue("Events/patternsSpreadOrb",              8.);
+    s.setValue("Events/patternsRestrictMoon",           true);
+    s.setValue("Events/includeMidpoints",               false);
+    s.setValue("Events/showTransitsToTransits",         true);
+    s.setValue("Events/showTransitsToNatal",            true);
+    s.setValue("Events/showReturns",                    true);
+    s.setValue("Events/showProgressionsToProgressions", false);
+    s.setValue("Events/showProgressionsToNatal",        false);
+    s.setValue("Events/showTransitAspectPatterns",      true);
+    s.setValue("Events/showTransitNatalAspectPatterns", true);
+    s.setValue("Events/showIngresses",                  false);
+    s.setValue("Events/showLunations",                  false);
+    s.setValue("Events/showHeliacalEvents",             false);
+    s.setValue("Events/showPrimaryDirections",          false);
+    s.setValue("Events/showLifeEvents",                 false);
     return s;
 }
 
-AppSettings Transits::currentSettings()
+AppSettings
+Transits::currentSettings()
 {
     AppSettings s;
-#if 0
-    s.setValue("Harmonics/order", s_harmonicsOrder);
-    s.setValue("Harmonics/includeAscMC", A::includeAscMC());
-    s.setValue("Harmonics/includeChiron", A::includeChiron());
-    s.setValue("Harmonics/includeNodes", A::includeNodes());
-    s.setValue("Harmonics/includeOvertones", includeOvertones());
-    s.setValue("Harmonics/overtoneLimit", overtoneLimit());
-    s.setValue("Harmonics/includeMidpoints", A::includeMidpoints());
-    s.setValue("Harmonics/requireMidpointAnchor", A::requireAnchor());
-    s.setValue("Harmonics/filterFew", A::filterFew());
-    s.setValue("Harmonics/primeFactorLimit", A::primeFactorLimit());
-    s.setValue("Harmonics/max", A::maxHarmonic());
-    s.setValue("Harmonics/minQuorum", A::harmonicsMinQuorum());
-    s.setValue("Harmonics/maxQuorum", A::harmonicsMaxQuorum());
-    s.setValue("Harmonics/minQOrb", A::harmonicsMinQOrb());
-    s.setValue("Harmonics/maxQOrb", A::harmonicsMaxQOrb());
-#endif
+    const A::EventOptions& curr(A::EventOptions::current());
+    s.setValue("Events/secondaryOrb",                   curr.secondaryOrb);
+    s.setValue("Events/patternsQuorum",                 curr.patternsQuorum);
+    s.setValue("Events/patternsSpreadOrb",              curr.patternsSpreadOrb);
+    s.setValue("Events/patternsRestrictMoon",           curr.patternsRestrictMoon);
+    s.setValue("Events/includeMidpoints",               curr.includeMidpoints);
+    s.setValue("Events/showTransitsToTransits",         curr.showTransitsToTransits);
+    s.setValue("Events/showTransitsToNatal",            curr.showTransitsToNatal);
+    s.setValue("Events/showReturns",                    curr.showReturns);
+    s.setValue("Events/showProgressionsToProgressions", curr.showProgressionsToProgressions);
+    s.setValue("Events/showProgressionsToNatal",        curr.showProgressionsToNatal);
+    s.setValue("Events/showTransitAspectPatterns",      curr.showTransitAspectPatterns);
+    s.setValue("Events/showTransitNatalAspectPatterns", curr.showTransitNatalAspectPatterns);
+    s.setValue("Events/showIngresses",                  curr.showIngresses);
+    s.setValue("Events/showLunations",                  curr.showLunations);
+    s.setValue("Events/showHeliacalEvents",             curr.showHeliacalEvents);
+    s.setValue("Events/showPrimaryDirections",          curr.showPrimaryDirections);
+    s.setValue("Events/showLifeEvents",                 curr.showLifeEvents);
     return s;
 }
 
 void Transits::applySettings(const AppSettings& s)
 {
-#if 0
-    A::HarmonicSort oldOrder = s_harmonicsOrder;
-    s_harmonicsOrder = A::HarmonicSort(s.value("Harmonics/order").toUInt());
+    A::EventOptions& curr(A::EventOptions::current());
+    bool changed =
+            (s.value("Events/secondaryOrb").toDouble() != curr.secondaryOrb
+            || s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
+            || s.value("Events/patternsSpreadOrb").toDouble() != curr.patternsSpreadOrb
+            || s.value("Events/patternsRestrictMoon").toBool() != curr.patternsRestrictMoon
+            || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
+            || s.value("Events/showTransitsToTransits").toBool() != curr.showTransitsToTransits
+            || s.value("Events/showTransitsToNatal").toBool() != curr.showTransitsToNatal
+            || s.value("Events/showReturns").toBool() != curr.showReturns
+            || s.value("Events/showProgressionsToProgressions").toBool() != curr.showProgressionsToProgressions
+            || s.value("Events/showProgressionsToNatal").toBool() != curr.showProgressionsToNatal
+            || s.value("Events/showTransitAspectPatterns").toBool() != curr.showTransitAspectPatterns
+            || s.value("Events/showTransitNatalAspectPatterns").toBool() != curr.showTransitNatalAspectPatterns
+            || s.value("Events/showIngresses").toBool() != curr.showIngresses
+            || s.value("Events/showLunations").toBool() != curr.showLunations
+            || s.value("Events/showHeliacalEvents").toBool() != curr.showHeliacalEvents
+            || s.value("Events/showPrimaryDirections").toBool() != curr.showPrimaryDirections
+            || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents);
 
-    bool ff = s.value("Harmonics/filterFew").toBool();
-    bool ascMC = s.value("Harmonics/includeAscMC").toBool();
-    bool chiron = s.value("Harmonics/includeChiron").toBool();
-    bool nodes = s.value("Harmonics/includeNodes").toBool();
-    bool over = s.value("Harmonics/includeOvertones").toBool();
-    unsigned ol = s.value("Harmonics/overtoneLimit").toUInt();
-    bool mp = s.value("Harmonics/includeMidpoints").toBool();
-    bool amp = s.value("Harmonics/requireMidpointAnchor").toBool();
-    unsigned pfl = s.value("Harmonics/primeFactorLimit").toUInt();
-    int max = s.value("Harmonics/max").toInt();
-    int minq = s.value("Harmonics/minQuorum").toInt();
-    int maxq = s.value("Harmonics/maxQuorum").toInt();
-    double minqo = s.value("Harmonics/minQOrb").toDouble();
-    double maxqo = s.value("Harmonics/maxQOrb").toDouble();
-
-    bool changed = A::filterFew() != ff
-        || A::includeAscMC() != ascMC
-        || A::includeChiron() != chiron
-        || A::includeNodes() != nodes
-        || includeOvertones() != over
-        || overtoneLimit() != ol
-        || A::includeMidpoints() != mp
-        || A::requireAnchor() != amp
-        || A::primeFactorLimit() != pfl
-        || A::maxHarmonic() != max
-        || A::harmonicsMinQuorum() != minq
-        || A::harmonicsMinQOrb() != minqo
-        || A::harmonicsMaxQuorum() != maxq
-        || A::harmonicsMaxQOrb() != maxqo;
-
-    A::setIncludeAscMC(ascMC);
-    A::setIncludeChiron(chiron);
-    A::setIncludeNodes(nodes);
-    setIncludeOvertones(over);
-    setOvertoneLimit(ol);
-    A::setIncludeMidpoints(mp);
-    A::setRequireAnchor(amp);
-    A::setFilterFew(ff);
-    A::resetPrimeFactorLimit(pfl);
-    A::setMaxHarmonic(max);
-    A::setHarmonicsMinQuorum(minq);
-    A::setHarmonicsMinQOrb(minqo);
-    A::setHarmonicsMaxQuorum(maxq);
-    A::setHarmonicsMaxQOrb(maxqo);
+    curr.secondaryOrb = s.value("Events/secondaryOrb").toDouble();
+    curr.patternsQuorum = s.value("Events/patternsQuorum").toUInt();
+    curr.patternsSpreadOrb = s.value("Events/patternsSpreadOrb").toDouble();
+    curr.patternsRestrictMoon = s.value("Events/patternsRestrictMoon").toBool();
+    curr.includeMidpoints = s.value("Events/includeMidpoints").toBool();
+    curr.showTransitsToTransits = s.value("Events/showTransitsToTransits").toBool();
+    curr.showTransitsToNatal = s.value("Events/showTransitsToNatal").toBool();
+    curr.showReturns = s.value("Events/showReturns").toBool();
+    curr.showProgressionsToProgressions = s.value("Events/showProgressionsToProgressions").toBool();
+    curr.showProgressionsToNatal = s.value("Events/showProgressionsToNatal").toBool();
+    curr.showTransitAspectPatterns = s.value("Events/showTransitAspectPatterns").toBool();
+    curr.showTransitNatalAspectPatterns = s.value("Events/showTransitNatalAspectPatterns").toBool();
+    curr.showIngresses = s.value("Events/showIngresses").toBool();
+    curr.showLunations = s.value("Events/showLunations").toBool();
+    curr.showHeliacalEvents = s.value("Events/showHeliacalEvents").toBool();
+    curr.showPrimaryDirections = s.value("Events/showPrimaryDirections").toBool();
+    curr.showLifeEvents = s.value("Events/showLifeEvents").toBool();
 
     if (changed) {
-
-    }
-    if (changed || s_harmonicsOrder != oldOrder) {
         updateTransits();
     }
-#endif
 }
 
 void
 Transits::setupSettingsEditor(AppSettingsEditor* ed)
 {
-#if 0
-    ed->addTab(tr("Harmonics"));
+    ed->addTab(tr("Events"));
 
-    QMap<QString, QVariant> values;
-    values[tr("Harmonic")] = A::hscByHarmonic;
-    values[tr("Planets")] = A::hscByPlanets;
-    values[tr("Orb")] = A::hscByOrb;
-
-    ed->addComboBox("Harmonics/order", tr("Sort by"), values);
-    ed->addCheckBox("Harmonics/includeAscMC", tr("Include Asc & MC"));
-    ed->addCheckBox("Harmonics/includeChiron", tr("Include Chiron"));
-    ed->addCheckBox("Harmonics/includeNodes", tr("Include Nodes"));
-
-    auto io = ed->addCheckBox("Harmonics/includeOvertones",
-                    tr("Include Overtones"));
-    auto ol = ed->addSpinBox("Harmonics/overtoneLimit",
-                             tr("Overtone harmonic limit"),
-                             2, 60);
-    connect(io, &QAbstractButton::toggled,
-            [ol](bool b) { ol->setEnabled(b); });
-
-    ed->addCheckBox("Harmonics/filterFew", 
-                    tr("Filter planet subsets [abc w/o ab]"));
-
-    ed->addSpinBox("Harmonics/primeFactorLimit", tr("Maximum harmonic factor"), 
-                   1, 102400);
-    ed->addSpinBox("Harmonics/max", tr("Maximum harmonics to calculate"), 
-                   1, 102400);
-
-    auto minq = ed->addSpinBox("Harmonics/minQuorum", 
-                               tr("Minimal-orb quorum"), 2, 8);
-    auto maxq = ed->addSpinBox("Harmonics/maxQuorum", 
-                               tr("Maximal-orb quorum"), 2, 8);
-    connect(minq, QOverload<int>::of(&QSpinBox::valueChanged),
-            [maxq](int min) { maxq->setMinimum(min); });
-    connect(maxq, QOverload<int>::of(&QSpinBox::valueChanged),
-            [minq](int max) { minq->setMaximum(max); });
-
-    auto minQOrb = 
-        ed->addDoubleSpinBox("Harmonics/minQOrb", tr("Minimal orb"), 
-                             0.0, 24.0, 1);
-    auto maxQOrb =
-        ed->addDoubleSpinBox("Harmonics/maxQOrb", tr("Maximum orb"), 
-                             0.0, 24.0, 1);
-    connect(minQOrb, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            [maxQOrb](double min) { maxQOrb->setMinimum(min); });
-    connect(maxQOrb, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            [minQOrb](double max) { minQOrb->setMaximum(max); });
-
-    ed->addTab(tr("Midpoints"));
-
-    auto mpt = ed->addCheckBox("Harmonics/includeMidpoints",
-                               tr("Include Midpoints"));
-    auto anchor = ed->addCheckBox("Harmonics/requireMidpointAnchor",
-                                  tr("Require midpoint anchor"));
-    connect(mpt, &QAbstractButton::toggled,
-            [anchor](bool b) { anchor->setEnabled(b); });
-#endif
+    ed->addCheckBox("Events/showTransitsToTransits", tr("Show Transits to Transits"));
+    ed->addCheckBox("Events/showTransitsToNatal", tr("Show Transits to Natal"));
+    ed->addDoubleSpinBox("Events/secondaryOrb", tr("Secondary Orb"), 0.1, 16.);
+    ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
+    ed->addCheckBox("Events/showReturns", tr("Show Returns"));
+    ed->addCheckBox("Events/showTransitAspectPatterns", tr("Show Transit Aspect Patterns"));
+    ed->addCheckBox("Events/showTransitNatalAspectPatterns", tr("Show Transit Natal Aspect Patterns"));
+    ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"),3,6);
+    ed->addDoubleSpinBox("Events/patternsSpreadOrb", tr("Patterns Spread Orb"), 0.1, 16.);
+    ed->addCheckBox("Events/patternsRestrictMoon", tr("Patterns Restrict Moon"));
+    ed->addCheckBox("Events/showIngresses", tr("Show Ingresses"));
+    ed->addCheckBox("Events/showProgressionsToProgressions", tr("Show Progressions to Progressions"));
+    ed->addCheckBox("Events/showProgressionsToNatal", tr("Show Progressions to Natal"));
+    ed->addCheckBox("Events/showLunations", tr("Show Lunations"));
+    ed->addCheckBox("Events/showHeliacalEvents", tr("Show Heliacal Events"));
+    ed->addCheckBox("Events/showPrimaryDirections", tr("Show Primary Directions"));
+    ed->addCheckBox("Events/showLifeEvents", tr("Show Life Events"));
 }

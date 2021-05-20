@@ -2954,7 +2954,9 @@ AspectFinder::findPatterns()
                     for (unsigned f: getAllFactors(h)) {
                         if (f == h) break;
                         if (prev == f) continue;
-                        auto& startf = starts.at(f);
+                        auto stit = starts.find(f);
+                        if (stit == starts.end()) continue;
+                        auto& startf = stit->second;
                         auto lwrit = startf.find(ps);
                         if (lwrit != startf.end()) {
 #if 1
@@ -2992,7 +2994,8 @@ AspectFinder::findPatterns()
                 auto prof = _alist.profile(ps);
                 auto evs = &_evs;
 
-                QMutexLocker(&ctm), ++childThreadCount;
+                { QMutexLocker foo(&ctm);
+                ++childThreadCount; }
 
 #if 1
                 tp->start([&ctm, &childThreadCount,
@@ -3068,7 +3071,9 @@ AspectFinder::findPatterns()
                 for (unsigned f: getAllFactors(h)) {
                     if (f == h) break;
                     if (prev == f) continue;
-                    auto& startf = starts.at(f);
+                    auto stit = starts.find(f);
+                    if (stit == starts.end()) continue;
+                    const auto& startf = stit->second;
                     auto lwrit = startf.find(ps);
                     if (lwrit != startf.end()) {
                         add = false;

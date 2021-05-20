@@ -176,6 +176,28 @@ public:
     }
 };
 
+struct EventOptions {
+    qreal       secondaryOrb = 2.;
+    unsigned    patternsQuorum = 3;
+    qreal       patternsSpreadOrb = 8.;
+    bool        patternsRestrictMoon = true;
+    bool        includeMidpoints = false;
+    bool        showTransitsToTransits = true;
+    bool        showTransitsToNatal = true;
+    bool        showReturns = true;
+    bool        showProgressionsToProgressions = false;
+    bool        showProgressionsToNatal = false;
+    bool        showTransitAspectPatterns = true;
+    bool        showTransitNatalAspectPatterns = true;
+    bool        showIngresses = false;
+    bool        showLunations = false;
+    bool        showHeliacalEvents = false;
+    bool        showPrimaryDirections = false;
+    bool        showLifeEvents = false;
+
+    static EventOptions& current() { static EventOptions s_; return s_; }
+};
+
 class EventFinderBase : public QRunnable {
 public:
     virtual void find() = 0;
