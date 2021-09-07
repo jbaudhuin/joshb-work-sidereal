@@ -14,6 +14,8 @@
 #include <boost/math/tools/roots.hpp>
 
 #include "astro-calc.h"
+#include "astro-gui.h"
+
 #include <swephexp.h>
 #include <swehouse.h>
 
@@ -553,13 +555,19 @@ calculatePlanet(PlanetId planet,
 
 qreal
 PlanetLoc::compute(const InputData& ida,
-                   double jd)
+                   double jd,
+                   int h)
 {
     qreal pos;
     std::tie(pos, speed) = compute(planet, ida, jd);
-    _rasiLoc = pos;
-    loc = harmonic(ida.harmonic, pos);
-    speed *= ida.harmonic;
+    loc = _rasiLoc = pos;
+    if (h == -1 && ida.harmonic != 1.0) {
+        loc = harmonic(ida.harmonic, pos);
+        speed *= ida.harmonic;
+    } else if (h > 1) {
+        loc = harmonic(h, pos);
+        speed *= h;
+    }
     return pos;
 }
 
@@ -694,7 +702,7 @@ PlanetLoc::compute(const ChartPlanetId& planet,
 qreal
 PlanetLoc::compute(const InputData& ida)
 {
-    return compute(ida, getJulianDate(ida.GMT));
+    return compute(ida, getJulianDate(ida.GMT), -1);
 }
 
 qreal
@@ -776,16 +784,19 @@ PlanetProfile::computeSpread(std::initializer_list<const Loc*> locs,
 }
 
 qreal
-PlanetProfile::computePos(double jd)
+PlanetProfile::computePos(double jd,
+                          unsigned int h /*=1*/)
 {
     Loc::loc = 0;
     Loc::speed = 0;
-    for (auto loc : *this) (*loc)(jd);
+    for (auto loc : *this) {
+        (*loc)(jd, 1);
+    }
     if (size() == 1) {
-        Loc::loc = front()->loc;
-        Loc::speed = front()->speed;
+        Loc::loc = h > 1? harmonic(h,front()->loc) : front()->loc;
+        Loc::speed = h > 1? h * front()->speed : front()->speed;
     } else if (size() == 2) {
-        std::tie(Loc::loc, Loc::speed) = computeDelta(front(),back());
+        std::tie(Loc::loc, Loc::speed) = computeDelta(front(),back(), h);
     }
     return Loc::loc;
 }
@@ -1129,12 +1140,16 @@ calculateAspect( const AspectsSet& aspectSet,
 }
 
 Aspect
-calculateAspect( const AspectsSet& aspectSet,
-                 const PlanetLoc* p1loc,
-                 const PlanetLoc* p2loc )
+calculateAspect(const AspectsSet& aspectSet,
+                 const Loc *p1loc,
+                 const Loc *p2loc )
 {
     Aspect a;
-    a.angle = angle(p1loc->rasiLoc(), p2loc->rasiLoc());
+    auto l1 = p1loc->loc;
+    if (auto pl = dynamic_cast<const PlanetLoc*>(p1loc)) l1 = pl->rasiLoc();
+    auto l2 = p2loc->loc;
+    if (auto pl = dynamic_cast<const PlanetLoc*>(p2loc)) l2 = pl->rasiLoc();
+    a.angle = angle(l1, l2);
     a.d = &getAspect(aspect(a.angle, aspectSet), aspectSet);
     a.orb = fabs(a.d->angle - a.angle);
     return a;
@@ -2371,15 +2386,34 @@ calculateAll(const InputData& input)
             asc.equatorialPos.setX(scope.houses.RAAC);
             asc.pvPos = 0;
             scope.planets[id] = asc;
+        } else if (id == Planet_Desc) {
+            Planet desc = Data::getPlanet(id);
+            desc.eclipticPos.setX(swe_degnorm(180.+scope.houses.Asc));
+            desc.equatorialPos.setX(swe_degnorm(180.+scope.houses.RAAC));
+            desc.pvPos = 180;
+            scope.planets[id] = desc;
         } else if (id == Planet_MC) {
             Planet mc = Data::getPlanet(id);
             mc.eclipticPos.setX(scope.houses.MC);
             mc.equatorialPos.setX(scope.houses.RAMC);
             mc.pvPos = 270;
             scope.planets[id] = mc;
+        } else if (id == Planet_IC) {
+            Planet ic = Data::getPlanet(id);
+            ic.eclipticPos.setX(swe_degnorm(180.+scope.houses.MC));
+            ic.equatorialPos.setX(swe_degnorm(180.+scope.houses.RAMC));
+            ic.pvPos = 90;
+            scope.planets[id] = ic;
+        } else if (id > Planet_Asc && id <= House_12) {
+            Planet hc = Data::getPlanet(id);
+            hc.eclipticPos.setX(scope.houses.cusp[id - Planet_Asc]);
+            hc.equatorialPos.setX(scope.houses.cusp[id - Planet_Asc]); // XXX
+            hc.pvPos = 30 * (id - Planet_Asc);
+            hc.house = id - Planet_Asc;
+            scope.planets[id] = hc;
         } else {
             scope.planets[id] =
-                calculatePlanet(id, input, scope.houses, scope.zodiac);
+                    calculatePlanet(id, input, scope.houses, scope.zodiac);
         }
     }
 
@@ -2394,6 +2428,198 @@ calculateAll(const InputData& input)
     calculateBaseChartHarmonic(scope);
 
     return scope;
+}
+
+AspectFinder::AspectFinder(HarmonicEvents& evs,
+                           const ADateRange& range,
+                           const uintSSet& hset,
+                           const AstroFileList& files) :
+    EventFinder(evs, range),
+    _gt(afcFindStuff),
+    _hset(hset)
+{
+    // This ugly jumble intends to generate the appropriate planet listings,
+    // and then create the T-T T-N P-P P-N pairings. And the ingresses, etc.
+    // Better to have some kind of factory scheme, but for now...
+    bool natal = false, trans = false, prog = false;
+    int natus = -1, locus = -1, progr = -1;
+    QMap<ChartPlanetId, unsigned> index, revIndex;
+
+    double njd = 0;
+    for (int i = 0, n = files.count(); i < n; ++i) {
+        auto f = files.at(i);
+        _ids.push_back(f->horoscope().inputData);
+
+        const auto& ida = f->horoscope().inputData;
+        auto type = f->getType();
+        if (type == TypeMale || type == TypeFemale) {
+            natus = i, natal = true;
+            njd = getJulianDate(ida.GMT);
+        }
+        else if (type == TypeDerivedProg) progr = i, prog = true;
+        else locus = i, trans = true;
+    }
+
+    QVector<ZodiacSign> signs = getZodiac(_ids[0].zodiac).signs.toVector();
+    auto getIngress = [&](PlanetId ingr, bool forward = true) {
+        ChartPlanetId cpid(-1, ingr, Planet_None);
+        QMap<ChartPlanetId, unsigned>& inx = forward? index : revIndex;
+        if (!inx.contains(cpid)) {
+            inx[cpid] = _alist.size();
+            unsigned i = ingr - Ingresses_Start;
+            qreal loc = forward? signs[i].startAngle
+                               : signs[(i+1)%12].startAngle;
+            auto pl = new PlanetLoc(cpid, "I", loc);
+            pl->allowAspects = forward
+                    ? PlanetLoc::aspOnlyDirect
+                    : PlanetLoc::aspOnlyRetro;
+            _alist.push_back(pl);
+        }
+        return inx.value(cpid);
+    };
+
+    typedef std::function<unsigned(PlanetId)> getter;
+    getter getNatalPlanet, getTransitPlanet, getProgressedPlanet;
+    if (natal) {
+        getNatalPlanet = [&](PlanetId pid) {
+            ChartPlanetId cpid(natus, pid, Planet_None);
+            if (!index.contains(cpid)) {
+                index[cpid] = _alist.size();
+                auto pl = new NatalPosition(cpid, _ids[natus]);
+                if (pid >= Houses_Start && pid < Houses_End) {
+                    pl->allowAspects = PlanetLoc::aspOnlyConj;
+                }
+                _alist.push_back(pl);
+            }
+            return index.value(cpid);
+        };
+    }
+    if (trans) {
+        getTransitPlanet = [&](PlanetId pid) {
+            ChartPlanetId cpid(locus, pid, Planet_None);
+            if (!index.contains(cpid)) {
+                index[cpid] = _alist.size();
+                _alist.push_back(new TransitPosition(cpid, _ids[locus]));
+            }
+            return index.value(cpid);
+        };
+    }
+    if (!prog && trans) { progr = locus; prog = true; }
+    if (prog) {
+        getProgressedPlanet = [&](PlanetId pid) {
+            ChartPlanetId cpid(progr, pid, Planet_None);
+            if (!index.contains(cpid)) {
+                index[cpid] = _alist.size();
+                auto pl = new ProgressedPosition(cpid, _ids[progr], njd);
+                if (pid >= Houses_Start && pid < Houses_End) {
+                    pl->allowAspects = PlanetLoc::aspOnlyConj;
+                }
+                _alist.push_back(pl);
+            }
+            return index.value(cpid);
+        };
+    }
+
+    if (trans && (showTransitsToTransits
+                  || showTransitAspectPatterns
+                  || showStations
+                  || showIngresses))
+    {
+        QVector<unsigned> ppi;
+        for (auto pid: getPlanets()) {
+            ppi << getTransitPlanet(pid);
+        }
+        // the above loop has added the planets to the list used
+        // by pattern or station finder
+
+        if (showTransitsToTransits) {
+            for (int i = 0; i < ppi.size(); ++i) {
+                for (int j = i+1; j < ppi.size(); ++j) {
+                    _staff.emplace_back(i, j);
+                }
+            }
+        }
+
+        if (showIngresses) {
+            for (PlanetId pid = Ingresses_Start; pid < Ingresses_End; ++pid) {
+                for (auto i: qAsConst(ppi)) {
+                    auto j = getIngress(pid);
+                    _staff.emplace_back(i, j);
+                    j = getIngress(pid, false/*backward*/);
+                    _staff.emplace_back(i, j);
+                }
+            }
+        }
+    }
+
+    if (showProgressionsToProgressions) {
+        QVector<unsigned> tpi;
+        for (auto pid: getPlanets()) {
+            tpi << getProgressedPlanet(pid);
+        }
+        for (int i = 0; i < tpi.size(); ++i) {
+            for (int j = i+1; j < tpi.size(); ++j) {
+                _staff.emplace_back(i, j);
+            }
+        }
+    }
+
+    if (natal) {
+        if (showTransitsToNatalPlanets
+                || showTransitNatalAspectPatterns)
+        {
+            auto npl = getPlanets();
+            if (showTransitsToNatalAngles) npl << getAngles();
+
+            QVector<unsigned> ppn;
+            for (auto pid: qAsConst(npl)) {
+                ppn << getNatalPlanet(pid);
+            }
+
+            if (showTransitsToNatalPlanets) {
+                QList<PlanetId> tpl;
+                if (includeOnlyOuterTransitsToNatal) {
+                    tpl = getOuterPlanets();
+                } else {
+                    tpl = getPlanets();
+                }
+
+                for (auto pid: qAsConst(tpl)) {
+                    auto i = getTransitPlanet(pid);
+                    for (auto j: ppn) {
+                        _staff.emplace_back(i, j);
+                    }
+                }
+            }
+        }
+
+        if (showProgressionsToNatal) {
+            QList<PlanetId> ppl;
+            if (includeOnlyInnerProgressionsToNatal) ppl = getInnerPlanets();
+            else ppl = getPlanets();
+
+            auto npl = getPlanets();
+            npl << getAngles();
+
+            for (auto pid: qAsConst(ppl)) {
+                auto i = getProgressedPlanet(pid);
+                for (auto npid: qAsConst(npl)) {
+                    auto j = getNatalPlanet(npid);
+                    _staff.emplace_back(i, j);
+                }
+            }
+        }
+    }
+}
+
+void AspectFinder::prepThread()
+{
+#if MSDOS
+    char ephePath[] = "swe\\";
+#else
+    char ephePath[] = "swe/";
+#endif
+    swe_set_ephe_path(ephePath);
 }
 
 /// This is the engine for creating a list of stations, ingresses
@@ -2434,12 +2660,12 @@ AspectFinder::findAspects()
 
     PlanetProfile b = _alist;
 
-    bool findStations = _includeStations
-            || _includeStationAspectsToTransits
-            || _includeStationAspectsToNatal;
+    bool findStations = showStations
+            || expandShowStationAspectsToTransits
+            || expandShowStationAspectsToNatal;
 
     double jd = getJulianDate(d);
-    for (auto tp: _alist) (*tp)(jd);   // the horror
+    for (auto tp: _alist) (*tp)(jd, 1);   // the horror
 
     modalize<bool> mum(s_quiet);
 
@@ -2452,14 +2678,12 @@ AspectFinder::findAspects()
     // preview aspects for those stations, this could prune the list.
     // (Or maybe it's better to have a loop engine that various
     // disciplines could be applied to.)
-    unsigned int h;
-    auto keep = [&](unsigned i,
-            bool derived=false)
-    {
+    unsigned int h { };
+    auto keep = [&](unsigned i, bool derived=false) {
         if (derived) {
             if (auto p = dynamic_cast<PlanetLoc*>(_alist[i])) {
                 if (p->planet.isMidpt()) {
-                    return h < (derived? 4 : 2);
+                    return h < (derived? 4u : 2u);
                 }
             }
         }
@@ -2481,10 +2705,11 @@ AspectFinder::findAspects()
     unsigned char harm1 = 1;
     while (d < e) {
         jd = getJulianDate(nd);
-        for (auto tp: b) (*tp)(jd);
+        for (auto tp: b) (*tp)(jd, int(harm1));
 
         auto stuff = _staff;
 
+#if 0
         unsigned sta = etcStation;
         std::set<unsigned> stationChecked;
         for (auto it = stuff.begin();
@@ -2513,7 +2738,7 @@ AspectFinder::findAspects()
             auto qdt = dateTimeFromJulian(tjd);
             auto ploc = dynamic_cast<PlanetLoc*>(pose[0]);
             HarmonicAspects* pcoin = nullptr;
-            if (_includeStations) {
+            if (showStations) {
                 auto dt = dtToString(qdt);
                 PlanetRangeBySpeed plr { *ploc };
 
@@ -2524,8 +2749,8 @@ AspectFinder::findAspects()
                 if (!s_quiet) qDebug() << dt << _alist[i]->description();
             }
 
-            if (!pcoin || (!_includeStationAspectsToNatal
-                           && !_includeStationAspectsToTransits))
+            if (!pcoin || (!expandShowStationAspectsToNatal
+                           && !expandShowStationAspectsToTransits))
             {
                 continue;
             }
@@ -2534,8 +2759,8 @@ AspectFinder::findAspects()
             for (auto tp: c) (*tp)(jd);
 
             auto& coincidents = *pcoin;
-            if (_includeStationAspectsToNatal
-                    || _includeStationAspectsToTransits)
+            if (expandShowStationAspectsToNatal
+                    || expandShowStationAspectsToTransits)
             {
             //tp->start([this,i,tjd,maxH,hs,keep,byOrb,pose,&coincidents] {
                 //auto ploc = dynamic_cast<PlanetLoc*>(pose[0]);
@@ -2544,8 +2769,8 @@ AspectFinder::findAspects()
                 unsigned j = (stit->first==i)? stit->second : stit->first;
                 bool inMotion = c[j]->inMotion();
                 if ((inMotion
-                     ? !_includeStationAspectsToTransits
-                     : !_includeStationAspectsToNatal))
+                     ? !expandShowStationAspectsToTransits
+                     : !expandShowStationAspectsToNatal))
                 {
                     continue;
                 }
@@ -2555,7 +2780,7 @@ AspectFinder::findAspects()
                 PlanetLoc* oloc = dynamic_cast<PlanetLoc*>(c[j]);
                 for (unsigned h = 1; h <= maxH; ++h) {
                     bool unsel = hs.count(h)==0;
-                    if (unsel && !_filterLowerUnselectedHarmonics) continue;
+                    if (unsel && !filterLowerUnselectedHarmonics) continue;
 
                     qreal delta;
                     if (outOfOrb(h, {ploc, oloc}, delta)) {
@@ -2571,12 +2796,12 @@ AspectFinder::findAspects()
                 }
             }
             }
-            if (_includeAspectPatterns) {
+            if (expandShowAspectPatterns) {
                 std::set<PlanetSet> seen;
                 for (unsigned h = 1; h <= maxH; ++h) {
                     bool unsel = hs.count(h)==0;
-                    if (unsel && !_filterLowerUnselectedHarmonics) continue;
-                    auto clstrs = findClusters(h, c, {ploc->planet});
+                    if (unsel && !filterLowerUnselectedHarmonics) continue;
+                    auto clstrs = findClusters(h, c, {ploc->planet}, patternsSpreadOrb);
                     for (const auto& cls: clstrs) {
                         auto ins = seen.insert(cls.first);
                         if (!ins.second || unsel) continue;
@@ -2589,13 +2814,14 @@ AspectFinder::findAspects()
             coincidents.sort(byOrb);
             //});
         }
+#endif
 
         qreal ad, asp;
         qreal bd, bsp;
         unsigned i, j;
-        for (h = 1; _includeTransits && h <= maxH; ++h) {
+        for (h = 1; includeTransits() && h <= maxH; ++h) {
             bool unsel = hs.count(h)==0;
-            if (unsel && !_filterLowerUnselectedHarmonics) continue;
+            if (unsel && !filterLowerUnselectedHarmonics) continue;
 
             for (auto it = stuff.begin(); it != stuff.end(); ) {
                 std::tie(i,j) = *it;
@@ -2744,8 +2970,8 @@ AspectFinder::findAspects()
 
                 auto cpid = p1loc->planet;
                 if (isReturn
-                        && (_includeReturnAspects
-                            || _includeTransitAspectsToReturnPlanet)
+                        && (expandShowReturnAspects
+                            || expandShowTransitAspectsToReturnPlanet)
                         && (cpid.samePlanet(Planet_Sun)
                             ? (h==4 || h<=2)
                             : (cpid.samePlanet(Planet_Moon)
@@ -2757,7 +2983,7 @@ AspectFinder::findAspects()
                     auto& coincidents = *pcoin;
 
                     PlanetProfile c = _alist;
-                    for (auto tp: c) (*tp)(tjd);
+                    for (auto tp: c) (*tp)(tjd, int(h));
 
                     // TODO in for these chart-preview aspects, it would be
                     // nice to compute extra aspects like to an angle or
@@ -2766,7 +2992,7 @@ AspectFinder::findAspects()
                     // transit search.
 
                     auto inIJ = *it;
-                    if (_includeReturnAspects) {
+                    if (expandShowReturnAspects) {
                         //tp->start([this,inIJ,i,tjd,maxH,hs,byOrb,&coincidents] {
                         for (const auto& ij: _staff) {
                             if (ij == inIJ) continue; // skip the return
@@ -2782,7 +3008,7 @@ AspectFinder::findAspects()
                                     : etcEventTransitToNatalAspect;
                             for (unsigned h = 1; h <= maxH; ++h) {
                                 bool unsel = (hs.count(h)==0);
-                                if (unsel && !_filterLowerUnselectedHarmonics)
+                                if (unsel && !filterLowerUnselectedHarmonics)
                                     continue;
                                 qreal delta;
                                 if (outOfOrb(h, {p1, p2}, delta)) continue;
@@ -2796,9 +3022,9 @@ AspectFinder::findAspects()
                         }
                         //coincidents.sort(byOrb);
                         //});
-                    } else if (_includeTransitAspectsToReturnPlanet) {
+                    } else if (expandShowTransitAspectsToReturnPlanet) {
                         assert(!c[j]->inMotion());
-                        (*p1loc)(tjd);  // reset to rasi loc
+                        (*p1loc)(tjd, int(h));  // reset to rasi loc
                         unsigned et = etcEventTransitToNatalAspect;
                         //tp->start([this,j,maxH,inIJ,tjd,hs,&coincidents] {
                         for (const auto& ij: _staff) {
@@ -2813,7 +3039,7 @@ AspectFinder::findAspects()
                             assert(tp);
                             for (unsigned h = 1; h <= maxH; ++h) {
                                 bool unsel = (hs.count(h)==0);
-                                if (unsel && !_filterLowerUnselectedHarmonics)
+                                if (unsel && !filterLowerUnselectedHarmonics)
                                     continue;
 
                                 qreal delta;
@@ -2830,7 +3056,7 @@ AspectFinder::findAspects()
                         //coincidents.sort(byOrb);
                         //});
                     }
-                    if (_includeAspectPatterns) {
+                    if (expandShowAspectPatterns) {
                         PlanetSet need;
                         auto retPlanet = dynamic_cast<PlanetLoc*>(c[j])->planet;
                         if (retPlanet.planetId()!=Planet_Sun
@@ -2840,10 +3066,13 @@ AspectFinder::findAspects()
                         std::set<PlanetSet> seen;
                         for (unsigned h = 1; h <= maxH; ++h) {
                             bool unsel = hs.count(h)==0;
-                            if (unsel && !_filterLowerUnselectedHarmonics)
+                            if (unsel && !filterLowerUnselectedHarmonics)
                                 continue;
-                            auto clstrs = findClusters(h, c, need,
-                                                       true/*skipAllNatal*/);
+                            auto clstrs = findClusters(h, c, patternsQuorum,
+                                                       need,
+                                                       true/*skipAllNatal*/,
+                                                       true/*restrictMoon*/,
+                                                       patternsSpreadOrb);
                             for (const auto& cls: clstrs) {
                                 auto ins = seen.insert(cls.first);
                                 if (!ins.second || unsel) continue;
@@ -2884,7 +3113,7 @@ AspectFinder::findPatterns()
     auto d = start.startOfDay(), e = end.startOfDay();
 
     double jd = getJulianDate(d);
-    for (auto tp: _alist) (*tp)(jd);   // the horror
+    for (auto tp: _alist) (*tp)(jd, 1);   // the horror
 
     std::set<unsigned> hs(_hset.cbegin(),_hset.cend());
     unsigned maxH = hs.empty()? 1 : *hs.crbegin();
@@ -2898,7 +3127,10 @@ AspectFinder::findPatterns()
     for (unsigned h = 1; h <= maxH; ++h) {
         bool unsel = hs.count(h)==0;
         if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-        starts[h] = findClusters(h, jd, _alist, _ids, {}, false, 2);
+        starts[h] = findClusters(h, jd, _alist, _ids, patternsQuorum,
+                                 { } /*need*/,
+                                 patternsRestrictMoon,
+                                 patternsSpreadOrb);
 
         for (auto& cl: starts[h]) cl.second = jd;
     }
@@ -2918,7 +3150,10 @@ AspectFinder::findPatterns()
         for (unsigned h = maxH; h >= 1; --h) {
             bool unsel = hs.count(h)==0;
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-            auto hpc = findClusters(h, jd, _alist, _ids, {}, false, 2);
+            auto hpc = findClusters(h, jd, _alist, _ids, patternsQuorum,
+                                    { } /*need*/,
+                                    patternsRestrictMoon,
+                                    patternsSpreadOrb);
 
             for (auto sit = starts[h].begin(); sit != starts[h].end(); ) {
                 const auto& ps = sit->first;
@@ -2959,28 +3194,12 @@ AspectFinder::findPatterns()
                         auto& startf = stit->second;
                         auto lwrit = startf.find(ps);
                         if (lwrit != startf.end()) {
-#if 1
                             cancel = true;
                             qDebug() << QString("H%1").arg(f)
                                      << ps.names()
                                      << "exists, so skipping"
                                      << QString("H%1").arg(h);
                             break;
-#else
-                            if (lwrit->second == 0) {
-                                cancel = true;
-                                qDebug() << QString("H%1").arg(f)
-                                         << ps.names()
-                                         << "cancelled, so skipping"
-                                         << QString("H%1").arg(h);
-                                break;
-                            }
-                            if (useH == h) useH = f;
-                            qDebug() << QString("H%1").arg(h)
-                                     << "hijacking" << QString("H%1").arg(f)
-                                     << "for" << ps.names();
-                            lwrit->second = 0;
-#endif
                         }
                         prev = f;
                     }
@@ -2990,24 +3209,16 @@ AspectFinder::findPatterns()
                     continue;    // skipped!
                 }
 
-
                 auto prof = _alist.profile(ps);
                 auto evs = &_evs;
 
-                { QMutexLocker foo(&ctm);
-                ++childThreadCount; }
-
+                { QMutexLocker foo(&ctm); ++childThreadCount; }
 #if 1
                 tp->start([&ctm, &childThreadCount,
                           ps, h, useH, evs, prof, from, to,
                           this]
                 {
-#if MSDOS
-                    char ephePath[] = "swe\\";
-#else
-                    char ephePath[] = "swe/";
-#endif
-                    swe_set_ephe_path(ephePath);
+                    prepThread();
 #endif
                     auto csprd = [prof,h,this](double jd)
                     {
@@ -3105,20 +3316,611 @@ AspectFinder::findPatterns()
     for (int i = 0; i < 4; ++i) tp->reserveThread();
 }
 
+void
+AspectFinder::findStations()
+{
+    QThreadPool* tp = QThreadPool::globalInstance();
+    for (int i = 0; i < 4; ++i) tp->releaseThread();
+
+    const auto& start = _range.first;
+    const auto& end = _range.second.addDays(1);
+    auto d = start.startOfDay(), e = end.startOfDay();
+
+    modalize<bool> mum(s_quiet);
+    harmonize haha(_ids, 1);
+
+    double jd = getJulianDate(d);
+    for (auto tp: _alist) (*tp)(jd, 1);   // the horror
+
+    PlanetProfile b = _alist;
+
+    QMutex ctm;
+    unsigned childThreadCount = 0;
+
+    auto useRate = 15;  // search every 15 days
+    if (!s_quiet) qDebug() << "sta" << dtToString(d);
+
+    double pjd = jd;
+    int ndays = int(useRate);
+    int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
+    auto nd = d.addDays(ndays).addSecs(nsecs);
+    while (d < e) {
+        jd = getJulianDate(nd);
+        qDebug() << "sta" << dtToString(nd);
+
+        // compute new positions
+        for (auto tp: b) (*tp)(jd, 1);
+
+        std::set<unsigned> stationChecked;
+        for (unsigned i = 0; i < _alist.size(); ++i) {
+            if (stationChecked.count(i)!=0) continue;
+            stationChecked.insert(i);
+
+            if (!_alist[i]->inMotion()) continue;
+            auto aspd = _alist[i]->speed;
+            auto bspd = b[i]->speed;
+            if (!s_quiet) {
+                qDebug() << "  " << _alist[i]->description() << aspd << bspd;
+            }
+            if (sgn(aspd) == sgn(bspd)) continue;
+
+            bool wasRetro = aspd < 0;
+            auto plant = _alist[i];
+
+#if 1
+            { QMutexLocker foo(&ctm); ++childThreadCount; }
+            tp->start([&ctm, &childThreadCount, plant,
+                      wasRetro, jd, pjd, aspd, bspd, i,
+                      this]
+            {
+                prepThread();
+#endif
+
+                PlanetProfile pose { plant->clone() };
+                pose[0]->desc = QString("S%1").arg(wasRetro? "D" : "R");
+
+                auto cspd = [&pose](double jd) {
+                    pose.computePos(jd,1);
+                    return pose.speed();
+                };
+
+                double tjd = jd/2.+pjd/2.;
+                if (brentZhangStage(cspd, pjd, jd, aspd, bspd, tjd)) {
+                    auto qdt = dateTimeFromJulian(tjd);
+                    auto ploc = dynamic_cast<PlanetLoc*>(pose[0]);
+
+                    auto dt = dtToString(qdt);
+                    PlanetRangeBySpeed plr { *ploc };
+
+                    QMutexLocker ml(&_evs.mutex);
+                    _evs.emplace_back( qdt, etcStation, 1, std::move(plr) );
+
+                    if (!s_quiet) qDebug() << dt << pose[0]->description();
+
+                    // Add shadow-period transit lookup
+                    QMutexLocker mlb(&ctm);
+                    auto j = _alist.size();
+                    auto pl = dynamic_cast<PlanetLoc*>(pose[0]);
+                    auto pj = new PlanetLoc(*pl);
+                    pj->allowAspects = wasRetro? PlanetLoc::aspOnlyDirect
+                                               : PlanetLoc::aspOnlyRetro;
+                    pj->speed = 0;
+                    _alist.push_back(pj);
+                    _staff.emplace_back(i, j);
+                }
+#if 1
+                QMutexLocker mlb(&ctm);
+                --childThreadCount;
+            });
+#endif
+        }
+
+        d = nd;
+        nd = d.addDays(ndays).addSecs(nsecs);
+        //nd = d.addDays(_rate);
+        pjd = jd;
+
+        _alist.swap(b);
+    }
+
+    unsigned countWas = (unsigned)-1;
+    while (true) {
+        if (0 == (QMutexLocker(&ctm), childThreadCount)) {
+            qDebug() << "done waiting";
+            break;
+        } else if (countWas != childThreadCount) {
+            countWas = childThreadCount;
+            qDebug() << "Waiting for" << countWas << "tasks";
+        }
+        QThread::msleep(100/*msec*/);
+    }
+
+    for (int i = 0; i < 4; ++i) tp->reserveThread();
+}
+
+void AspectFinder::findStuff()
+{
+    int numThreads =
+            4 * (int(includeAspectPatterns()) + int(includeTransits()));
+    QThreadPool* tp = QThreadPool::globalInstance();
+    for (int i = 0; i < numThreads; ++i) tp->releaseThread();
+
+    const auto& start = _range.first;
+    const auto& end = _range.second.addDays(1);
+    auto d = start.startOfDay(), e = end.startOfDay();
+
+    double jd = getJulianDate(d);
+    for (auto tp: _alist) (*tp)(jd, 1);   // the horror
+
+    std::set<unsigned> hs(_hset.cbegin(),_hset.cend());
+    unsigned maxH = hs.empty()? 1 : *hs.crbegin();
+
+    modalize<bool> mum(s_quiet);
+    harmonize haha(_ids, 1);
+
+    // a simplistic predicate for determining whether to prune the
+    // planet pair list as the harmonics go up. We want to limit
+    // the lunar aspects, and aspects to MC and Asc are somewhat
+    // dubious. Could be good to make this somewhat more flexible
+    // and programmable from the client. For example, if we were
+    // generating stations but not transits, but did want
+    // preview aspects for those stations, this could prune the list.
+    // (Or maybe it's better to have a loop engine that various
+    // disciplines could be applied to.)
+    unsigned int h { };
+    auto keep = [&](unsigned i, bool derived=false) {
+        if (derived) {
+            if (auto p = dynamic_cast<PlanetLoc*>(_alist[i])) {
+                if (p->planet.isMidpt()) {
+                    return h < (derived? 4u : 2u);
+                }
+            }
+        }
+        return keepLooking(h, i);
+    };
+
+    harmonicPlanetClusters starts;
+
+    if (includeAspectPatterns()) {
+        for (unsigned h = 1; h <= maxH; ++h) {
+            bool unsel = hs.count(h)==0;
+            if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
+            starts[h] = findClusters(h, jd, _alist, _ids,
+                                     patternsQuorum,
+                                     { } /*need*/,
+                                     false/*restrictMoon*/,
+                                     patternsSpreadOrb);
+
+            for (auto& cl: starts[h]) cl.second = jd;
+        }
+    }
+
+    QMutex ctm;
+    unsigned childThreadCount = 0;
+
+    auto useRate = _rate / numThreads; // XXX
+
+    auto evs = &_evs;
+
+    PlanetProfile b = _alist;
+    double pjd = jd;
+    int ndays = int(useRate);
+    int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
+    auto nd = d.addDays(ndays).addSecs(nsecs);
+    while (d < e) {
+        jd = getJulianDate(nd);
+        for (auto tp: b) (*tp)(jd, 1);
+        qDebug() << "stuff" << dtToString(nd);
+
+        // Do all the things HERE
+
+        if (this->includeAspectPatterns()) {
+        // 1. Patterns
+        for (h = maxH; h >= 1; --h) {
+            bool unsel = hs.count(h)==0;
+            if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
+#if 0
+            auto hpc = findClusters(h, b, patternsQuorum,
+                                    { } /*need*/,
+                                    true/*skipAllNatalOnly*/,
+                                    patternsRestrictMoon,
+                                    patternsSpreadOrb);
+#else
+            auto hpc = findClusters(h, jd, b, _ids, patternsQuorum,
+                                    { } /*need*/,
+                                    patternsRestrictMoon,
+                                    patternsSpreadOrb);
+#endif
+
+            for (auto sit = starts[h].begin(); sit != starts[h].end(); ) {
+                const auto& ps = sit->first;
+                auto hpcit = hpc.find(ps);
+                if (hpcit != hpc.end()) {
+                    hpc.erase(hpcit);   // already have a start time
+                    ++sit;
+                    continue;
+                }
+
+                double from = sit->second;
+                double to = jd;
+
+                bool cancel = (from == 0);
+                if (cancel) {
+                    qDebug() << QString("H%1").arg(h) << ps.names()
+                             << "was previously hijacked, so skipping";
+                } else {
+                    qDebug() << QString("H%1").arg(h)
+                             << ps.names()
+                             << "from" << dtToString(dateTimeFromJulian(from))
+                             << "to" << dtToString(nd);
+                }
+
+                unsigned useH = h;
+                if (!cancel && h > 1) {
+                    // look for a pending pattern at a lower harmonic
+                    // because it's likely to be the same pattern but
+                    // now we have a tighter bounds. when we find this,
+                    // we set the start time to 0 to indicate that it
+                    // is no longer active.
+                    unsigned prev = 0;
+                    for (unsigned f: getAllFactors(h)) {
+                        if (f == h) break;
+                        if (prev == f) continue;
+                        auto stit = starts.find(f);
+                        if (stit == starts.end()) continue;
+                        auto& startf = stit->second;
+                        auto lwrit = startf.find(ps);
+                        if (lwrit != startf.end()) {
+                            cancel = true;
+                            qDebug() << QString("H%1").arg(f)
+                                     << ps.names()
+                                     << "exists, so skipping"
+                                     << QString("H%1").arg(h);
+                            break;
+                        }
+                        prev = f;
+                    }
+                }
+                if (cancel) {
+                    starts[h].erase(sit++);
+                    continue;    // skipped!
+                }
+
+                auto prof = _alist.profile(ps);
+
+#if 1
+                { QMutexLocker foo(&ctm); ++childThreadCount; }
+                tp->start([&ctm, &childThreadCount,
+                          ps, h, useH, evs, prof, from, to,
+                          this]
+                {
+                    prepThread();
+#endif
+                    auto csprd = [prof,h,this](double jd)
+                    {
+                        auto val = computeSpread(h,jd,*prof,_ids);
+                        //qDebug() << dtToString(dateTimeFromJulian(jd)) << ps.names() << val;
+                        return val;
+                    };
+                    constexpr auto tol =
+                            double(std::numeric_limits<float>::epsilon());
+
+                    double jd;
+                    double m = 100;
+                    double a = from;
+                    double b = to;
+                    double res;
+                    unsigned it = 0;
+                    do {
+                        double mid = a/2. + b/2.;
+                        ++it;
+                        res = brentGlobalMin(csprd, a, b, mid,
+                                             m, .0000001, tol, jd);
+                        if (jd == a || jd == b) {
+                            qDebug() << "Dubious result" << res
+                                     << ((jd == b)? "jd == to" : ((jd == a)? "jd == from" : ""))
+                                     << "for" << QString("H%1").arg(h)
+                                     << ps.names()
+                                     << QList<qreal>({csprd(a),csprd(mid),csprd(b)});
+                            if (it > 2) break;
+                            m *= 10;
+                            auto q = (mid - a)/4.;
+                            if (jd == to) a = b - q, b += q;
+                            else b = a + q, a -= q;
+                        } else break;
+                    } while (true);
+
+                    auto qdt = dateTimeFromJulian(jd);
+
+                    QMutexLocker mla(&evs->mutex);
+                    evs->emplace_back(qdt, etcTransitAspectPattern, useH,
+                                      PlanetSet(ps), res);
+                    delete prof;
+
+#if 1
+                    QMutexLocker mlb(&ctm);
+                    --childThreadCount;
+                });
+#endif
+                // TODO keep track of this start and end and then search
+
+                starts[h].erase(sit++);
+            }
+
+            // now hpc should only contain entries that are not in starts[h]
+            // and starts[h] will contain entries that *were* initially in hpc,
+            // so we need to add the remainder of hpc to starts[h] with the
+            // new date.
+            for (const auto& cl: hpc) {
+                bool add = true;
+                unsigned prev = 0;
+                const auto& ps(cl.first);
+                for (unsigned f: getAllFactors(h)) {
+                    if (f == h) break;
+                    if (prev == f) continue;
+                    auto stit = starts.find(f);
+                    if (stit == starts.end()) continue;
+                    const auto& startf = stit->second;
+                    auto lwrit = startf.find(ps);
+                    if (lwrit != startf.end()) {
+                        add = false;
+                        break;
+                    }
+                }
+                if (add) starts[h].emplace(ps, pjd);
+            }
+        }
+        } // if includeAspectPatterns
+
+        if (includeTransits()) {
+            auto stuff = _staff;
+
+            qreal ad, asp;
+            qreal bd, bsp;
+            unsigned i, j;
+            for (h = 1; h <= maxH; ++h) {
+                bool unsel = hs.count(h)==0;
+                if (unsel && !filterLowerUnselectedHarmonics) continue;
+
+                for (auto it = stuff.begin(); it != stuff.end(); ) {
+                    std::tie(i,j) = *it;
+                    qreal ispd = qAbs(_alist[i]->speed/2. + b[i]->speed/2.);
+                    qreal jspd = qAbs(_alist[j]->speed/2. + b[j]->speed/2.);
+                    if (ispd > jspd) std::swap(i,j);
+
+                    std::tie(ad, asp) = PlanetProfile::computeDelta(_alist[i], _alist[j], h);
+                    std::tie(bd, bsp) = PlanetProfile::computeDelta(b[i], b[j], h);
+                    if (sgn(ad)==sgn(bd) || (abs(ad)>=90. || abs(bd)>=90.)) {
+                        if (!keep(i) || !keep(j)) {
+                            stuff.erase(it++);
+                        } else {
+                            ++it;
+                        }
+                        continue;
+                    }
+
+                    QString what = QString("H%1 %2=%3")
+                       .arg(h)
+                       .arg(_alist[i]->description())
+                       .arg(_alist[j]->description());
+#if 1
+                    auto pi = dynamic_cast<PlanetLoc*>(_alist[i]);
+                    if (pi && pi->allowAspects > PlanetLoc::aspOnlyConj) {
+                        qreal spd = _alist[j]->speed/2. + b[j]->speed/2.;
+                        if (pi->allowAspects !=
+                                ((spd<0)? PlanetLoc::aspOnlyRetro
+                                 : PlanetLoc::aspOnlyDirect))
+                        {
+                            stuff.erase(it++);
+                            continue;
+                        }
+                    }
+#endif
+
+                    if (!s_quiet) {
+                        QDateTime pdt(dateTimeFromJulian(pjd));
+                        QDateTime dt(dateTimeFromJulian(jd));
+                        qDebug() << what.toLatin1().constData()
+                                 << dtToString(pdt) << "delta" << ad << asp << "vs"
+                             << dtToString(dt) << "delta" << bd << bsp;
+                    }
+
+                    // At this point, we figure there's _alist transit.
+                    // If the harmonic is not on our list, let's clip the
+                    // stuff list so that it doesn't get recomputed at _alist
+                    // higher-order harmonic. This handles the case where
+                    // conjunction would show up on any higher harmonic
+                    // as an aspect at that harmonic.
+                    stuff.erase(it++);
+                    if (unsel) { continue; }
+
+                    bool useBZS = (_alist[i]->inMotion() && ispd < .00001)
+                            || (_alist[j]->inMotion() && jspd < .00001);
+
+#if 1
+                    { QMutexLocker foo(&ctm); ++childThreadCount; }
+
+                    bool bQuiet = mum;
+                    tp->start([&ctm, &childThreadCount,
+                              useBZS, ispd, jspd, i, j, jd, bQuiet, pjd, ad, bd, d, h, what,
+                              this]
+                    {
+                        prepThread();
+                        modalize<bool> mum(s_quiet, bQuiet);
+#endif
+                        PlanetProfile poses { _alist[i]->clone(), _alist[j]->clone() };
+
+                        // for slow planetary motion we need to use BrentZhangStage.
+                        // XXX replace magic number: might plausibly instead be
+                        // _alist certain percentage of the default speed.
+                        double tjd;
+                        uintmax_t iter;
+                        bool bzhs = false;
+                        bool done = false;
+                        if (!useBZS) {
+                            try {
+                                auto cps = [&poses, &what, h](double jd)
+                                -> std::pair<qreal,qreal>
+                                {
+                                    auto pos = poses.computePos(jd,h);
+                                    std::pair<qreal,qreal> ret { pos, poses.speed() };
+                                    if (!s_quiet) {
+                                        QDateTime dt(dateTimeFromJulian(jd));
+                                        qDebug() << "nri " << what + ":" << dtToString(dt)
+                                                 << "ret:" << ret;
+                                    }
+                                    return ret;
+                                };
+                                iter = 50;  // TODO !? need to diagnose when we hit this
+                                static constexpr int digits =
+                                        std::numeric_limits<double>::digits;
+
+                                using namespace boost::math::tools;
+                                double guess;
+                                if (_alist[i]->inMotion() && _alist[j]->inMotion()) {
+                                    guess = pjd + (fabs(ad)/(fabs(ad)+fabs(bd)));
+                                } else {
+                                    guess = pjd + .5;
+                                }
+                                tjd = newton_raphson_iterate(cps,
+                                                             guess, pjd, jd,
+                                                             digits, iter);
+                                auto psp = PlanetProfile::computeDelta(poses[0],poses[1],h);
+                                if (std::abs(psp.first) <= calcLoop::tol) {
+                                    // check for actual hit per tolerance?
+                                    done = true;
+                                } else {
+                                    done = false;
+                                }
+                            } catch (...) {
+                                done = false;
+                            }
+                            if (!done) {
+                                qDebug() << "Failed"
+                                << d.date().toString()
+                                << what
+                                << "after" << iter
+                                << "iteration(s) newton_raphson";
+                                qDebug() << "speed" << ispd << jspd << "respectively";
+                            }
+                        }
+                        if (!done) {
+                            bzhs = true;
+                            unsigned count = 0;
+                            auto cp = [&poses, &count, &what, h](double jd) {
+                                ++count;
+                                auto pos = poses.computePos(jd, h);
+                                if (!s_quiet) {
+                                    QDateTime dt(dateTimeFromJulian(jd));
+                                    qDebug() << "bzhs " << what + ":" << dtToString(dt)
+                                             << "ret:" << pos;
+                                }
+                                return pos;
+                            };
+                            done = brentZhangStage(cp, pjd, jd, ad, bd, tjd);
+                            iter = count;
+                            auto psp = PlanetProfile::computeDelta(poses[0],poses[1],h);
+                            if (std::abs(psp.first) <= calcLoop::tol) {
+                                // check for actual hit per tolerance?
+                                done = true;
+                            } else {
+                                done = false;
+                            }
+                        }
+                        if (!done) {
+                            qDebug() << "Failed"
+                                << d.date().toString()
+                                << QString("H%1 %2=%3")
+                                   .arg(h)
+                                   .arg(_alist[i]->description())
+                                   .arg(_alist[j]->description())
+                                << "after" << iter
+                                << "iteration(s) brentStageZhang";
+                        } else {
+                            // Pack up event
+                            auto qdt = dateTimeFromJulian(tjd);
+                            auto p1loc = dynamic_cast<PlanetLoc*>(poses[0]);
+                            auto p2loc = dynamic_cast<PlanetLoc*>(poses[1]);
+                            PlanetRangeBySpeed plr { *p1loc, *p2loc };
+
+                            auto ch = static_cast<unsigned char>(h);
+                            auto type = _evType;
+                            bool isReturn = p1loc->planet
+                                    .samePlanetDifferentChart(p2loc->planet);
+                            if (!type) {
+                                if (isReturn) {
+                                    type = etcReturn;
+                                } else if (p1loc->inMotion() && p2loc->inMotion()) {
+                                    type = etcTransitToTransit;
+                                } else if (p1loc->inMotion() != p2loc->inMotion()) {
+                                    type = etcTransitToNatal;
+                                }
+                            }
+
+                            HarmonicAspects* pcoin = nullptr;
+                            /*block*/ {
+                                QMutexLocker ml(&_evs.mutex);
+                                _evs.emplace_back(qdt, type, ch, std::move(plr));
+                                pcoin = &_evs.back().coincidences();
+                            }
+
+                            if (!s_quiet)
+                                qDebug() << dtToString(qdt)
+                                         << QString("H%1 %2=%3")
+                                            .arg(h)
+                                            .arg(_alist[i]->description())
+                                            .arg(_alist[j]->description())
+                                         << "with" << iter
+                                         << "iteration(s)"
+                                     << (bzhs? "brentZhangStage" : "newton_raphson");
+                        }
+
+#if 1
+                        QMutexLocker mlb(&ctm); --childThreadCount;
+                    });
+#endif
+                    if (ispd > jspd) std::swap(i,j);    // swap back for output
+                }
+            }
+        } // if includeTransits
+
+        d = nd;
+        nd = d.addDays(ndays).addSecs(nsecs);
+        //nd = d.addDays(_rate);
+        pjd = jd;
+        _alist.swap(b);
+    }
+
+    unsigned countWas = (unsigned)-1;
+    while (true) {
+        if (0 == (QMutexLocker(&ctm), childThreadCount)) {
+            qDebug() << "done waiting";
+            break;
+        } else if (countWas != childThreadCount) {
+            countWas = childThreadCount;
+            qDebug() << "Waiting for" << countWas << "tasks";
+        }
+        QThread::msleep(100/*msec*/);
+    }
+
+    for (int i = 0; i < numThreads; ++i) tp->reserveThread();
+}
+
 void AspectFinder::run()
 {
-#if MSDOS
-    char ephePath[] = "swe\\";
-#else
-    char ephePath[] = "swe/";
-#endif
-    swe_set_ephe_path(ephePath);
-
+    prepThread();
     switch (_gt) {
     case afcFindPatterns:
         findPatterns(); break;
     case afcFindAspects:
+        if (showStations) findStations();
         findAspects(); break;
+    case afcFindStations:
+        findStations(); break;
+    case afcFindStuff:
+        if (showStations) findStations();
+        findStuff();
+        break;
     }
 }
 
@@ -3134,7 +3936,7 @@ TransitFinder::TransitFinder(HarmonicEvents& evs,
 {
     _evType = eventsType & ~etcDerivedEventMask;
 
-    _includeStationAspectsToNatal = false;
+    expandShowStationAspectsToNatal = false;
 
     _ids.push_back(trainp);
     auto& ida = _ids.back();
@@ -3145,7 +3947,7 @@ TransitFinder::TransitFinder(HarmonicEvents& evs,
         if (luna == -1 && cpid.planetId()==Planet_Moon) luna = m;
         else ++m;
     }
-    if (_includeMidpoints) {
+    if (includeMidpoints) {
         for (auto a = tran.begin(); a != tran.end(); ++a) {
             if (a->planetId() == Planet_Moon) continue;
             for (auto b = std::next(a); b != tran.end(); ++b) {
@@ -3186,8 +3988,8 @@ NatalTransitFinder::NatalTransitFinder(HarmonicEvents& evs,
 {
     _evType = eventsType & ~etcDerivedEventMask;
 
-    _includeStationAspectsToNatal = true;
-    _includeStationAspectsToTransits = true;
+    expandShowStationAspectsToNatal = true;
+    expandShowStationAspectsToTransits = true;
 
     _ids.push_back(natinp);
     auto& ida = _ids.back();
@@ -3203,7 +4005,7 @@ NatalTransitFinder::NatalTransitFinder(HarmonicEvents& evs,
     for (const auto& cpid: natal) {
         _alist.push_back(new NatalPosition(cpid, ida, "n"));
     }
-    if (_includeMidpoints) {
+    if (includeMidpoints) {
         for (auto a = natal.begin(); a != natal.end(); ++a) {
             //if (a->planetId() == Planet_Moon) continue;
             for (auto b = std::next(a); b != natal.end(); ++b) {
@@ -3221,7 +4023,7 @@ NatalTransitFinder::NatalTransitFinder(HarmonicEvents& evs,
         else ++m;
     }
 
-    if (_includeMidpoints) {
+    if (includeMidpoints) {
         unsigned i = _alist.size();
         for (auto a = tran.begin(); a != tran.end(); ++a) {
             if (a->planetId() == Planet_Moon) continue;
@@ -3377,6 +4179,7 @@ sizeWithoutTransitingMoon(const positions& grp,
 
 PlanetClusterMap
 findClusters(const positions& posits,
+             unsigned quorum,
              const PlanetSet& need /*={}*/,
              bool skipAllNatalOnly = false,
              bool restrictMoon = true,
@@ -3388,7 +4191,7 @@ findClusters(const positions& posits,
         positions grp;
         auto maybeAddGroup = [&] {
             if ((restrictMoon? sizeWithoutTransitingMoon(grp,moonIn1)
-                 : grp.size()) < 3)
+                 : grp.size()) < quorum)
             {
                 return;
             }
@@ -3415,6 +4218,7 @@ findClusters(const positions& posits,
 PlanetClusterMap
 findClusters(unsigned h,
              const PlanetProfile& plist,
+             unsigned quorum,
              const PlanetSet& need /*={}*/,
              bool skipAllNatalOnly /*=false*/,
              bool restrictMoon /*=true*/,
@@ -3424,7 +4228,10 @@ findClusters(unsigned h,
     for (auto loc : plist) {
         auto ploc = dynamic_cast<PlanetLoc*>(loc);
         if (!ploc) continue;
+
         auto cpid = ploc->planet;
+        if (cpid.fileId() < 0) continue;
+
         auto hloc = h==1? ploc->rasiLoc() : harmonic(h,ploc->rasiLoc());
         auto ins = posits.emplace(hloc,ploc->planet);
         if (ins.first->first > 345) {
@@ -3434,13 +4241,15 @@ findClusters(unsigned h,
         }
     }
 
-    return findClusters(posits, need, skipAllNatalOnly,restrictMoon,maxOrb);
+    return findClusters(posits, quorum, need,
+                        skipAllNatalOnly, restrictMoon, maxOrb);
 }
 
 PlanetClusterMap
 findClusters(unsigned h, double jd,
              const PlanetProfile& plist,
              const QList<InputData>& ids,
+             unsigned quorum,
              const PlanetSet& need /*={}*/,
              bool restrictMoon /*=true*/,
              qreal maxOrb /*=8.*/)
@@ -3450,8 +4259,9 @@ findClusters(unsigned h, double jd,
     for (auto loc : plist) {
         auto ploc = dynamic_cast<PlanetLoc*>(loc);
         if (!ploc) continue;
-        auto cpid = ploc->planet;
 
+        auto cpid = ploc->planet;
+        if (cpid.fileId() < 0 | cpid.fileId() >= pfid.size()) continue;
 #if 0
         if (cpid.planetId() == Planet_Moon
                 && ploc->inMotion()) continue; // *** skip moon ***
@@ -3474,7 +4284,8 @@ findClusters(unsigned h, double jd,
         }
     }
 
-    return findClusters(posits, need, pfid[0] && pfid[1],restrictMoon,maxOrb);
+    return findClusters(posits, quorum, need,
+                        pfid[0] && pfid[1], restrictMoon, maxOrb);
 }
 
 qreal
@@ -3491,6 +4302,8 @@ computeSpread(unsigned h,
         if (!ploc) continue;
 
         auto cpid = ploc->planet;
+        if (cpid.fileId() < 0) continue;
+
         const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );
 
         unsigned vroom(ploc->inMotion());

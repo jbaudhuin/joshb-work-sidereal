@@ -4,15 +4,67 @@
 #include "astro-data.h"
 #include <QRunnable>
 
+// Forward
+class AstroFile;
+typedef QList<AstroFile*> AstroFileList;
+
+struct ADateDelta {
+    int numDays = 0;
+    int numMonths = 0;
+    int numYears = 0;
+
+    ADateDelta(const QString& str);
+
+    ADateDelta(int days = 0, int months = 0, int years = 0) :
+        numDays(days), numMonths(months), numYears(years)
+    { }
+
+    ADateDelta(QDate from, QDate to);
+
+    QString toString() const
+    {
+        QStringList sl;
+        bool terse = numYears && numMonths && numDays;
+        auto append = [&](const int& v, const QString& un) {
+            if (!v) return;
+            sl << (terse
+                   ? QString("%1%2").arg(v).arg(un.at(0))
+                   : QString("%1 %2%3").arg(v).arg(un).arg(v!=1?"s":""));
+        };
+        append(numYears,"yr");
+        append(numMonths,"mo");
+        append(numDays,"day");
+        return sl.join(terse? " " : ", ");
+    }
+
+    QDate addTo(const QDate& d);
+    QDate subtractFrom(const QDate& d);
+
+    static ADateDelta fromString(const QString& str)
+    { return ADateDelta(str); }
+
+    bool operator==(const ADateDelta& other) const
+    {
+        return numYears == other.numYears
+                && numMonths == other.numMonths
+                && numDays == other.numDays;
+    }
+
+    bool operator!=(const ADateDelta& other) const
+    { return !operator==(other); }
+
+    operator bool() const { return numYears || numMonths || numDays; }
+
+};
+
+// A namespace
 namespace A {  // Astrology, sort of :)
 
 template <typename T> struct modalTrait
 { static const T& defaultNew() { static T dflt; return dflt; } };
 
 template <>
-struct modalTrait<bool> {
-    static bool defaultNew() { return true; }
-};
+struct modalTrait<bool> { static bool defaultNew() { return true; } };
 
 template <typename T = bool>
 class modalize {
@@ -27,6 +79,8 @@ public:
 
     ~modalize()
     { _state = _was;}
+
+    operator const T&() const { return _state; }
 };
 
 enum aspectModeEnum {
@@ -64,9 +118,7 @@ public:
     static aspectModeEnum fromString(const QString& val)
     {
         for (int i = 0; i < amcEND; ++i) {
-            if (val == strings()[i]) {
-                return aspectModeEnum(i);
-            }
+            if (val == strings()[i]) return aspectModeEnum(i);
         }
         return amcUnknown;
     }
@@ -177,23 +229,61 @@ public:
 };
 
 struct EventOptions {
-    qreal       secondaryOrb = 2.;
+    ADateDelta  defaultTimespan { 0/*yr*/, 1/*mo*/, 0/*dy*/ };
+
+    qreal       expandShowOrb = 2.;
     unsigned    patternsQuorum = 3;
     qreal       patternsSpreadOrb = 8.;
+
     bool        patternsRestrictMoon = true;
+    bool        filterLowerUnselectedHarmonics = true;
     bool        includeMidpoints = false;
+
+    bool        showStations = true;
+
     bool        showTransitsToTransits = true;
-    bool        showTransitsToNatal = true;
+    bool        showTransitsToNatalPlanets = true;
+    bool        showTransitsToNatalAngles = true;
+    bool        includeOnlyOuterTransitsToNatal = false;
+
+    bool        includeTransits() const
+    {
+        return showTransitsToTransits
+                || showTransitsToNatalPlanets
+                || showTransitsToNatalAngles;
+    }
+
     bool        showReturns = true;
+
     bool        showProgressionsToProgressions = false;
     bool        showProgressionsToNatal = false;
+    bool        includeOnlyInnerProgressionsToNatal = true;
+
+    bool        includeProgressions() const
+    { return showProgressionsToNatal
+                || showProgressionsToProgressions; }
+
     bool        showTransitAspectPatterns = true;
     bool        showTransitNatalAspectPatterns = true;
+
+    bool        includeAspectPatterns() const
+    { return showTransitAspectPatterns || showTransitNatalAspectPatterns; }
+
     bool        showIngresses = false;
     bool        showLunations = false;
     bool        showHeliacalEvents = false;
     bool        showPrimaryDirections = false;
     bool        showLifeEvents = false;
+
+    bool        expandShowAspectPatterns = true;
+    bool        expandShowHousePlacementsOfTransits = true;
+    bool        expandShowRulershipTips = true;
+
+    bool        expandShowStationAspectsToTransits = true;
+    bool        expandShowStationAspectsToNatal = true;
+
+    bool        expandShowReturnAspects = true;
+    bool        expandShowTransitAspectsToReturnPlanet = true;
 
     static EventOptions& current() { static EventOptions s_; return s_; }
 };
@@ -204,11 +294,14 @@ public:
     void run(); // sets ephemeris path and then runs
 };
 
-struct EventFinder : public QRunnable {
+struct EventFinder :
+        public EventOptions,
+        public QRunnable
+{
 public:
     EventFinder(HarmonicEvents& evs,
                 const ADateRange& range) :
-        _evs(evs), _range(range)
+        EventOptions(current()), _evs(evs), _range(range)
     { }
 
     ~EventFinder() { }
@@ -222,49 +315,44 @@ public:
 
 class AspectFinder : public EventFinder {
 public:
-    enum goalType { afcFindAspects, afcFindPatterns };
+    enum goalType {
+        afcFindStuff, afcFindAspects, afcFindPatterns, afcFindStations
+    };
+
+    typedef std::map<unsigned, PlanetClusterMap> harmonicPlanetClusters;
 
     AspectFinder(HarmonicEvents& evs,
                  const ADateRange& range,
                  const uintSSet& hset,
                  goalType gt = afcFindAspects) :
         EventFinder(evs, range),
-        _hset(hset),
-        _gt(gt)
+        _gt(gt),
+        _hset(hset)
     {
-        if (_includeMidpoints || *hset.rbegin()>4) _rate = .5;
+        if (includeMidpoints || *hset.rbegin()>4) _rate = .5;
     }
+
+    AspectFinder(HarmonicEvents& evs,
+                 const ADateRange& range,
+                 const uintSSet& hset,
+                 const AstroFileList& files);
+
+    static void prepThread();
 
     void findAspects();
     void findPatterns();
+
     void run() override;
 
-    void setIncludeStations(bool b)
-    {
-        if (!b) {
-            _includeStations =
-                    _includeStationAspectsToNatal =
-                    _includeStationAspectsToTransits = false;
-        } else  _includeStations = true;
-    }
+    void findStations();
+    void findStuff();
 
 protected:
-    goalType _gt;
+    unsigned _gt;
 
-    bool _includeMidpoints = false;
-    // ** Future config options or control options for transit set **
-    bool _includeTransits = true; // todo: could have separate func for stns
     // having both here allows us to include aspects to stationary planets...
     bool _includeAspectsToAngles = true;
-    bool _includeAspectPatterns = true;
-    bool _includeStations = true;
-    bool _includeStationAspectsToTransits = true;
-    bool _includeStationAspectsToNatal = true;
-    bool _includeReturnAspects = true; // todo: solar, solar+lunar, all, none
-    bool _includeTransitAspectsToReturnPlanet = true;
-    bool _filterLowerUnselectedHarmonics = true;
     double _rate = 4.0;  // # days
-    double _orb = 2.0;   // orb for aspects to stations or return aspects
 
     bool outOfOrb(unsigned h,
                   std::initializer_list<const Loc*> locs,
@@ -280,18 +368,19 @@ protected:
                 break;
             }
         }
-        return d > (anyMidPoints? _orb/8 : _orb);
+        return d > (anyMidPoints? expandShowOrb/8 : expandShowOrb);
     }
 
     bool keepLooking(unsigned h, unsigned i) const
     {
         auto p = dynamic_cast<PlanetLoc*>(_alist[i]);
         if (!p) return true;
+        if (p->allowAspects >= PlanetLoc::aspOnlyConj) return false;
         PlanetId pid = p->planet.planetId();
         if (!_includeAspectsToAngles
                 && (pid == Planet_MC || pid == Planet_Asc))
         { return h < 2; }
-        if (p->inMotion() && pid == Planet_Moon) return h < 2;
+        if (p->inMotion() && pid == Planet_Moon) return h < 4;
         return true;
     }
 
@@ -372,6 +461,7 @@ private:
 
 PlanetClusterMap findClusters(unsigned h,
                               const PlanetProfile& prof,
+                              unsigned quorum,
                               const PlanetSet& need = {},
                               bool skipAllNatalOnly = false,
                               bool restrictMoon = true,
@@ -380,6 +470,7 @@ PlanetClusterMap findClusters(unsigned h,
 PlanetClusterMap findClusters(unsigned h, double jd,
                               const PlanetProfile& prof,
                               const QList<InputData>& ids,
+                              unsigned quorum,
                               const PlanetSet& need = {},
                               bool restrictMoon = true,
                               qreal maxOrb = 8.);
@@ -394,7 +485,7 @@ Star calculateStar(const QString&, const InputData& input, const Houses& houses,
 PlanetPower calculatePlanetPower ( const Planet& planet, const Horoscope& scope );
 Houses      calculateHouses      ( const InputData& input );
 Aspect      calculateAspect      ( const AspectsSet& aspectSet, const Planet& planet1, const Planet& planet2 );
-Aspect calculateAspect(const AspectsSet&, const PlanetLoc*, const PlanetLoc*);
+Aspect calculateAspect(const AspectsSet&, const Loc*, const Loc*);
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets );
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets1, const PlanetMap& planets2 );   // synastry
 

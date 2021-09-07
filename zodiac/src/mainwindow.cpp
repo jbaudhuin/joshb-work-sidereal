@@ -1368,7 +1368,7 @@ FilesBar::findChart()
     auto pafe = new AstroFileEditor(dlg);
     auto f = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(f, true/*suspendUpdate*/);
-    f->setType(AstroFile::TypeSearch);
+    f->setType(TypeSearch);
     pafe->setFiles( {f} );
 
     lay->addWidget(pafe);

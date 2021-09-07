@@ -21,6 +21,7 @@ QMap<HouseSystemId, HouseSystem> Data::houseSystems;
 QMap<ZodiacId, Zodiac> Data::zodiacs;
 AspectSetId Data::topAspSet;
 QString Data::usedLang;
+/*static*/ QMap<PlanetId, GlyphName> Data::signInfo;
 
 void Data::load(QString language)
 {
@@ -156,6 +157,11 @@ void Data::load(QString language)
 
         zodiacs[s.zodiacId].signs << s;
         signs.insert(s.tag, s.id);
+
+        auto sid = s.id + Ingresses_Start;
+        if (!signInfo.contains(sid)) {
+            signInfo.insert(sid, {s.userData["fontChar"].toInt(), s.name});
+        }
     }
 
     // fill in sign data for 30deg sidereals
@@ -190,17 +196,19 @@ void Data::load(QString language)
 
         planets[p.id] = p;
     }
-    Planet asc;
-    asc.id = Planet_Asc; 
-    asc.name = "Asc";
-    asc.userData["fontChar"] = 402;  // "As"
-    planets[Planet_Asc] = asc;
 
-    Planet mc;
-    mc.id = Planet_MC; 
-    mc.name = "MC"; 
-    mc.userData["fontChar"] = 77;  // "M" -- no Mc available :(
-    planets[Planet_MC] = mc;
+    planets[Planet_Asc] = { Planet_Asc, "Asc", 402 };
+    planets[House_2] = { House_2, "2H", 8230 };
+    planets[House_3] = { House_3, "3H", 8224 };
+    planets[Planet_IC] = { Planet_IC, "IC", 8225 };
+    planets[House_5] = { House_5, "5H", 8240 };
+    planets[House_6] = { House_6, "6H", 352 };
+    planets[Planet_Desc] = { Planet_Desc, "Desc", 8249 };
+    planets[House_8] = { House_8, "8H", "VIII" };
+    planets[House_9] = { House_9, "9H", "IX" };
+    planets[Planet_MC] = { Planet_MC, "MC", 0x4D };
+    planets[House_11] = { House_11, "11H", 8216 };
+    planets[House_12] = { House_12, "12H", 8217 };
 
     unsigned i = 1;
     int j = 0;
@@ -300,10 +308,79 @@ Data::getPlanet(PlanetId id)
     return planets[Planet_None];
 }
 
+int
+Data::getSignGlyph(PlanetId id)
+{
+    return signInfo.value(id).first;
+}
+
+QString
+Data::getSignName(PlanetId id)
+{
+    return signInfo.value(id).second;
+}
+
 QList<PlanetId>
 Data::getPlanets()
 {
-    return planets.keys();
+    return {
+        Planet_Sun, Planet_Moon, Planet_Mercury, Planet_Venus,
+                Planet_Mars, Planet_Jupiter, Planet_Saturn, Planet_Uranus,
+                Planet_Neptune, Planet_Pluto, Planet_Chiron
+    };
+}
+
+QList<PlanetId>
+Data::getAngles()
+{
+    return {
+        Planet_Asc, Planet_IC, Planet_Desc, Planet_MC
+    };
+}
+
+QList<PlanetId>
+Data::getInnerPlanets()
+{
+    return {
+        Planet_Sun, Planet_Moon, Planet_Mercury, Planet_Venus, Planet_Mars
+    };
+}
+
+QList<PlanetId>
+Data::getOuterPlanets()
+{
+    return {
+        Planet_Jupiter, Planet_Saturn, Planet_Uranus,
+                Planet_Neptune, Planet_Pluto, Planet_Chiron
+    };
+}
+
+QList<PlanetId>
+Data::getHouses()
+{
+    return {
+        House_1, House_2, House_3, House_4, House_5, House_6,
+                House_7, House_8, House_9, House_10, House_11, House_12
+    };
+}
+
+QList<PlanetId> Data::getSignIngresses()
+{
+    return {
+        Ingress_Aries, Ingress_Taurus, Ingress_Gemini,
+                Ingress_Cancer, Ingress_Leo, Ingress_Virgo,
+                Ingress_Libra, Ingress_Scorpio, Ingress_Sagittarius,
+                Ingress_Capricorn, Ingress_Aquarius, Ingress_Pisces
+    };
+}
+
+QList<PlanetId>
+Data::getNonAngularHouses()
+{
+    return {
+        House_2, House_3, House_5, House_6,
+                House_8, House_9, House_11, House_12
+    };
 }
 
 const Star&
@@ -418,9 +495,13 @@ Data::tightConjunction()
 QString
 ChartPlanetId::glyph() const
 {
-    if (!isMidpt())
+    if (!isMidpt()) {
+        if (_pid >= Ingresses_Start && _pid < Ingresses_End) {
+            return QString(QChar(Data::getSignGlyph(_pid)));
+        }
         return QString(QChar(Data::getPlanet(_pid)
                              .userData["fontChar"].toInt()));
+    }
     return QString(QChar(_oppMidpt? 0xD1 : 0xC9))
         + QString(QChar(Data::getPlanet(_pid)
                         .userData["fontChar"].toInt()))
@@ -431,7 +512,12 @@ ChartPlanetId::glyph() const
 QString
 ChartPlanetId::name() const
 {
-    if (!isMidpt()) return Data::getPlanet(_pid).name;
+    if (!isMidpt()) {
+        if (_pid >= Ingresses_Start && _pid < Ingresses_End) {
+            return Data::getSignName(_pid);
+        }
+        return Data::getPlanet(_pid).name;
+    }
     return Data::getPlanet(_pid).name.left(3)
         + "/" + Data::getPlanet(_pid2).name.left(3);
 }
@@ -455,7 +541,6 @@ getPlanetId(const QString& name)
 QString getPlanetName(const ChartPlanetId& id) { return Data::getPlanet(id).name; }
 QString getPlanetGlyph(const ChartPlanetId& id) { return id.name(); }
 const Star& getStar(const QString& name) { return Data::getStar(name); }
-QList<PlanetId> getPlanets() { return Data::getPlanets(); }
 QList<QString> getStars() { return Data::getStars(); }
 const HouseSystem& getHouseSystem(HouseSystemId id) { return Data::getHouseSystem(id); }
 const Zodiac& getZodiac(ZodiacId id) { return Data::getZodiac(id); }

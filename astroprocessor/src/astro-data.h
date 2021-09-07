@@ -20,6 +20,10 @@
 
 #include <math.h>
 
+enum FileType { TypeOther, TypeMale, TypeFemale, TypeSearch,
+                TypeDerivedSA, TypeDerivedProg, TypeDerivedPD,
+                TypeDerivedSearch, TypeCount };
+
 namespace A {
 
 // FIXME: move all these to Data or config or something?
@@ -130,12 +134,7 @@ typedef int AspectSetId;
 
 
 const PlanetId      Planet_None          = -1;
-const PlanetId      Planet_MC = 20;
-const PlanetId      Planet_Asc = 21;
-const PlanetId      Planet_IC = 22;
-const PlanetId      Planet_Desc = 23;
-const PlanetId      Planet_PoFortune = 24;
-const PlanetId      Planet_PoSpirit = 25;
+const PlanetId  Planets_Start = 0;
 const PlanetId      Planet_Sun           =  0;
 const PlanetId      Planet_Moon          =  1;
 const PlanetId      Planet_Mercury       =  2;
@@ -149,6 +148,46 @@ const PlanetId      Planet_Pluto         =  9;
 const PlanetId      Planet_NorthNode     = 10;
 const PlanetId      Planet_SouthNode     = 11;
 const PlanetId      Planet_Chiron = 12;
+const PlanetId  Planets_End = 20;
+
+const PlanetId Houses_Start = 20;
+const PlanetId House_1 = Houses_Start;
+const PlanetId Planet_Asc = House_1;
+const PlanetId House_2 = 21;
+const PlanetId House_3 = 22;
+const PlanetId House_4 = 23;
+const PlanetId Planet_IC = House_4;
+const PlanetId House_5 = 24;
+const PlanetId House_6 = 25;
+const PlanetId House_7 = 26;
+const PlanetId Planet_Desc = House_7;
+const PlanetId House_8 = 27;
+const PlanetId House_9 = 28;
+const PlanetId House_10 = 29;
+const PlanetId Planet_MC = House_10;
+const PlanetId House_11 = 30;
+const PlanetId House_12 = 31;
+const PlanetId Houses_End = House_12 + 1;
+
+const PlanetId Ingresses_Start = Houses_End;
+const PlanetId Ingress_Aries = Ingresses_Start;
+const PlanetId Ingress_Taurus = 33;
+const PlanetId Ingress_Gemini = 34;
+const PlanetId Ingress_Cancer = 35;
+const PlanetId Ingress_Leo = 36;
+const PlanetId Ingress_Virgo = 37;
+const PlanetId Ingress_Libra = 38;
+const PlanetId Ingress_Scorpio = 39;
+const PlanetId Ingress_Sagittarius = 40;
+const PlanetId Ingress_Capricorn = 41;
+const PlanetId Ingress_Aquarius = 42;
+const PlanetId Ingress_Pisces = 43;
+const PlanetId Ingresses_End = Ingress_Pisces + 1;
+
+const PlanetId Parts_Start = Ingresses_End;
+const PlanetId Part_of_Fortune = Parts_Start;
+const PlanetId Part_of_Spirit = Part_of_Fortune + 1;
+const PlanetId Parts_End = Part_of_Spirit + 1;
 
 const AspectId      Aspect_None          = -1;
 const AspectId      Aspect_Conjunction   =  0;
@@ -233,6 +272,9 @@ struct InputData
 
     //void            computeRAMC() { }
 };
+
+typedef std::pair<FileType, InputData> FileInput;
+typedef std::vector<FileInput> FileInputs;
 
 struct Houses
 {
@@ -343,6 +385,9 @@ struct Planet : public Star
 
     Planet() { }
 
+    Planet(PlanetId pid, const QString& pname, const QVariant& fontChar)
+    { id = pid; name = pname; userData["fontChar"] = fontChar; }
+
     operator Planet*() { return this; }
     operator const Planet*() const { return this; }
 
@@ -428,6 +473,7 @@ typedef QList<Aspect> AspectList;
 typedef QList<Planet> PlanetList;
 typedef QMap<PlanetId, Planet> PlanetMap;
 typedef QMap<std::string, Star> StarMap;
+typedef std::pair<int, QString> GlyphName;
 
 class Data
 {
@@ -440,12 +486,23 @@ private:
     static StarMap stars;
     static AspectSetId topAspSet;
 
+    static QMap<PlanetId, GlyphName> signInfo;
+
 public:
     static void load(QString language);
     static const QString usedLanguage() { return usedLang; }
 
     static const Planet& getPlanet(PlanetId id);
+    static int getSignGlyph(PlanetId id);
+    static QString getSignName(PlanetId id);
+
     static QList<PlanetId> getPlanets();
+    static QList<PlanetId> getAngles();
+    static QList<PlanetId> getInnerPlanets();
+    static QList<PlanetId> getOuterPlanets();
+    static QList<PlanetId> getSignIngresses();
+    static QList<PlanetId> getHouses();
+    static QList<PlanetId> getNonAngularHouses();
 
     static const Star& getStar(const QString& name);
     static QList<QString> getStars();
@@ -813,7 +870,7 @@ struct Loc {
     virtual Loc* clone() const { return new Loc(*this); }
 
     virtual qreal defaultSpeed() const { return 0; }
-    virtual qreal operator()(double /*jd*/) { return loc; }
+    virtual qreal operator()(double /*jd*/, int h) { return loc; }
     virtual bool inMotion() const { return false; }
     virtual QString description() const { return desc; }
 
@@ -825,25 +882,30 @@ struct PlanetLoc : public Loc {
     ChartPlanetId planet;
     qreal _rasiLoc = 0;
 
+    enum { aspAll, aspOnlyConj, aspOnlyRetro, aspOnlyDirect };
+    unsigned allowAspects = aspAll;
+
 #if 1
     PlanetLoc(int fid, PlanetId p, qreal l, qreal s = 0) :
-        Loc(l,s), planet(fid, p, Planet_None)
+        Loc(l,s), planet(fid, p, Planet_None), _rasiLoc(l)
     { }
     PlanetLoc(int fid, PlanetId p, PlanetId p2, qreal l, qreal s = 0) :
-        Loc(l,s), planet(fid, p, p2)
+        Loc(l,s), planet(fid, p, p2), _rasiLoc(l)
     { }
 #endif
     PlanetLoc(ChartPlanetId p = 0, qreal l = 0, qreal s = 0) :
-        Loc(l,s), planet(p)
+        Loc(l,s), planet(p), _rasiLoc(l)
     { }
 
-    PlanetLoc(const ChartPlanetId& p, const QString& desc) :
-        Loc(), planet(p)
+    PlanetLoc(const ChartPlanetId& p, const QString& desc, qreal l=0, qreal s=0) :
+        Loc(l,s), planet(p), _rasiLoc(l)
     { if (!desc.isEmpty()) this->desc = desc; }
 
     PlanetLoc(const PlanetLoc& other) :
-        Loc(other), planet(other.planet)
-    { _rasiLoc = other._rasiLoc; }
+        Loc(other), planet(other.planet),
+        _rasiLoc(other._rasiLoc),
+        allowAspects(other.allowAspects)
+    { }
 
     qreal rasiLoc() const { return _rasiLoc; }
 
@@ -859,7 +921,7 @@ struct PlanetLoc : public Loc {
     { return loc == other.loc && planet == other.planet; }
 
     qreal compute(const InputData& ida);
-    qreal compute(const InputData& ida, double jd);
+    qreal compute(const InputData& ida, double jd, int h);
     static std::pair<qreal,qreal> compute(const ChartPlanetId& pid,
                                           const InputData& ida,
                                           double jd);
@@ -912,10 +974,13 @@ public:
     Loc* clone() const override
     { return new NatalPosition(*this); }
 
-    qreal operator()(double) override
+    qreal operator()(double, int h) override
     {
-        return loc = input().harmonic==1.0
-                ? _rasiLoc : fmod(_rasiLoc*input().harmonic,360.);
+        return loc = h==1
+                ? _rasiLoc
+                : (h==-1 && input().harmonic != 1.0)
+                  ? fmod(_rasiLoc*input().harmonic,360.)
+                  : fmod(_rasiLoc*h,360.);
     }
 };
 
@@ -931,18 +996,25 @@ public:
                     const InputData& ida,
                     double jd) :
         InputPosition(cpid, ida)
-    { compute(input(), jd); }
+    { compute(input(), jd, -1); }
 
     Loc* clone() const override { return new TransitPosition(*this); }
 
     bool inMotion() const override { return true; }
 
-    qreal operator()(double jd) override
-    { return compute(input(), jd); }
+    qreal operator()(double jd, int h) override
+    { return compute(input(), jd, h); }
 };
 
 class ProgressedPosition : public InputPosition {
+    double _njd;
 public:
+    ProgressedPosition(const ChartPlanetId& cpid,
+                       const InputData& ida,
+                       double njd,
+                       const QString& tag = "") :
+        InputPosition(cpid, ida, tag), _njd(njd)
+    { }
 };
 
 class SolarArcPosition : public InputPosition {
@@ -1034,7 +1106,7 @@ public:
     static std::pair<qreal, qreal> computeSpread(std::initializer_list<const Loc *>,
                                                  unsigned int =1);
 
-    qreal computePos(double jd);
+    qreal computePos(double jd, unsigned int harmonic = 1);
 
     qreal operator()(double jd) { return computePos(jd); }
 
@@ -1061,11 +1133,17 @@ struct PlanetClusterLess {
     static int fileId(const PlanetLoc& ploc)
     { return ploc.planet.fileId(); }
 
+    static int fileId(const Loc&)
+    { return -1; }
+
     static const ChartPlanetId& planet(const ChartPlanetId& cpid)
     { return cpid; }
 
     static const ChartPlanetId& planet(const PlanetLoc& ploc)
     { return ploc.planet; }
+
+    static const ChartPlanetId& planet(const Loc&)
+    { return Planet_None; }
 
     template <typename T>
     bool less(T ait, T aend, T bit, T bend) const
@@ -1192,7 +1270,12 @@ public:
         _harmonic(h),
         _locations(pr),
         _orb(delta)
-    { for (const auto& loc: _locations) _pattern.insert(loc.planet); }
+    {
+        for (const auto& loc: _locations) {
+            if (const auto ploc = dynamic_cast<const PlanetLoc*>(&loc))
+                _pattern.insert(ploc->planet);
+        }
+    }
 
     HarmonicAspect(unsigned         et,
                    unsigned char    h,
@@ -1213,7 +1296,10 @@ public:
         _harmonic = h;
         _locations = std::move(pr);
         _pattern.clear();
-        for (const auto& loc: _locations) _pattern.insert(loc.planet);
+        for (const auto& loc: _locations) {
+            if (const auto ploc = dynamic_cast<const PlanetLoc*>(&loc))
+                _pattern.insert(ploc->planet);
+        }
         _orb = delta;
     }
 
@@ -1459,7 +1545,12 @@ double getSignPos(ZodiacId zid,
                   unsigned seconds = 0);
 QString getPlanetName(const ChartPlanetId& id);
 QString getPlanetGlyph(const ChartPlanetId& id);
-QList<PlanetId> getPlanets();
+inline QList<PlanetId> getPlanets() { return Data::getPlanets(); }
+inline QList<PlanetId> getAngles() { return Data::getAngles(); }
+inline QList<PlanetId> getInnerPlanets() { return Data::getInnerPlanets(); }
+inline QList<PlanetId> getOuterPlanets() { return Data::getOuterPlanets(); }
+inline QList<PlanetId> getSignIngresses() { return Data::getSignIngresses(); }
+inline QList<PlanetId> getHouses() { return Data::getHouses(); }
 const Star& getStar(const QString& name);
 QList<QString> getStars();
 const HouseSystem& getHouseSystem(HouseSystemId id);

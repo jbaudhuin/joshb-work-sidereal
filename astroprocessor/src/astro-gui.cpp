@@ -50,7 +50,7 @@ AstroFile::typeToString(unsigned ft)
     return "";
 }
 
-AstroFile::FileType
+FileType
 AstroFile::typeFromString(const QString& str)
 {
     if (str == "Male")   return TypeMale;

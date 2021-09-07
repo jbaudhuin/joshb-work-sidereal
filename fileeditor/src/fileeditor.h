@@ -67,7 +67,7 @@ public slots:
     virtual void applyToFile(bool setNeedsSave=true,
                              bool resume=true);
     void onEditingFinished();
-    void setType(AstroFile::FileType t) { type->setCurrentIndex(unsigned(t)); }
+    void setType(FileType t) { type->setCurrentIndex(unsigned(t)); }
 
 private slots:
     void swapFilesSlot(int, int);

@@ -25,10 +25,6 @@ class AstroFile :
     Q_OBJECT;
 
 public:
-    enum FileType { TypeOther, TypeMale, TypeFemale, TypeSearch,
-                    TypeDerivedSA, TypeDerivedProg, TypeDerivedPD,
-                    TypeDerivedSearch, TypeCount };
-
     enum Member {
         None = 0x0,
         Name = 0x1,
@@ -109,6 +105,9 @@ public:
     double           getHarmonic()     const { return scope.inputData.harmonic; }
     QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(getTimezone() * 3600); }
     const ADateRange& getDateRange() const { return _dateRange; }
+
+    A::FileInput     fileInputData() const { return { type, scope.inputData }; }
+    A::FileInput     fileInputData(FileType typ) const { return { typ, scope.inputData }; }
 
     void             calculate() { recalculate(); }
 

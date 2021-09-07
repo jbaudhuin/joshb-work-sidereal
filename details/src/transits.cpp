@@ -112,13 +112,13 @@ getFactors(int h)
 } // anonymous-namespace
 
 class AChangeSignalFrame {
-    TransitEventsModel* _evm;
+    EventsTableModel* _evm;
 public:
-    AChangeSignalFrame(TransitEventsModel* evm);
+    AChangeSignalFrame(EventsTableModel* evm);
     ~AChangeSignalFrame();
 };
 
-class TransitEventsModel : public QAbstractItemModel {
+class EventsTableModel : public QAbstractItemModel {
     Q_OBJECT
 
 public:
@@ -142,11 +142,11 @@ public:
         RawRole
     };
 
-    TransitEventsModel(QObject* parent = nullptr) :
+    EventsTableModel(QObject* parent = nullptr) :
         QAbstractItemModel(parent)
     { }
 
-    TransitEventsModel(A::AspectSetId asps,
+    EventsTableModel(A::AspectSetId asps,
                        QObject* parent = nullptr) :
         QAbstractItemModel(parent),
         _aspects(asps)
@@ -259,6 +259,7 @@ public:
 
     static int fid(const A::ChartPlanetId& cpid) { return cpid.fileId(); }
     static int fid(const A::PlanetLoc& ploc) { return ploc.planet.fileId(); }
+    static int fid(const A::Loc& loc) { return -1; }
 
     QString display(const A::ChartPlanetId& cpid) const
     {
@@ -280,6 +281,9 @@ public:
     {
         const A::ChartPlanetId& cpid = s.planet;
         auto g = cpid.glyph();
+        if (cpid.planetId() >= A::Ingresses_Start
+                && cpid.planetId() < A::Ingresses_End)
+            return g;
         if (cpid.isMidpt()) g = g.mid(1);   // skip conj/opp
         auto desc = s.desc;
         if (!desc.isEmpty()) {
@@ -372,10 +376,10 @@ public:
         return std::make_pair(it, std::next(it));
     }
 
-    typedef std::pair<const A::PlanetLoc*, const A::PlanetLoc*> planetPair;
+    typedef std::pair<const A::Loc*, const A::Loc*> locPair;
 
     bool getPlanetPair(const A::PlanetRangeBySpeed& locs,
-                       planetPair& pp) const
+                       locPair& pp) const
     {
         if (singleColumn(locs)) return false;
         pp.first = &(*locs.begin());
@@ -403,6 +407,10 @@ public:
 
         int row = index.row();
         int prow = int(index.internalId());
+
+        auto evr = prow==-1? _evs[row] : _evs[prow];
+        QMutexLocker ml(&getEvents(evr)->mutex);
+
         int col = index.column();
         const auto& asp(prow==-1 ? (*_evs[row])
                                  : _evs[prow]->coincidence(row));
@@ -426,7 +434,7 @@ public:
             if (role == Qt::ToolTipRole) {
                 if (singleColumn(asp.locations())) return "station";
                 if (!asp.locations().empty()) {
-                    planetPair pp;
+                    locPair pp;
                     if (getPlanetPair(asp.locations(), pp)) {
                         auto a = A::calculateAspect(aspects(),
                                                     pp.first,
@@ -560,9 +568,10 @@ public:
         beginResetModel();
 #if 1
         _evs.clear();
-        for (auto evs: _evls) {
-            QMutexLocker ml(const_cast<QMutex*>(&evs->mutex));
-            _evs.insert(_evs.end(),evs->cbegin(),evs->cend());
+        for (auto lievs: _evls) {
+            A::modalize<eventListIndex> cev(evp::curr(), lievs.first);
+            QMutexLocker ml(const_cast<QMutex*>(&(lievs.second->mutex)));
+            _evs.insert(_evs.end(),lievs.second->cbegin(),lievs.second->cend());
         }
 #endif
         std::sort(_evs.begin(), _evs.end(), less);
@@ -573,11 +582,13 @@ public:
 
     void addEvents(const A::HarmonicEvents& evs)
     {
-        auto ins = _evls.insert(evs);
+        auto li = currentEvents()++;
+        auto ins = _evls.emplace(li,evs);
         if (!ins.second) return;
 
         AChangeSignalFrame chs(this);
 
+        A::modalize<eventListIndex> cli(evp::curr(), li);
         beginResetModel();
         _evs.insert(_evs.end(),evs.cbegin(),evs.cend());
         sort();
@@ -586,15 +597,19 @@ public:
 
     void removeEvents(const A::HarmonicEvents& evs)
     {
-        auto it = _evls.find(&evs);
-        if (it == _evls.end()) return;
+        for (auto lievit = _evls.begin(); lievit != _evls.end(); ++lievit) {
+            if (evs != lievit->second) continue;
 
-        AChangeSignalFrame chs(this);
+            _evls.erase(lievit++);
+            AChangeSignalFrame chs(this);
 
-        beginResetModel();
-        rebuild();
-        sort();
-        endResetModel();
+            beginResetModel();
+            rebuild();
+            sort();
+            endResetModel();
+
+            break;
+        }
     }
 
     void clearAllEvents()
@@ -619,8 +634,9 @@ public slots:
     void rebuild()
     {
         _evs.clear();
-        for (const auto& evs : _evls) {
-            _evs.insert(_evs.end(), evs->begin(), evs->end());
+        for (const auto& liev : _evls) {
+            _evs.insert(_evs.end(),
+                        liev.second->begin(), liev.second->end());
         }
         sort();
     }
@@ -650,8 +666,39 @@ signals:
     void changeDone();
 
 private:
-    std::vector<const A::HarmonicEvent*> _evs;
-    std::set<const A::HarmonicEvents*> _evls;
+    typedef unsigned short int eventListIndex;
+
+    struct evp : public std::pair<eventListIndex, const A::HarmonicEvent*> {
+        using Base = std::pair<eventListIndex, const A::HarmonicEvent*>;
+
+        static unsigned short int& curr()
+        { static thread_local unsigned short int s_curr = 0; return s_curr; }
+
+        using Base::Base;
+
+        evp(const A::HarmonicEvent* ev) : Base(curr(), ev) { }
+
+        eventListIndex listIndex() const { return first; }
+
+        const A::HarmonicEvent* operator->() const { return second; }
+        const A::HarmonicEvent& operator*() const { return *second; }
+
+        operator eventListIndex() const { return first; }
+        operator const A::HarmonicEvent*() const { return second; }
+    };
+
+    static eventListIndex& currentEvents()
+    { static eventListIndex s_curr = 0; return s_curr; }
+
+    std::vector<evp> _evs;
+    std::map<eventListIndex, const A::HarmonicEvents*> _evls;
+
+    A::HarmonicEvents* getEvents(eventListIndex li) const
+    {
+        auto evlit = _evls.find(li);
+        if (evlit == _evls.end()) return nullptr;
+        return const_cast<A::HarmonicEvents*>(evlit->second);
+    }
 
     bool _sortPending           = false;
     int _sortBy                 = sortByDate;
@@ -669,7 +716,7 @@ private:
 
 #include "transits.moc"
 
-AChangeSignalFrame::AChangeSignalFrame(TransitEventsModel* evm) :
+AChangeSignalFrame::AChangeSignalFrame(EventsTableModel* evm) :
     _evm(evm)
 { if (!evm->_changeRef++) emit evm->aboutToChange(); }
 
@@ -728,19 +775,19 @@ Transits::Transits(QWidget* parent) :
     _tm(nullptr),
 #endif
     _evm(nullptr),
-    _ddelta(0,1,0),
+    _ddelta(A::EventOptions::current().defaultTimespan),
     _chs(nullptr)
 {
     _tview = new QTreeView;
     _tview->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _tview->expandAll();
 
-    _evm = new TransitEventsModel(this);
+    _evm = new EventsTableModel(this);
     _tview->setModel(_evm);
 
     auto hdr = _tview->header();
     connect(hdr, &QHeaderView::sortIndicatorChanged,
-            _evm, &TransitEventsModel::onSortChange);
+            _evm, &EventsTableModel::onSortChange);
     hdr->setSectionsClickable(true);
     hdr->setSortIndicatorShown(true);
     hdr->setSortIndicator(0, Qt::AscendingOrder);
@@ -912,10 +959,12 @@ Transits::Transits(QWidget* parent) :
     connect(_evm, SIGNAL(aboutToChange()), this, SLOT(saveScrollPos()));
     connect(_evm, SIGNAL(changeDone()), this, SLOT(restoreScrollPos()));
 
+#if 1
     QTimer::singleShot(0, [this]() {
         connect(this, SIGNAL(updateHarmonics(double)),
                 MainWindow::theAstroWidget(), SLOT(setHarmonic(double)));
     });
+#endif
 }
 
 void 
@@ -933,8 +982,8 @@ bool
 Transits::transitsOnly() const
 {
     auto ftype = file()->getType();
-    return (ftype != AstroFile::TypeMale
-            && ftype != AstroFile::TypeFemale);
+    return (ftype != TypeMale
+            && ftype != TypeFemale);
 }
 
 AstroFile *
@@ -959,11 +1008,33 @@ void
 Transits::updateTransits()
 {
     if (filesCount() == 0) return;
+    if (!isVisible()) return;
 
     qDebug() << "filesCount()" << filesCount();
 
+    auto tp = QThreadPool::globalInstance();
+    auto hs = A::dynAspState();
+    ADateRange r { _start->date(), _end->date() };
+
+    _evm->removeEvents(_evs);
     _evs.clear();
 
+    transitsAF()->setLocation(_location->location());
+    transitsAF()->setLocationName(_location->locationName());
+
+#if 1
+    A::AspectFinder* af = nullptr;
+    if (filesCount() == 1) {
+        auto type = file(0)->getType();
+        if (type == TypeMale || type == TypeFemale) {
+            af = new A::AspectFinder(_evs,r,hs,{file(0), transitsAF()});
+        }
+    }
+    if (!af && filesCount() >= 1) {
+        af = new A::AspectFinder(_evs, r, hs, files());
+    }
+    if (af) tp->start(af);
+#else
     auto transOnly = transitsOnly();
 
     const A::Horoscope& scope(file()->horoscope());
@@ -988,16 +1059,11 @@ Transits::updateTransits()
         }
     }
 
-    transitsAF()->setLocation(_location->location());
-    transitsAF()->setLocationName(_location->locationName());
 
-    auto tp = QThreadPool::globalInstance();
-    auto hs = A::dynAspState();
-    ADateRange r { _start->date(), _end->date() };
     if (transOnly) {
         auto tf = new A::TransitFinder(_evs, r, hs,
                                        scope.inputData, pst);
-        tf->setIncludeStations(true);
+        tf->showStations = true;
         tp->start(tf);
         tp->start(new A::TransitFinder(_evs, r, hs, scope.inputData, pst,
                                        A::etcTransitAspectPattern));
@@ -1005,7 +1071,7 @@ Transits::updateTransits()
         const auto& ida(transitsAF()->horoscope().inputData);
         auto tf = new A::TransitFinder(_evs, r, hs,
                                        scope.inputData, pst);
-        tf->setIncludeStations(false);
+        tf->showStations = false;
         tp->start(tf);
         tp->start(new A::NatalTransitFinder(_evs, r, hs,
                                             scope.inputData,
@@ -1015,6 +1081,7 @@ Transits::updateTransits()
                                             psn, pst,
                                             A::etcTransitNatalAspectPattern));
     }
+#endif
 
     if (!_watcher) {
         _watcher = new QTimer(this);
@@ -1171,14 +1238,14 @@ Transits::clickedCell(QModelIndex inx)
     bool ctrl = (QApplication::keyboardModifiers() & Qt::ControlModifier);
     if (lbtn && ctrl) lbtn = false, mbtn = true;
 
-    if (inx.column()==TransitEventsModel::harmonicCol)  {
-        auto v = inx.data(TransitEventsModel::RawRole);
+    if (inx.column()==EventsTableModel::harmonicCol)  {
+        auto v = inx.data(EventsTableModel::RawRole);
         qDebug() << v;
         if (v.canConvert<unsigned>()) {
             double h = v.toUInt();
             emit updateHarmonics(h);
         }
-    } else if (inx.column()==TransitEventsModel::dateCol) {
+    } else if (inx.column()==EventsTableModel::dateCol) {
         emit updateHarmonics(1);
     }
 
@@ -1259,10 +1326,10 @@ Transits::clear()
     _planet = A::Planet_None;
 }
 
-TransitEventsModel*
+EventsTableModel*
 Transits::tvm() const
 {
-    return qobject_cast<TransitEventsModel*>(_tview->model());
+    return qobject_cast<EventsTableModel*>(_tview->model());
 }
 
 void Transits::onEventSelectionChanged()
@@ -1290,6 +1357,7 @@ void Transits::onDateRangeChanged()
 void 
 Transits::filesUpdated(MembersList m)
 {
+    if (!isVisible()) return;
     if (_inhibitUpdate) return;
     if (!filesCount()) {
         clear();
@@ -1299,10 +1367,10 @@ Transits::filesUpdated(MembersList m)
     bool any = false;
     int f = 0;
     for (auto ml: m) {
-        AstroFile::FileType type = file(f++)->getType();
-        if (type >= AstroFile::TypeSearch) continue;
-        if (type == AstroFile::TypeMale
-                || type == AstroFile::TypeFemale)
+        FileType type = file(f++)->getType();
+        if (type >= TypeSearch) continue;
+        if (type == TypeMale
+                || type == TypeFemale)
         { any |= (ml & AstroFile::GMT); }
         any |= (ml & (AstroFile::Timezone
                       | AstroFile::Zodiac
@@ -1327,23 +1395,34 @@ AppSettings
 Transits::defaultSettings()
 {
     AppSettings s;
-    s.setValue("Events/secondaryOrb",                   2.);
-    s.setValue("Events/patternsQuorum",                 3);
-    s.setValue("Events/patternsSpreadOrb",              8.);
-    s.setValue("Events/patternsRestrictMoon",           true);
-    s.setValue("Events/includeMidpoints",               false);
-    s.setValue("Events/showTransitsToTransits",         true);
-    s.setValue("Events/showTransitsToNatal",            true);
-    s.setValue("Events/showReturns",                    true);
-    s.setValue("Events/showProgressionsToProgressions", false);
-    s.setValue("Events/showProgressionsToNatal",        false);
-    s.setValue("Events/showTransitAspectPatterns",      true);
-    s.setValue("Events/showTransitNatalAspectPatterns", true);
-    s.setValue("Events/showIngresses",                  false);
-    s.setValue("Events/showLunations",                  false);
-    s.setValue("Events/showHeliacalEvents",             false);
-    s.setValue("Events/showPrimaryDirections",          false);
-    s.setValue("Events/showLifeEvents",                 false);
+    A::EventOptions dflt;
+    s.setValue("Events/defaultTimespan", dflt.defaultTimespan.toString());
+    s.setValue("Events/secondaryOrb",                   dflt.expandShowOrb);
+    s.setValue("Events/patternsQuorum",                 dflt.patternsQuorum);
+    s.setValue("Events/patternsSpreadOrb",              dflt.patternsSpreadOrb);
+    s.setValue("Events/patternsRestrictMoon",           dflt.patternsRestrictMoon);
+    s.setValue("Events/includeMidpoints",               dflt.includeMidpoints);
+    s.setValue("Events/showStations",                   dflt.showStations);
+    s.setValue("Events/showTransitsToTransits",         dflt.showTransitsToTransits);
+    s.setValue("Events/showTransitsToNatal",            dflt.showTransitsToNatalPlanets);
+    s.setValue("Events/showReturns",                    dflt.showReturns);
+    s.setValue("Events/showProgressionsToProgressions", dflt.showProgressionsToProgressions);
+    s.setValue("Events/showProgressionsToNatal",        dflt.showProgressionsToNatal);
+    s.setValue("Events/showTransitAspectPatterns",      dflt.showTransitAspectPatterns);
+    s.setValue("Events/showTransitNatalAspectPatterns", dflt.showTransitNatalAspectPatterns);
+    s.setValue("Events/showIngresses",                  dflt.showIngresses);
+    s.setValue("Events/showLunations",                  dflt.showLunations);
+    s.setValue("Events/showHeliacalEvents",             dflt.showHeliacalEvents);
+    s.setValue("Events/showPrimaryDirections",          dflt.showPrimaryDirections);
+    s.setValue("Events/showLifeEvents",                 dflt.showLifeEvents);
+
+    s.setValue("Events/expandShowAspectPatterns",       dflt.expandShowAspectPatterns);
+    s.setValue("Events/expandShowHousePlacementsOfTransits", dflt.expandShowHousePlacementsOfTransits);
+    s.setValue("Events/expandShowRulershipTips",        dflt.expandShowRulershipTips);
+    s.setValue("Events/expandShowStationAspectsToTransits", dflt.expandShowStationAspectsToTransits);
+    s.setValue("Events/expandShowStationAspectsToNatal", dflt.expandShowStationAspectsToNatal);
+    s.setValue("Events/expandShowReturnAspects",        dflt.expandShowReturnAspects);
+    s.setValue("Events/expandShowTransitAspectsToReturnPlanet", dflt.expandShowTransitAspectsToReturnPlanet);
     return s;
 }
 
@@ -1352,13 +1431,15 @@ Transits::currentSettings()
 {
     AppSettings s;
     const A::EventOptions& curr(A::EventOptions::current());
-    s.setValue("Events/secondaryOrb",                   curr.secondaryOrb);
+    s.setValue("Events/defaultTimespan", curr.defaultTimespan.toString());
+    s.setValue("Events/secondaryOrb",                   curr.expandShowOrb);
     s.setValue("Events/patternsQuorum",                 curr.patternsQuorum);
     s.setValue("Events/patternsSpreadOrb",              curr.patternsSpreadOrb);
     s.setValue("Events/patternsRestrictMoon",           curr.patternsRestrictMoon);
     s.setValue("Events/includeMidpoints",               curr.includeMidpoints);
+    s.setValue("Events/showStations",                   curr.showStations);
     s.setValue("Events/showTransitsToTransits",         curr.showTransitsToTransits);
-    s.setValue("Events/showTransitsToNatal",            curr.showTransitsToNatal);
+    s.setValue("Events/showTransitsToNatal",            curr.showTransitsToNatalPlanets);
     s.setValue("Events/showReturns",                    curr.showReturns);
     s.setValue("Events/showProgressionsToProgressions", curr.showProgressionsToProgressions);
     s.setValue("Events/showProgressionsToNatal",        curr.showProgressionsToNatal);
@@ -1369,6 +1450,14 @@ Transits::currentSettings()
     s.setValue("Events/showHeliacalEvents",             curr.showHeliacalEvents);
     s.setValue("Events/showPrimaryDirections",          curr.showPrimaryDirections);
     s.setValue("Events/showLifeEvents",                 curr.showLifeEvents);
+
+    s.setValue("Events/expandShowAspectPatterns",       curr.expandShowAspectPatterns);
+    s.setValue("Events/expandShowHousePlacementsOfTransits", curr.expandShowHousePlacementsOfTransits);
+    s.setValue("Events/expandShowRulershipTips",        curr.expandShowRulershipTips);
+    s.setValue("Events/expandShowStationAspectsToTransits", curr.expandShowStationAspectsToTransits);
+    s.setValue("Events/expandShowStationAspectsToNatal", curr.expandShowStationAspectsToNatal);
+    s.setValue("Events/expandShowReturnAspects",        curr.expandShowReturnAspects);
+    s.setValue("Events/expandShowTransitAspectsToReturnPlanet", curr.expandShowTransitAspectsToReturnPlanet);
     return s;
 }
 
@@ -1376,13 +1465,14 @@ void Transits::applySettings(const AppSettings& s)
 {
     A::EventOptions& curr(A::EventOptions::current());
     bool changed =
-            (s.value("Events/secondaryOrb").toDouble() != curr.secondaryOrb
+            (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
             || s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
             || s.value("Events/patternsSpreadOrb").toDouble() != curr.patternsSpreadOrb
             || s.value("Events/patternsRestrictMoon").toBool() != curr.patternsRestrictMoon
             || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
+            || s.value("Events/showStations").toBool() != curr.showStations
             || s.value("Events/showTransitsToTransits").toBool() != curr.showTransitsToTransits
-            || s.value("Events/showTransitsToNatal").toBool() != curr.showTransitsToNatal
+            || s.value("Events/showTransitsToNatal").toBool() != curr.showTransitsToNatalPlanets
             || s.value("Events/showReturns").toBool() != curr.showReturns
             || s.value("Events/showProgressionsToProgressions").toBool() != curr.showProgressionsToProgressions
             || s.value("Events/showProgressionsToNatal").toBool() != curr.showProgressionsToNatal
@@ -1393,14 +1483,27 @@ void Transits::applySettings(const AppSettings& s)
             || s.value("Events/showHeliacalEvents").toBool() != curr.showHeliacalEvents
             || s.value("Events/showPrimaryDirections").toBool() != curr.showPrimaryDirections
             || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents);
+    bool changedExpanded =
+            (s.value("Events/expandShowAspectPatterns").toBool() != curr.expandShowAspectPatterns
+            || s.value("Events/expandShowHousePlacementsOfTransits").toBool() != curr.expandShowHousePlacementsOfTransits
+            || s.value("Events/expandShowRulershipTips").toBool() != curr.expandShowRulershipTips
+            || s.value("Events/expandShowStationAspectsToTransits").toBool() != curr.expandShowStationAspectsToTransits
+            || s.value("Events/expandShowStationAspectsToNatal").toBool() != curr.expandShowStationAspectsToNatal
+            || s.value("Events/expandShowReturnAspects").toBool() != curr.expandShowReturnAspects
+            || s.value("Events/expandShowTransitAspectsToReturnPlanet").toBool() != curr.expandShowTransitAspectsToReturnPlanet);
 
-    curr.secondaryOrb = s.value("Events/secondaryOrb").toDouble();
+    auto tsp = s.value("Events/defaultTimespan").toString();
+    curr.defaultTimespan = tsp;
+    if (filesCount()==0) this->_duration->setText(tsp);
+
+    curr.expandShowOrb = s.value("Events/secondaryOrb").toDouble();
     curr.patternsQuorum = s.value("Events/patternsQuorum").toUInt();
     curr.patternsSpreadOrb = s.value("Events/patternsSpreadOrb").toDouble();
     curr.patternsRestrictMoon = s.value("Events/patternsRestrictMoon").toBool();
     curr.includeMidpoints = s.value("Events/includeMidpoints").toBool();
+    curr.showStations = s.value("Events/showStations").toBool();
     curr.showTransitsToTransits = s.value("Events/showTransitsToTransits").toBool();
-    curr.showTransitsToNatal = s.value("Events/showTransitsToNatal").toBool();
+    curr.showTransitsToNatalPlanets = s.value("Events/showTransitsToNatal").toBool();
     curr.showReturns = s.value("Events/showReturns").toBool();
     curr.showProgressionsToProgressions = s.value("Events/showProgressionsToProgressions").toBool();
     curr.showProgressionsToNatal = s.value("Events/showProgressionsToNatal").toBool();
@@ -1411,9 +1514,18 @@ void Transits::applySettings(const AppSettings& s)
     curr.showHeliacalEvents = s.value("Events/showHeliacalEvents").toBool();
     curr.showPrimaryDirections = s.value("Events/showPrimaryDirections").toBool();
     curr.showLifeEvents = s.value("Events/showLifeEvents").toBool();
+    curr.expandShowAspectPatterns = s.value("Events/expandShowAspectPatterns").toBool();
+    curr.expandShowHousePlacementsOfTransits = s.value("Events/expandShowHousePlacementsOfTransits").toBool();
+    curr.expandShowRulershipTips = s.value("Events/expandShowRulershipTips").toBool();
+    curr.expandShowStationAspectsToTransits = s.value("Events/expandShowStationAspectsToTransits").toBool();
+    curr.expandShowStationAspectsToNatal = s.value("Events/expandShowStationAspectsToNatal").toBool();
+    curr.expandShowReturnAspects = s.value("Events/expandShowReturnAspects").toBool();
+    curr.expandShowTransitAspectsToReturnPlanet = s.value("Events/expandShowTransitAspectsToReturnPlanet").toBool();
 
     if (changed) {
         updateTransits();
+    } else if (changedExpanded) {
+        // updateExpanded(); ?
     }
 }
 
@@ -1422,6 +1534,8 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
 {
     ed->addTab(tr("Events"));
 
+    ed->addLineEdit("Events/defaultTimespan", tr("Default timespan"));
+    ed->addCheckBox("Events/showStations", tr("Show Stations"));
     ed->addCheckBox("Events/showTransitsToTransits", tr("Show Transits to Transits"));
     ed->addCheckBox("Events/showTransitsToNatal", tr("Show Transits to Natal"));
     ed->addDoubleSpinBox("Events/secondaryOrb", tr("Secondary Orb"), 0.1, 16.);
@@ -1439,4 +1553,12 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Events/showHeliacalEvents", tr("Show Heliacal Events"));
     ed->addCheckBox("Events/showPrimaryDirections", tr("Show Primary Directions"));
     ed->addCheckBox("Events/showLifeEvents", tr("Show Life Events"));
+
+    ed->addCheckBox("Events/expandShowAspectPatterns", tr("Expand to Show Aspect Patterns"));
+    ed->addCheckBox("Events/expandShowHousePlacementsOfTransits", tr("Expand to Show House Placements Of Transits"));
+    ed->addCheckBox("Events/expandShowRulershipTips", tr("Expand to Show Rulership Tips"));
+    ed->addCheckBox("Events/expandShowStationAspectsToTransits", tr("Expand to Show Station Aspects To Transits"));
+    ed->addCheckBox("Events/expandShowStationAspectsToNatal", tr("Expand to Show Station Aspects To Natal"));
+    ed->addCheckBox("Events/expandShowReturnAspects", tr("Expand to Show Return Aspects"));
+    ed->addCheckBox("Events/expandShowTransitAspectsToReturnPlanet", tr("Expand to Show Transit Aspects To Return Planet"));
 }

@@ -403,7 +403,8 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     QGraphicsItem *body, *marker;
     for (const A::Planet& p : file(fileIndex)->horoscope().planets) {
         // update planets
-        if (p.id == A::Planet_Asc) continue;
+        if (p.id >= A::Planet_Asc && p.id <= A::House_12 && p.id != A::Planet_MC)
+            continue;
 
         bool hide = (p.id == A::Planet_MC)
                     && (file(fileIndex)->getHarmonic() ==  1);
@@ -602,16 +603,28 @@ void Chart::drawPlanets(int fileIndex)
     QGraphicsScene* s = view->scene();
 
     for (const auto& planet: file(fileIndex)->horoscope().planets) {
-        if (planet.id == A::Planet_Asc) continue;
+        if (planet.id >= A::Planet_Asc
+                && planet.id <= A::House_12
+                && planet.id != A::Planet_MC)
+            continue;
 
         int radius = 2;
-        int charIndex = planet.userData["fontChar"].toInt();
 
-        auto text =
-                s->addSimpleText(QChar(charIndex),
-                                 planet.isReal
-                                 ? planetFont
-                                 : planetFontSmall);
+        QGraphicsSimpleTextItem* text = nullptr;
+#if 0
+        if (planet.userData["fontChar"].type() == QVariant::String) {
+            text = s->addSimpleText(planet.userData["fontChar"].toString(),
+                    planet.isReal? planetFont : planetFontSmall);
+        } else if (planet.userData["fontChar"].type() == QVariant::Int) {
+#endif
+            int charIndex = planet.userData["fontChar"].toInt();
+            text = s->addSimpleText(QChar(charIndex),
+                                    planet.isReal
+                                    ? planetFont
+                                    : planetFontSmall);
+#if 0
+        }
+#endif
 
         auto marker =
                 s->addEllipse(-innerRadius(fileIndex) - radius, -radius,

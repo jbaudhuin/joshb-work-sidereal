@@ -63,7 +63,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     tabs     -> setMovable(true);
     addFileBtn -> setMaximumWidth(32);
 
-    for (unsigned i = AstroFile::TypeOther, n = AstroFile::TypeCount;
+    for (unsigned i = TypeOther, n = TypeCount;
          i < n; ++i)
     {
         type->addItem(tr(AstroFile::typeToString(i).toLatin1().constData()));
@@ -235,7 +235,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
                 qOverload<int>(&QComboBox::currentIndexChanged),
                 [this,lblw,fndlblw](int i)
         {
-            bool isEventSearch = (i == AstroFile::TypeSearch);
+            bool isEventSearch = (i == TypeSearch);
             startDateLbl->setVisible(isEventSearch);
             startDate->setVisible(isEventSearch);
             endDate->setVisible(isEventSearch);
@@ -256,7 +256,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
             }
         });
     }
-    type->setCurrentIndex(AstroFile::TypeOther);
+    type->setCurrentIndex(TypeOther);
 
     if (parent) name->setFocus();
     else dateTime->setFocus();
@@ -275,7 +275,7 @@ void
 AstroFileEditor::updateTimezone()
 {
     if (_inUpdate || _inApply || _inDateSelection
-            /*|| type->currentIndex()==AstroFile::TypeEvents*/)
+            /*|| type->currentIndex()==TypeEvents*/)
     {
         return;
     }
@@ -359,7 +359,7 @@ void AstroFileEditor::update(AstroFile::Members m)
                            source->getLocationName());
     timeZone->setValue(source->getTimezone());
     dateTime->setDateTime(source->getLocalTime());
-    //if (source->getType()==AstroFile::TypeEvents) {
+    //if (source->getType()==TypeEvents) {
     // startDate->setDate(source->getStartDate());
     auto r = source->getDateRange();
     if (startDate->date()==QDate() || r.first==r.second) {
@@ -417,7 +417,7 @@ void AstroFileEditor::filesUpdated(MembersList members)
         close();
     else if (currentFile >= filesCount())
         setCurrentFile(0);
-    else if(members[currentFile])
+    else if(members.count() > currentFile && members[currentFile])
         update(members[currentFile]);
 }
 
@@ -431,7 +431,7 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     dst->suspendUpdate();
 
     if ((resume || setNeedsSaveFlag)
-            && type->currentIndex()==AstroFile::TypeSearch)
+            && type->currentIndex()==TypeSearch)
     {
         auto lw = findChild<QListWidget*>();
         auto sel = lw->selectedItems();
@@ -451,7 +451,7 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     }
 
     dst->setName(name->text());
-    dst->setType(AstroFile::FileType(type->currentIndex()));
+    dst->setType(FileType(type->currentIndex()));
     dst->setLocationName(geoSearch->locationName());
     dst->setLocation(geoSearch->location());
     dst->setTimezone(timeZone->value());
