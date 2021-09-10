@@ -3397,16 +3397,19 @@ AspectFinder::findStations()
 
                     if (!s_quiet) qDebug() << dt << pose[0]->description();
 
-                    // Add shadow-period transit lookup
-                    QMutexLocker mlb(&ctm);
-                    auto j = _alist.size();
-                    auto pl = dynamic_cast<PlanetLoc*>(pose[0]);
-                    auto pj = new PlanetLoc(*pl);
-                    pj->allowAspects = wasRetro? PlanetLoc::aspOnlyDirect
-                                               : PlanetLoc::aspOnlyRetro;
-                    pj->speed = 0;
-                    _alist.push_back(pj);
-                    _staff.emplace_back(i, j);
+                    if (showTransitsToTransits) {
+                        // Add shadow-period transit lookup
+                        QMutexLocker mlb(&ctm);
+                        auto j = _alist.size();
+                        auto pl = dynamic_cast<PlanetLoc*>(pose[0]);
+                        auto pj = new PlanetLoc(*pl);
+                        pj->planet.setFileId(-1);   // hides it from clusterer
+                        pj->allowAspects = wasRetro? PlanetLoc::aspOnlyDirect
+                                                   : PlanetLoc::aspOnlyRetro;
+                        pj->speed = 0;
+                        _alist.push_back(pj);
+                        _staff.emplace_back(i, j);
+                    }
                 }
 #if 1
                 QMutexLocker mlb(&ctm);
@@ -4158,7 +4161,9 @@ PlanetSet
 getSet(const positions& pos)
 {
     PlanetSet ret;
-    for (const auto& p: pos) ret.emplace(p.second);
+    for (const auto& p: pos) {
+        ret.emplace(p.second);
+    }
     return ret;
 }
 
@@ -4192,14 +4197,12 @@ findClusters(const positions& posits,
         auto maybeAddGroup = [&] {
             if ((restrictMoon? sizeWithoutTransitingMoon(grp,moonIn1)
                  : grp.size()) < quorum)
-            {
-                return;
-            }
+            { return; }
+
             if ((!need.empty() && !containsAny(grp,need))
                     || (skipAllNatalOnly && !containsAnyTrans(grp)))
-            {
-                return;
-            }
+            { return; }
+
             auto spread = angle(grp.begin()->first, grp.rbegin()->first);
             ret[getSet(grp)] = spread;
         };
@@ -4230,7 +4233,12 @@ findClusters(unsigned h,
         if (!ploc) continue;
 
         auto cpid = ploc->planet;
-        if (cpid.fileId() < 0) continue;
+        if (cpid.fileId() < 0)
+            continue;
+
+        if (h>1 && (cpid.planetId() >= Houses_Start
+                    && cpid.planetId() < Houses_End))
+        { continue; }
 
         auto hloc = h==1? ploc->rasiLoc() : harmonic(h,ploc->rasiLoc());
         auto ins = posits.emplace(hloc,ploc->planet);
@@ -4261,14 +4269,14 @@ findClusters(unsigned h, double jd,
         if (!ploc) continue;
 
         auto cpid = ploc->planet;
-        if (cpid.fileId() < 0 | cpid.fileId() >= pfid.size()) continue;
+        if (cpid.fileId() < 0 || cpid.fileId() >= int(pfid.size())) continue;
 #if 0
         if (cpid.planetId() == Planet_Moon
                 && ploc->inMotion()) continue; // *** skip moon ***
 #endif
-        if (cpid.planetId()==Planet_Asc || cpid.planetId()==Planet_MC) {
-            continue;
-        }
+        if (h>1 && (cpid.planetId() >= Houses_Start
+                    && cpid.planetId() < Houses_End))
+        { continue; }
 
         ++pfid[cpid.fileId()];
         const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );

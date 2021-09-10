@@ -571,7 +571,9 @@ public:
         for (auto lievs: _evls) {
             A::modalize<eventListIndex> cev(evp::curr(), lievs.first);
             QMutexLocker ml(const_cast<QMutex*>(&(lievs.second->mutex)));
-            _evs.insert(_evs.end(),lievs.second->cbegin(),lievs.second->cend());
+            _evs.insert(_evs.end(),
+                        lievs.second->cbegin(),
+                        lievs.second->cend());
         }
 #endif
         std::sort(_evs.begin(), _evs.end(), less);
@@ -677,6 +679,11 @@ private:
         using Base::Base;
 
         evp(const A::HarmonicEvent* ev) : Base(curr(), ev) { }
+
+        using Base::operator=;
+
+        evp& operator=(const A::HarmonicEvent* ev)
+        { first = curr(); second = ev; return *this; }
 
         eventListIndex listIndex() const { return first; }
 

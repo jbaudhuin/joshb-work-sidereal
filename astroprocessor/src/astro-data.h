@@ -611,6 +611,7 @@ public:
     bool operator<=(const ChartPlanetId& cpid) const 
     { return operator==(cpid) || operator<(cpid); }
 
+    void setFileId(int fid) { _fid = fid; }
     int fileId() const { return _fid; }
     PlanetId planetId() const { return _pid; }
 
