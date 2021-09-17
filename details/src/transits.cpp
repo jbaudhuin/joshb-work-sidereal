@@ -281,9 +281,13 @@ public:
     {
         const A::ChartPlanetId& cpid = s.planet;
         auto g = cpid.glyph();
-        if (cpid.planetId() >= A::Ingresses_Start
-                && cpid.planetId() < A::Ingresses_End)
-            return g;
+        auto pid = cpid.planetId();
+        if ((pid >= A::Ingresses_Start
+             && pid < A::Ingresses_End)
+                || (pid >= A::Houses_Start
+                    && pid < A::Houses_End))
+        { return g; }
+
         if (cpid.isMidpt()) g = g.mid(1);   // skip conj/opp
         auto desc = s.desc;
         if (!desc.isEmpty()) {
@@ -294,6 +298,7 @@ public:
         if (s.speed < 0 && !s.desc.startsWith("S")) {
             desc = "#" + desc; // retrograde
         }
+        if (cpid.fileId() < 0) return g + " " + desc;
         return g + " " + getPos(s.rasiLoc()) + " " + desc;
     }
 
@@ -392,9 +397,7 @@ public:
     {
         if (role == Qt::TextAlignmentRole
                 && index.column() == harmonicCol)
-        {
-            return Qt::AlignHCenter;
-        }
+        { return Qt::AlignHCenter; }
 
         if (role  != Qt::DisplayRole
                 && role != Qt::ToolTipRole
@@ -896,68 +899,19 @@ Transits::Transits(QWidget* parent) :
         auto dd = _start->date().daysTo(ed) / 2;
         if (dd) _end->setDate(ed.addDays(dd));
     });
-
-    auto updateDelta = [this](const QDate& ed) {
-        ADateDelta delta(_start->date(), ed);
-        if (delta != _ddelta) {
-            _ddelta = delta;
-            /*block*/ {
-                ASignalBlocker sb(_duration);
-                _duration->setText(_ddelta.toString());
-            }
-            onDateRangeChanged();
-        }
-    };
     
-    connect(_start, &QDateEdit::dateChanged,
-            [this, updateDelta](const QDate& sd)
-    {
-        if (_grp->checkedId()==0) {
-            auto newDate = _ddelta.addTo(sd);
-            if (_end->date() != newDate) {
-                /*block*/ {
-                    ASignalBlocker sb(_end);
-                    _end->setDate(newDate);
-                }
-                onDateRangeChanged();
-            }
-        } else {
-            updateDelta(_end->date());
-        }
-    });
-    connect(_end, &QDateEdit::dateChanged,
-            [this, updateDelta](const QDate& sd)
-    {
-        if (_grp->checkedId()==0) {
-            auto newDate = _ddelta.subtractFrom(sd);
-            if (_start->date() != newDate) {
-                /*block*/ {
-                    ASignalBlocker sb(_start); _start->setDate(newDate);
-                }
-                onDateRangeChanged();
-            }
-        } else {
-            updateDelta(sd);
-        }
-    });
-    connect(_duration, &QLineEdit::editingFinished,
-            [this]
-    {
-        ADateDelta delta = _duration->text();
-        if (!delta) delta = QString("1 mo"); // revert to default
+    connect(_start, SIGNAL(editingFinished()), this, SLOT(onStartChanged()));
+    connect(_start, SIGNAL(dateChanged(const QDate&)),
+            this, SLOT(onStartChanged(const QDate&)));
 
-        if (delta != _ddelta) {
-            _ddelta = delta;
-            auto str = _ddelta.toString();
-            if (str != _duration->text()) {
-                /*block*/ {
-                ASignalBlocker sb(_duration); _duration->setText(str);
-                }
-            }
-            _end->setDate(_ddelta.addTo(_start->date()));
-            onDateRangeChanged();
-        }
-    });
+    connect(_end, SIGNAL(editingFinished()), this, SLOT(onEndChanged()));
+    connect(_end, SIGNAL(dateChanged(const QDate&)),
+            this, SLOT(onEndChanged(const QDate&)));
+
+    connect(_duration, SIGNAL(editingFinished()),
+            this, SLOT(onDurationChanged()));
+    connect(_duration, SIGNAL(textChanged(const QString&)),
+            this, SLOT(onDurationChanged(const QString&)));
 
     auto today = QDate::currentDate();
     auto startOfMonth = QDate(today.year(),today.month(),1);
@@ -966,12 +920,10 @@ Transits::Transits(QWidget* parent) :
     connect(_evm, SIGNAL(aboutToChange()), this, SLOT(saveScrollPos()));
     connect(_evm, SIGNAL(changeDone()), this, SLOT(restoreScrollPos()));
 
-#if 1
     QTimer::singleShot(0, [this]() {
         connect(this, SIGNAL(updateHarmonics(double)),
                 MainWindow::theAstroWidget(), SLOT(setHarmonic(double)));
     });
-#endif
 }
 
 void 
@@ -1339,7 +1291,8 @@ Transits::tvm() const
     return qobject_cast<EventsTableModel*>(_tview->model());
 }
 
-void Transits::onEventSelectionChanged()
+void
+Transits::onEventSelectionChanged()
 {
 #if OLDMODEL
     if (_tm) { delete _tm; _tm = nullptr; }
@@ -1350,7 +1303,8 @@ void Transits::onEventSelectionChanged()
     updateTransits();
 }
 
-void Transits::onDateRangeChanged()
+void
+Transits::onDateRangeChanged()
 {
 #if OLDMODEL
     if (_tm) { delete _tm; _tm = nullptr; }
@@ -1359,6 +1313,74 @@ void Transits::onDateRangeChanged()
     if (_evm) { _evm->clearAllEvents(); }
 #endif
     updateTransits();
+}
+
+void
+Transits::updateDelta(const QDate& ed)
+{
+    ADateDelta delta(_start->date(), ed);
+    if (delta != _ddelta) {
+        _ddelta = delta;
+        /*block*/ {
+            ASignalBlocker sb(_duration);
+            _duration->setText(_ddelta.toString());
+        }
+        onDateRangeChanged();
+    }
+}
+
+void
+Transits::onStartChanged()
+{
+    auto sd = _start->date();
+    if (_grp->checkedId()==0) {
+        auto newDate = _ddelta.addTo(sd);
+        if (_end->date() != newDate) {
+            /*block*/ {
+                ASignalBlocker sb(_end);
+                _end->setDate(newDate);
+            }
+            onDateRangeChanged();
+        }
+    } else {
+        updateDelta(_end->date());
+    }
+}
+
+void
+Transits::onEndChanged()
+{
+    auto sd = _end->date();
+    if (_grp->checkedId()==0) {
+        auto newDate = _ddelta.subtractFrom(sd);
+        if (_start->date() != newDate) {
+            /*block*/ {
+                ASignalBlocker sb(_start); _start->setDate(newDate);
+            }
+            onDateRangeChanged();
+        }
+    } else {
+        updateDelta(sd);
+    }
+}
+
+void
+Transits::onDurationChanged()
+{
+    ADateDelta delta = _duration->text();
+    if (!delta) delta = QString("1 mo"); // revert to default
+
+    if (delta != _ddelta) {
+        _ddelta = delta;
+        auto str = _ddelta.toString();
+        if (str != _duration->text()) {
+            /*block*/ {
+            ASignalBlocker sb(_duration); _duration->setText(str);
+            }
+        }
+        _end->setDate(_ddelta.addTo(_start->date()));
+        onDateRangeChanged();
+    }
 }
 
 void 
@@ -1411,7 +1433,9 @@ Transits::defaultSettings()
     s.setValue("Events/includeMidpoints",               dflt.includeMidpoints);
     s.setValue("Events/showStations",                   dflt.showStations);
     s.setValue("Events/showTransitsToTransits",         dflt.showTransitsToTransits);
-    s.setValue("Events/showTransitsToNatal",            dflt.showTransitsToNatalPlanets);
+    s.setValue("Events/showTransitsToNatalPlanets",     dflt.showTransitsToNatalPlanets);
+    s.setValue("Events/showTransitsToNatalAngles",      dflt.showTransitsToNatalAngles);
+    s.setValue("Events/showTransitsToHouseCusps",       dflt.showTransitsToHouseCusps);
     s.setValue("Events/showReturns",                    dflt.showReturns);
     s.setValue("Events/showProgressionsToProgressions", dflt.showProgressionsToProgressions);
     s.setValue("Events/showProgressionsToNatal",        dflt.showProgressionsToNatal);
@@ -1446,7 +1470,9 @@ Transits::currentSettings()
     s.setValue("Events/includeMidpoints",               curr.includeMidpoints);
     s.setValue("Events/showStations",                   curr.showStations);
     s.setValue("Events/showTransitsToTransits",         curr.showTransitsToTransits);
-    s.setValue("Events/showTransitsToNatal",            curr.showTransitsToNatalPlanets);
+    s.setValue("Events/showTransitsToNatalPlanets",     curr.showTransitsToNatalPlanets);
+    s.setValue("Events/showTransitsToNatalAngles",      curr.showTransitsToNatalAngles);
+    s.setValue("Events/showTransitsToHouseCusps",       curr.showTransitsToHouseCusps);
     s.setValue("Events/showReturns",                    curr.showReturns);
     s.setValue("Events/showProgressionsToProgressions", curr.showProgressionsToProgressions);
     s.setValue("Events/showProgressionsToNatal",        curr.showProgressionsToNatal);
@@ -1468,7 +1494,8 @@ Transits::currentSettings()
     return s;
 }
 
-void Transits::applySettings(const AppSettings& s)
+void
+Transits::applySettings(const AppSettings& s)
 {
     A::EventOptions& curr(A::EventOptions::current());
     bool changed =
@@ -1479,7 +1506,9 @@ void Transits::applySettings(const AppSettings& s)
             || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
             || s.value("Events/showStations").toBool() != curr.showStations
             || s.value("Events/showTransitsToTransits").toBool() != curr.showTransitsToTransits
-            || s.value("Events/showTransitsToNatal").toBool() != curr.showTransitsToNatalPlanets
+            || s.value("Events/showTransitsToNatalPlanets").toBool() != curr.showTransitsToNatalPlanets
+            || s.value("Events/showTransitsToNatalAngles").toBool() != curr.showTransitsToNatalAngles
+            || s.value("Events/showTransitsToHouseCusps").toBool() != curr.showTransitsToHouseCusps
             || s.value("Events/showReturns").toBool() != curr.showReturns
             || s.value("Events/showProgressionsToProgressions").toBool() != curr.showProgressionsToProgressions
             || s.value("Events/showProgressionsToNatal").toBool() != curr.showProgressionsToNatal
@@ -1501,7 +1530,10 @@ void Transits::applySettings(const AppSettings& s)
 
     auto tsp = s.value("Events/defaultTimespan").toString();
     curr.defaultTimespan = tsp;
-    if (filesCount()==0) this->_duration->setText(tsp);
+    if (filesCount()==0) {
+        _duration->setText(tsp);
+        _ddelta = ADateDelta::fromString(tsp);
+    }
 
     curr.expandShowOrb = s.value("Events/secondaryOrb").toDouble();
     curr.patternsQuorum = s.value("Events/patternsQuorum").toUInt();
@@ -1510,7 +1542,9 @@ void Transits::applySettings(const AppSettings& s)
     curr.includeMidpoints = s.value("Events/includeMidpoints").toBool();
     curr.showStations = s.value("Events/showStations").toBool();
     curr.showTransitsToTransits = s.value("Events/showTransitsToTransits").toBool();
-    curr.showTransitsToNatalPlanets = s.value("Events/showTransitsToNatal").toBool();
+    curr.showTransitsToNatalPlanets = s.value("Events/showTransitsToNatalPlanets").toBool();
+    curr.showTransitsToNatalAngles = s.value("Events/showTransitsToNatalAngles").toBool();
+    curr.showTransitsToHouseCusps = s.value("Events/showTransitsToHouseCusps").toBool();
     curr.showReturns = s.value("Events/showReturns").toBool();
     curr.showProgressionsToProgressions = s.value("Events/showProgressionsToProgressions").toBool();
     curr.showProgressionsToNatal = s.value("Events/showProgressionsToNatal").toBool();
@@ -1544,7 +1578,9 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addLineEdit("Events/defaultTimespan", tr("Default timespan"));
     ed->addCheckBox("Events/showStations", tr("Show Stations"));
     ed->addCheckBox("Events/showTransitsToTransits", tr("Show Transits to Transits"));
-    ed->addCheckBox("Events/showTransitsToNatal", tr("Show Transits to Natal"));
+    ed->addCheckBox("Events/showTransitsToNatalPlanets", tr("Show Transits to Natal"));
+    ed->addCheckBox("Events/showTransitsToNatalAngles", tr("Show Transits to natal angles"));
+    ed->addCheckBox("Events/showTransitsToHouseCusps", tr("Show Transits to all house cusps"));
     ed->addDoubleSpinBox("Events/secondaryOrb", tr("Secondary Orb"), 0.1, 16.);
     ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
     ed->addCheckBox("Events/showReturns", tr("Show Returns"));

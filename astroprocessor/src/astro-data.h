@@ -961,16 +961,34 @@ protected:
     const InputData& _ida;
 };
 
-class NatalPosition : public InputPosition {
+class KnownPosition : public PlanetLoc {
+    qreal jd;
+public:
+    KnownPosition(const ChartPlanetId& cpid,
+                  qreal loc,
+                  double jd,
+                  const QString& tag = "") :
+        PlanetLoc(cpid, tag, loc), jd(jd)
+    { }
 
+    KnownPosition(const PlanetLoc* ploc,
+                  double jd,
+                  const QString& tag = "") :
+        PlanetLoc(*ploc), jd(jd)
+    { if (!tag.isEmpty()) Loc::desc = tag; }
+
+    qreal julianDate() const { return jd; };
+
+    Loc* clone() const override { return new KnownPosition(*this); }
+};
+
+class NatalPosition : public InputPosition {
 public:
     NatalPosition(const ChartPlanetId& cpid,
                   const InputData& ida,
                   const QString& tag = "") :
         InputPosition(cpid, ida, tag)
-    {
-        compute(ida); _rasiLoc = loc; speed = 0;
-    }
+    { compute(ida); _rasiLoc = loc; speed = 0; }
 
     Loc* clone() const override
     { return new NatalPosition(*this); }
@@ -1066,6 +1084,14 @@ public:
     { }
 
     virtual ~PlanetProfile() { qDeleteAll(*this); }
+
+    PlanetProfile& operator=(PlanetProfile&& other)
+    {
+        Loc::loc = other.loc;
+        Loc::speed = other.Loc::speed;
+        Base::operator=(std::move(other));
+        return *this;
+    }
 
     PlanetProfile* profile(const PlanetSet& psp) const
     {

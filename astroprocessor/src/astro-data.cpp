@@ -499,8 +499,13 @@ ChartPlanetId::glyph() const
         if (_pid >= Ingresses_Start && _pid < Ingresses_End) {
             return QString(QChar(Data::getSignGlyph(_pid)));
         }
-        return QString(QChar(Data::getPlanet(_pid)
-                             .userData["fontChar"].toInt()));
+        auto var = Data::getPlanet(_pid).userData["fontChar"];
+        if (var.canConvert<int>()) {
+            return QString(QChar(var.toInt()));
+        } else if (var.type()==QVariant::String) {
+            return var.toString();
+        }
+        return "?";
     }
     return QString(QChar(_oppMidpt? 0xD1 : 0xC9))
         + QString(QChar(Data::getPlanet(_pid)

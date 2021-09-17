@@ -1,14 +1,14 @@
 #ifndef TRANSITS_H
 #define TRANSITS_H
 
+#include <QDateEdit>
+#include <QLineEdit>
 #include <QModelIndex>
 #include <QButtonGroup>
 #include <Astroprocessor/Gui>
 
 class QTreeView;
-class QLineEdit;
 class QStandardItemModel;
-class QDateEdit;
 class QRadioButton;
 class GeoSearchWidget;
 class EventsTableModel;
@@ -80,6 +80,20 @@ signals:
 protected slots:
     void onEventSelectionChanged();
     void onDateRangeChanged();
+
+    void updateDelta(const QDate&);
+
+    void onStartChanged();
+    void onStartChanged(const QDate&)
+    { if (!_start->hasFocus()) onStartChanged(); }
+
+    void onEndChanged();
+    void onEndChanged(const QDate&)
+    { if (!_end->hasFocus()) onEndChanged(); }
+
+    void onDurationChanged();
+    void onDurationChanged(const QString&)
+    { if (!_duration->hasFocus()) onDurationChanged(); }
 
     void updateTransits();
     void checkComplete();

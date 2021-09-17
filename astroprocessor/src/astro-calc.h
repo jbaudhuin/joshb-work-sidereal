@@ -244,6 +244,7 @@ struct EventOptions {
     bool        showTransitsToTransits = true;
     bool        showTransitsToNatalPlanets = true;
     bool        showTransitsToNatalAngles = true;
+    bool        showTransitsToHouseCusps = false;
     bool        includeOnlyOuterTransitsToNatal = false;
 
     bool        includeTransits() const
@@ -349,6 +350,7 @@ public:
 
 protected:
     unsigned _gt;
+    QMutex _ctm;
 
     // having both here allows us to include aspects to stationary planets...
     bool _includeAspectsToAngles = true;
@@ -373,7 +375,7 @@ protected:
 
     bool keepLooking(unsigned h, unsigned i) const
     {
-        auto p = dynamic_cast<PlanetLoc*>(_alist[i]);
+        auto p = dynamic_cast<const PlanetLoc*>(_alist[i]);
         if (!p) return true;
         if (p->allowAspects >= PlanetLoc::aspOnlyConj) return false;
         PlanetId pid = p->planet.planetId();
