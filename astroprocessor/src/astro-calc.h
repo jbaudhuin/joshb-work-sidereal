@@ -229,6 +229,9 @@ public:
 };
 
 struct EventOptions {
+    EventOptions() { };
+    EventOptions(const QVariantMap& map);
+
     ADateDelta  defaultTimespan { 0/*yr*/, 1/*mo*/, 0/*dy*/ };
 
     qreal       expandShowOrb = 2.;
@@ -240,6 +243,7 @@ struct EventOptions {
     bool        includeMidpoints = false;
 
     bool        showStations = true;
+    bool        includeShadowTransits = true;
 
     bool        showTransitsToTransits = true;
     bool        showTransitsToNatalPlanets = true;
@@ -251,7 +255,8 @@ struct EventOptions {
     {
         return showTransitsToTransits
                 || showTransitsToNatalPlanets
-                || showTransitsToNatalAngles;
+                || showTransitsToNatalAngles
+                || showTransitsToHouseCusps;
     }
 
     bool        showReturns = true;
@@ -286,6 +291,8 @@ struct EventOptions {
     bool        expandShowReturnAspects = true;
     bool        expandShowTransitAspectsToReturnPlanet = true;
 
+    QVariantMap toMap();
+
     static EventOptions& current() { static EventOptions s_; return s_; }
 };
 
@@ -305,7 +312,7 @@ public:
         EventOptions(current()), _evs(evs), _range(range)
     { }
 
-    ~EventFinder() { }
+    virtual ~EventFinder() { }
 
     HarmonicEvents& _evs;
     ADateRange _range;

@@ -1423,75 +1423,13 @@ Transits::filesUpdated(MembersList m)
 AppSettings 
 Transits::defaultSettings()
 {
-    AppSettings s;
-    A::EventOptions dflt;
-    s.setValue("Events/defaultTimespan", dflt.defaultTimespan.toString());
-    s.setValue("Events/secondaryOrb",                   dflt.expandShowOrb);
-    s.setValue("Events/patternsQuorum",                 dflt.patternsQuorum);
-    s.setValue("Events/patternsSpreadOrb",              dflt.patternsSpreadOrb);
-    s.setValue("Events/patternsRestrictMoon",           dflt.patternsRestrictMoon);
-    s.setValue("Events/includeMidpoints",               dflt.includeMidpoints);
-    s.setValue("Events/showStations",                   dflt.showStations);
-    s.setValue("Events/showTransitsToTransits",         dflt.showTransitsToTransits);
-    s.setValue("Events/showTransitsToNatalPlanets",     dflt.showTransitsToNatalPlanets);
-    s.setValue("Events/showTransitsToNatalAngles",      dflt.showTransitsToNatalAngles);
-    s.setValue("Events/showTransitsToHouseCusps",       dflt.showTransitsToHouseCusps);
-    s.setValue("Events/showReturns",                    dflt.showReturns);
-    s.setValue("Events/showProgressionsToProgressions", dflt.showProgressionsToProgressions);
-    s.setValue("Events/showProgressionsToNatal",        dflt.showProgressionsToNatal);
-    s.setValue("Events/showTransitAspectPatterns",      dflt.showTransitAspectPatterns);
-    s.setValue("Events/showTransitNatalAspectPatterns", dflt.showTransitNatalAspectPatterns);
-    s.setValue("Events/showIngresses",                  dflt.showIngresses);
-    s.setValue("Events/showLunations",                  dflt.showLunations);
-    s.setValue("Events/showHeliacalEvents",             dflt.showHeliacalEvents);
-    s.setValue("Events/showPrimaryDirections",          dflt.showPrimaryDirections);
-    s.setValue("Events/showLifeEvents",                 dflt.showLifeEvents);
-
-    s.setValue("Events/expandShowAspectPatterns",       dflt.expandShowAspectPatterns);
-    s.setValue("Events/expandShowHousePlacementsOfTransits", dflt.expandShowHousePlacementsOfTransits);
-    s.setValue("Events/expandShowRulershipTips",        dflt.expandShowRulershipTips);
-    s.setValue("Events/expandShowStationAspectsToTransits", dflt.expandShowStationAspectsToTransits);
-    s.setValue("Events/expandShowStationAspectsToNatal", dflt.expandShowStationAspectsToNatal);
-    s.setValue("Events/expandShowReturnAspects",        dflt.expandShowReturnAspects);
-    s.setValue("Events/expandShowTransitAspectsToReturnPlanet", dflt.expandShowTransitAspectsToReturnPlanet);
-    return s;
+    return A::EventOptions().toMap();
 }
 
 AppSettings
 Transits::currentSettings()
 {
-    AppSettings s;
-    const A::EventOptions& curr(A::EventOptions::current());
-    s.setValue("Events/defaultTimespan", curr.defaultTimespan.toString());
-    s.setValue("Events/secondaryOrb",                   curr.expandShowOrb);
-    s.setValue("Events/patternsQuorum",                 curr.patternsQuorum);
-    s.setValue("Events/patternsSpreadOrb",              curr.patternsSpreadOrb);
-    s.setValue("Events/patternsRestrictMoon",           curr.patternsRestrictMoon);
-    s.setValue("Events/includeMidpoints",               curr.includeMidpoints);
-    s.setValue("Events/showStations",                   curr.showStations);
-    s.setValue("Events/showTransitsToTransits",         curr.showTransitsToTransits);
-    s.setValue("Events/showTransitsToNatalPlanets",     curr.showTransitsToNatalPlanets);
-    s.setValue("Events/showTransitsToNatalAngles",      curr.showTransitsToNatalAngles);
-    s.setValue("Events/showTransitsToHouseCusps",       curr.showTransitsToHouseCusps);
-    s.setValue("Events/showReturns",                    curr.showReturns);
-    s.setValue("Events/showProgressionsToProgressions", curr.showProgressionsToProgressions);
-    s.setValue("Events/showProgressionsToNatal",        curr.showProgressionsToNatal);
-    s.setValue("Events/showTransitAspectPatterns",      curr.showTransitAspectPatterns);
-    s.setValue("Events/showTransitNatalAspectPatterns", curr.showTransitNatalAspectPatterns);
-    s.setValue("Events/showIngresses",                  curr.showIngresses);
-    s.setValue("Events/showLunations",                  curr.showLunations);
-    s.setValue("Events/showHeliacalEvents",             curr.showHeliacalEvents);
-    s.setValue("Events/showPrimaryDirections",          curr.showPrimaryDirections);
-    s.setValue("Events/showLifeEvents",                 curr.showLifeEvents);
-
-    s.setValue("Events/expandShowAspectPatterns",       curr.expandShowAspectPatterns);
-    s.setValue("Events/expandShowHousePlacementsOfTransits", curr.expandShowHousePlacementsOfTransits);
-    s.setValue("Events/expandShowRulershipTips",        curr.expandShowRulershipTips);
-    s.setValue("Events/expandShowStationAspectsToTransits", curr.expandShowStationAspectsToTransits);
-    s.setValue("Events/expandShowStationAspectsToNatal", curr.expandShowStationAspectsToNatal);
-    s.setValue("Events/expandShowReturnAspects",        curr.expandShowReturnAspects);
-    s.setValue("Events/expandShowTransitAspectsToReturnPlanet", curr.expandShowTransitAspectsToReturnPlanet);
-    return s;
+    return A::EventOptions::current().toMap();
 }
 
 void
@@ -1499,19 +1437,21 @@ Transits::applySettings(const AppSettings& s)
 {
     A::EventOptions& curr(A::EventOptions::current());
     bool changed =
-            (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
-            || s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
+            (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
             || s.value("Events/patternsSpreadOrb").toDouble() != curr.patternsSpreadOrb
             || s.value("Events/patternsRestrictMoon").toBool() != curr.patternsRestrictMoon
             || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
             || s.value("Events/showStations").toBool() != curr.showStations
+            || s.value("Events/includeShadowTransits").toBool() != curr.includeShadowTransits
             || s.value("Events/showTransitsToTransits").toBool() != curr.showTransitsToTransits
+            || s.value("Events/includeOnlyOuterTransitsToNatal").toBool() != curr.includeOnlyOuterTransitsToNatal
             || s.value("Events/showTransitsToNatalPlanets").toBool() != curr.showTransitsToNatalPlanets
             || s.value("Events/showTransitsToNatalAngles").toBool() != curr.showTransitsToNatalAngles
             || s.value("Events/showTransitsToHouseCusps").toBool() != curr.showTransitsToHouseCusps
             || s.value("Events/showReturns").toBool() != curr.showReturns
             || s.value("Events/showProgressionsToProgressions").toBool() != curr.showProgressionsToProgressions
             || s.value("Events/showProgressionsToNatal").toBool() != curr.showProgressionsToNatal
+            || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool() != curr.includeOnlyInnerProgressionsToNatal
             || s.value("Events/showTransitAspectPatterns").toBool() != curr.showTransitAspectPatterns
             || s.value("Events/showTransitNatalAspectPatterns").toBool() != curr.showTransitNatalAspectPatterns
             || s.value("Events/showIngresses").toBool() != curr.showIngresses
@@ -1520,7 +1460,8 @@ Transits::applySettings(const AppSettings& s)
             || s.value("Events/showPrimaryDirections").toBool() != curr.showPrimaryDirections
             || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents);
     bool changedExpanded =
-            (s.value("Events/expandShowAspectPatterns").toBool() != curr.expandShowAspectPatterns
+            (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
+            || s.value("Events/expandShowAspectPatterns").toBool() != curr.expandShowAspectPatterns
             || s.value("Events/expandShowHousePlacementsOfTransits").toBool() != curr.expandShowHousePlacementsOfTransits
             || s.value("Events/expandShowRulershipTips").toBool() != curr.expandShowRulershipTips
             || s.value("Events/expandShowStationAspectsToTransits").toBool() != curr.expandShowStationAspectsToTransits
@@ -1529,39 +1470,12 @@ Transits::applySettings(const AppSettings& s)
             || s.value("Events/expandShowTransitAspectsToReturnPlanet").toBool() != curr.expandShowTransitAspectsToReturnPlanet);
 
     auto tsp = s.value("Events/defaultTimespan").toString();
-    curr.defaultTimespan = tsp;
     if (filesCount()==0) {
         _duration->setText(tsp);
         _ddelta = ADateDelta::fromString(tsp);
     }
 
-    curr.expandShowOrb = s.value("Events/secondaryOrb").toDouble();
-    curr.patternsQuorum = s.value("Events/patternsQuorum").toUInt();
-    curr.patternsSpreadOrb = s.value("Events/patternsSpreadOrb").toDouble();
-    curr.patternsRestrictMoon = s.value("Events/patternsRestrictMoon").toBool();
-    curr.includeMidpoints = s.value("Events/includeMidpoints").toBool();
-    curr.showStations = s.value("Events/showStations").toBool();
-    curr.showTransitsToTransits = s.value("Events/showTransitsToTransits").toBool();
-    curr.showTransitsToNatalPlanets = s.value("Events/showTransitsToNatalPlanets").toBool();
-    curr.showTransitsToNatalAngles = s.value("Events/showTransitsToNatalAngles").toBool();
-    curr.showTransitsToHouseCusps = s.value("Events/showTransitsToHouseCusps").toBool();
-    curr.showReturns = s.value("Events/showReturns").toBool();
-    curr.showProgressionsToProgressions = s.value("Events/showProgressionsToProgressions").toBool();
-    curr.showProgressionsToNatal = s.value("Events/showProgressionsToNatal").toBool();
-    curr.showTransitAspectPatterns = s.value("Events/showTransitAspectPatterns").toBool();
-    curr.showTransitNatalAspectPatterns = s.value("Events/showTransitNatalAspectPatterns").toBool();
-    curr.showIngresses = s.value("Events/showIngresses").toBool();
-    curr.showLunations = s.value("Events/showLunations").toBool();
-    curr.showHeliacalEvents = s.value("Events/showHeliacalEvents").toBool();
-    curr.showPrimaryDirections = s.value("Events/showPrimaryDirections").toBool();
-    curr.showLifeEvents = s.value("Events/showLifeEvents").toBool();
-    curr.expandShowAspectPatterns = s.value("Events/expandShowAspectPatterns").toBool();
-    curr.expandShowHousePlacementsOfTransits = s.value("Events/expandShowHousePlacementsOfTransits").toBool();
-    curr.expandShowRulershipTips = s.value("Events/expandShowRulershipTips").toBool();
-    curr.expandShowStationAspectsToTransits = s.value("Events/expandShowStationAspectsToTransits").toBool();
-    curr.expandShowStationAspectsToNatal = s.value("Events/expandShowStationAspectsToNatal").toBool();
-    curr.expandShowReturnAspects = s.value("Events/expandShowReturnAspects").toBool();
-    curr.expandShowTransitAspectsToReturnPlanet = s.value("Events/expandShowTransitAspectsToReturnPlanet").toBool();
+    curr = A::EventOptions(s.values());
 
     if (changed) {
         updateTransits();
@@ -1577,26 +1491,29 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
 
     ed->addLineEdit("Events/defaultTimespan", tr("Default timespan"));
     ed->addCheckBox("Events/showStations", tr("Show Stations"));
+    ed->addCheckBox("Events/includeShadowTransits", tr("Include retro shadow IN/EX"));
+    ed->addCheckBox("Events/showReturns", tr("Show Returns"));
     ed->addCheckBox("Events/showTransitsToTransits", tr("Show Transits to Transits"));
     ed->addCheckBox("Events/showTransitsToNatalPlanets", tr("Show Transits to Natal"));
     ed->addCheckBox("Events/showTransitsToNatalAngles", tr("Show Transits to natal angles"));
+    ed->addCheckBox("Events/includeOnlyOuterTransitsToNatal", tr("Include only outer planet transits to natal"));
     ed->addCheckBox("Events/showTransitsToHouseCusps", tr("Show Transits to all house cusps"));
-    ed->addDoubleSpinBox("Events/secondaryOrb", tr("Secondary Orb"), 0.1, 16.);
     ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
-    ed->addCheckBox("Events/showReturns", tr("Show Returns"));
     ed->addCheckBox("Events/showTransitAspectPatterns", tr("Show Transit Aspect Patterns"));
     ed->addCheckBox("Events/showTransitNatalAspectPatterns", tr("Show Transit Natal Aspect Patterns"));
     ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"),3,6);
-    ed->addDoubleSpinBox("Events/patternsSpreadOrb", tr("Patterns Spread Orb"), 0.1, 16.);
+    ed->addDoubleSpinBox("Events/patternsSpreadOrb", tr("Patterns Spread Orb"), 1., 16.);
     ed->addCheckBox("Events/patternsRestrictMoon", tr("Patterns Restrict Moon"));
     ed->addCheckBox("Events/showIngresses", tr("Show Ingresses"));
     ed->addCheckBox("Events/showProgressionsToProgressions", tr("Show Progressions to Progressions"));
     ed->addCheckBox("Events/showProgressionsToNatal", tr("Show Progressions to Natal"));
+    ed->addCheckBox("Events/includeOnlyInnerProgressionsToNatal", tr("Include only inner planet progressions to natal"));
     ed->addCheckBox("Events/showLunations", tr("Show Lunations"));
     ed->addCheckBox("Events/showHeliacalEvents", tr("Show Heliacal Events"));
     ed->addCheckBox("Events/showPrimaryDirections", tr("Show Primary Directions"));
     ed->addCheckBox("Events/showLifeEvents", tr("Show Life Events"));
 
+    ed->addDoubleSpinBox("Events/secondaryOrb", tr("Secondary Orb"), .25, 16.);
     ed->addCheckBox("Events/expandShowAspectPatterns", tr("Expand to Show Aspect Patterns"));
     ed->addCheckBox("Events/expandShowHousePlacementsOfTransits", tr("Expand to Show House Placements Of Transits"));
     ed->addCheckBox("Events/expandShowRulershipTips", tr("Expand to Show Rulership Tips"));

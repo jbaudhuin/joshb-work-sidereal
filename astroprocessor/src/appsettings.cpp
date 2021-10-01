@@ -48,6 +48,11 @@ AppSettings::AppSettings()
 {
 }
 
+AppSettings::AppSettings(const QVariantMap& map)
+{
+    _values = map;
+}
+
 void AppSettings::setValue(const QString& name, const QVariant& value)
 {
     _values[name] = value;
@@ -56,8 +61,7 @@ void AppSettings::setValue(const QString& name, const QVariant& value)
 void AppSettings::setValues(const AppSettings& s)
 {
     QMapIterator<QString, QVariant> i(s.values());
-    while (i.hasNext())
-    {
+    while (i.hasNext()) {
         i.next();
         setValue(i.key(), i.value());
     }

@@ -2431,6 +2431,80 @@ calculateAll(const InputData& input)
     return scope;
 }
 
+EventOptions::EventOptions(const QVariantMap& map)
+{
+    defaultTimespan = map.value("Events/defaultTimespan").toString();
+    expandShowOrb = map.value("Events/secondaryOrb").toDouble();
+    patternsQuorum = map.value("Events/patternsQuorum").toUInt();
+    patternsSpreadOrb = map.value("Events/patternsSpreadOrb").toDouble();
+    patternsRestrictMoon = map.value("Events/patternsRestrictMoon").toBool();
+    includeMidpoints = map.value("Events/includeMidpoints").toBool();
+    showStations = map.value("Events/showStations").toBool();
+    includeShadowTransits = map.value("Events/includeShadowTransits").toBool();
+    showTransitsToTransits = map.value("Events/showTransitsToTransits").toBool();
+    showTransitsToNatalPlanets = map.value("Events/showTransitsToNatalPlanets").toBool();
+    includeOnlyOuterTransitsToNatal = map.value("Events/includeOnlyOuterTransitsToNatal").toBool();
+    showTransitsToNatalAngles = map.value("Events/showTransitsToNatalAngles").toBool();
+    showTransitsToHouseCusps = map.value("Events/showTransitsToHouseCusps").toBool();
+    showReturns = map.value("Events/showReturns").toBool();
+    showProgressionsToProgressions = map.value("Events/showProgressionsToProgressions").toBool();
+    showProgressionsToNatal = map.value("Events/showProgressionsToNatal").toBool();
+    includeOnlyInnerProgressionsToNatal = map.value("Events/includeOnlyInnerProgressionsToNatal").toBool();
+    showTransitAspectPatterns = map.value("Events/showTransitAspectPatterns").toBool();
+    showTransitNatalAspectPatterns = map.value("Events/showTransitNatalAspectPatterns").toBool();
+    showIngresses = map.value("Events/showIngresses").toBool();
+    showLunations = map.value("Events/showLunations").toBool();
+    showHeliacalEvents = map.value("Events/showHeliacalEvents").toBool();
+    showPrimaryDirections = map.value("Events/showPrimaryDirections").toBool();
+    showLifeEvents = map.value("Events/showLifeEvents").toBool();
+    expandShowAspectPatterns = map.value("Events/expandShowAspectPatterns").toBool();
+    expandShowHousePlacementsOfTransits = map.value("Events/expandShowHousePlacementsOfTransits").toBool();
+    expandShowRulershipTips = map.value("Events/expandShowRulershipTips").toBool();
+    expandShowStationAspectsToTransits = map.value("Events/expandShowStationAspectsToTransits").toBool();
+    expandShowStationAspectsToNatal = map.value("Events/expandShowStationAspectsToNatal").toBool();
+    expandShowReturnAspects = map.value("Events/expandShowReturnAspects").toBool();
+    expandShowTransitAspectsToReturnPlanet = map.value("Events/expandShowTransitAspectsToReturnPlanet").toBool();
+}
+
+QVariantMap
+EventOptions::toMap()
+{
+    QVariantMap ret;
+    ret.insert("Events/defaultTimespan", defaultTimespan.toString());
+    ret.insert("Events/secondaryOrb",                   expandShowOrb);
+    ret.insert("Events/patternsQuorum",                 patternsQuorum);
+    ret.insert("Events/patternsSpreadOrb",              patternsSpreadOrb);
+    ret.insert("Events/patternsRestrictMoon",           patternsRestrictMoon);
+    ret.insert("Events/includeMidpoints",               includeMidpoints);
+    ret.insert("Events/showStations",                   showStations);
+    ret.insert("Events/includeShadowTransits",          includeShadowTransits);
+    ret.insert("Events/showTransitsToTransits",         showTransitsToTransits);
+    ret.insert("Events/showTransitsToNatalPlanets",     showTransitsToNatalPlanets);
+    ret.insert("Events/includeOnlyOuterTransitsToNatal", includeOnlyOuterTransitsToNatal);
+    ret.insert("Events/showTransitsToNatalAngles",      showTransitsToNatalAngles);
+    ret.insert("Events/showTransitsToHouseCusps",       showTransitsToHouseCusps);
+    ret.insert("Events/showReturns",                    showReturns);
+    ret.insert("Events/showProgressionsToProgressions", showProgressionsToProgressions);
+    ret.insert("Events/showProgressionsToNatal",        showProgressionsToNatal);
+    ret.insert("Events/includeOnlyInnerProgressionsToNatal", includeOnlyInnerProgressionsToNatal);
+    ret.insert("Events/showTransitAspectPatterns",      showTransitAspectPatterns);
+    ret.insert("Events/showTransitNatalAspectPatterns", showTransitNatalAspectPatterns);
+    ret.insert("Events/showIngresses",                  showIngresses);
+    ret.insert("Events/showLunations",                  showLunations);
+    ret.insert("Events/showHeliacalEvents",             showHeliacalEvents);
+    ret.insert("Events/showPrimaryDirections",          showPrimaryDirections);
+    ret.insert("Events/showLifeEvents",                 showLifeEvents);
+
+    ret.insert("Events/expandShowAspectPatterns",       expandShowAspectPatterns);
+    ret.insert("Events/expandShowHousePlacementsOfTransits", expandShowHousePlacementsOfTransits);
+    ret.insert("Events/expandShowRulershipTips",        expandShowRulershipTips);
+    ret.insert("Events/expandShowStationAspectsToTransits", expandShowStationAspectsToTransits);
+    ret.insert("Events/expandShowStationAspectsToNatal", expandShowStationAspectsToNatal);
+    ret.insert("Events/expandShowReturnAspects",        expandShowReturnAspects);
+    ret.insert("Events/expandShowTransitAspectsToReturnPlanet", expandShowTransitAspectsToReturnPlanet);
+    return ret;
+}
+
 AspectFinder::AspectFinder(HarmonicEvents& evs,
                            const ADateRange& range,
                            const uintSSet& hset,
@@ -2595,14 +2669,17 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                 || showReturns)
         {
             auto npl = getPlanets();
-            if (showTransitsToNatalAngles) npl << getAngles();
+            if (showTransitsToNatalAngles
+                    && !showTransitsToHouseCusps) npl << getAngles();
 
             QVector<unsigned> ppn;
             for (auto pid: qAsConst(npl)) {
                 ppn << getNatalPlanet(pid);
             }
 
-            if (showTransitsToNatalPlanets) {
+            if (showTransitsToNatalPlanets
+                    || showTransitsToHouseCusps)
+            {
                 QList<PlanetId> tpl;
                 if (includeOnlyOuterTransitsToNatal) {
                     tpl = getOuterPlanets();
@@ -2612,26 +2689,29 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
 
                 for (auto pid: qAsConst(tpl)) {
                     auto i = getTransitPlanet(pid);
-                    for (auto j: ppn) {
-                        _staff.emplace_back(i, j);
+                    if (showTransitsToNatalPlanets) {
+                        for (auto j: qAsConst(ppn)) {
+                            _staff.emplace_back(i, j);
+                        }
+                    }
+                    if (showTransitsToHouseCusps) {
+                        for (int h = Houses_Start; h < Houses_End; ++h) {
+                            _staff.emplace_back(i, getHouseIngress(h));
+                        }
                     }
                 }
-            } else if (showReturns) {
-                auto tpl = getPlanets();
+            }
+            if (showReturns) {
+                QList<PlanetId> tpl;
+                if (!showTransitsToNatalPlanets) {
+                    tpl = getPlanets();
+                } else if (includeOnlyOuterTransitsToNatal) {
+                    tpl = getInnerPlanets();
+                }
                 for (auto pid: qAsConst(tpl)) {
                     auto i = getTransitPlanet(pid);
                     auto j = getNatalPlanet(pid);
                     _staff.emplace_back(i, j);
-                }
-            }
-
-            if (showTransitsToHouseCusps) {
-                auto tpl = getPlanets();
-                for (auto pid: qAsConst(tpl)) {
-                    for (int h = Houses_Start; h < Houses_End; ++h) {
-                        _staff.emplace_back(getTransitPlanet(pid),
-                                            getHouseIngress(h));
-                    }
                 }
             }
         }
@@ -3257,10 +3337,7 @@ AspectFinder::findPatterns()
 
                 { QMutexLocker foo(&ctm); ++childThreadCount; }
 #if 1
-                tp->start([&ctm, &childThreadCount,
-                          ps, h, useH, evs, prof, from, to,
-                          this]
-                {
+                tp->start([=, &ctm, &childThreadCount] {
                     prepThread();
 #endif
                     auto csprd = [prof,h,this](double jd)
@@ -3438,14 +3515,16 @@ AspectFinder::findStations()
 
                     if (!s_quiet) qDebug() << dt << pj->description();
 
-                    // Add shadow-period transit lookup
-                    QMutexLocker mlb(&_ctm);
-                    auto pj = new KnownPosition(ploc, tjd,
-                                                wasRetro? "IN" : "EX");
-                    pj->planet.setFileId(i);
-                    pj->allowAspects = PlanetLoc::aspOnlyDirect;
-                    pj->speed = 0;
-                    stations.emplace_back(pj);
+                    if (includeShadowTransits) {
+                        // Add shadow-period transit lookup
+                        QMutexLocker mlb(&_ctm);
+                        auto pj = new KnownPosition(ploc, tjd,
+                                                    wasRetro? "IN" : "EX");
+                        pj->planet.setFileId(i);
+                        pj->allowAspects = PlanetLoc::aspOnlyDirect;
+                        pj->speed = 0;
+                        stations.emplace_back(pj);
+                    }
                 }
 #if 1
                 QMutexLocker mlb(&_ctm);
@@ -3496,7 +3575,7 @@ void AspectFinder::findStuff()
     int numThreads =
             4 * (int(includeAspectPatterns()) + int(includeTransits()) + 1);
     QThreadPool* tp = QThreadPool::globalInstance();
-    //for (int i = 0; i < numThreads; ++i) tp->releaseThread();
+    for (int i = 0; i < numThreads; ++i) tp->releaseThread();
 
     const auto& start = _range.first;
     const auto& end = _range.second.addDays(1);
@@ -3985,7 +4064,7 @@ void AspectFinder::findStuff()
         QThread::msleep(100/*msec*/);
     }
 
-    //for (int i = 0; i < numThreads; ++i) tp->reserveThread();
+    for (int i = 0; i < numThreads; ++i) tp->reserveThread();
 }
 
 void AspectFinder::run()
