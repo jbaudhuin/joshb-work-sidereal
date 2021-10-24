@@ -436,7 +436,10 @@ public:
         case harmonicCol:
             if (role == Qt::ToolTipRole) {
                 if (singleColumn(asp.locations())) return "station";
-                if (!asp.locations().empty()) {
+                if (asp.locations().empty()) {
+                    return QString("H%1 %2").arg(asp.harmonic())
+                            .arg(A::degreeToString(asp.orb(),A::HighPrecision));
+                } else {
                     locPair pp;
                     if (getPlanetPair(asp.locations(), pp)) {
                         auto a = A::calculateAspect(aspects(),
@@ -981,7 +984,6 @@ Transits::updateTransits()
     transitsAF()->setLocation(_location->location());
     transitsAF()->setLocationName(_location->locationName());
 
-#if 1
     A::AspectFinder* af = nullptr;
     if (filesCount() == 1) {
         auto type = file(0)->getType();
@@ -993,54 +995,6 @@ Transits::updateTransits()
         af = new A::AspectFinder(_evs, r, hs, files());
     }
     if (af) tp->start(af);
-#else
-    auto transOnly = transitsOnly();
-
-    const A::Horoscope& scope(file()->horoscope());
-    A::PlanetSet pst, psn;
-
-    for (const auto& cpid: scope.getOrigChartPlanets(0).keys()) {
-        auto pid = cpid.planetId();
-        if ((pid >= A::Planet_Sun && pid <= A::Planet_Pluto)
-            || (pid == A::Planet_Chiron && A::includeChiron())
-            || ((pid == A::Planet_SouthNode || pid == A::Planet_NorthNode)
-                && A::includeNodes()))
-        {
-            if (!transOnly) psn.insert(cpid);
-            //if (pid==A::Planet_Moon) continue;
-
-            pst.insert(A::ChartPlanetId(unsigned(!transOnly),
-                                        cpid.planetId(),A::Planet_None));
-        } else if (!transOnly
-                   && (pid == A::Planet_MC || pid == A::Planet_Asc))
-        {
-            psn.insert(cpid);
-        }
-    }
-
-
-    if (transOnly) {
-        auto tf = new A::TransitFinder(_evs, r, hs,
-                                       scope.inputData, pst);
-        tf->showStations = true;
-        tp->start(tf);
-        tp->start(new A::TransitFinder(_evs, r, hs, scope.inputData, pst,
-                                       A::etcTransitAspectPattern));
-    } else {
-        const auto& ida(transitsAF()->horoscope().inputData);
-        auto tf = new A::TransitFinder(_evs, r, hs,
-                                       scope.inputData, pst);
-        tf->showStations = false;
-        tp->start(tf);
-        tp->start(new A::NatalTransitFinder(_evs, r, hs,
-                                            scope.inputData,
-                                            ida, psn, pst));
-        tp->start(new A::NatalTransitFinder(_evs, r, hs,
-                                            scope.inputData, ida,
-                                            psn, pst,
-                                            A::etcTransitNatalAspectPattern));
-    }
-#endif
 
     if (!_watcher) {
         _watcher = new QTimer(this);

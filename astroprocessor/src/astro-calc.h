@@ -204,6 +204,29 @@ void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
 void calculateBaseChartHarmonic(Horoscope& scope);
 
 using uintPair = std::pair<unsigned,unsigned>;
+using hsets = std::list<uintSSet>;
+using hsetId = unsigned short int;
+
+struct planetsEtc : public uintPair {
+    hsetId hs;
+    EventType et;
+
+    using uintPair::uintPair;
+
+    planetsEtc(const uintPair& ab, hsetId hs/*=0*/,
+               EventType et /*= etcUnknownEvent*/) :
+        uintPair(ab), hs(hs), et(et)
+    { }
+
+    planetsEtc(unsigned a, unsigned b,
+               hsetId hs /*= 0*/,
+               EventType et /*= etcUnknownEvent*/) :
+        uintPair(a,b), hs(hs), et(et)
+    { }
+
+    unsigned a() const { return first; }
+    unsigned b() const { return second; }
+};
 
 typedef QList<InputData> idlist;
 
@@ -246,6 +269,7 @@ struct EventOptions {
     bool        includeShadowTransits = true;
 
     bool        showTransitsToTransits = true;
+    bool        limitLunarTransits = true;
     bool        showTransitsToNatalPlanets = true;
     bool        showTransitsToNatalAngles = true;
     bool        showTransitsToHouseCusps = false;
@@ -266,8 +290,7 @@ struct EventOptions {
     bool        includeOnlyInnerProgressionsToNatal = true;
 
     bool        includeProgressions() const
-    { return showProgressionsToNatal
-                || showProgressionsToProgressions; }
+    { return showProgressionsToNatal || showProgressionsToProgressions; }
 
     bool        showTransitAspectPatterns = true;
     bool        showTransitNatalAspectPatterns = true;
@@ -335,7 +358,7 @@ public:
                  goalType gt = afcFindAspects) :
         EventFinder(evs, range),
         _gt(gt),
-        _hset(hset)
+        _hsets({hset})
     {
         if (includeMidpoints || *hset.rbegin()>4) _rate = .5;
     }
@@ -393,8 +416,8 @@ protected:
         return true;
     }
 
-    uintSSet _hset;         ///< harmonic profile
-    std::list<uintPair> _staff;
+    hsets _hsets;         ///< harmonic profiles
+    std::list<planetsEtc> _staff;
     unsigned _evType = etcUnknownEvent;
 
 private:
@@ -407,29 +430,6 @@ public:
     CoincidenceFinder(AspectFinder* from,
                       HarmonicAspects& coincidents);
     void run() override;
-};
-
-class TransitFinder : public AspectFinder {
-public:
-    TransitFinder(HarmonicEvents& ev,
-                  const ADateRange& range,
-                  const uintSSet& hs,
-                  const InputData& trainp,
-                  const PlanetSet& tran,
-                  unsigned eventsType = etcTransitToTransit);
-};
-
-class NatalTransitFinder : public AspectFinder {
-public:
-    NatalTransitFinder(HarmonicEvents& ev,
-                       const ADateRange& range,
-                       const uintSSet& hs,
-                       const InputData& natinp,
-                       const InputData& trainp,
-                       const PlanetSet& natal,
-                       const PlanetSet& tran,
-                       unsigned eventsType = etcTransitToNatal,
-                       bool includeTransitsToTransits = false);
 };
 
 class EventTypeManager {

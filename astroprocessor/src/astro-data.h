@@ -1255,6 +1255,7 @@ Q_DECLARE_FLAGS(DerivedEventFlags, DerivedEventFlag);
 enum EventType {
     etcUnknownEvent         = 0,
     etcStation              = etcEventTypeStart, // S
+    etcTransitToStation,        // T=S
     etcTransitToTransit,        // T=T
     etcTransitToNatal,          // T=N
     etcOuterTransitToNatal,     // OT=N
