@@ -204,24 +204,24 @@ void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
 void calculateBaseChartHarmonic(Horoscope& scope);
 
 using uintPair = std::pair<unsigned,unsigned>;
-using hsets = std::list<uintSSet>;
+using hsets = std::vector<uintSSet>;
 using hsetId = unsigned short int;
 
 struct planetsEtc : public uintPair {
-    hsetId hs;
+    hsetId hsid;
     EventType et;
 
     using uintPair::uintPair;
 
     planetsEtc(const uintPair& ab, hsetId hs/*=0*/,
                EventType et /*= etcUnknownEvent*/) :
-        uintPair(ab), hs(hs), et(et)
+        uintPair(ab), hsid(hs), et(et)
     { }
 
     planetsEtc(unsigned a, unsigned b,
                hsetId hs /*= 0*/,
                EventType et /*= etcUnknownEvent*/) :
-        uintPair(a,b), hs(hs), et(et)
+        uintPair(a,b), hsid(hs), et(et)
     { }
 
     unsigned a() const { return first; }

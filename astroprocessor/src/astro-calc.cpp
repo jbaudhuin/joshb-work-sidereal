@@ -2524,12 +2524,16 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
 
     uintSSet conjSet { 1 };
     uintSSet conjOppSet { 1, 2 };
+    uintSSet conjOppSqSet { 1, 2, 4 };
+
     hsetId conj = _hsets.size();
     _hsets.emplace_back(conjSet);
     hsetId conjOpp = _hsets.size();
     _hsets.emplace_back(conjOppSet);
+    hsetId conjOppSq = _hsets.size();
+    _hsets.emplace_back(conjOppSqSet);
     hsetId allAsp = _hsets.size();
-    _hsets.emplace_back(hset);
+    _hsets.emplace_back(hset);  // the all aspects set...
 
     double njd = 0;
     for (int i = 0, n = files.count(); i < n; ++i) {
@@ -2567,8 +2571,9 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
     Houses houses;  // natal houses if needed
 
     typedef std::function<unsigned(PlanetId)> getter;
+    typedef std::function<unsigned(PlanetId,bool)> getterAlt;
     getter getNatalPlanet, getTransitPlanet, getProgressedPlanet;
-    getter getHouseIngress;
+    getterAlt getHouseIngress;
     if (natal) {
         getNatalPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(natus, pid, Planet_None);
@@ -2655,10 +2660,19 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
         }
 
         if (showIngresses) {
-            for (PlanetId pid = Ingresses_Start; pid < Ingresses_End; ++pid) {
-                for (auto i: qAsConst(ppi)) {
+            for (auto i: qAsConst(ppi)) {
+                auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
+                auto pl = tp->planet.planetId();
+                for (PlanetId pid = Ingresses_Start; pid < Ingresses_End; ++pid) {
+                    if (limitLunarTransits && pl==Planet_Moon
+                            && ((pid - Ingresses_Start) % 3 != 0))
+                        continue;
+
                     auto j = getIngress(pid);
                     _staff.emplace_back(i, j, conj, etcSignIngress);
+
+                    if (pl==Planet_Sun || pl==Planet_Moon) continue;
+
                     j = getIngress(pid, false/*backward*/);
                     _staff.emplace_back(i, j, conj, etcSignIngress);
                 }
@@ -2714,29 +2728,34 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                     auto i = getTransitPlanet(pid);
                     if (showTransitsToNatalPlanets) {
                         for (auto j: qAsConst(ppn)) {
-                            _staff.emplace_back(i, j,allAsp,etcTransitToNatal);
+                            auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
+                            auto np = dynamic_cast<NatalPosition*>(_alist[j]);
+                            if (tp->planet.planetId() != np->planet.planetId()
+                                    || !showReturns)
+                            { _staff.emplace_back(i, j,allAsp,etcTransitToNatal); }
                         }
                     }
                     if (showTransitsToHouseCusps) {
                         for (int h = Houses_Start; h < Houses_End; ++h) {
                             // FIXME retrograde to prior house, etc. like sign ingr
-                            _staff.emplace_back(i, getHouseIngress(h),conj,
+                            _staff.emplace_back(i, getHouseIngress(h,true), conj,
+                                                etcHouseIngress);
+                            _staff.emplace_back(i, getHouseIngress(h,false), conj,
                                                 etcHouseIngress);
                         }
                     }
                 }
             }
             if (showReturns) {
-                QList<PlanetId> tpl;
-                if (!showTransitsToNatalPlanets) {
-                    tpl = getPlanets();
-                } else if (includeOnlyOuterTransitsToNatal) {
-                    tpl = getInnerPlanets();
-                }
+                QList<PlanetId> tpl = getPlanets();
                 for (auto pid: qAsConst(tpl)) {
                     auto i = getTransitPlanet(pid);
                     auto j = getNatalPlanet(pid);
-                    _staff.emplace_back(i, j,allAsp,etcReturn);
+                    hsetId hs = conjOpp;
+                    auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
+                    auto pl = tp->planet.planetId();
+                    if (pl==Planet_Sun || pl==Planet_Moon) hs = conjOppSq;
+                    _staff.emplace_back(i, j, hs, etcReturn);
                 }
             }
         }
@@ -2758,6 +2777,38 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
             }
         }
     }
+
+#if 0
+    QMap<hsetId,QStringList> hsm;
+    for (const auto& ij : _staff) {
+        unsigned i, j;
+        std::tie(i,j) = ij;
+        auto ai = dynamic_cast<PlanetLoc*>(_alist[i]);
+        auto aj = dynamic_cast<PlanetLoc*>(_alist[j]);
+        const auto& pi = ai->planet;
+        const auto& pj = aj->planet;
+        if ((pi.fileId() < 0) != (pj.fileId() < 0)) {
+            if (pi.planetId() == pj.planetId()) {
+            qDebug()
+                    << "Looking good"
+                    << ai->description()
+                    << aj->description();
+            }
+            continue;
+        }
+
+        auto& hs = hsm[ij.hsid];
+        if (hs.empty()) {
+            for (auto h: _hsets[ij.hsid]) hs << QString::number(h);
+        }
+        auto what = QString("H{%1} %2=%3")
+                .arg(hs.join(","))
+                .arg(_alist[i]->description())
+                .arg(_alist[j]->description());
+
+        qDebug() << what;
+    }
+#endif
 }
 
 void AspectFinder::prepThread()
@@ -2927,20 +2978,7 @@ void AspectFinder::findStuff()
 
     modalize<bool> mum(s_quiet);
     harmonize haha(_ids, 1);
-#if 0
-    for (auto ij : _staff) {
-        auto i = ij.first, j = ij.second;
-        auto ai = dynamic_cast<PlanetLoc*>(_alist[i]);
-        auto aj = dynamic_cast<PlanetLoc*>(_alist[j]);
-        const auto& pi = ai->planet;
-        const auto& pj = aj->planet;
-        if ((pi.fileId() < 0) != (pj.fileId() < 0)) {
-            qDebug()
-                    << (pi.planetId() == pj.planetId()? "Looking good": "How could this have happened?")
-                    << ai->description() << aj->description();
-        }
-    }
-#endif
+
     // a simplistic predicate for determining whether to prune the
     // planet pair list as the harmonics go up. We want to limit
     // the lunar aspects, and aspects to MC and Asc are somewhat
@@ -3170,13 +3208,39 @@ void AspectFinder::findStuff()
             qreal ad, asp;
             qreal bd, bsp;
             unsigned i, j;
-            hsetId hsid;
+            QString wha_;
+
+            auto what = [&]{
+                if (wha_.isEmpty()) {
+                    wha_ = QString("H%1 %2=%3")
+                        .arg(h)
+                        .arg(_alist[i]->description())
+                        .arg(_alist[j]->description());
+                }
+                return wha_.toStdString();
+            };
+
             for (h = 1; h <= maxH; ++h) {
+                wha_.clear();
                 bool unsel = hs.count(h)==0;
                 if (unsel && !filterLowerUnselectedHarmonics) continue;
 
                 for (auto it = stuff.begin(); it != stuff.end(); ) {
                     std::tie(i,j) = *it;
+
+                    auto hsid = it->hsid;
+                    const auto& hs = _hsets[hsid];
+                    auto ha = hs.lower_bound(h);
+                    if (ha == hs.end()) {
+                        //qDebug() << "Snipping" << what().c_str()
+                        //         << "because no further harmonics";
+                        stuff.erase(it++); continue;
+                    } else if (*ha != h) {
+                        //qDebug() << "Skipping" << what().c_str()
+                        //         << "because not selecting h" << h;
+                        ++it; continue;
+                    }
+
                     if (auto known = dynamic_cast<KnownPosition*>(_alist[j])) {
                         if (std::abs(known->julianDate()-jd) > windowOf(known)) {
                             ++it; continue;
@@ -3197,10 +3261,6 @@ void AspectFinder::findStuff()
                         continue;
                     }
 
-                    QString what = QString("H%1 %2=%3")
-                       .arg(h)
-                       .arg(_alist[i]->description())
-                       .arg(_alist[j]->description());
 #if 1
                     auto pi = dynamic_cast<PlanetLoc*>(_alist[i]);
                     if (pi && pi->allowAspects > PlanetLoc::aspOnlyConj) {
@@ -3209,7 +3269,7 @@ void AspectFinder::findStuff()
                                 ((spd<0)? PlanetLoc::aspOnlyRetro
                                  : PlanetLoc::aspOnlyDirect))
                         {
-                            qDebug() << "skipping wrong-way" << what.toStdString().c_str();
+                            qDebug() << "skipping wrong-way" << what().c_str();
                             stuff.erase(it++);
                             continue;
                         }
@@ -3219,7 +3279,7 @@ void AspectFinder::findStuff()
                     if (!s_quiet) {
                         QDateTime pdt(dateTimeFromJulian(pjd));
                         QDateTime dt(dateTimeFromJulian(jd));
-                        qDebug() << what.toLatin1().constData()
+                        qDebug() << what().c_str()
                                  << dtToString(pdt) << "delta" << ad << asp << "vs"
                              << dtToString(dt) << "delta" << bd << bsp;
                     }
@@ -3263,7 +3323,8 @@ void AspectFinder::findStuff()
                                     std::pair<qreal,qreal> ret { pos, poses.speed() };
                                     if (!s_quiet) {
                                         QDateTime dt(dateTimeFromJulian(jd));
-                                        qDebug() << "nri " << what + ":" << dtToString(dt)
+                                        qDebug() << "nri " << (what() + ":").c_str()
+                                                 << dtToString(dt)
                                                  << "ret:" << ret;
                                     }
                                     return ret;
@@ -3295,7 +3356,7 @@ void AspectFinder::findStuff()
                             if (!done) {
                                 qDebug() << "Failed"
                                 << d.date().toString()
-                                << what
+                                << what().c_str()
                                 << "after" << iter
                                 << "iteration(s) newton_raphson";
                                 qDebug() << "speed" << ispd << jspd << "respectively";
@@ -3309,7 +3370,8 @@ void AspectFinder::findStuff()
                                 auto pos = poses.computePos(jd, h);
                                 if (!s_quiet) {
                                     QDateTime dt(dateTimeFromJulian(jd));
-                                    qDebug() << "bzhs " << what + ":" << dtToString(dt)
+                                    qDebug() << "bzhs " << (what() + ":").c_str()
+                                             << dtToString(dt)
                                              << "ret:" << pos;
                                 }
                                 return pos;
@@ -3327,10 +3389,7 @@ void AspectFinder::findStuff()
                         if (!done) {
                             qDebug() << "Failed"
                                 << d.date().toString()
-                                << QString("H%1 %2=%3")
-                                   .arg(h)
-                                   .arg(_alist[i]->description())
-                                   .arg(_alist[j]->description())
+                                << what().c_str()
                                 << "after" << iter
                                 << "iteration(s) brentStageZhang";
                         } else {
@@ -3358,10 +3417,7 @@ void AspectFinder::findStuff()
 
                             if (!s_quiet)
                                 qDebug() << dtToString(qdt)
-                                         << QString("H%1 %2=%3")
-                                            .arg(h)
-                                            .arg(_alist[i]->description())
-                                            .arg(_alist[j]->description())
+                                         << what().c_str()
                                          << "with" << iter
                                          << "iteration(s)"
                                      << (bzhs? "brentZhangStage" : "newton_raphson");
