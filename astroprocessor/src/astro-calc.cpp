@@ -2705,7 +2705,8 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                 || showTransitsToHouseCusps
                 || showReturns)
         {
-            auto npl = getPlanets();
+            QList<PlanetId> npl;
+            if (showTransitsToNatalPlanets) npl << getPlanets();
             if (showTransitsToNatalAngles
                     && !showTransitsToHouseCusps) npl << getAngles();
 
@@ -2715,6 +2716,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
             }
 
             if (showTransitsToNatalPlanets
+                    || showTransitsToNatalAngles
                     || showTransitsToHouseCusps)
             {
                 QList<PlanetId> tpl;
@@ -2726,14 +2728,12 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
 
                 for (auto pid: qAsConst(tpl)) {
                     auto i = getTransitPlanet(pid);
-                    if (showTransitsToNatalPlanets) {
-                        for (auto j: qAsConst(ppn)) {
-                            auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
-                            auto np = dynamic_cast<NatalPosition*>(_alist[j]);
-                            if (tp->planet.planetId() != np->planet.planetId()
-                                    || !showReturns)
-                            { _staff.emplace_back(i, j,allAsp,etcTransitToNatal); }
-                        }
+                    for (auto j: qAsConst(ppn)) {
+                        auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
+                        auto np = dynamic_cast<NatalPosition*>(_alist[j]);
+                        if (tp->planet.planetId() != np->planet.planetId()
+                                || !showReturns)
+                        { _staff.emplace_back(i, j,allAsp,etcTransitToNatal); }
                     }
                     if (showTransitsToHouseCusps) {
                         for (int h = Houses_Start; h < Houses_End; ++h) {
@@ -2754,7 +2754,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                     hsetId hs = conjOpp;
                     auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
                     auto pl = tp->planet.planetId();
-                    if (pl==Planet_Sun || pl==Planet_Moon) hs = conjOppSq;
+                    if (pl==Planet_Sun /*|| pl==Planet_Moon*/) hs = conjOppSq;
                     _staff.emplace_back(i, j, hs, etcReturn);
                 }
             }
@@ -3227,7 +3227,7 @@ void AspectFinder::findStuff()
 
                 for (auto it = stuff.begin(); it != stuff.end(); ) {
                     std::tie(i,j) = *it;
-
+                    auto et = it->et;
                     auto hsid = it->hsid;
                     const auto& hs = _hsets[hsid];
                     auto ha = hs.lower_bound(h);
@@ -3400,20 +3400,7 @@ void AspectFinder::findStuff()
                             PlanetRangeBySpeed plr { *p1loc, *p2loc };
 
                             auto ch = static_cast<unsigned char>(h);
-                            auto type = _evType;
-                            bool isReturn = p1loc->planet
-                                    .samePlanetDifferentChart(p2loc->planet);
-                            if (!type) {
-                                if (isReturn) {
-                                    type = etcReturn;
-                                } else if (p1loc->inMotion() && p2loc->inMotion()) {
-                                    type = etcTransitToTransit;
-                                } else if (p1loc->inMotion() != p2loc->inMotion()) {
-                                    type = etcTransitToNatal;
-                                }
-                            }
-
-                            ev = HarmonicEvent(qdt, type, ch, std::move(plr));
+                            ev = HarmonicEvent(qdt, et, ch, std::move(plr));
 
                             if (!s_quiet)
                                 qDebug() << dtToString(qdt)
