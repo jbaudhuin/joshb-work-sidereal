@@ -85,6 +85,8 @@ public:
     void setDateRange(const ADateRange& startEnd) { _dateRange = startEnd; }
     void setHarmonic     (double harmonic);
 
+    void setFocalPlanets(const A::PlanetSet& fp = {}) { _focalPlanets = fp; }
+
     QString          getName()         const { return _fileInfo.baseName(); }
     const AFileInfo& fileInfo() const { return _fileInfo; }
     
@@ -108,6 +110,8 @@ public:
 
     A::FileInput     fileInputData() const { return { type, scope.inputData }; }
     A::FileInput     fileInputData(FileType typ) const { return { typ, scope.inputData }; }
+
+    const A::PlanetSet& focalPlanets() const { return _focalPlanets; }
 
     void             calculate() { recalculate(); }
 
@@ -156,6 +160,8 @@ private:
 
     QList<QDateTime> _eventList;  // computed contact dateTimes
     ADateRange _dateRange; // really just start, end
+
+    A::PlanetSet _focalPlanets;
 
     virtual void recalculate();
     void recalculateBaseChart();

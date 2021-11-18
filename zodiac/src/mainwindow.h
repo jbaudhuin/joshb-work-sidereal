@@ -93,6 +93,9 @@ private:
     void switchToSingleAspectSet();
     void switchToSynastryAspectSet();
 
+    A::AspectSetId& overrideAspectSet() const
+    { static A::AspectSetId s_override = -1; return s_override; }
+
 protected:
     bool eventFilter(QObject* obj, QEvent* ev) override;
 

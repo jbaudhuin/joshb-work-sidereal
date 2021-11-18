@@ -484,9 +484,21 @@ A::AspectList
 AstroFileHandler::calculateSynastryAspects()
 {
     qDebug() << "Calculate synatry apects" << file(0)->getAspectSet().id;
-    return A::calculateAspects(file(0)->getAspectSet(), 
-                               file(0)->horoscope().planets, 
-                               file(1)->horoscope().planets);
+    const auto& fp(file(1)->focalPlanets());
+    if (fp.empty()) {
+        A::setOrbFactor(0.25);
+        return A::calculateAspects(file(0)->getAspectSet(),
+                                   file(0)->horoscope().planets,
+                                   file(1)->horoscope().planets);
+    }
+
+    A::ChartPlanetPtrMap planets;
+    for (const auto& cpid : fp) {
+        A::setOrbFactor(1);
+        auto pp = file(cpid.fileId())->horoscope().getPlanet(cpid.planetId());
+        planets.emplace(cpid, pp);
+    }
+    return A::calculateAspects(file(0)->getAspectSet(), planets);
 }
 
 MembersList

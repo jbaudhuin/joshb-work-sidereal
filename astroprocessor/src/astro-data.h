@@ -105,7 +105,7 @@ inline void setDynAspState(const QVariant& var)
     }
     auto type = var.type();
     if (type==QVariant::List || type==QVariant::StringList) {
-        for (auto v : var.toList()) {
+        for (const auto& v : var.toList()) {
             setDynAspState(v.toUInt(), true);
         }
     }
@@ -148,41 +148,48 @@ const PlanetId      Planet_Pluto         =  9;
 const PlanetId      Planet_NorthNode     = 10;
 const PlanetId      Planet_SouthNode     = 11;
 const PlanetId      Planet_Chiron = 12;
-const PlanetId  Planets_End = 20;
+const PlanetId  Planet_Ceres = 13;
+const PlanetId  Planet_Pallas = 14;
+const PlanetId  Planet_Juno = 15;
+const PlanetId  Planet_Vesta = 16;
+const PlanetId  Planets_End = Planet_Vesta + 1;
 
-const PlanetId Houses_Start = 20;
+const PlanetId Angles_Start = Planets_End;
+const PlanetId Planet_Asc = Angles_Start;
+const PlanetId Planet_IC = Angles_Start + 1;
+const PlanetId Planet_Desc = Angles_Start + 2;
+const PlanetId Planet_MC = Angles_Start + 3;
+const PlanetId Angles_End = Angles_Start + 4;
+
+const PlanetId Houses_Start = Angles_End;
 const PlanetId House_1 = Houses_Start;
-const PlanetId Planet_Asc = House_1;
-const PlanetId House_2 = 21;
-const PlanetId House_3 = 22;
-const PlanetId House_4 = 23;
-const PlanetId Planet_IC = House_4;
-const PlanetId House_5 = 24;
-const PlanetId House_6 = 25;
-const PlanetId House_7 = 26;
-const PlanetId Planet_Desc = House_7;
-const PlanetId House_8 = 27;
-const PlanetId House_9 = 28;
-const PlanetId House_10 = 29;
-const PlanetId Planet_MC = House_10;
-const PlanetId House_11 = 30;
-const PlanetId House_12 = 31;
-const PlanetId Houses_End = House_12 + 1;
+const PlanetId House_2 = Houses_Start + 1;
+const PlanetId House_3 = Houses_Start + 2;
+const PlanetId House_4 = Houses_Start + 3;
+const PlanetId House_5 = Houses_Start + 4;
+const PlanetId House_6 = Houses_Start + 5;
+const PlanetId House_7 = Houses_Start + 6;
+const PlanetId House_8 = Houses_Start + 7;
+const PlanetId House_9 = Houses_Start + 8;
+const PlanetId House_10 = Houses_Start + 9;
+const PlanetId House_11 = Houses_Start + 10;
+const PlanetId House_12 = Houses_Start + 11;
+const PlanetId Houses_End = Houses_Start + 12;
 
 const PlanetId Ingresses_Start = Houses_End;
 const PlanetId Ingress_Aries = Ingresses_Start;
-const PlanetId Ingress_Taurus = 33;
-const PlanetId Ingress_Gemini = 34;
-const PlanetId Ingress_Cancer = 35;
-const PlanetId Ingress_Leo = 36;
-const PlanetId Ingress_Virgo = 37;
-const PlanetId Ingress_Libra = 38;
-const PlanetId Ingress_Scorpio = 39;
-const PlanetId Ingress_Sagittarius = 40;
-const PlanetId Ingress_Capricorn = 41;
-const PlanetId Ingress_Aquarius = 42;
-const PlanetId Ingress_Pisces = 43;
-const PlanetId Ingresses_End = Ingress_Pisces + 1;
+const PlanetId Ingress_Taurus = Ingresses_Start + 1;
+const PlanetId Ingress_Gemini = Ingresses_Start + 2;
+const PlanetId Ingress_Cancer = Ingresses_Start + 3;
+const PlanetId Ingress_Leo = Ingresses_Start + 4;
+const PlanetId Ingress_Virgo = Ingresses_Start + 5;
+const PlanetId Ingress_Libra = Ingresses_Start + 6;
+const PlanetId Ingress_Scorpio = Ingresses_Start + 7;
+const PlanetId Ingress_Sagittarius = Ingresses_Start + 8;
+const PlanetId Ingress_Capricorn = Ingresses_Start + 9;
+const PlanetId Ingress_Aquarius = Ingresses_Start + 10;
+const PlanetId Ingress_Pisces = Ingresses_Start + 11;
+const PlanetId Ingresses_End = Ingresses_Start + 12;
 
 const PlanetId Parts_Start = Ingresses_End;
 const PlanetId Part_of_Fortune = Parts_Start;
@@ -687,7 +694,7 @@ public:
 
     bool containsAny(const PlanetSet& pset) const
     {
-        for (auto cpid: pset) if (contains(cpid)) return true;
+        for (const auto &cpid: pset) if (contains(cpid)) return true;
         return false;
     }
 
@@ -847,6 +854,7 @@ public:
 };
 
 typedef QMap<ChartPlanetId, Planet> ChartPlanetMap;
+typedef std::map<ChartPlanetId, const Planet*> ChartPlanetPtrMap;
 
 struct Loc {
     QString desc;
@@ -1556,6 +1564,9 @@ struct Horoscope
         }
         return ret;
     }
+
+    const Planet* getPlanet(PlanetId pid) const
+    { return &const_cast<Horoscope*>(this)->planets[pid]; }
 };
 
 void load(QString language);

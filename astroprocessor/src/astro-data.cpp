@@ -75,26 +75,29 @@ void Data::load(QString language)
     }
     f.close();
 
+    /* harmonic aspects are computed */ {
+    unsigned i = 1, j = 1;
+    std::set<unsigned> harmonics;
+    auto addAspect = [&](AspectsSet& aset, float angle) {
+        AspectType a;
+        a.set = &aset;
+        a.id = ++atype;
+        a.name = QString("%1/%2").arg(j).arg(i);
+        a._harmonic = i;
+        a.factors = harmonics;
+        a.angle = angle;
+        a._orb = float(16)/i;
+        a.userData["good"] = QString::number(i);
+        aset.aspects[a.id] = a;
+    };
+
     if (dynAspSet) {
         // Dynamic aspect set (aspects can be enabled separately
         // under user control)
         auto& aset = aspectSets[dynAspSet];
 
-        std::set<unsigned> harmonics;
-        unsigned i = 1, j = 1;
-        auto addAspect = [&](float angle) {
-            AspectType a;
-            a.set = &aset;
-            a.id = ++atype;
-            a.name = QString("%1/%2").arg(j).arg(i);
-            a._harmonic = i;
-            a.factors = harmonics;
-            a.angle = angle;
-            a._orb = float(16)/i;
-            a.userData["good"] = QString::number(i);
-            aset.aspects[a.id] = a;
-        };
-        addAspect(0);   // conjunction 1/1
+        i = 1, j = 1;
+        addAspect(aset, 0);   // conjunction 1/1
 
         for (i = 2; i <= 32; ++i) {
             auto ifac = A::getAllFactors(i);
@@ -109,10 +112,31 @@ void Data::load(QString language)
                 jfac.erase(1);
                 bool common = false;
                 for (auto k: jfac) if ((common = ifac.count(k))) break;
-                if (!common && ifac.count(j)==0) addAspect(ang * j);
+                if (!common && ifac.count(j)==0) addAspect(aset, ang * j);
             }
         }
     }
+
+    // Aspect sets for individual harmonics with any related factors
+    // thus H4 will include H2 and H1; H6 will include H3 and H2 and H1...
+    for (unsigned h = 1; h <= 32; ++h) {
+        AspectsSet& aset = aspectSets[topAspSet + h];
+        aset.id = topAspSet + h;
+        aset.name = QString("H%1").arg(h);
+
+        i = 1, j = 1;
+        addAspect(aset, 0); // conjunction 1/1 for all of these guys
+
+        harmonics.clear();
+        for (auto k: A::getPrimeFactors(h)) harmonics.insert(k);
+        i = h;
+
+        auto ang = float(360) / i;
+        for (j = 1; j <= i/2; ++j) {
+            addAspect(aset, ang * j);
+        }
+    }
+    } // harmonic aspects
 
     f.setFileName("astroprocessor/hsystems.csv");
     if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
@@ -326,7 +350,9 @@ Data::getPlanets()
     return {
         Planet_Sun, Planet_Moon, Planet_Mercury, Planet_Venus,
                 Planet_Mars, Planet_Jupiter, Planet_Saturn, Planet_Uranus,
-                Planet_Neptune, Planet_Pluto, Planet_Chiron
+                Planet_Neptune, Planet_Pluto, Planet_Chiron,
+                Planet_Juno, Planet_Vesta, Planet_Pallas, Planet_Ceres,
+                Planet_NorthNode, Planet_SouthNode
     };
 }
 
@@ -342,7 +368,8 @@ QList<PlanetId>
 Data::getInnerPlanets()
 {
     return {
-        Planet_Sun, Planet_Moon, Planet_Mercury, Planet_Venus, Planet_Mars
+        Planet_Sun, Planet_Moon, Planet_Mercury, Planet_Venus, Planet_Mars,
+                Planet_Juno, Planet_Vesta, Planet_Pallas, Planet_Ceres
     };
 }
 
@@ -351,7 +378,8 @@ Data::getOuterPlanets()
 {
     return {
         Planet_Jupiter, Planet_Saturn, Planet_Uranus,
-                Planet_Neptune, Planet_Pluto, Planet_Chiron
+                Planet_Neptune, Planet_Pluto, Planet_Chiron,
+                Planet_NorthNode, Planet_SouthNode
     };
 }
 

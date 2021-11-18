@@ -204,6 +204,11 @@ aspect(const Star& planet1, const Star& planet2,
     return aspect(angle(planet1, planet2), aspectSet);
 }
 
+inline
+AspectId
+aspect(const Planet* p1, const Planet* p2, const AspectsSet& asps)
+{ return aspect(*p1, *p2, asps); }
+
 AspectId aspect(const Star& planet1, float degree, const AspectsSet& aspectSet)
 {
     return aspect(angle(planet1, degree), aspectSet);
@@ -1140,6 +1145,13 @@ calculateAspect( const AspectsSet& aspectSet,
     return a;
 }
 
+inline
+Aspect
+calculateAspect(const AspectsSet& asps,
+                const Planet* p1,
+                const Planet* p2)
+{ return calculateAspect(asps, *p1, *p2); }
+
 Aspect
 calculateAspect(const AspectsSet& aspectSet,
                  const Loc *p1loc,
@@ -1164,21 +1176,42 @@ calculateAspects( const AspectsSet& aspectSet,
 
     PlanetMap::const_iterator i = planets.constBegin();
     while (i != planets.constEnd()) {
+#if 0
         if ((i->id >= Planet_Sun && i->id <= Planet_Pluto)
             || i->id == Planet_Chiron)
         {
+#endif
             PlanetMap::const_iterator j = std::next(i);
             while (j != planets.constEnd()) {
-                if (((j->id >= Planet_Sun && j->id <= Planet_Pluto)
+                if (/*((j->id >= Planet_Sun && j->id <= Planet_Pluto)
                      || j->id == Planet_Chiron)
-                    && aspect(i.value(), j.value(), aspectSet) != Aspect_None) 
+                    &&*/ aspect(i.value(), j.value(), aspectSet) != Aspect_None)
                 {
                     ret << calculateAspect(aspectSet, i.value(), j.value());
                 }
                 ++j;
             }
+#if 0
         }
+#endif
         ++i;
+    }
+
+    return ret;
+}
+
+AspectList
+calculateAspects(const AspectsSet& aspectSet,
+                 const ChartPlanetPtrMap& planets)
+{
+    AspectList ret;
+
+    for (auto it = planets.cbegin(); it != planets.cend(); ++it) {
+        for (auto jit = std::next(it); jit != planets.cend(); ++jit) {
+            if (aspect(it->second,jit->second,aspectSet)
+                    != Aspect_None)
+                ret << calculateAspect(aspectSet, it->second, jit->second);
+        }
     }
 
     return ret;
@@ -1191,16 +1224,16 @@ calculateAspects(const AspectsSet& aspectSet,
 {
     AspectList ret;
     for (auto i = planets1.constBegin(); i != planets1.constEnd(); ++i) {
-        if ((i->id >= Planet_Sun && i->id <= Planet_Pluto) || i->id == Planet_Chiron) {
+        //if ((i->id >= Planet_Sun && i->id <= Planet_Pluto) || i->id == Planet_Chiron) {
             for (auto j = planets2.constBegin(); j != planets2.constEnd(); ++j) {
-                if (((j->id >= Planet_Sun && j->id <= Planet_Pluto)
+                if (/*((j->id >= Planet_Sun && j->id <= Planet_Pluto)
                      || j->id == Planet_Chiron)
-                    && aspect(i.value(), j.value(), aspectSet) != Aspect_None)
+                    &&*/ aspect(i.value(), j.value(), aspectSet) != Aspect_None)
                 {
                     ret << calculateAspect(aspectSet, i.value(), j.value());
                 }
             }
-        }
+        //}
     }
 
     return ret;
@@ -2579,7 +2612,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
             ChartPlanetId cpid(natus, pid, Planet_None);
             if (!index.contains(cpid)) {
                 index[cpid] = _alist.size();
-                auto pl = new NatalPosition(cpid, _ids[natus]);
+                auto pl = new NatalPosition(cpid, _ids[natus], "r");
                 if (pid >= Houses_Start && pid < Houses_End) {
                     pl->allowAspects = PlanetLoc::aspOnlyConj;
                 }
@@ -2649,12 +2682,21 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
         if (showTransitsToTransits) {
             for (int i = 0; i < ppi.size(); ++i) {
                 hsetId hs = allAsp;
-                if (limitLunarTransits) {
-                    auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[i]]);
-                    if (tp->planet.planetId() == Planet_Moon) hs = conjOpp;
-                }
+                auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[i]]);
+                auto pl = tp->planet.planetId();
+                if (pl == Planet_NorthNode || pl == Planet_SouthNode)
+                    hs = conj;
+                else if (limitLunarTransits && pl == Planet_Moon)
+                    hs = conjOpp;
                 for (int j = i+1; j < ppi.size(); ++j) {
-                    _staff.emplace_back(i, j, hs, etcTransitToTransit);
+                    auto hst = hs;
+                    auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[j]]);
+                    auto pl = tp->planet.planetId();
+                    if (pl == Planet_NorthNode || pl == Planet_SouthNode) {
+                        if (hs == conj) continue;
+                        hst = conj;
+                    }
+                    _staff.emplace_back(i, j, hst, etcTransitToTransit);
                 }
             }
         }
@@ -2707,8 +2749,6 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
         {
             QList<PlanetId> npl;
             if (showTransitsToNatalPlanets) npl << getPlanets();
-            if (showTransitsToNatalAngles
-                    && !showTransitsToHouseCusps) npl << getAngles();
 
             QVector<unsigned> ppn;
             for (auto pid: qAsConst(npl)) {
@@ -2733,7 +2773,18 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                         auto np = dynamic_cast<NatalPosition*>(_alist[j]);
                         if (tp->planet.planetId() != np->planet.planetId()
                                 || !showReturns)
-                        { _staff.emplace_back(i, j,allAsp,etcTransitToNatal); }
+                        {
+                            auto hs = allAsp;
+                            auto pl = np->planet.planetId();
+                            if (pl == Planet_NorthNode || pl == Planet_SouthNode)
+                                hs = conj;
+                            else {
+                                pl = tp->planet.planetId();
+                                if (pl == Planet_NorthNode || pl == Planet_SouthNode)
+                                    hs = conj;
+                            }
+                            _staff.emplace_back(i, j, hs, etcTransitToNatal);
+                        }
                     }
                     if (showTransitsToHouseCusps) {
                         for (int h = Houses_Start; h < Houses_End; ++h) {
@@ -2742,6 +2793,11 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                                                 etcHouseIngress);
                             _staff.emplace_back(i, getHouseIngress(h,false), conj,
                                                 etcHouseIngress);
+                        }
+                    } else if (showTransitsToNatalAngles) {
+                        for (auto a: getAngles()) {
+                            _staff.emplace_back(i, getNatalPlanet(a), conj,
+                                                etcTransitToNatal);
                         }
                     }
                 }
@@ -2754,7 +2810,11 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                     hsetId hs = conjOpp;
                     auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
                     auto pl = tp->planet.planetId();
-                    if (pl==Planet_Sun /*|| pl==Planet_Moon*/) hs = conjOppSq;
+                    if (pl==Planet_Sun /*|| pl==Planet_Moon*/)
+                        hs = conjOppSq;
+                    else if (pl==Planet_NorthNode
+                             || pl==Planet_SouthNode)
+                        hs = conj;
                     _staff.emplace_back(i, j, hs, etcReturn);
                 }
             }
@@ -2863,7 +2923,15 @@ AspectFinder::findStations()
             if (stationChecked.count(i)!=0) continue;
             stationChecked.insert(i);
 
-            if (!_alist[i]->inMotion()) continue;
+            auto pl = dynamic_cast<TransitPosition*>(_alist[i]);
+            if (!pl) continue;
+
+            auto pid = pl->planet.planetId();
+            if (pid <= Planet_Moon
+                    || pid == Planet_NorthNode || pid == Planet_SouthNode
+                    || pid >= Planets_End)
+            { continue; }
+
             auto aspd = _alist[i]->speed;
             auto bspd = b[i]->speed;
             if (!s_quiet) {
@@ -3809,13 +3877,17 @@ findClusters(unsigned h, double jd,
 
         auto cpid = ploc->planet;
         if (cpid.fileId() < 0 || cpid.fileId() >= int(pfid.size())) continue;
+        auto pid = cpid.planetId();
 #if 0
-        if (cpid.planetId() == Planet_Moon
+        if (pid == Planet_Moon
                 && ploc->inMotion()) continue; // *** skip moon ***
 #endif
-        if (h>1 && (cpid.planetId() >= Houses_Start
-                    && cpid.planetId() < Houses_End))
+        if (h>1 && ((pid >= Houses_Start
+                    && pid < Houses_End)
+                    || (pid == Planet_IC
+                         || pid == Planet_Desc)))
         { continue; }
+        if (h%2==0 && (pid == Planet_SouthNode)) continue;
 
         ++pfid[cpid.fileId()];
         const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );

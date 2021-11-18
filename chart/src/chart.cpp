@@ -501,18 +501,23 @@ Chart::updatePlanetsAndCusps(int fileIndex)
 void Chart::updateAspects()
 {
     int i = 0;
-    const A::AspectList& list = (filesCount() == 1
-                                 ? file()->horoscope().aspects
-                                 : calculateSynastryAspects());
-    for (const A::Aspect& asp : list) {
+    auto list = (filesCount() == 1
+                 ? file()->horoscope().aspects
+                 : calculateSynastryAspects());
+    for (const A::Aspect& asp : qAsConst(list)) {
         if ((asp.planet1->id == A::Planet_Asc
              || asp.planet2->id == A::Planet_MC)
                 && !A::includeAscMC())
         {
             continue;
         }
-        QLineF line(getCircleMarker(asp.planet1)->sceneBoundingRect().center(),
-                    getCircleMarker(asp.planet2)->sceneBoundingRect().center());
+        auto m1 = getCircleMarker(asp.planet1);
+        auto m2 = getCircleMarker(asp.planet2);
+        if (!m1 || !m2) {
+            qDebug() << "Wait, what?";
+        }
+        QLineF line(m1->sceneBoundingRect().center(),
+                    m2->sceneBoundingRect().center());
 
         // add or change geometry
         if (i >= aspects.count()) {

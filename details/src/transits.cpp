@@ -7,7 +7,6 @@
 #include <QFile>
 #include <QComboBox>
 #include <QLabel>
-#include <QTreeView>
 #include <QStandardItemModel>
 #include <QStandardItem>
 #include <QStringListModel>
@@ -223,7 +222,8 @@ public:
         if (!n.isEmpty()) {
             return QString("%1 %2=%3").arg(h,t,n);
         }
-        return rowDate(row).toLocalTime().toString("yyyy MMMM") + " " + t;
+        return QString("%1 %2 %3")
+                .arg(h,rowDate(row).toLocalTime().toString("yyyy MMMM"), t);
     }
 
     QVariant headerData(int col,
@@ -344,7 +344,10 @@ public:
             }
         }
 
-        return sl.join((role == Qt::ToolTipRole)? "-" : ",");
+        QString joint = ",";
+        if (role == Qt::ToolTipRole) joint = "-";
+        else if (role == SummaryRole) joint = "=";
+        return sl.join(joint);
     }
 
     template <typename T>
@@ -361,6 +364,7 @@ public:
             return std::make_pair(it, end);
         }
         auto it = locs.rbegin();
+        if (it == locs.rend()) return std::make_pair(it,it);
         return std::make_pair(it, std::next(it));
     }
 
@@ -378,6 +382,7 @@ public:
             return std::make_pair(it, end);
         }
         auto it = locs.begin();
+        if (it == locs.end()) return std::make_pair(it, it);
         return std::make_pair(it, std::next(it));
     }
 
@@ -418,6 +423,10 @@ public:
         const auto& asp(prow==-1 ? (*_evs[row])
                                  : _evs[prow]->coincidence(row));
         auto et = asp.eventType();
+
+        if (col >= transitBodyCol && role == RawRole) {
+            return QVariant::fromValue<A::PlanetSet>(evr->planets());
+        }
 
         switch (col) {
         case dateCol:
@@ -528,7 +537,7 @@ public:
             case transitBodyCol:
             {
                 A::PlanetClusterLess prless(true/*fast*/);
-                if (true || a->locations().empty() && b->locations().empty()) {
+                if (true || (a->locations().empty() && b->locations().empty())) {
                     if (prless(a->planets(),b->planets())) return true;
                     if (prless(b->planets(),a->planets())) return false;
                 } else {
@@ -545,7 +554,7 @@ public:
             case natalTransitBodyCol:   // XXX
             {
                 A::PlanetClusterLess prless(false/*not fast*/);
-                if (true || a->locations().empty() && b->locations().empty()) {
+                if (true || (a->locations().empty() && b->locations().empty())) {
                     if (prless(a->planets(),b->planets())) return true;
                     if (prless(b->planets(),a->planets())) return false;
                 } else {
@@ -777,7 +786,6 @@ ADateDelta::subtractFrom(const QDate &d)
     return d.addYears(-numYears).addMonths(-numMonths).addDays(-numDays);
 }
 
-
 Transits::Transits(QWidget* parent) :
     AstroFileHandler(parent),
     _planet(A::Planet_None),
@@ -791,7 +799,7 @@ Transits::Transits(QWidget* parent) :
     _ddelta(A::EventOptions::current().defaultTimespan),
     _chs(nullptr)
 {
-    _tview = new QTreeView;
+    _tview = new TransitTreeView;
     _tview->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _tview->expandAll();
 
@@ -878,12 +886,17 @@ Transits::Transits(QWidget* parent) :
     });
 #endif
 
+
     connect(_tview, SIGNAL(doubleClicked(const QModelIndex&)),
             this, SLOT(doubleClickedCell(const QModelIndex&)));
+#if 0
     connect(_tview, SIGNAL(pressed(const QModelIndex&)),
             this, SLOT(clickedCell(const QModelIndex&)));
+#endif
     connect(_tview->header(), SIGNAL(sectionDoubleClicked(int)),
             this, SLOT(headerDoubleClicked(int)));
+    connect(_tview, SIGNAL(currently(const QModelIndex&)),
+            this, SLOT(clickedCell(const QModelIndex&)));
 
     connect(this, SIGNAL(needToFindIt(const QString&)), 
             this, SLOT(findIt(const QString&)));
@@ -928,6 +941,10 @@ Transits::Transits(QWidget* parent) :
                 MainWindow::theAstroWidget(), SLOT(setHarmonic(double)));
     });
 }
+
+QTreeView *
+Transits::ttv() const
+{ return _tview; }
 
 void 
 Transits::describePlanet()
@@ -1151,6 +1168,9 @@ Transits::clickedCell(QModelIndex inx)
     bool ctrl = (QApplication::keyboardModifiers() & Qt::ControlModifier);
     if (lbtn && ctrl) lbtn = false, mbtn = true;
 
+    A::modalize<A::AspectSetId>
+            aset(MainWindow::theAstroWidget()->overrideAspectSet(), -1);
+    A::PlanetSet focal;
     if (inx.column()==EventsTableModel::harmonicCol)  {
         auto v = inx.data(EventsTableModel::RawRole);
         qDebug() << v;
@@ -1160,6 +1180,11 @@ Transits::clickedCell(QModelIndex inx)
         }
     } else if (inx.column()==EventsTableModel::dateCol) {
         emit updateHarmonics(1);
+    } else if (inx.column() >= EventsTableModel::transitBodyCol) {
+        auto v = inx.sibling(inx.row(),EventsTableModel::harmonicCol)
+                .data(EventsTableModel::RawRole);
+        aset = A::topAspectSet().id + v.toUInt();
+        focal = inx.data(EventsTableModel::RawRole).value<A::PlanetSet>();
     }
 
     auto par = inx.parent();
@@ -1172,10 +1197,21 @@ Transits::clickedCell(QModelIndex inx)
     auto desc = _evm->rowDesc(inx.row());
     A::modalize<bool> noup(_inhibitUpdate);
     if (transitsOnly()) {
+        file()->setFocalPlanets(focal);
         file()->setName(desc);
         file()->setGMT(dt);
         emit updateFirst(file());
     } else {
+        // Grr make transit planets be in fileId 1
+        A::PlanetSet shift;
+        for (auto cpid : focal) {
+            if (cpid.fileId() == 0) {
+                cpid.setFileId(1); shift.emplace(cpid);
+            }
+        }
+        if (shift.size() == focal.size()) focal.swap(shift);
+
+        transitsAF()->setFocalPlanets(focal);
         transitsAF()->setName(desc);
         transitsAF()->setGMT(dt);
         emit updateSecond(transitsAF());
@@ -1357,7 +1393,7 @@ Transits::filesUpdated(MembersList m)
         { any |= (ml & AstroFile::GMT); }
         any |= (ml & (AstroFile::Timezone
                       | AstroFile::Zodiac
-                      | AstroFile::AspectSet));
+                      | AstroFile::AspectMode));
     }
     if (any) {
 #if OLDMODEL

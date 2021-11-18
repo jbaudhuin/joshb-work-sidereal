@@ -81,6 +81,7 @@ public:
     { _state = _was;}
 
     operator const T&() const { return _state; }
+    modalize& operator=(T newState) { _state = newState; return *this; }
 };
 
 enum aspectModeEnum {
@@ -497,6 +498,7 @@ Aspect      calculateAspect      ( const AspectsSet& aspectSet, const Planet& pl
 Aspect calculateAspect(const AspectsSet&, const Loc*, const Loc*);
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets );
 AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets1, const PlanetMap& planets2 );   // synastry
+AspectList calculateAspects(const AspectsSet&, const ChartPlanetPtrMap& planets);
 
 void calculateOrbAndSpan(const PlanetProfile& poses,
                          const InputData& locale,

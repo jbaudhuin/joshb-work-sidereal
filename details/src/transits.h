@@ -5,6 +5,7 @@
 #include <QLineEdit>
 #include <QModelIndex>
 #include <QButtonGroup>
+#include <QTreeView>
 #include <Astroprocessor/Gui>
 
 class QTreeView;
@@ -32,7 +33,21 @@ public:
     }
 
     ~ASignalBlocker()
-    { for (auto obj : _unblock) obj->blockSignals(false); }
+    { for (auto obj : qAsConst(_unblock)) obj->blockSignals(false); }
+};
+
+class TransitTreeView : public QTreeView {
+    Q_OBJECT;
+
+public:
+    using QTreeView::QTreeView;
+
+signals:
+    void currently(const QModelIndex&);
+
+protected:
+    void currentChanged(const QModelIndex& now, const QModelIndex&) override
+    { emit currently(now); }
 };
 
 class Transits : public AstroFileHandler
@@ -43,7 +58,7 @@ public:
     Transits(QWidget* parent = nullptr);
     ~Transits() { }
 
-    QTreeView* ttv() const { return _tview; }
+    QTreeView* ttv() const;
 
 protected:                            // AstroFileHandler implementation
     void filesUpdated(MembersList);
@@ -117,7 +132,8 @@ private:
 
     AstroFile* _trans = nullptr;
 
-    QTreeView* _tview;
+    TransitTreeView* _tview;
+
     QLineEdit* _input;
     QDateEdit* _start;
     QLineEdit* _duration;
