@@ -103,8 +103,7 @@ void Data::load(QString language)
             auto ifac = A::getAllFactors(i);
             ifac.erase(1);
 
-            harmonics.clear();
-            for (auto k : A::getPrimeFactors(i)) harmonics.insert(k);
+            A::getPrimeFactors(i, harmonics); // Essentially coloring
 
             auto ang = float(360)/i;
             for (j = 1; j <= i/2; ++j) {
@@ -125,15 +124,28 @@ void Data::load(QString language)
         aset.name = QString("H%1").arg(h);
 
         i = 1, j = 1;
-        addAspect(aset, 0); // conjunction 1/1 for all of these guys
+        addAspect(aset, 0);   // conjunction 1/1
 
-        harmonics.clear();
-        for (auto k: A::getPrimeFactors(h)) harmonics.insert(k);
-        i = h;
+        uintSSet hfac;
+        A::getAllFactorsAlt(h, hfac);
+        hfac.erase(1);
 
-        auto ang = float(360) / i;
-        for (j = 1; j <= i/2; ++j) {
-            addAspect(aset, ang * j);
+        for (auto it = hfac.begin(); it != hfac.end(); ++it) {
+            i = *it;
+
+            auto ifac = A::getAllFactors(i);
+            ifac.erase(1);
+
+            A::getPrimeFactors(i, harmonics); // Essentially coloring
+
+            auto ang = float(360)/i;
+            for (j = 1; j <= i/2; ++j) {
+                auto jfac = A::getAllFactors(j);
+                jfac.erase(1);
+                bool common = false;
+                for (auto k: jfac) if ((common = ifac.count(k))) break;
+                if (!common && ifac.count(j)==0) addAspect(aset, ang * j);
+            }
         }
     }
     } // harmonic aspects

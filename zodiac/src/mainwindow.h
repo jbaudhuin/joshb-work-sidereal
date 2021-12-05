@@ -93,7 +93,7 @@ private:
     void switchToSingleAspectSet();
     void switchToSynastryAspectSet();
 
-    A::AspectSetId& overrideAspectSet() const
+    A::AspectSetId& overrideAspectSet()
     { static A::AspectSetId s_override = -1; return s_override; }
 
 protected:
@@ -141,8 +141,13 @@ public:
     void applySettings(const AppSettings&);
     void setupSettingsEditor(AppSettingsEditor*);
 
+    const A::AspectSetId& overrideAspectSet() const
+    { return const_cast<AstroWidget*>(this)->overrideAspectSet(); }
+
+
     friend class FilesBar;
     friend class Transits;
+    friend class AstroFileHandler;
 };
 
 

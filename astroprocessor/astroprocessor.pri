@@ -7,6 +7,7 @@ SOURCES += \
     src/csvreader.cpp
 
 HEADERS +=\
+    $$PWD/include/Astroprocessor/Zodiac \
     src/appsettings.h \
     src/astro-gui.h \
     src/astro-output.h \
@@ -16,6 +17,7 @@ HEADERS +=\
     include/Astroprocessor/Gui \
     include/Astroprocessor/Data \
     include/Astroprocessor/Calc \
+    include/Astroprocessor/Zodiac \
     src/csvreader.h
 
 INCLUDEPATH += ../swe ../../boost_1_74_0

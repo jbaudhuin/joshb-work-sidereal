@@ -293,7 +293,7 @@ public:
         if (!desc.isEmpty()) {
             if (desc=="SD") desc = "%&";
             else if (desc=="SR") desc = "%#";
-            else if (desc=="n") desc = "";
+            else if (desc=="n" || desc=="r") desc = "";
         }
         if (s.speed < 0 && !s.desc.startsWith("S")) {
             desc = "#" + desc; // retrograde
@@ -435,7 +435,7 @@ public:
                 auto dt = _evs[row]->dateTime().toLocalTime();
                 if (role == RawRole) return dt;
                 if (role == Qt::ToolTipRole)
-                    return dt.toString();   // XXX format
+                    return dt.toString("ddd hh:mm:ss.zzz");   // XXX format
                 return dt.toString("yyyy/MM/dd");
             }
 

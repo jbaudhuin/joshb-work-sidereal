@@ -1,0 +1,6 @@
+#ifndef ZODIAC_H
+#define ZODIAC_H
+
+#include "../../zodiac/src/mainwindow.h"
+
+#endif // ZODIAC_H

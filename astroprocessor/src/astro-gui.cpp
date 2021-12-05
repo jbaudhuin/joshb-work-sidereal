@@ -9,6 +9,7 @@
 
 #include "astro-calc.h"
 #include "astro-gui.h"
+#include <Astroprocessor/Zodiac>
 
 /* ====================== ASTRO FILE ============================= */
 
@@ -478,6 +479,32 @@ AstroFileHandler::setFiles(const AstroFileList& files)
         delayUpdate = true;
     }
 
+}
+
+A::AspectList
+AstroFileHandler::calculateAspects()
+{
+    auto& scope = file(0)->horoscope();
+    const auto& input = scope.inputData;
+
+    const auto& fp(file(0)->focalPlanets());
+    if (fp.empty()) {
+        scope.aspects =
+                A::calculateAspects(A::getAspectSet(input.aspectSet),
+                                    scope.planets);
+
+        return scope.aspects;
+    }
+
+    A::ChartPlanetPtrMap planets;
+    for (const auto& cpid : fp) {
+        A::setOrbFactor(1);
+        auto pp = file(cpid.fileId())->horoscope().getPlanet(cpid.planetId());
+        planets.emplace(cpid, pp);
+    }
+    const auto& asps =
+            A::getAspectSet(MainWindow::theAstroWidget()->overrideAspectSet());
+    return A::calculateAspects(asps, planets);
 }
 
 A::AspectList

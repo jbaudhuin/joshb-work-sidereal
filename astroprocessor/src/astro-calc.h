@@ -197,7 +197,11 @@ bool    isEarlier                ( const Planet& planet, const Planet& sun );
 PlanetId receptionWith           ( const Planet& planet, const Horoscope& scope );
 
 uintMSet getAllFactors(unsigned h);
+void getAllFactors(unsigned h, uintSSet& ss);
+void getAllFactorsAlt(unsigned h, uintSSet& ss);
 uintMSet getPrimeFactors(unsigned h);
+void getPrimeFactors(unsigned h, uintSSet& ss);
+
 std::vector<bool> getPrimeSieve(unsigned top);
 uintMSet getPrimes(unsigned top);
 

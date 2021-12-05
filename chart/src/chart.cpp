@@ -502,7 +502,7 @@ void Chart::updateAspects()
 {
     int i = 0;
     auto list = (filesCount() == 1
-                 ? file()->horoscope().aspects
+                 ? calculateAspects()
                  : calculateSynastryAspects());
     for (const A::Aspect& asp : qAsConst(list)) {
         if ((asp.planet1->id == A::Planet_Asc

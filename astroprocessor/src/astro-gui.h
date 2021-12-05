@@ -97,6 +97,7 @@ public:
     const QDateTime& getGMT()          const { return scope.inputData.GMT; }
     const short&     getTimezone()     const { return scope.inputData.tz; }
     //A::Horoscope& horoscope() { return scope; }
+    A::Horoscope& horoscope() { return scope; }
     const A::Horoscope& horoscope()    const { return scope; }
     A::HouseSystemId getHouseSystem()  const { return scope.inputData.houseSystem; }
     A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac; }
@@ -203,7 +204,9 @@ class AstroFileHandler : public QWidget, public Customizable
 
     public:
         AstroFileHandler(QWidget *parent = nullptr);
+        A::AspectList calculateAspects();
         A::AspectList calculateSynastryAspects();
+
         void resumeUpdate();
         void setFiles(const AstroFileList& files);
 

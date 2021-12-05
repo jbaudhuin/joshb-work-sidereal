@@ -52,16 +52,19 @@ aspectModeType aspectMode(amcEcliptic);
     return aspectMode;
 }
 
-double getJulianDate(QDateTime GMT, bool ephemerisTime/*=false*/)
+double getJulianDate(QDateTime GMT,
+                     bool ephemerisTime/*=false*/)
 {
     char serr[256];
     double ret[2];
-    swe_utc_to_jd(GMT.date().year(),
-                  GMT.date().month(),
-                  GMT.date().day(),
-                  GMT.time().hour(),
-                  GMT.time().minute(),
-                  GMT.time().second() + GMT.time().msec() / 1000,
+    const auto& date(GMT.date());
+    const auto& time(GMT.time());
+    swe_utc_to_jd(date.year(),
+                  date.month(),
+                  date.day(),
+                  time.hour(),
+                  time.minute(),
+                  double(time.second()) + (time.msec() / 1000.),
                   1/*gregorian*/, ret, serr);
     return ret[ephemerisTime ? 0 : 1]; // ET or UT
 }
@@ -1313,6 +1316,13 @@ getPrimeFactors(unsigned n)
     return ret;
 }
 
+void
+getPrimeFactors(unsigned n, uintSSet& ss)
+{
+    ss.clear();
+    for (auto f: getPrimeFactors(n)) ss.emplace(f);
+}
+
 uintMSet
 getAllFactors(unsigned h)
 {
@@ -1326,6 +1336,21 @@ getAllFactors(unsigned h)
     }
     return fs;
 }
+
+void
+getAllFactors(unsigned n, uintSSet& ss)
+{
+    ss.clear();
+    for (auto f: getAllFactors(n)) ss.emplace(f);
+}
+
+void
+getAllFactorsAlt(unsigned n, uintSSet& ss)
+{
+    getAllFactors(n, ss);
+    ss.emplace(n);
+}
+
 
 bool
 hasPlanetGroupInLowerHarmonic(const PlanetHarmonics& harmonics,
@@ -1745,9 +1770,6 @@ calculateBaseChartHarmonic(Horoscope& scope)
                 calculatePlanetPower(scope.planets[id], scope);
         }
     }
-
-    scope.aspects =
-        calculateAspects(getAspectSet(input.aspectSet), scope.planets);
 }
 
 /*
@@ -2556,15 +2578,17 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
     QMap<ChartPlanetId, unsigned> index, revIndex;
 
     uintSSet conjSet { 1 };
-    uintSSet conjOppSet { 1, 2 };
-    uintSSet conjOppSqSet { 1, 2, 4 };
-
     hsetId conj = _hsets.size();
     _hsets.emplace_back(conjSet);
+
+    uintSSet conjOppSet { 1, 2 };
     hsetId conjOpp = _hsets.size();
     _hsets.emplace_back(conjOppSet);
+
+    uintSSet conjOppSqSet { 1, 2, 4 };
     hsetId conjOppSq = _hsets.size();
     _hsets.emplace_back(conjOppSqSet);
+
     hsetId allAsp = _hsets.size();
     _hsets.emplace_back(hset);  // the all aspects set...
 
@@ -2669,30 +2693,37 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
 
     if (trans && (showTransitsToTransits
                   || showTransitAspectPatterns
+                  || showTransitNatalAspectPatterns
                   || showStations
                   || showIngresses))
     {
-        QVector<unsigned> ppi;
+        QVector<unsigned> ppi, ppo;
         for (auto pid: getPlanets()) {
             ppi << getTransitPlanet(pid);
         }
+        if (includeOnlyOuterTransitsToNatal) {
+            for (auto pid: getOuterPlanets()) {
+                ppo << getTransitPlanet(pid);
+            }
+        } else ppo = ppi;
         // the above loop has added the planets to the list used
         // by pattern or station finder
 
         if (showTransitsToTransits) {
-            for (int i = 0; i < ppi.size(); ++i) {
+            for (int i = 0; i < ppo.size(); ++i) {
                 hsetId hs = allAsp;
-                auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[i]]);
+                auto tp = dynamic_cast<TransitPosition*>(_alist[ppo[i]]);
                 auto pl = tp->planet.planetId();
                 if (pl == Planet_NorthNode || pl == Planet_SouthNode)
                     hs = conj;
                 else if (limitLunarTransits && pl == Planet_Moon)
                     hs = conjOpp;
-                for (int j = i+1; j < ppi.size(); ++j) {
+                for (int j = 0; j < ppi.size(); ++j) {
                     auto hst = hs;
                     auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[j]]);
-                    auto pl = tp->planet.planetId();
-                    if (pl == Planet_NorthNode || pl == Planet_SouthNode) {
+                    auto opl = tp->planet.planetId();
+                    if (pl > opl) continue;
+                    if (opl == Planet_NorthNode || opl == Planet_SouthNode) {
                         if (hs == conj) continue;
                         hst = conj;
                     }
@@ -2748,7 +2779,8 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                 || showReturns)
         {
             QList<PlanetId> npl;
-            if (showTransitsToNatalPlanets) npl << getPlanets();
+            if (showTransitsToNatalPlanets || showTransitNatalAspectPatterns)
+                npl << getPlanets();
 
             QVector<unsigned> ppn;
             for (auto pid: qAsConst(npl)) {
@@ -3044,7 +3076,7 @@ void AspectFinder::findStuff()
     auto hs = *_hsets.crbegin();
     unsigned maxH = hs.empty()? 1 : *hs.crbegin();
 
-    modalize<bool> mum(s_quiet);
+    modalize<bool> mum(s_quiet,false);
     harmonize haha(_ids, 1);
 
     // a simplistic predicate for determining whether to prune the
@@ -3289,11 +3321,11 @@ void AspectFinder::findStuff()
             };
 
             for (h = 1; h <= maxH; ++h) {
-                wha_.clear();
                 bool unsel = hs.count(h)==0;
                 if (unsel && !filterLowerUnselectedHarmonics) continue;
 
                 for (auto it = stuff.begin(); it != stuff.end(); ) {
+                    wha_.clear();
                     std::tie(i,j) = *it;
                     auto et = it->et;
                     auto hsid = it->hsid;
@@ -3316,7 +3348,7 @@ void AspectFinder::findStuff()
                     }
                     qreal ispd = qAbs(_alist[i]->speed/2. + b[i]->speed/2.);
                     qreal jspd = qAbs(_alist[j]->speed/2. + b[j]->speed/2.);
-                    if (ispd > jspd) std::swap(i,j);
+                    if (ispd > jspd) { std::swap(i,j); std::swap(ispd,jspd); }
 
                     std::tie(ad, asp) = PlanetProfile::computeDelta(_alist[i], _alist[j], h);
                     std::tie(bd, bsp) = PlanetProfile::computeDelta(b[i], b[j], h);
@@ -3351,6 +3383,7 @@ void AspectFinder::findStuff()
                                  << dtToString(pdt) << "delta" << ad << asp << "vs"
                              << dtToString(dt) << "delta" << bd << bsp;
                     }
+                    auto which = what();
 
                     // At this point, we figure there's _alist transit.
                     // If the harmonic is not on our list, let's clip the
@@ -3384,14 +3417,14 @@ void AspectFinder::findStuff()
                         bool done = false;
                         if (!useBZS) {
                             try {
-                                auto cps = [&poses, &what, h](double jd)
+                                auto cps = [&poses, &which, h](double jd)
                                 -> std::pair<qreal,qreal>
                                 {
                                     auto pos = poses.computePos(jd,h);
                                     std::pair<qreal,qreal> ret { pos, poses.speed() };
                                     if (!s_quiet) {
                                         QDateTime dt(dateTimeFromJulian(jd));
-                                        qDebug() << "nri " << (what() + ":").c_str()
+                                        qDebug() << "nri " << (which + ":").c_str()
                                                  << dtToString(dt)
                                                  << "ret:" << ret;
                                     }
@@ -3424,7 +3457,7 @@ void AspectFinder::findStuff()
                             if (!done) {
                                 qDebug() << "Failed"
                                 << d.date().toString()
-                                << what().c_str()
+                                << which.c_str()
                                 << "after" << iter
                                 << "iteration(s) newton_raphson";
                                 qDebug() << "speed" << ispd << jspd << "respectively";
@@ -3433,12 +3466,12 @@ void AspectFinder::findStuff()
                         if (!done) {
                             bzhs = true;
                             unsigned count = 0;
-                            auto cp = [&poses, &count, &what, h](double jd) {
+                            auto cp = [&poses, &count, &which, h](double jd) {
                                 ++count;
                                 auto pos = poses.computePos(jd, h);
                                 if (!s_quiet) {
                                     QDateTime dt(dateTimeFromJulian(jd));
-                                    qDebug() << "bzhs " << (what() + ":").c_str()
+                                    qDebug() << "bzhs " << (which + ":").c_str()
                                              << dtToString(dt)
                                              << "ret:" << pos;
                                 }
@@ -3457,7 +3490,7 @@ void AspectFinder::findStuff()
                         if (!done) {
                             qDebug() << "Failed"
                                 << d.date().toString()
-                                << what().c_str()
+                                << which.c_str()
                                 << "after" << iter
                                 << "iteration(s) brentStageZhang";
                         } else {
@@ -3472,7 +3505,7 @@ void AspectFinder::findStuff()
 
                             if (!s_quiet)
                                 qDebug() << dtToString(qdt)
-                                         << what().c_str()
+                                         << which.c_str()
                                          << "with" << iter
                                          << "iteration(s)"
                                      << (bzhs? "brentZhangStage" : "newton_raphson");
@@ -3528,7 +3561,7 @@ void AspectFinder::run()
     }
 }
 
-#if 0
+#if 0 // has midpoints code
 TransitFinder::TransitFinder(HarmonicEvents& evs,
                              const ADateRange& range,
                              const uintSSet& hs,
@@ -3781,7 +3814,10 @@ sizeWithoutTransitingMoon(const positions& grp,
 {
     unsigned ret = 0;
     for (const auto& p: grp) {
-        if (p.second.planetId() != Planet_Moon
+        auto pid = p.second.planetId();
+        if ((pid != Planet_Moon
+             && pid != Planet_NorthNode
+             && pid != Planet_SouthNode)
                 || (p.second.fileId() != (moonIn1? 1 : 0)))
             ++ret;
     }
@@ -3930,13 +3966,13 @@ computeSpread(unsigned h,
                 ? PlanetLoc::compute(cpid,ida,jd).first
                 : ploc->_rasiLoc;
         if (h > 1) pos = harmonic(h,pos);
-        if (vroom) locs.emplace_back(pos);
+        /*if (vroom)*/ locs.emplace_back(pos);
         sums[vroom] += pos;
         ++c[vroom];
     }
 
     if (c[1] == 0) return 0;    // this is an error
-
+#if 0
     if (c[0] != 0) {
 #if 1
         // try to minimize distance to center of natal configuration
@@ -3949,7 +3985,7 @@ computeSpread(unsigned h,
         return angle(fixed,movie);
 #endif
     }
-
+#endif
     qreal maxa = 0;
     for (unsigned i = 0, n = locs.size(); i+1 < n; ++i) {
         for (unsigned j = i+1; j < n; ++j) {
