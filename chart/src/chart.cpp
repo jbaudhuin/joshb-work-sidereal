@@ -513,9 +513,8 @@ void Chart::updateAspects()
         }
         auto m1 = getCircleMarker(asp.planet1);
         auto m2 = getCircleMarker(asp.planet2);
-        if (!m1 || !m2) {
-            qDebug() << "Wait, what?";
-        }
+        if (!m1 || !m2) continue;
+
         QLineF line(m1->sceneBoundingRect().center(),
                     m2->sceneBoundingRect().center());
 
@@ -529,6 +528,7 @@ void Chart::updateAspects()
 
         QString toolTip;
         if (filesCount() > 1)
+            // @todo fix #1/#2 -- should come from cpid
             toolTip = A::describeAspectFull(asp, "#1", "#2");
         else
             toolTip = A::describeAspectFull(asp);
@@ -537,9 +537,11 @@ void Chart::updateAspects()
         if (aspects[i]->toolTip() != toolTip) {
             aspects[i]->setToolTip(toolTip);
             circle->setHelpTag(aspects[i],
-                               QString("%1+%2+%3").arg(asp.d->name)
-                               .arg(asp.planet1->name)
-                               .arg(asp.planet2->name));
+                               QString("%1+%2+%3")
+                               .arg(asp.d->name,
+                                    asp.planet1->name,
+                                    asp.planet2->name));
+            //qDebug() << toolTip;
         }
 
         i++;

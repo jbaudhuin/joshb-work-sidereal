@@ -1183,8 +1183,10 @@ Transits::clickedCell(QModelIndex inx)
     } else if (inx.column() >= EventsTableModel::transitBodyCol) {
         auto v = inx.sibling(inx.row(),EventsTableModel::harmonicCol)
                 .data(EventsTableModel::RawRole);
-        aset = A::topAspectSet().id + v.toUInt();
         focal = inx.data(EventsTableModel::RawRole).value<A::PlanetSet>();
+        if (focal.size() > 1) {
+            aset = A::topAspectSet().id + v.toUInt();
+        }
     }
 
     auto par = inx.parent();

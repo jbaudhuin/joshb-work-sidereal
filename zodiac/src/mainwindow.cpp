@@ -223,10 +223,7 @@ AstroWidget::setupFile(AstroFile* file, bool suspendUpdate)
 
     file->setZodiac(zodiacSelector->itemData(zodiacSelector->currentIndex()).toInt());   // set zodiac
     file->setHouseSystem(hsystemSelector->itemData(hsystemSelector->currentIndex()).toInt()); // set house system
-    auto aset = overrideAspectSet();
-    if (aset == -1) {
-        aset = aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt();
-    }
+    auto aset = aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt();
     file->setAspectSet(aset, _dynAspChange); // set aspect set
     file->setAspectMode(A::aspectModeEnum(aspectModeSelector->currentIndex()));    // aspect mode
     auto val = harmonicSelector->currentText();

@@ -809,6 +809,21 @@ PlanetProfile::computePos(double jd,
     return Loc::loc;
 }
 
+PlanetProfile::PlanetProfile(std::initializer_list<QMap<int, Planet>*> pms)
+{
+    int fid = 0;
+    for (auto ppm: pms) {
+        auto& pm = *ppm;
+        for (const auto& plan: pm) {
+            auto pid = plan.id;
+            qreal ploc = plan.getPrefPos();
+            qreal spd = plan.getPrefSpd();
+            emplace_back(new PlanetLoc(fid, pid, ploc, spd));
+        }
+        ++fid;
+    }
+}
+
 qreal
 PlanetProfile::computeSpread(double jd)
 {
@@ -3076,7 +3091,7 @@ void AspectFinder::findStuff()
     auto hs = *_hsets.crbegin();
     unsigned maxH = hs.empty()? 1 : *hs.crbegin();
 
-    modalize<bool> mum(s_quiet,false);
+    modalize<bool> mum(s_quiet,true);
     harmonize haha(_ids, 1);
 
     // a simplistic predicate for determining whether to prune the
@@ -3100,7 +3115,15 @@ void AspectFinder::findStuff()
         return keepLooking(h, i);
     };
 
-    harmonicPlanetClusters starts;
+    HarmonicPlanetClusters starts;
+    PlanetSet nats;
+    if (this->showTransitAspectPatterns) {
+        for (auto&& pl : _alist) {
+            auto pla = dynamic_cast<NatalPosition*>(pl);
+            if (!pla || pla->inMotion()) continue;
+            nats.emplace(pla->planet);
+        }
+    }
 
     if (includeAspectPatterns()) {
         for (unsigned h = 1; h <= maxH; ++h) {
@@ -3108,8 +3131,8 @@ void AspectFinder::findStuff()
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
             starts[h] = findClusters(h, jd, _alist, _ids,
                                      patternsQuorum,
-                                     { } /*need*/,
-                                     false/*restrictMoon*/,
+                                     nats,
+                                     patternsRestrictMoon,
                                      patternsSpreadOrb);
 
             for (auto& cl: starts[h]) cl.second = jd;
@@ -3161,7 +3184,7 @@ void AspectFinder::findStuff()
                                     patternsSpreadOrb);
 #else
             auto hpc = findClusters(h, jd, b, _ids, patternsQuorum,
-                                    { } /*need*/,
+                                    nats,
                                     patternsRestrictMoon,
                                     patternsSpreadOrb);
 #endif
@@ -3914,10 +3937,6 @@ findClusters(unsigned h, double jd,
         auto cpid = ploc->planet;
         if (cpid.fileId() < 0 || cpid.fileId() >= int(pfid.size())) continue;
         auto pid = cpid.planetId();
-#if 0
-        if (pid == Planet_Moon
-                && ploc->inMotion()) continue; // *** skip moon ***
-#endif
         if (h>1 && ((pid >= Houses_Start
                     && pid < Houses_End)
                     || (pid == Planet_IC
@@ -3995,6 +4014,40 @@ computeSpread(unsigned h,
     }
     return maxa;
 
+}
+
+HarmonicPlanetClusters findClusters(const uintSSet& hs,
+                                    const PlanetProfile& prof,
+                                    unsigned quorum,
+                                    const PlanetSet& need /*={}*/,
+                                    bool skipAllNatalOnly /*=false*/,
+                                    bool restrictMoon /*=true*/,
+                                    qreal maxOrb /*=8.*/)
+{
+    HarmonicPlanetClusters ret;
+    for (auto h: hs) {
+        auto pc = findClusters(h, prof, quorum, need,
+                               skipAllNatalOnly,
+                               restrictMoon, maxOrb);
+        if (pc.empty()) continue;
+
+        uintSSet fac { 1 };
+        getAllFactors(h,fac);
+        for (unsigned oh: fac) {
+            auto rit = ret.find(oh);
+            if (rit == ret.end()) continue;
+
+            const auto& retoh = rit->second;
+            // clean up patterns already in lower harmonics
+            for (auto pit = pc.begin(); pit != pc.end(); ) {
+                auto retpit = retoh.find(pit->first);
+                if (retpit == retoh.end()) ++pit;
+                else pc.erase(pit++);
+            }
+        }
+        if (!pc.empty()) ret.emplace(h, pc);
+    }
+    return ret;
 }
 
 } // namespace A

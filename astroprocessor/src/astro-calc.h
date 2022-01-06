@@ -355,8 +355,6 @@ public:
         afcFindStuff, afcFindAspects, afcFindPatterns, afcFindStations
     };
 
-    typedef std::map<unsigned, PlanetClusterMap> harmonicPlanetClusters;
-
     AspectFinder(HarmonicEvents& evs,
                  const ADateRange& range,
                  const uintSSet& hset,
@@ -488,6 +486,14 @@ PlanetClusterMap findClusters(unsigned h, double jd,
                               const PlanetSet& need = {},
                               bool restrictMoon = true,
                               qreal maxOrb = 8.);
+
+HarmonicPlanetClusters findClusters(const uintSSet& hs,
+                                    const PlanetProfile& prof,
+                                    unsigned quorum,
+                                    const PlanetSet& need = {},
+                                    bool skipAllNatalOnly = false,
+                                    bool restrictMoon = true,
+                                    qreal maxOrb = 8.);
 
 qreal computeSpread(unsigned h,
                     double jd,

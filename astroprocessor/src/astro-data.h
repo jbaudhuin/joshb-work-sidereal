@@ -404,6 +404,9 @@ struct Planet : public Star
     //virtual bool      isAsteroid() const { return false; }
     virtual bool        isPlanet() const { return true; }
 
+    double              getPrefPos() const;
+    double              getPrefSpd() const;
+
     bool operator==(const Planet & other) const
     { return this->id == other.id && this->eclipticPos == other.eclipticPos; }
     bool operator!=(const Planet & other) const
@@ -698,6 +701,13 @@ public:
         return false;
     }
 
+    bool containsAny(PlanetId start, PlanetId beyond)
+    {
+        return std::any_of(begin(), end(),
+                           [&](const ChartPlanetId& cpid)
+        { return cpid.planetId() >= start && cpid.planetId() < beyond; });
+    }
+
     bool containsMidPt() const
     {
         return std::any_of(begin(), end(),
@@ -944,6 +954,7 @@ struct PlanetLoc : public Loc {
 typedef std::list<Loc*> Locs;
 
 typedef std::map<PlanetSet, qreal> PlanetClusterMap;
+typedef std::map<unsigned, PlanetClusterMap> HarmonicPlanetClusters;
 
 class NatalLoc : public PlanetLoc {
 public:
@@ -1080,6 +1091,7 @@ public:
 
     PlanetProfile() { }
     PlanetProfile(std::initializer_list<Loc*> locs) : Base(locs) { }
+    PlanetProfile(std::initializer_list<QMap<int, Planet> *> pms);
 
     PlanetProfile(const PlanetProfile& other) :
         Loc(other),
@@ -1178,18 +1190,15 @@ struct PlanetClusterLess {
     { return ploc.planet; }
 
     static const ChartPlanetId& planet(const Loc&)
-    { return Planet_None; }
+    { static ChartPlanetId none; return none; }
 
     template <typename T>
     bool less(T ait, T aend, T bit, T bend) const
     {
-        if (ait == aend && bit == bend) return false;
-        if (ait == aend && bit != bend) return true;
-        if (ait != aend && bit == bend) return false;
+        //if (aended() != bended()) return aent > bent;
         auto f = fileId(*ait);
         auto g = fileId(*bit);
-        if (f < g) return true;
-        if (g < f) return false;
+        if (f != g) return f < g;
         while (ait != aend && bit != bend
                && fileId(*ait) == f
                && fileId(*bit) == f)
@@ -1197,11 +1206,7 @@ struct PlanetClusterLess {
             if (planet(*ait) != planet(*bit)) return planet(*ait) < planet(*bit);
             ++ait; ++bit;
         }
-        if ((ait != aend) < (bit != bend)) return true;
-        if ((ait != aend) > (bit != bend)) return false;
-        if (ait == aend && bit == bend) return false;
-        return ((fileId(*ait)==f)
-                < (fileId(*bit)==f));
+        return false;
     }
 
     bool operator()(const PlanetRangeBySpeed& a,

@@ -20,7 +20,7 @@ HEADERS +=\
     include/Astroprocessor/Zodiac \
     src/csvreader.h
 
-INCLUDEPATH += ../swe ../../boost_1_74_0
+INCLUDEPATH += ../swe ../../boost_1_75_0
 
 TRANSLATIONS = ../bin/i18n/astroprocessor_ru.ts \
                ../bin/i18n/astroprocessor_en.ts

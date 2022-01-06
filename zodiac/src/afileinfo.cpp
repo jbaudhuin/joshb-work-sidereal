@@ -7,8 +7,8 @@ AFileInfo::AFileInfo()
 }
 
 namespace {
-QRegularExpression escre("[/\\\\:%=@\\$]"); // {/\:%=@$}
-QRegularExpression restore("%[0-9a-zA-Z][0-9a-zA-Z]");
+const QRegularExpression escre("[/\\\\:%=@\\$]"); // {/\:%=@$}
+const QRegularExpression restore("%[0-9a-zA-Z][0-9a-zA-Z]");
 }
 
 /*static*/

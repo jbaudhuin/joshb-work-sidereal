@@ -487,23 +487,65 @@ AstroFileHandler::calculateAspects()
     auto& scope = file(0)->horoscope();
     const auto& input = scope.inputData;
 
-    const auto& fp(file(0)->focalPlanets());
-    if (fp.empty()) {
+    A::setOrbFactor(1);
+    if (file(0)->focalPlanets().empty()) {
         scope.aspects =
                 A::calculateAspects(A::getAspectSet(input.aspectSet),
                                     scope.planets);
-
         return scope.aspects;
     }
 
+    A::AspectSetId aspset = -1;
+    auto fp = file(0)->focalPlanets();
+    const auto& curr(A::EventOptions::current());
+    if (fp.size() < curr.patternsQuorum) {
+        bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
+        A::uintSSet hs;
+#if 0
+        uint h;
+        bool ok;
+        if (false
+                && asps.name.startsWith("H")
+                && ((h = asps.name.midRef(1).toUInt(&ok)), ok))
+        {
+            hs.insert(h);
+        } else
+#endif
+            hs = A::dynAspState();
+
+
+        auto hpc = A::findClusters(hs, {&file(0)->horoscope().planetsOrig},
+                                   qMax(size_t(2),fp.size()),
+                                   skip? A::PlanetSet() : fp,
+                                   false,
+                                   curr.patternsRestrictMoon,
+                                   curr.expandShowOrb);
+        for (const auto& h_pc: hpc) {
+            const auto& pc = h_pc.second;
+            for (const auto& p_c: pc) {
+                const auto& pl = p_c.first;
+                qDebug() << QString("H%1 %2 %3")
+                            .arg(h_pc.first)
+                            .arg(p_c.second)
+                            .arg(pl.names().join('='));
+                fp.insert(pl.begin(),pl.end());
+            }
+        }
+        A::setOrbFactor(curr.expandShowOrb / A::harmonicsMaxQOrb());
+    } else {
+        aspset = MainWindow::theAstroWidget()->overrideAspectSet();
+    }
+
+    const auto& asps = A::getAspectSet(aspset == -1? input.aspectSet : aspset);
     A::ChartPlanetPtrMap planets;
+    //A::setOrbFactor(curr.patternsSpreadOrb / A::harmonicsMaxQOrb());
     for (const auto& cpid : fp) {
-        A::setOrbFactor(1);
-        auto pp = file(cpid.fileId())->horoscope().getPlanet(cpid.planetId());
+        auto fid = cpid.fileId();
+        if (fid < 0) continue;
+        auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
         planets.emplace(cpid, pp);
     }
-    const auto& asps =
-            A::getAspectSet(MainWindow::theAstroWidget()->overrideAspectSet());
+
     return A::calculateAspects(asps, planets);
 }
 
@@ -511,21 +553,74 @@ A::AspectList
 AstroFileHandler::calculateSynastryAspects()
 {
     qDebug() << "Calculate synatry apects" << file(0)->getAspectSet().id;
-    const auto& fp(file(1)->focalPlanets());
-    if (fp.empty()) {
+    if (file(1)->focalPlanets().empty()) {
         A::setOrbFactor(0.25);
         return A::calculateAspects(file(0)->getAspectSet(),
                                    file(0)->horoscope().planets,
                                    file(1)->horoscope().planets);
     }
 
+    A::AspectSetId aspset = -1;
+    auto fp = file(1)->focalPlanets();
+    if (fp.empty()) fp = file(1)->focalPlanets();
+    const auto& curr(A::EventOptions::current());
+    if (fp.size() < curr.patternsQuorum) {
+        bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
+        A::uintSSet hs;
+#if 0
+        uint h;
+        bool ok;
+        if (false
+                && asps.name.startsWith("H")
+                && ((h = asps.name.midRef(1).toUInt(&ok)), ok))
+        {
+            hs.insert(h);
+        } else
+#endif
+            hs = A::dynAspState();
+
+        A::PlanetProfile pf {
+            &file(0)->horoscope().planetsOrig,
+            &file(1)->horoscope().planetsOrig
+        };
+        auto hpc = A::findClusters(hs, pf,
+                                   qMax(size_t(2),fp.size()),
+                                   skip? A::PlanetSet() : fp,
+                                   false /*not skipAllNatalOnly*/,
+                                   curr.patternsRestrictMoon,
+                                   curr.expandShowOrb);
+        for (const auto& h_pc: hpc) {
+            const auto& pc = h_pc.second;
+            for (const auto& p_c: pc) {
+                const auto& pl = p_c.first;
+                qDebug() << QString("H%1 %2 %3")
+                            .arg(h_pc.first)
+                            .arg(p_c.second)
+                            .arg(pl.names().join('='));
+                fp.insert(pl.begin(),pl.end());
+            }
+        }
+        if (fp != file(1)->focalPlanets()) {
+            //aspset = file(0)->horoscope().inputData.aspectSet;
+        }
+        A::setOrbFactor(curr.expandShowOrb / A::harmonicsMaxQOrb());
+    } else {
+        aspset = MainWindow::theAstroWidget()->overrideAspectSet();
+        A::setOrbFactor(1);
+    }
+
+    const auto& asps = A::getAspectSet(aspset == -1
+                                       ? file(0)->horoscope().inputData.aspectSet
+                                       : aspset);
+    //const auto& asps = aspset != -1? A::getAspectSet(aspset) : file(0)->getAspectSet();
     A::ChartPlanetPtrMap planets;
     for (const auto& cpid : fp) {
-        A::setOrbFactor(1);
-        auto pp = file(cpid.fileId())->horoscope().getPlanet(cpid.planetId());
+        auto fid = cpid.fileId();
+        if (fid < 0) continue;
+        auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
         planets.emplace(cpid, pp);
     }
-    return A::calculateAspects(file(0)->getAspectSet(), planets);
+    return A::calculateAspects(asps, planets);
 }
 
 MembersList

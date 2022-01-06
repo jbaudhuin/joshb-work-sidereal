@@ -869,4 +869,33 @@ EventStore::getEventUpdateScope(EventScope evscope,
     return { out, it->events };
 }
 
+double Planet::getPrefPos() const
+{
+    switch (aspectMode) {
+    case amcEcliptic:
+        return eclipticPos.x();
+    case amcEquatorial:
+        return equatorialPos.x();
+    case amcPrimeVertical:
+        return pvPos;
+    default:
+    case amcGreatCircle:
+        return 0;
+    }
+}
+
+double Planet::getPrefSpd() const
+{
+    switch (aspectMode) {
+    case amcEcliptic:
+        return eclipticSpeed.x();
+    case amcEquatorial:
+        return equatorialSpeed.x();
+    default:
+    case amcPrimeVertical:
+    case amcGreatCircle:
+        return 0;
+    }
+}
+
 } // namespace A
