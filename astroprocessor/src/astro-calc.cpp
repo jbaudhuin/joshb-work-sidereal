@@ -1228,7 +1228,9 @@ calculateAspects(const AspectsSet& aspectSet,
         for (auto jit = std::next(it); jit != planets.cend(); ++jit) {
             if (aspect(it->second,jit->second,aspectSet)
                     != Aspect_None)
+            {
                 ret << calculateAspect(aspectSet, it->second, jit->second);
+            }
         }
     }
 
@@ -3076,8 +3078,19 @@ void AspectFinder::findStuff()
 {
     if (_alist.empty()) return;
 
+    PlanetSet nats;
+    if (!showTransitAspectPatterns && showTransitNatalAspectPatterns) {
+        for (auto&& pl : _alist) {
+            auto pla = dynamic_cast<NatalPosition*>(pl);
+            if (!pla || pla->inMotion()) continue;
+            nats.emplace(pla->planet);
+        }
+    }
+    bool showPatterns = showTransitAspectPatterns || !nats.empty();
+
     int numThreads =
-            4 * (int(includeAspectPatterns()) + int(includeTransits()) + 1);
+            4 * (int(includeAspectPatterns())
+                 + int(includeTransits()) + 1);
     QThreadPool* tp = QThreadPool::globalInstance();
     for (int i = 0; i < numThreads; ++i) tp->releaseThread();
 
@@ -3116,16 +3129,8 @@ void AspectFinder::findStuff()
     };
 
     HarmonicPlanetClusters starts;
-    PlanetSet nats;
-    if (this->showTransitAspectPatterns) {
-        for (auto&& pl : _alist) {
-            auto pla = dynamic_cast<NatalPosition*>(pl);
-            if (!pla || pla->inMotion()) continue;
-            nats.emplace(pla->planet);
-        }
-    }
 
-    if (includeAspectPatterns()) {
+    if (showPatterns) {
         for (unsigned h = 1; h <= maxH; ++h) {
             bool unsel = hs.count(h)==0;
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
@@ -3143,7 +3148,7 @@ void AspectFinder::findStuff()
     unsigned childThreadCount = 0;
 
     auto useRate = 1 / double(maxH); // XXX
-    if (includeAspectPatterns()) {
+    if (showPatterns) {
         useRate *= patternsSpreadOrb/16.;
     }
 
@@ -3171,7 +3176,7 @@ void AspectFinder::findStuff()
 
         // Do all the things HERE
 
-        if (this->includeAspectPatterns()) {
+        if (showPatterns) {
         // 1. Patterns
         for (h = maxH; h >= 1; --h) {
             bool unsel = hs.count(h)==0;
@@ -3434,7 +3439,7 @@ void AspectFinder::findStuff()
                         // for slow planetary motion we need to use BrentZhangStage.
                         // XXX replace magic number: might plausibly instead be
                         // _alist certain percentage of the default speed.
-                        double tjd;
+                        double tjd {};
                         uintmax_t iter;
                         bool bzhs = false;
                         bool done = false;
@@ -3538,7 +3543,6 @@ void AspectFinder::findStuff()
                         QMutexLocker mlb(&ctm); --childThreadCount;
                     });
 #endif
-                    if (ispd > jspd) std::swap(i,j);    // swap back for output
                 }
             }
         } // if includeTransits

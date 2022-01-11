@@ -146,7 +146,7 @@ AstroFile::save()
         file.setValue("eventList", QVariant());
     } else {
         QVariantList vl;
-        for (const auto& dt: _eventList) {
+        for (const auto& dt: qAsConst(_eventList)) {
             vl << dt;
         }
         file.setValue("eventList", vl);
@@ -166,6 +166,7 @@ AstroFile::load(const AFileInfo& fi/*, bool recalculate*/)
     qDebug() << "Overwriting" << getName() << "from" << fi.absoluteFilePath();
 
     suspendUpdate();
+    setFocalPlanets();
     _fileInfo = fi;
 
     QSettings file(fileName(), QSettings::IniFormat);
@@ -194,7 +195,7 @@ AstroFile::load(const AFileInfo& fi/*, bool recalculate*/)
     QList<QDateTime> dl;
     if (file.contains("eventList")) {
         auto vl = file.value("eventList").toList();
-        for (const auto& v: vl) {
+        for (const auto& v: qAsConst(vl)) {
             dl << v.toDateTime();
         }
         _eventList.swap(dl);
@@ -545,8 +546,9 @@ AstroFileHandler::calculateAspects()
         auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
         planets.emplace(cpid, pp);
     }
-
-    return A::calculateAspects(asps, planets);
+    auto alist = A::calculateAspects(asps, planets);
+    A::setOrbFactor(1);
+    return alist;
 }
 
 A::AspectList
@@ -583,27 +585,38 @@ AstroFileHandler::calculateSynastryAspects()
             &file(0)->horoscope().planetsOrig,
             &file(1)->horoscope().planetsOrig
         };
+        A::setOrbFactor(curr.expandShowOrb / A::harmonicsMaxQOrb());
+        QList<A::Aspect> alist;
         auto hpc = A::findClusters(hs, pf,
                                    qMax(size_t(2),fp.size()),
                                    skip? A::PlanetSet() : fp,
-                                   false /*not skipAllNatalOnly*/,
+                                   true /*skipAllNatalOnly*/,
                                    curr.patternsRestrictMoon,
                                    curr.expandShowOrb);
         for (const auto& h_pc: hpc) {
+            auto h = h_pc.first;
             const auto& pc = h_pc.second;
+            A::PlanetSet ps;
             for (const auto& p_c: pc) {
                 const auto& pl = p_c.first;
                 qDebug() << QString("H%1 %2 %3")
                             .arg(h_pc.first)
                             .arg(p_c.second)
                             .arg(pl.names().join('='));
-                fp.insert(pl.begin(),pl.end());
+                ps.insert(pl.begin(),pl.end());
             }
+            A::ChartPlanetPtrMap planets;
+            for (const auto& cpid : ps) {
+                auto fid = cpid.fileId();
+                if (fid < 0) continue;
+                auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
+                planets.emplace(cpid, pp);
+            }
+            const auto& asps = A::getAspectSet(A::topAspectSet().id + h);
+            alist << A::calculateAspects(asps, planets);
         }
-        if (fp != file(1)->focalPlanets()) {
-            //aspset = file(0)->horoscope().inputData.aspectSet;
-        }
-        A::setOrbFactor(curr.expandShowOrb / A::harmonicsMaxQOrb());
+        A::setOrbFactor(1);
+        return alist;
     } else {
         aspset = MainWindow::theAstroWidget()->overrideAspectSet();
         A::setOrbFactor(1);
@@ -620,7 +633,9 @@ AstroFileHandler::calculateSynastryAspects()
         auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
         planets.emplace(cpid, pp);
     }
-    return A::calculateAspects(asps, planets);
+    auto alist = A::calculateAspects(asps, planets);
+    A::setOrbFactor(1);
+    return alist;
 }
 
 MembersList
@@ -635,7 +650,7 @@ AstroFileHandler::blankMembers()
 bool
 AstroFileHandler::isAnyFileSuspended()
 {
-    for (AstroFile* file: f) if (file->isSuspendedUpdate()) return true;
+    for (auto  file: qAsConst(f)) if (file->isSuspendedUpdate()) return true;
     return false;
 }
 
