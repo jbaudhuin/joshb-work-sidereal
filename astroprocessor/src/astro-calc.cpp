@@ -2744,6 +2744,8 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                         if (hs == conj) continue;
                         hst = conj;
                     }
+                    if (opl == Planet_Moon) hst = conj;
+                    //else if (opl == Planet_Sun) hst = conjOpp;
                     _staff.emplace_back(i, j, hst, etcTransitToTransit);
                 }
             }
@@ -2761,6 +2763,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                     auto j = getIngress(pid);
                     _staff.emplace_back(i, j, conj, etcSignIngress);
 
+                    // luminaries don't need the backwards ingress
                     if (pl==Planet_Sun || pl==Planet_Moon) continue;
 
                     j = getIngress(pid, false/*backward*/);
@@ -3074,6 +3077,21 @@ AspectFinder::findStations()
     //for (int i = 0; i < 4; ++i) tp->reserveThread();
 }
 
+std::ostream &
+operator<<(std::ostream& os, const PlanetClusterMap& pcm)
+{
+    os << "(";
+    bool any = false;
+    for (const auto& pc : pcm) {
+        if (any) os << ",\n\t";
+        os << pc.first.names().join("=").toStdString()
+           << " spread " << pc.second;
+        any = true;
+    }
+    os << ")";
+    return os;
+}
+
 void AspectFinder::findStuff()
 {
     if (_alist.empty()) return;
@@ -3140,7 +3158,15 @@ void AspectFinder::findStuff()
                                      patternsRestrictMoon,
                                      patternsSpreadOrb);
 
-            for (auto& cl: starts[h]) cl.second = jd;
+            for (auto& cl: starts[h]) {
+                qDebug() << QString("Found H%1 start of %2 "
+                                    "with %3 spread at %4")
+                            .arg(h).arg(cl.first.names().join("="))
+                            .arg(cl.second)
+                            .arg(dtToString(dateTimeFromJulian(jd)))
+                            .toStdString().c_str();
+                cl.second = jd;
+            }
         }
     }
 
@@ -3188,17 +3214,27 @@ void AspectFinder::findStuff()
                                     patternsRestrictMoon,
                                     patternsSpreadOrb);
 #else
+            static size_t finding = 0; finding++;
             auto hpc = findClusters(h, jd, b, _ids, patternsQuorum,
                                     nats,
                                     patternsRestrictMoon,
                                     patternsSpreadOrb);
 #endif
 
+            std::list<PlanetClusterMap::iterator> doomed;
             for (auto sit = starts[h].begin(); sit != starts[h].end(); ) {
                 const auto& ps = sit->first;
+                auto prof = b.profile(ps);
                 auto hpcit = hpc.find(ps);
                 if (hpcit != hpc.end()) {
+                    delete prof;
                     hpc.erase(hpcit);   // already have a start time
+                    ++sit;
+                    continue;
+                }
+                if (computeSpread(h,jd,*prof) <= patternsSpreadOrb) {
+                    // still good so keep
+                    delete prof;
                     ++sit;
                     continue;
                 }
@@ -3244,12 +3280,24 @@ void AspectFinder::findStuff()
                     }
                 }
                 if (cancel) {
+                    delete prof;
                     starts[h].erase(sit++);
                     continue;    // skipped!
                 }
 
-                auto prof = _alist.profile(ps);
-                _evs.emplace_back();
+                static size_t clearing = 0; clearing++;
+                qDebug() << clearing << QString("Clearing H%1 search for %2 "
+                                    "with %3 spread at %4")
+                            .arg(h).arg(ps.names().join("="))
+                            .arg(computeSpread(h,jd,*prof))
+                            .arg(dtToString(dateTimeFromJulian(jd)))
+                            .toStdString().c_str();
+                doomed.emplace_back(sit++);
+                //starts[h].erase(sit++);
+
+                _evs.emplace_back(dateTimeFromJulian(from),
+                                  etcTransitAspectPattern,
+                                  useH, PlanetSet(ps));
                 auto& ev = _evs.back();
 #if 1
                 { QMutexLocker foo(&ctm); ++childThreadCount; }
@@ -3292,8 +3340,7 @@ void AspectFinder::findStuff()
 
                     auto qdt = dateTimeFromJulian(jd);
 
-                    ev = HarmonicEvent(qdt, etcTransitAspectPattern, useH,
-                                       PlanetSet(ps), res);
+                    ev.reset(qdt, res);
                     delete prof;
 #if 1
                     QMutexLocker mlb(&ctm);
@@ -3302,7 +3349,6 @@ void AspectFinder::findStuff()
 #endif
                 // TODO keep track of this start and end and then search
 
-                starts[h].erase(sit++);
             }
 
             // now hpc should only contain entries that are not in starts[h]
@@ -3325,8 +3371,17 @@ void AspectFinder::findStuff()
                         break;
                     }
                 }
-                if (add) starts[h].emplace(ps, pjd);
+                if (add) {
+                    qDebug() << QString("Found H%1 start of %2 "
+                                        "with %3 spread at %4")
+                                .arg(h).arg(ps.names().join("="))
+                                .arg(cl.second)
+                                .arg(dtToString(dateTimeFromJulian(jd)))
+                                .toStdString().c_str();
+                    starts[h].emplace(ps, pjd);
+                }
             }
+            for (auto it: doomed) starts[h].erase(it);
         }
         } // if includeAspectPatterns
 
@@ -3552,6 +3607,18 @@ void AspectFinder::findStuff()
         //nd = d.addDays(_rate);
         pjd = jd;
         _alist.swap(b);
+    }
+
+    for (const auto& hpc : starts) {
+        for (const auto& pso: hpc.second) {
+            if (!pso.second) continue;
+            qDebug() << QString("Pending pattern H%1 %2 started at %3")
+                        .arg(hpc.first)
+                        .arg(pso.first.names().join("="))
+                        .arg(dtToString(dateTimeFromJulian(pso.second)))
+                        .toStdString().c_str();
+
+        }
     }
 
     unsigned countWas = (unsigned)-1;
@@ -3970,7 +4037,7 @@ qreal
 computeSpread(unsigned h,
               double jd,
               const PlanetProfile& prof,
-              const QList<InputData>& ids)
+              const QList<InputData>& ids /*={}*/)
 {
     std::vector<qreal> sums(2, 0);
     std::vector<qreal> locs;
@@ -3982,12 +4049,14 @@ computeSpread(unsigned h,
         auto cpid = ploc->planet;
         if (cpid.fileId() < 0) continue;
 
-        const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );
-
+        qreal pos;
         unsigned vroom(ploc->inMotion());
-        qreal pos = vroom
-                ? PlanetLoc::compute(cpid,ida,jd).first
-                : ploc->_rasiLoc;
+        if (vroom && !ids.isEmpty()) {
+            const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );
+            pos = PlanetLoc::compute(cpid,ida,jd).first;
+        } else {
+            pos = ploc->_rasiLoc;
+        }
         if (h > 1) pos = harmonic(h,pos);
         /*if (vroom)*/ locs.emplace_back(pos);
         sums[vroom] += pos;
@@ -3995,7 +4064,7 @@ computeSpread(unsigned h,
     }
 
     if (c[1] == 0) return 0;    // this is an error
-#if 0
+#if 1
     if (c[0] != 0) {
 #if 1
         // try to minimize distance to center of natal configuration

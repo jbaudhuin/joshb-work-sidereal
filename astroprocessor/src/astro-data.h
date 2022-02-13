@@ -889,7 +889,7 @@ struct Loc {
     virtual Loc* clone() const { return new Loc(*this); }
 
     virtual qreal defaultSpeed() const { return 0; }
-    virtual qreal operator()(double /*jd*/, int h) { return loc; }
+    virtual qreal operator()(double /*jd*/, int /*h*/) { return loc; }
     virtual bool inMotion() const { return false; }
     virtual QString description() const { return desc; }
 
@@ -1328,13 +1328,18 @@ public:
         _orb(delta)
     { }
 
-    void reset(unsigned et = etcUnknownEvent,
-               unsigned char h = 0,
-               PlanetRangeBySpeed&& pr = { },
+    void reset()
+    {
+        _eventType = etcUnknownEvent;
+        _harmonic = 0;
+        _locations.clear();
+        _pattern.clear();
+        _orb = 0.;
+    }
+
+    void reset(PlanetRangeBySpeed&& pr,
                qreal delta = 0.0)
     {
-        _eventType = et;
-        _harmonic = h;
         _locations = std::move(pr);
         _pattern.clear();
         for (const auto& loc: _locations) {
@@ -1344,13 +1349,9 @@ public:
         _orb = delta;
     }
 
-    void reset(unsigned et,
-               unsigned char h,
-               PlanetSet&& ps,
+    void reset(PlanetSet&& ps,
                qreal delta = 0.0)
     {
-        _eventType = et;
-        _harmonic = h;
         _locations.clear();
         _pattern = std::move(ps);
         _orb = delta;
@@ -1370,11 +1371,13 @@ public:
                 && _eventType == asp._eventType
                 && planets() == asp.planets();
     }
+
+    friend class HarmonicEvent;
 };
 
 typedef std::list<HarmonicAspect> HarmonicAspects;
 
-class HarmonicEvent : public HarmonicAspect {
+ class HarmonicEvent : public HarmonicAspect {
     QDateTime       _dateTime;      ///< time of event in UTC
     HarmonicAspects _coincidences;  ///< coincident events
 
@@ -1382,7 +1385,7 @@ public:
     HarmonicEvent(const QDateTime     & dt,
                   unsigned              et,
                   unsigned char         h,
-                  PlanetRangeBySpeed && pr,
+                  PlanetRangeBySpeed && pr = { },
                   qreal                 delta = 0.0) :
         HarmonicAspect(et, h, std::move(pr), delta),
         _dateTime(dt)
@@ -1407,6 +1410,21 @@ public:
         reset();
         _dateTime = { };
         _coincidences.clear();
+    }
+
+    using HarmonicAspect::reset;
+
+    template <typename ...Args> void reset(const QDateTime& dt,
+                                           Args&&... args)
+    {
+        _dateTime = dt;
+        HarmonicAspect::reset(std::forward<Args>(args)...);
+    }
+
+    void reset(const QDateTime& dt, qreal delta)
+    {
+        _dateTime = dt;
+        _orb = delta;
     }
 
     QDateTime& dateTime() { return _dateTime; }

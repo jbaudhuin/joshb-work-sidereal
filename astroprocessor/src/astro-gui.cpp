@@ -519,7 +519,7 @@ AstroFileHandler::calculateAspects()
                                    qMax(size_t(2),fp.size()),
                                    skip? A::PlanetSet() : fp,
                                    false,
-                                   curr.patternsRestrictMoon,
+                                   false /*curr.patternsRestrictMoon*/,
                                    curr.expandShowOrb);
         for (const auto& h_pc: hpc) {
             const auto& pc = h_pc.second;
@@ -591,7 +591,7 @@ AstroFileHandler::calculateSynastryAspects()
                                    qMax(size_t(2),fp.size()),
                                    skip? A::PlanetSet() : fp,
                                    true /*skipAllNatalOnly*/,
-                                   curr.patternsRestrictMoon,
+                                   false /*curr.patternsRestrictMoon*/,
                                    curr.expandShowOrb);
         for (const auto& h_pc: hpc) {
             auto h = h_pc.first;
