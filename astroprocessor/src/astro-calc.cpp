@@ -3645,7 +3645,7 @@ void AspectFinder::findStuff()
         nd = d.addDays(ndays).addSecs(nsecs);
         //nd = d.addDays(_rate);
         pjd = jd;
-        _alist.swap(b);
+        if (!collectingStrays) _alist.swap(b);
     }
 
     for (const auto& hpc : starts) {
