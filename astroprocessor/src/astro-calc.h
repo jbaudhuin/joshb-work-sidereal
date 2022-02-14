@@ -342,6 +342,8 @@ public:
 
     virtual ~EventFinder() { }
 
+    static void prepThread();
+
     HarmonicEvents& _evs;
     ADateRange _range;
 
@@ -370,8 +372,6 @@ public:
                  const ADateRange& range,
                  const uintSSet& hset,
                  const AstroFileList& files);
-
-    static void prepThread();
 
     void findAspects();
     void findPatterns();

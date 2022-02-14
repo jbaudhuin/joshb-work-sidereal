@@ -2923,7 +2923,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
 #endif
 }
 
-void AspectFinder::prepThread()
+void EventFinder::prepThread()
 {
 #if MSDOS
     char ephePath[] = "swe\\";
@@ -2937,22 +2937,19 @@ void AspectFinder::prepThread()
 void
 AspectFinder::findStations()
 {
-    QThreadPool* tp = QThreadPool::globalInstance();
-    //for (int i = 0; i < 4; ++i) tp->releaseThread();
+    QThreadPool tp;
 
     const auto& start = _range.first;
     const auto& end = _range.second.addDays(1);
     auto d = start.startOfDay(), e = end.startOfDay();
 
-    modalize<bool> mum(s_quiet, false&&true);
+    modalize<bool> mum(s_quiet, true);
     harmonize haha(_ids, 1);
 
     double jd = getJulianDate(d);
     for (auto tp: _alist) (*tp)(jd, 1);   // the horror
 
     PlanetProfile b = _alist;
-
-    unsigned childThreadCount = 0;
 
     auto useRate = 15;  // search every 15 days
     if (!s_quiet) qDebug() << "sta" << dtToString(d);
@@ -2995,8 +2992,7 @@ AspectFinder::findStations()
             _evs.emplace_back();
             auto& ev = _evs.back();
 #if 1
-            { QMutexLocker foo(&_ctm); ++childThreadCount; }
-            tp->start([=, &childThreadCount, &stations, &ev] {
+            tp.start([=, &stations, &ev] {
                 prepThread();
 #endif
 
@@ -3035,8 +3031,6 @@ AspectFinder::findStations()
                         << _alist[i]->description() << "!";
                 }
 #if 1
-                QMutexLocker mlb(&_ctm);
-                --childThreadCount;
             });
 #endif
         }
@@ -3049,17 +3043,13 @@ AspectFinder::findStations()
         _alist.swap(b);
     }
 
-    unsigned countWas = (unsigned)-1;
-    while (true) {
-        auto c = (QMutexLocker(&_ctm), childThreadCount);
-        if (0 == c) {
-            qDebug() << "done waiting";
-            break;
-        } else if (countWas != c) {
-            countWas = c;
-            qDebug() << "Waiting for" << countWas << "tasks";
+    auto active = tp.activeThreadCount();
+    while (!tp.waitForDone(100)) {
+        auto now = tp.activeThreadCount();
+        if (now != active) {
+            qDebug() << now << "threads";
+            active = now;
         }
-        QThread::msleep(100/*msec*/);
     }
 
     for (auto pj: stations) {
@@ -3073,8 +3063,6 @@ AspectFinder::findStations()
                     .arg(_alist[i]->description())
                     .arg(_alist[j]->description());
     }
-
-    //for (int i = 0; i < 4; ++i) tp->reserveThread();
 }
 
 std::ostream &
@@ -3106,14 +3094,11 @@ void AspectFinder::findStuff()
     }
     bool showPatterns = showTransitAspectPatterns || !nats.empty();
 
-    int numThreads =
-            4 * (int(includeAspectPatterns())
-                 + int(includeTransits()) + 1);
-    QThreadPool* tp = QThreadPool::globalInstance();
-    for (int i = 0; i < numThreads; ++i) tp->releaseThread();
+    QThreadPool tp;
 
     const auto& start = _range.first;
-    const auto& end = _range.second.addDays(1);
+    auto end = _range.second;
+    if (start == end) end = end.addDays(1);
     auto d = start.startOfDay(), e = end.startOfDay();
 
     double jd = getJulianDate(d);
@@ -3147,35 +3132,67 @@ void AspectFinder::findStuff()
     };
 
     HarmonicPlanetClusters starts;
-
-    if (showPatterns) {
-        for (unsigned h = 1; h <= maxH; ++h) {
-            bool unsel = hs.count(h)==0;
-            if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-            starts[h] = findClusters(h, jd, _alist, _ids,
-                                     patternsQuorum,
-                                     nats,
-                                     patternsRestrictMoon,
-                                     patternsSpreadOrb);
-
-            for (auto& cl: starts[h]) {
-                qDebug() << QString("Found H%1 start of %2 "
-                                    "with %3 spread at %4")
-                            .arg(h).arg(cl.first.names().join("="))
-                            .arg(cl.second)
-                            .arg(dtToString(dateTimeFromJulian(jd)))
-                            .toStdString().c_str();
-                cl.second = jd;
-            }
-        }
-    }
-
-    QMutex ctm;
-    unsigned childThreadCount = 0;
-
     auto useRate = 1 / double(maxH); // XXX
     if (showPatterns) {
         useRate *= patternsSpreadOrb/16.;
+    }
+    int ndays = int(useRate);
+    int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
+
+    if (showPatterns) {
+        HarmonicPlanetClusters work;
+        for (unsigned h = 1; h <= maxH; ++h) {
+            bool unsel = hs.count(h)==0;
+            if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
+            work[h] = findClusters(h, jd, _alist, _ids,
+                                   patternsQuorum,
+                                   nats,
+                                   patternsRestrictMoon,
+                                   patternsSpreadOrb);
+        }
+
+        auto nd = d;
+        while (!work.empty()) {
+            nd = nd.addDays(-ndays).addSecs(-nsecs);
+            PlanetSet ws;
+            for (const auto& hpso: work) {
+                for (const auto& pso: hpso.second) {
+                    ws.insert(pso.first.begin(),pso.first.end());
+                }
+            }
+
+            auto wp = _alist.profile(ws);   // subset of planets
+            auto pjd = getJulianDate(nd);
+            (*wp)(pjd); // XXX compute once
+
+            for (auto hit = work.begin(); hit != work.end(); ) {
+                auto h = hit->first;
+                auto& pso = hit->second;
+                for (auto spit = pso.begin(); spit != pso.end(); ) {
+                    const auto& ps = spit->first;
+                    auto orbWas = spit->second;
+                    auto hwp = wp->profile(ps);
+                    auto orb = computeSpread(h,pjd,*hwp);
+                    delete hwp;
+                    if (orb > patternsSpreadOrb) {
+                        starts[h].emplace(ps,pjd);
+                        qDebug() << QString("Found H%1 prior start of %2 "
+                                            "with %3 spread at %4")
+                                    .arg(h).arg(ps.names().join("="))
+                                    .arg(orbWas)
+                                    .arg(dtToString(nd))
+                                    .toStdString().c_str();
+                        pso.erase(spit++);
+                    } else {
+                        spit->second = orb;
+                        ++spit;
+                    }
+                }
+                if (pso.empty()) work.erase(hit++);
+                else ++hit;
+            }
+            delete wp;
+        }
     }
 
     auto windowOf = [](PlanetLoc* pl) {
@@ -3192,11 +3209,27 @@ void AspectFinder::findStuff()
 
     PlanetProfile b = _alist;
     double pjd = jd;
-    int ndays = int(useRate);
-    int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
     auto nd = d.addDays(ndays).addSecs(nsecs);
-    while (d < e) {
+    while (d < e || !starts.empty()) {
         jd = getJulianDate(nd);
+
+        bool collectingStrays = (d >= e);
+        if (collectingStrays) {
+            PlanetSet ws;
+            for (const auto& hpso: starts) {
+                for (const auto& pso: hpso.second) {
+                    ws.insert(pso.first.begin(),pso.first.end());
+                }
+            }
+            if (ws.empty()) break;  // all done
+            if (ws.size() != b.size()) {
+                qDebug() << "Pruning profile to " << ws.names();
+                auto wp = b.profile(ws);
+                wp->swap(b);
+                delete wp;
+            }
+        }
+
         for (auto tp: b) (*tp)(jd, 1);
         if (!s_quiet) qDebug() << "stuff" << dtToString(nd);
 
@@ -3207,18 +3240,31 @@ void AspectFinder::findStuff()
         for (h = maxH; h >= 1; --h) {
             bool unsel = hs.count(h)==0;
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
+            if (collectingStrays) {
+                bool any = false;
+                auto hit = starts.find(h);
+                if (hit != starts.end()) {
+                    if (hit->second.empty()) starts.erase(hit);
+                    else any = true;
+                }
+                if (!any) continue;
+            }
+            PlanetClusterMap hpc;
 #if 0
-            auto hpc = findClusters(h, b, patternsQuorum,
-                                    { } /*need*/,
+            hpc = findClusters(h, b, patternsQuorum,
+                                    nats,
                                     true/*skipAllNatalOnly*/,
                                     patternsRestrictMoon,
                                     patternsSpreadOrb);
 #else
+            if (!collectingStrays) {
+            // FIXME shouldn't need to recalculate planets!
             static size_t finding = 0; finding++;
-            auto hpc = findClusters(h, jd, b, _ids, patternsQuorum,
-                                    nats,
-                                    patternsRestrictMoon,
-                                    patternsSpreadOrb);
+            hpc = findClusters(h, jd, b, _ids, patternsQuorum,
+                               nats,
+                               patternsRestrictMoon,
+                               patternsSpreadOrb);
+            }
 #endif
 
             std::list<PlanetClusterMap::iterator> doomed;
@@ -3286,7 +3332,7 @@ void AspectFinder::findStuff()
                 }
 
                 static size_t clearing = 0; clearing++;
-                qDebug() << clearing << QString("Clearing H%1 search for %2 "
+                qDebug() << clearing << QString("Launching H%1 search for %2 "
                                     "with %3 spread at %4")
                             .arg(h).arg(ps.names().join("="))
                             .arg(computeSpread(h,jd,*prof))
@@ -3300,8 +3346,7 @@ void AspectFinder::findStuff()
                                   useH, PlanetSet(ps));
                 auto& ev = _evs.back();
 #if 1
-                { QMutexLocker foo(&ctm); ++childThreadCount; }
-                tp->start([=, &ev, &ctm, &childThreadCount] {
+                tp.start([=, &ev] {
                     prepThread();
 #endif
                     auto csprd = [prof,h,this](double jd)
@@ -3339,12 +3384,9 @@ void AspectFinder::findStuff()
                     } while (true);
 
                     auto qdt = dateTimeFromJulian(jd);
-
                     ev.reset(qdt, res);
                     delete prof;
 #if 1
-                    QMutexLocker mlb(&ctm);
-                    --childThreadCount;
                 });
 #endif
                 // TODO keep track of this start and end and then search
@@ -3385,7 +3427,7 @@ void AspectFinder::findStuff()
         }
         } // if includeAspectPatterns
 
-        if (!_staff.empty()) {
+        if (!collectingStrays && !_staff.empty()) {
             auto stuff = _staff;
 
             qreal ad, asp;
@@ -3482,10 +3524,8 @@ void AspectFinder::findStuff()
                     _evs.emplace_back();
                     auto& ev = _evs.back();
 #if 1
-                    { QMutexLocker foo(&ctm); ++childThreadCount; }
-
                     bool bQuiet = mum;
-                    tp->start([=, &ev, &ctm, &childThreadCount] {
+                    tp.start([=, &ev] {
                         prepThread();
                         modalize<bool> mum(s_quiet, bQuiet);
 #endif
@@ -3595,7 +3635,6 @@ void AspectFinder::findStuff()
                         }
 
 #if 1
-                        QMutexLocker mlb(&ctm); --childThreadCount;
                     });
 #endif
                 }
@@ -3621,20 +3660,14 @@ void AspectFinder::findStuff()
         }
     }
 
-    unsigned countWas = (unsigned)-1;
-    while (true) {
-        auto c = (QMutexLocker(&ctm), childThreadCount);
-        if (0 == c) {
-            qDebug() << "done waiting";
-            break;
-        } else if (countWas != c) {
-            countWas = c;
-            qDebug() << "Waiting for" << countWas << "tasks";
+    auto active = tp.activeThreadCount();
+    while (!tp.waitForDone(100)) {
+        auto now = tp.activeThreadCount();
+        if (now != active) {
+            qDebug() << now << "threads";
+            active = now;
         }
-        QThread::msleep(100/*msec*/);
     }
-
-    for (int i = 0; i < numThreads; ++i) tp->reserveThread();
 }
 
 void AspectFinder::run()
