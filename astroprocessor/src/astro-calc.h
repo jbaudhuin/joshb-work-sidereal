@@ -444,6 +444,10 @@ public:
                                       const QString& abbr,
                                       const QString& desc);
     static unsigned registerEventType(const eventTypeInfo& evtinf);
+    static QString eventTypeToString(EventType et)
+    { return std::get<1>(singleton()._eventIdToString.value(et)); }
+    static QString eventTypeToBrief(EventType et)
+    { return std::get<2>(singleton()._eventIdToString.value(et)); }
 
 private:
     unsigned _numEvents = etcUserEventStart;

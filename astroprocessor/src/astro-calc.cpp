@@ -2726,27 +2726,30 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
         // the above loop has added the planets to the list used
         // by pattern or station finder
 
+        int in = ppi.size();
+        int on = ppo.size();
         if (showTransitsToTransits) {
-            for (int i = 0; i < ppo.size(); ++i) {
+            for (int i = 0; i < in; ++i) {
                 hsetId hs = allAsp;
-                auto tp = dynamic_cast<TransitPosition*>(_alist[ppo[i]]);
+                auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[i]]);
                 auto pl = tp->planet.planetId();
                 if (pl == Planet_NorthNode || pl == Planet_SouthNode)
                     hs = conj;
                 else if (limitLunarTransits && pl == Planet_Moon)
                     hs = conjOpp;
-                for (int j = 0; j < ppi.size(); ++j) {
+                for (int j = std::max(0,i+1-(in-on)); j < on; ++j) {
+                    if (ppi[i] == ppo[j]) continue;
                     auto hst = hs;
-                    auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[j]]);
+                    auto tp = dynamic_cast<TransitPosition*>(_alist[ppo[j]]);
                     auto opl = tp->planet.planetId();
-                    if (pl > opl) continue;
                     if (opl == Planet_NorthNode || opl == Planet_SouthNode) {
                         if (hs == conj) continue;
                         hst = conj;
                     }
                     if (opl == Planet_Moon) hst = conj;
                     //else if (opl == Planet_Sun) hst = conjOpp;
-                    _staff.emplace_back(i, j, hst, etcTransitToTransit);
+                    _staff.emplace_back(ppi[i], ppo[j], hst,
+                                        etcTransitToTransit);
                 }
             }
         }
@@ -2890,7 +2893,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
         }
     }
 
-#if 0
+#if 1
     QMap<hsetId,QStringList> hsm;
     for (const auto& ij : _staff) {
         unsigned i, j;
@@ -2913,10 +2916,11 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
         if (hs.empty()) {
             for (auto h: _hsets[ij.hsid]) hs << QString::number(h);
         }
-        auto what = QString("H{%1} %2=%3")
+        auto what = QString("H{%1} %2=%3 %4")
                 .arg(hs.join(","))
                 .arg(_alist[i]->description())
-                .arg(_alist[j]->description());
+                .arg(_alist[j]->description())
+                .arg(EventTypeManager::eventTypeToString(ij.et));
 
         qDebug() << what;
     }

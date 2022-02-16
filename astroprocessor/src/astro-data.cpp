@@ -361,10 +361,10 @@ Data::getPlanets()
 {
     return {
         Planet_Sun, Planet_Moon, Planet_Mercury, Planet_Venus,
-                Planet_Mars, Planet_Jupiter, Planet_Saturn, Planet_Uranus,
-                Planet_Neptune, Planet_Pluto, Planet_Chiron,
-                Planet_Juno, Planet_Vesta, Planet_Pallas, Planet_Ceres,
-                Planet_NorthNode, Planet_SouthNode
+                Planet_Mars, Planet_Juno, Planet_Vesta, Planet_Pallas,
+                Planet_Ceres, Planet_Jupiter, Planet_NorthNode,
+                Planet_SouthNode, Planet_Saturn, Planet_Chiron, Planet_Uranus,
+                Planet_Neptune, Planet_Pluto
     };
 }
 
@@ -389,9 +389,9 @@ QList<PlanetId>
 Data::getOuterPlanets()
 {
     return {
-        Planet_Jupiter, Planet_Saturn, Planet_Uranus,
-                Planet_Neptune, Planet_Pluto, Planet_Chiron,
-                Planet_NorthNode, Planet_SouthNode
+        Planet_Jupiter, Planet_NorthNode,
+                Planet_SouthNode, Planet_Saturn, Planet_Chiron, Planet_Uranus,
+                Planet_Neptune, Planet_Pluto
     };
 }
 
