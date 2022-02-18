@@ -2737,7 +2737,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
                     hs = conj;
                 else if (limitLunarTransits && pl == Planet_Moon)
                     hs = conjOpp;
-                for (int j = std::max(0,i+1-(in-on)); j < on; ++j) {
+                for (int j = qMax(0,i+1-(in-on)); j < on; ++j) {
                     if (ppi[i] == ppo[j]) continue;
                     auto hst = hs;
                     auto tp = dynamic_cast<TransitPosition*>(_alist[ppo[j]]);
