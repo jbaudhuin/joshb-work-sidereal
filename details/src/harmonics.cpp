@@ -197,12 +197,12 @@ Harmonics::updateHarmonics()
 
         std::multimap<A::ChartPlanetBitmap, itemList> firstHxItems;
         typedef std::pair<int, A::ChartPlanetBitmap> harmInst;
-        QMap<QStandardItem*, harmInst> prev;
+        QHash<QStandardItem*, harmInst> prev;
         for (const auto& ph : hx) {
             intSet divs;
             QList<itemList> hits;
             auto factors = getFactors(ph.first);
-            for (auto hp : ph.second) {
+            for (const auto& hp : ph.second) {
                 if (_planet != A::Planet_None
                     && !hp.first.contains(_planet))
                 {
@@ -429,40 +429,60 @@ Harmonics::findIt(const QString& val)
 void
 Harmonics::clickedCell(const QModelIndex& inx)
 {
-    if (!(QApplication::keyboardModifiers() & Qt::ControlModifier)) return;
-
     QString val;
     QVariant v = inx.data(Qt::UserRole + 1);
-
     auto getHarmonic = [&] {
         val = inx.data(Qt::DisplayRole).toString();
         double d(0);
         bool ok;
         val = val.split(":").first();
         if (val.startsWith("H")
-            && (d = val.mid(1).toDouble(&ok), ok)) {
+                && (d = val.midRef(1).toDouble(&ok), ok)) {
             v = d;
             return true;
         }
         return false;
     };
-    if (!v.isValid() && inx.parent().isValid()) {
-        v = inx.parent().data(Qt::UserRole + 1);
-        if (!v.isValid() && inx.parent().parent().isValid()) {
-            v = inx.parent().parent().data(Qt::UserRole + 1);
+
+    if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
+        if (!v.isValid() && inx.parent().isValid()) {
+            v = inx.parent().data(Qt::UserRole + 1);
+            if (!v.isValid() && inx.parent().parent().isValid()) {
+                v = inx.parent().parent().data(Qt::UserRole + 1);
+            }
+        } else if (inx.parent().isValid()) {
+            if (QApplication::keyboardModifiers() & Qt::AltModifier) {
+                val = "H" + v.toString();
+            } else if (!getHarmonic()) return;
         }
-    } else if (inx.parent().isValid()) {
-        if (QApplication::keyboardModifiers() & Qt::AltModifier) {
-            val = "H" + v.toString();
-        } else if (!getHarmonic()) return;
+        if (v.isValid() || getHarmonic()) {
+            emit updateHarmonics(v.toDouble());
+        }
+        if (val.startsWith("H")) {
+            QTimer::singleShot(250, [this, val]() {
+                emit needToFindIt(val);
+            });
+        }
+        return;
     }
-    if (v.isValid() || getHarmonic()) {
-        emit updateHarmonics(v.toDouble());
+
+    auto row = inx.row();
+    auto col = inx.column();
+    switch (s_harmonicsOrder) {
+    case A::hscByHarmonic:
+    {
+        // col0 harmonic or spread, col1 planets
+        bool isSub = inx.parent().isValid();
+        bool isOvertone = isSub && inx.parent().parent().isValid();
+        break;
     }
-    if (val.startsWith("H")) {
-        QTimer::singleShot(250, [this, val]() {
-            emit needToFindIt(val);
-        });
+
+    case A::hscByPlanets:
+        // col0 planets or spread, col1 harmonic
+        break;
+
+    case A::hscByOrb:
+        break;
     }
 }
 

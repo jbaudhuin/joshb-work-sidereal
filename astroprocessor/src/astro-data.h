@@ -1295,6 +1295,45 @@ enum EventUpdateType {
     etcUpdate
 };
 
+template <typename T>
+struct ARange : public QPair<T,T> {
+    typedef QPair<T,T> Base;
+    using Base::Base;
+    using Base::first;
+    using Base::second;
+
+    ARange() : Base() { }
+
+    ARange(QVariant& v)
+    {
+        QVariantList vl = v.toList();
+        first = vl.takeFirst().value<T>();
+        second = vl.takeFirst().value<T>();
+    }
+
+    ARange& operator=(const QVariant& v)
+    {
+        if (v.isNull() || v.type() != QVariant::List) {
+            first = T();
+            second = T();
+        } else {
+            QVariantList vl = v.toList();
+            first = vl.takeFirst().value<T>();
+            second = vl.takeFirst().value<T>();
+        }
+        return *this;
+    }
+
+    bool contains(const T& d) const
+    { return d >= first && d <= second; }
+
+    operator QVariant() const
+    { QVariantList vl; vl << first << second; return vl; }
+};
+
+typedef ARange<QDate> ADateRange;
+typedef ARange<QDateTime> ADateTimeRange;
+
 class HarmonicAspect {
     unsigned            _eventType;  ///< type of event
     unsigned char       _harmonic;   ///< harmonic of aspect (or 1)
@@ -1379,6 +1418,7 @@ typedef std::list<HarmonicAspect> HarmonicAspects;
 
  class HarmonicEvent : public HarmonicAspect {
     QDateTime       _dateTime;      ///< time of event in UTC
+    ADateTimeRange  _range;
     HarmonicAspects _coincidences;  ///< coincident events
 
 public:
@@ -1391,13 +1431,13 @@ public:
         _dateTime(dt)
     { }
 
-    HarmonicEvent(const QDateTime     & dt,
+    HarmonicEvent(const ADateTimeRange& range,
                   unsigned              et,
                   unsigned char         h,
                   PlanetSet          && ps,
                   qreal                 delta = 0.0) :
         HarmonicAspect(et, h, std::move(ps), delta),
-        _dateTime(dt)
+        _range(range)
     { }
 
     HarmonicEvent(const QDateTime& dt = { }) :
@@ -1429,6 +1469,8 @@ public:
 
     QDateTime& dateTime() { return _dateTime; }
     const QDateTime& dateTime() const { return _dateTime; }
+
+    const ADateTimeRange& range() const { return _range; }
 
     HarmonicAspects& coincidences() { return _coincidences; }
     const HarmonicAspects& coincidences() const { return _coincidences; }
@@ -1484,42 +1526,6 @@ public:
     operator const HarmonicEvents*() const { return this; }
 
     QMutex mutex;
-};
-
-struct ADateRange : public QPair<QDate,QDate> {
-    typedef QPair<QDate,QDate> Base;
-    using Base::Base;
-
-    ADateRange() : Base() { }
-
-    ADateRange(QVariant& v)
-    {
-        QVariantList vl = v.toList();
-        first = vl.takeFirst().toDate();
-        second = vl.takeFirst().toDate();
-    }
-
-    ADateRange& operator=(const QVariant& v)
-    {
-        if (v.isNull() || v.type() != QVariant::List) {
-            first = QDate();
-            second = QDate();
-        } else {
-            QVariantList vl = v.toList();
-            first = vl.takeFirst().toDate();
-            second = vl.takeFirst().toDate();
-        }
-        return *this;
-    }
-
-    bool contains(const QDate& d) const
-    { return d >= first && d <= second; }
-
-    bool contains(const QDateTime& dt) const
-    { return contains(dt.date()); }
-
-    operator QVariant() const
-    { QVariantList vl; vl << first << second; return vl; }
 };
 
 typedef std::set<ADateRange> ADateRangeSet;

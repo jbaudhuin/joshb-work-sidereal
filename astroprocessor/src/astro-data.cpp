@@ -804,7 +804,7 @@ EventStore::getEventUpdateScope(EventScope evscope,
         }
         auto& evs = it->events;
         evs.remove_if([&addingRange](const HarmonicEvent& ev) {
-            return addingRange.contains(ev.dateTime());
+            return addingRange.contains(ev.dateTime().date());
         });
         return { { addingRange }, evs };
     }

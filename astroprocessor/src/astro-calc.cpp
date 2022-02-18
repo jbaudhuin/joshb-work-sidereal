@@ -1991,7 +1991,7 @@ dateTimeFromJulian(double jd)
     swe_jdut1_to_utc(jd, SE_GREG_CAL, &y, &m, &d, &hr, &min, &dsec);
     sec = dsec;
     int msec = int((dsec - double(sec)) * 1000.0);
-    return QDateTime(QDate(y,m,d), QTime(hr,min,sec,msec));
+    return QDateTime(QDate(y,m,d), QTime(hr,min,sec,msec), Qt::UTC);
 }
 
 namespace { thread_local bool s_quiet = false; }
@@ -3236,8 +3236,6 @@ void AspectFinder::findStuff()
         }
     };
 
-    auto evs = &_evs;
-
     double pjd = jd;
     auto nd = d.addDays(ndays).addSecs(nsecs);
     while (d < e || !starts.empty()) {
@@ -3377,7 +3375,9 @@ void AspectFinder::findStuff()
                 doomed.emplace_back(sit++);
                 //starts[h].erase(sit++);
 
-                _evs.emplace_back(dateTimeFromJulian(from),
+                ADateTimeRange range(dateTimeFromJulian(from),
+                                     dateTimeFromJulian(jd));
+                _evs.emplace_back(range,
                                   etcTransitAspectPattern,
                                   useH, PlanetSet(ps));
                 auto& ev = _evs.back();
@@ -4218,9 +4218,9 @@ computeSpread(unsigned h,
         ++c[vroom];
     }
 
-    if (c[1] == 0 && !ids.empty()) return 0;    // this is an error
+    if (c[1] == 0 /*&& !ids.empty()*/) return 0;    // this is an error
 #if 1
-    if (c[0] != 0 && !ids.empty()) {
+    if (c[0] != 0 /*&& !ids.empty()*/) {
 #if 1
         // try to minimize distance to center of natal configuration
         locs.emplace_back(sums[0]/c[0]);

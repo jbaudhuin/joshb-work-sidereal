@@ -434,9 +434,23 @@ public:
                 // HarmonicEvent
                 auto dt = _evs[row]->dateTime().toLocalTime();
                 if (role == RawRole) return dt;
-                if (role == Qt::ToolTipRole)
-                    return dt.toString("ddd hh:mm:ss.zzz");   // XXX format
-                return dt.toString("yyyy/MM/dd");
+                constexpr const char fmt[] = "yyyy/MM/dd";
+                constexpr const char sfmt[] = "MM/dd hh:mm";
+                constexpr const char ssfmt[] = "hh:mm";
+                if (role != Qt::ToolTipRole) return dt.toString(fmt);
+                QString res = dt.toString("ddd hh:mm:ss.zzz");
+                const auto& r(_evs[row]->range());
+                if (r != A::ADateTimeRange()) {
+                    auto dtfrom = r.first.toLocalTime();
+                    auto fmtFrom = dtfrom.date()==dt.date()? ssfmt : sfmt;
+                    auto dtto = r.second.toLocalTime();
+                    auto fmtTo = dtto.date()==dt.date()? ssfmt : sfmt;
+                    res = QString("%1 ->\n %2\n-> %3")
+                            .arg(r.first.toLocalTime().toString(fmtFrom),
+                                 res,
+                                 r.second.toLocalTime().toString(fmtTo));
+                }
+                return res;
             }
 
             // HarmonicAspect
@@ -1036,7 +1050,7 @@ Transits::onCompleted()
     const A::Horoscope& scope(file()->horoscope());
     const auto& ida(transitsOnly()? file()->horoscope().inputData
                              : transitsAF()->horoscope().inputData);
-
+#if 0
     QTimeZone tz(ida.tz * 3600);
     for (auto& ev: _evs) {
 #if 1
@@ -1046,7 +1060,7 @@ Transits::onCompleted()
         ev.dateTime().setTimeZone(tz);
 #endif
     }
-
+#endif
     _evm->setZodiac(scope.zodiac);
     _evm->addEvents(_evs);
     //QTimer::singleShot(0,[this]{ _tview->expandAll(); });
