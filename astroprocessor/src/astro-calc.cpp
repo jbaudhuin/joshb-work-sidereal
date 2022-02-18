@@ -2799,6 +2799,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
         if (showTransitsToNatalPlanets
                 || showTransitNatalAspectPatterns
                 || showTransitsToHouseCusps
+                || showTransitsToNatalAngles
                 || showReturns)
         {
             QList<PlanetId> npl;
@@ -2809,6 +2810,8 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
             for (auto pid: qAsConst(npl)) {
                 ppn << getNatalPlanet(pid);
             }
+
+            if (!showTransitsToNatalPlanets) ppn.clear();
 
             if (showTransitsToNatalPlanets
                     || showTransitsToNatalAngles
@@ -3088,13 +3091,31 @@ void AspectFinder::findStuff()
 {
     if (_alist.empty()) return;
 
-    PlanetSet nats;
+    PlanetSet nats, trans;
+    PlanetProfile b = _alist;
+    bool skipAllNatalOnly = false;
     if (!showTransitAspectPatterns && showTransitNatalAspectPatterns) {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<NatalPosition*>(pl);
             if (!pla || pla->inMotion()) continue;
             nats.emplace(pla->planet);
         }
+        skipAllNatalOnly = true;
+    } else if (showTransitAspectPatterns && !showTransitNatalAspectPatterns) {
+        for (auto&& pl : _alist) {
+            auto pla = dynamic_cast<TransitPosition*>(pl);
+            if (!pla || !pla->inMotion()) continue;
+            trans.emplace(pla->planet);
+        }
+    } else if (showTransitAspectPatterns && showTransitNatalAspectPatterns) {
+        bool anyt = false, anyr = false;
+        for (auto&& pl : _alist) {
+            auto pla = dynamic_cast<PlanetLoc*>(pl);
+            if (!pla) continue;
+            (pla->inMotion()? anyt : anyr) = true;
+            if (anyt && anyr) break;
+        }
+        skipAllNatalOnly = anyr;
     }
     bool showPatterns = showTransitAspectPatterns || !nats.empty();
 
@@ -3145,10 +3166,16 @@ void AspectFinder::findStuff()
 
     if (showPatterns) {
         HarmonicPlanetClusters work;
+        PlanetProfile* useProf = &_alist;
+        std::unique_ptr<PlanetProfile> doomed;
+        if (!trans.empty()) {
+            doomed = std::unique_ptr<PlanetProfile>(_alist.profile(trans));
+            useProf = doomed.get();
+        }
         for (unsigned h = 1; h <= maxH; ++h) {
             bool unsel = hs.count(h)==0;
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-            work[h] = findClusters(h, jd, _alist, _ids,
+            work[h] = findClusters(h, jd, *useProf, _ids,
                                    patternsQuorum,
                                    nats,
                                    patternsRestrictMoon,
@@ -3176,7 +3203,7 @@ void AspectFinder::findStuff()
                     const auto& ps = spit->first;
                     auto orbWas = spit->second;
                     auto hwp = wp->profile(ps);
-                    auto orb = computeSpread(h,pjd,*hwp);
+                    auto orb = computeSpread(h,*hwp);
                     delete hwp;
                     if (orb > patternsSpreadOrb) {
                         starts[h].emplace(ps,pjd);
@@ -3211,12 +3238,12 @@ void AspectFinder::findStuff()
 
     auto evs = &_evs;
 
-    PlanetProfile b = _alist;
     double pjd = jd;
     auto nd = d.addDays(ndays).addSecs(nsecs);
     while (d < e || !starts.empty()) {
         jd = getJulianDate(nd);
 
+        std::unique_ptr<PlanetProfile> useProf;
         bool collectingStrays = (d >= e);
         if (collectingStrays) {
             PlanetSet ws;
@@ -3237,6 +3264,10 @@ void AspectFinder::findStuff()
         for (auto tp: b) (*tp)(jd, 1);
         if (!s_quiet) qDebug() << "stuff" << dtToString(nd);
 
+        if (!collectingStrays && !trans.empty()) {
+            useProf = std::unique_ptr<PlanetProfile>(b.profile(trans));
+        }
+
         // Do all the things HERE
 
         if (showPatterns) {
@@ -3254,22 +3285,15 @@ void AspectFinder::findStuff()
                 if (!any) continue;
             }
             PlanetClusterMap hpc;
-#if 0
-            hpc = findClusters(h, b, patternsQuorum,
-                                    nats,
-                                    true/*skipAllNatalOnly*/,
-                                    patternsRestrictMoon,
-                                    patternsSpreadOrb);
-#else
             if (!collectingStrays) {
-            // FIXME shouldn't need to recalculate planets!
-            static size_t finding = 0; finding++;
-            hpc = findClusters(h, jd, b, _ids, patternsQuorum,
-                               nats,
-                               patternsRestrictMoon,
-                               patternsSpreadOrb);
+                PlanetProfile* prof = &b;
+                if (useProf.get()) prof = useProf.get();
+                hpc = findClusters(h, *prof,
+                                   patternsQuorum,
+                                   nats, skipAllNatalOnly,
+                                   patternsRestrictMoon,
+                                   patternsSpreadOrb);
             }
-#endif
 
             std::list<PlanetClusterMap::iterator> doomed;
             for (auto sit = starts[h].begin(); sit != starts[h].end(); ) {
@@ -3282,7 +3306,15 @@ void AspectFinder::findStuff()
                     ++sit;
                     continue;
                 }
-                if (computeSpread(h,jd,*prof) <= patternsSpreadOrb) {
+                auto spread = computeSpread(h,*prof);
+                if (spread <= patternsSpreadOrb) {
+                    if (collectingStrays) {
+                        qDebug() << QString("H%1 %2 with %3 spread at %4")
+                                    .arg(h).arg(ps.names().join("="))
+                                    .arg(spread)
+                                    .arg(dtToString(dateTimeFromJulian(jd)))
+                                    .toStdString().c_str();
+                    }
                     // still good so keep
                     delete prof;
                     ++sit;
@@ -3339,7 +3371,7 @@ void AspectFinder::findStuff()
                 qDebug() << clearing << QString("Launching H%1 search for %2 "
                                     "with %3 spread at %4")
                             .arg(h).arg(ps.names().join("="))
-                            .arg(computeSpread(h,jd,*prof))
+                            .arg(spread)
                             .arg(dtToString(dateTimeFromJulian(jd)))
                             .toStdString().c_str();
                 doomed.emplace_back(sit++);
@@ -3954,6 +3986,35 @@ sizeWithoutTransitingMoon(const positions& grp,
     }
     return ret;
 }
+
+std::ostream &
+operator<<(std::ostream& os, const position& pos)
+{
+    return os << pos.second.name().toStdString() << " " << pos.first;
+}
+
+std::ostream &
+operator<<(std::ostream& os, const positions& posits)
+{
+    os << "(";
+    std::string next;
+    for (const auto& pos: posits) {
+        os << next << pos;
+        if (next.empty()) next = ", ";
+    }
+    os << ")";
+    return os;
+}
+
+template <typename T>
+std::string
+toString(const T& t)
+{
+    std::stringstream sstr;
+    sstr << t;
+    return sstr.str();
+}
+
 }
 
 PlanetClusterMap
@@ -3964,7 +4025,26 @@ findClusters(const positions& posits,
              bool restrictMoon = true,
              qreal maxOrb = 8.)
 {
+#if 0
+    qDebug() << "quorum" << quorum
+             << "need" << need.names()
+             << "skipAllNatalOnly" << skipAllNatalOnly
+             << "restrictMoon" << restrictMoon
+             << "maxOrb" << maxOrb;
+    qDebug() << toString(posits).c_str();
+    //if (posits.size() > 1) qDebug() << "\n";
+#endif
+
     bool moonIn1 = skipAllNatalOnly;
+    if (restrictMoon && !skipAllNatalOnly) {
+        for (const auto& pos: posits) {
+            const auto& cpid = pos.second;
+            if (cpid.fileId()==1 && cpid.planetId()==Planet_Moon) {
+                moonIn1 = true;
+                break;
+            }
+        }
+    }
     PlanetClusterMap ret;
     for (auto it = posits.begin(); it != posits.end(); ++it) {
         positions grp;
@@ -4007,12 +4087,16 @@ findClusters(unsigned h,
         if (!ploc) continue;
 
         auto cpid = ploc->planet;
-        if (cpid.fileId() < 0)
-            continue;
+        if (cpid.fileId() < 0) continue;
 
-        if (h>1 && (cpid.planetId() >= Houses_Start
-                    && cpid.planetId() < Houses_End))
+        auto pid = cpid.planetId();
+
+        if (h>1 && ((pid >= Houses_Start
+                    && pid < Houses_End)
+                    || (pid == Planet_IC
+                         || pid == Planet_Desc)))
         { continue; }
+        if (h%2==0 && (pid == Planet_SouthNode)) continue;
 
         auto hloc = h==1? ploc->rasiLoc() : harmonic(h,ploc->rasiLoc());
         auto ins = posits.emplace(hloc,ploc->planet);
@@ -4070,62 +4154,6 @@ findClusters(unsigned h, double jd,
                         pfid[0] && pfid[1], restrictMoon, maxOrb);
 }
 
-qreal
-computeSpread(unsigned h,
-              double jd,
-              const PlanetProfile& prof,
-              const QList<InputData>& ids /*={}*/)
-{
-    std::vector<qreal> sums(2, 0);
-    std::vector<qreal> locs;
-    std::vector<unsigned> c(2, 0);
-    for (auto loc: prof) {
-        auto ploc = dynamic_cast<PlanetLoc*>(loc);
-        if (!ploc) continue;
-
-        auto cpid = ploc->planet;
-        if (cpid.fileId() < 0) continue;
-
-        qreal pos;
-        unsigned vroom(ploc->inMotion());
-        if (vroom && !ids.isEmpty()) {
-            const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );
-            pos = PlanetLoc::compute(cpid,ida,jd).first;
-        } else {
-            pos = ploc->_rasiLoc;
-        }
-        if (h > 1) pos = harmonic(h,pos);
-        /*if (vroom)*/ locs.emplace_back(pos);
-        sums[vroom] += pos;
-        ++c[vroom];
-    }
-
-    if (c[1] == 0) return 0;    // this is an error
-#if 1
-    if (c[0] != 0) {
-#if 1
-        // try to minimize distance to center of natal configuration
-        locs.emplace_back(sums[0]/c[0]);
-#else
-        // try to minimize distance between center of moving
-        // and center of natal configuration
-        auto fixed = sums[0]/c[0];
-        auto movie = sums[1]/c[1];
-        return angle(fixed,movie);
-#endif
-    }
-#endif
-    qreal maxa = 0;
-    for (unsigned i = 0, n = locs.size(); i+1 < n; ++i) {
-        for (unsigned j = i+1; j < n; ++j) {
-            auto a = angle(locs[i], locs[j]);
-            if (a > maxa) maxa = a;
-        }
-    }
-    return maxa;
-
-}
-
 HarmonicPlanetClusters findClusters(const uintSSet& hs,
                                     const PlanetProfile& prof,
                                     unsigned quorum,
@@ -4158,6 +4186,62 @@ HarmonicPlanetClusters findClusters(const uintSSet& hs,
         if (!pc.empty()) ret.emplace(h, pc);
     }
     return ret;
+}
+
+qreal
+computeSpread(unsigned h,
+              double jd,
+              const PlanetProfile& prof,
+              const QList<InputData>& ids)
+{
+    std::vector<qreal> sums(2, 0);
+    std::vector<qreal> locs;
+    std::vector<unsigned> c(2, 0);
+    for (auto loc: prof) {
+        auto ploc = dynamic_cast<PlanetLoc*>(loc);
+        if (!ploc) continue;
+
+        auto cpid = ploc->planet;
+        if (cpid.fileId() < 0) continue;
+
+        qreal pos;
+        unsigned vroom(ploc->inMotion());
+        if (vroom && !ids.isEmpty()) {
+            const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );
+            pos = PlanetLoc::compute(cpid,ida,jd).first;
+        } else {
+            pos = ploc->_rasiLoc;
+        }
+        if (h > 1) pos = harmonic(h,pos);
+        /*if (vroom)*/ locs.emplace_back(pos);
+        sums[vroom] += pos;
+        ++c[vroom];
+    }
+
+    if (c[1] == 0 && !ids.empty()) return 0;    // this is an error
+#if 1
+    if (c[0] != 0 && !ids.empty()) {
+#if 1
+        // try to minimize distance to center of natal configuration
+        locs.emplace_back(sums[0]/c[0]);
+#else
+        // try to minimize distance between center of moving
+        // and center of natal configuration
+        auto fixed = sums[0]/c[0];
+        auto movie = sums[1]/c[1];
+        return angle(fixed,movie);
+#endif
+    }
+#endif
+    qreal maxa = 0;
+    for (unsigned i = 0, n = locs.size(); i+1 < n; ++i) {
+        for (unsigned j = i+1; j < n; ++j) {
+            auto a = angle(locs[i], locs[j]);
+            if (a > maxa) maxa = a;
+        }
+    }
+    return maxa;
+
 }
 
 } // namespace A

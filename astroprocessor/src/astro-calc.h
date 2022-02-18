@@ -502,7 +502,11 @@ HarmonicPlanetClusters findClusters(const uintSSet& hs,
 qreal computeSpread(unsigned h,
                     double jd,
                     const PlanetProfile& prof,
-                    const QList<InputData>& ids = {});
+                    const QList<InputData>& ids);
+
+inline
+qreal computeSpread(unsigned h, const PlanetProfile& prof)
+{ return computeSpread(h, 0, prof, {}); }
 
 Planet      calculatePlanet      ( PlanetId planet, const InputData& input, const Houses& houses, const Zodiac& zodiac );
 Star calculateStar(const QString&, const InputData& input, const Houses& houses, const Zodiac& zodiac);
