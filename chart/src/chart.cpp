@@ -337,12 +337,16 @@ Chart::updatePlanetsAndCusps(int fileIndex)
                 && moved.value(other, 1) == moved.value(planet, 1)
                 && overlap(planet,other,moved.value(other,1)))
         {
+#if 0
             qDebug() << "  collision with" << ret[other]->name
                      << other->pos() << other->rotation()
                      << other->boundingRect().size();
+#endif
             //planet->moveBy(-other->boundingRect().width(), 0);
             planet->moveBy(-20, 0);
+#if 0
             qDebug() << "    new pos" << planet->pos() << planet->boundingRect().size();
+#endif
             moved[planet] = moved.value(other, 1) + 1;
             return true;
         }
@@ -381,11 +385,13 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         body->setPos(normalPlanetPosX(body, marker), body->pos().y());
         body->setRotation( positive(angle - rotate) );
         marker->setRotation( positive(rotate - angle) );
+#if 0
         qDebug() << "planet 'name" << b.name << "id" << b.id
                  //<< reinterpret_cast<void*>(planet)
                  << "pos" << body->pos()
                  << "rot" << body->rotation()
                  << body->boundingRect().size();
+#endif
 
         // avoid intersection of planets
         bool adjusted = false;
@@ -610,6 +616,7 @@ void Chart::drawPlanets(int fileIndex)
     QGraphicsScene* s = view->scene();
 
     for (const auto& planet: file(fileIndex)->horoscope().planets) {
+        if (-1 == planet.id) continue;
         if (planet.id >= A::Planet_Asc
                 && planet.id <= A::House_12
                 && planet.id != A::Planet_MC)
@@ -637,8 +644,10 @@ void Chart::drawPlanets(int fileIndex)
                 s->addEllipse(-innerRadius(fileIndex) - radius, -radius,
                               radius * 2, radius * 2,
                               planetMarkerPen(planet, fileIndex));
-        qDebug() << "planet" << planet.name
-                 << " 'text" << (void*)text << " 'marker" << (void*)marker;
+#if 1
+        qDebug() << "planet" << planet.name << planet.name.length()
+                 << "id" << planet.id;
+#endif
 
         if (filesCount() > 1) {
             // duplicate on outer circle
@@ -682,12 +691,12 @@ void Chart::drawStars(int fileIndex)
                 s->addEllipse(-innerRadius(fileIndex) - radius, -radius,
                               radius * 2, radius * 2,
                               planetMarkerPen(A::Planet(), fileIndex));
-
+#if 0
         if (star.isConfiguredWithPlanet())
             qDebug() << "star " << star.name
                      << " 'text" << (void*)text
                      << " 'marker" << (void*)marker;
-
+#endif
         if (filesCount() > 1) {
             // duplicate on outer circle
             auto e = s->addEllipse(-innerRadius(0) - radius, -radius,

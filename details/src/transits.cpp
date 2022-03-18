@@ -445,7 +445,7 @@ public:
                     auto fmtFrom = dtfrom.date()==dt.date()? ssfmt : sfmt;
                     auto dtto = r.second.toLocalTime();
                     auto fmtTo = dtto.date()==dt.date()? ssfmt : sfmt;
-                    res = QString("%1 ->\n %2\n-> %3")
+                    res = QString("%1 ->\n %2\n  -> %3")
                             .arg(r.first.toLocalTime().toString(fmtFrom),
                                  res,
                                  r.second.toLocalTime().toString(fmtTo));
@@ -1019,11 +1019,11 @@ Transits::updateTransits()
     if (filesCount() == 1) {
         auto type = file(0)->getType();
         if (type == TypeMale || type == TypeFemale) {
-            af = new A::AspectFinder(_evs,r,hs,{file(0), transitsAF()});
+            af = new A::OmnibusFinder(_evs,r,hs,{file(0), transitsAF()});
         }
     }
     if (!af && filesCount() >= 1) {
-        af = new A::AspectFinder(_evs, r, hs, files());
+        af = new A::OmnibusFinder(_evs, r, hs, files());
     }
     if (af) tp->start(af);
 
@@ -1399,6 +1399,9 @@ Transits::filesUpdated(MembersList m)
         return;
     }
 
+    // XXX need a better division of in-process update and final update
+    if (QApplication::mouseButtons() & Qt::LeftButton) return;
+
     bool any = false;
     int f = 0;
     for (auto ml: m) {
@@ -1453,6 +1456,8 @@ Transits::applySettings(const AppSettings& s)
             || s.value("Events/includeOnlyOuterTransitsToNatal").toBool() != curr.includeOnlyOuterTransitsToNatal
             || s.value("Events/showTransitsToNatalPlanets").toBool() != curr.showTransitsToNatalPlanets
             || s.value("Events/showTransitsToNatalAngles").toBool() != curr.showTransitsToNatalAngles
+            || s.value("Events/includeAsteroids").toBool() != curr.includeAsteroids
+            || s.value("Events/includeCentaurs").toBool() != curr.includeCentaurs
             || s.value("Events/showTransitsToHouseCusps").toBool() != curr.showTransitsToHouseCusps
             || s.value("Events/showReturns").toBool() != curr.showReturns
             || s.value("Events/showProgressionsToProgressions").toBool() != curr.showProgressionsToProgressions
@@ -1503,6 +1508,8 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Events/showTransitsToNatalPlanets", tr("Show Transits to Natal"));
     ed->addCheckBox("Events/showTransitsToNatalAngles", tr("Show Transits to natal angles"));
     ed->addCheckBox("Events/includeOnlyOuterTransitsToNatal", tr("Include only outer planet transits to natal"));
+    ed->addCheckBox("Events/includeAsteroids", tr("Include asteroids"));
+    ed->addCheckBox("Events/includeCentaurs", tr("Include centaurs"));
     ed->addCheckBox("Events/showTransitsToHouseCusps", tr("Show Transits to all house cusps"));
     ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
     ed->addCheckBox("Events/showTransitAspectPatterns", tr("Show Transit Aspect Patterns"));

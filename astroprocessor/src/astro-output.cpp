@@ -227,7 +227,9 @@ QString     describeAspectFull(const Aspect &asp, QString tag1, QString tag2)
         (asp.applying ? QObject::tr("Applying") : QObject::tr("Separating"));
 }
 
-QString     describePlanet(const Planet& planet, const Zodiac& zodiac)
+QString
+describePlanet(const Planet& planet,
+               const Zodiac& zodiac)
 {
     QString ret;
 
@@ -252,16 +254,20 @@ QString     describePlanet(const Planet& planet, const Zodiac& zodiac)
     } else
         ret += QString().leftJustified(8, ' ');
 
-    if (planet.houseRuler > 0)
-        ret += QObject::tr(" ruler of %1").arg(romanNum(planet.houseRuler)).leftJustified(15, ' ');
+    QStringList rs;
+    for (auto r: planet.houseRuler) {
+        rs << romanNum(r);
+    }
+    ret += QObject::tr(" ruler of %1").arg(rs.join("+")).leftJustified(18, ' ');
 
     if (planet.position != Position_Normal)
-        ret += getPositionName(planet.position);
+        ret += " " + getPositionName(planet.position);
 
     return ret;
 }
 
-QString     describePlanetCoord(const Planet& planet)
+QString
+describePlanetCoord(const Planet& planet)
 {
     QString ret;
 
@@ -387,6 +393,7 @@ describePower(const Planet& planet, const Horoscope& scope)
     }
 
 
+    if (planet.id != Planet_Jupiter)
     switch (aspect(planet, scope.jupiter, topAspectSet())) {
     case Aspect_Conjunction: ret << QObject::tr("+5: Planet is in partile conjunction with Jupiter"); break;
     case Aspect_Trine:       ret << QObject::tr("+4: Planet is in partile trine with Jupiter"); break;
@@ -394,6 +401,7 @@ describePower(const Planet& planet, const Horoscope& scope)
     default: break;
     }
 
+    if (planet.id != Planet_Venus)
     switch (aspect(planet, scope.venus, topAspectSet())) {
     case Aspect_Conjunction: ret << QObject::tr("+5: Planet is in partile conjunction with Venus"); break;
     case Aspect_Trine:       ret << QObject::tr("+4: Planet is in partile trine with Venus"); break;
@@ -401,6 +409,7 @@ describePower(const Planet& planet, const Horoscope& scope)
     default: break;
     }
 
+    if (planet.id != Planet_NorthNode)
     switch (aspect(planet, scope.northNode, topAspectSet())) {
     case Aspect_Conjunction: ret << QObject::tr("+4: Planet is in partile conjunction with North Node"); break;
     /*case Aspect_Trine:       ret << QObject::tr("+4: Planet is in partile trine with North Node"); break;
@@ -409,6 +418,7 @@ describePower(const Planet& planet, const Horoscope& scope)
     default: break;
     }
 
+    if (planet.id != Planet_Mars)
     switch (aspect(planet, scope.mars, topAspectSet())) {
     case Aspect_Conjunction: ret << QObject::tr("-5: Planet is in partile conjunction with Mars"); break;
     case Aspect_Opposition:  ret << QObject::tr("-4: Planet is in partile opposition with Mars"); break;
@@ -416,6 +426,7 @@ describePower(const Planet& planet, const Horoscope& scope)
     default: break;
     }
 
+    if (planet.id != Planet_Saturn)
     switch (aspect(planet, scope.saturn, topAspectSet())) {
     case Aspect_Conjunction: ret << QObject::tr("-5: Planet is in partile conjunction with Saturn"); break;
     case Aspect_Opposition:  ret << QObject::tr("-4: Planet is in partile opposition with Saturn"); break;
@@ -520,22 +531,22 @@ struct event {
         bool pluton = _star && _star->getPlanetId() == Planet_Pluto
             || other._star && other._star->getPlanetId() == Planet_Pluto;
 #endif
-        if (_dt > other._dt) return false;
-        if (_dt < other._dt) return true;
-        if (_pivot >= other._pivot) return false;
-        return true;
+        if (_dt != other._dt) return (_dt < other._dt);
+        return (_pivot < other._pivot);
     }
 
     QString fmt(short tz) const
     {
+        static QStringList AT {
+            QObject::tr("Rise"),
+                    QObject::tr("Set"),
+                    QObject::tr("MC"),
+                    QObject::tr("IC"),
+                    "----"
+        };
         QString ret = QString("%1  %2  %3")
             .arg(_star ? _star->name : QObject::tr("*Radix*"), -_maxWidth)
-            .arg((QStringList()
-                  << QObject::tr("Rise")
-                  << QObject::tr("Set")
-                  << QObject::tr("MC")
-                  << QObject::tr("IC")
-                  << "----").at(_pivot), -6)
+            .arg(AT.at(_pivot), -6)
             .arg(_formatTime(_dt, tz), -9);
         if (_star) { // i.e., not radix
             double dist = qAbs(_radix.secsTo(_dt));
@@ -569,7 +580,7 @@ describeParans(const AstroFileList& scopes,
 
     event::_radix = scope.inputData.GMT;
 
-    for (const Planet& p: scope.planets) {
+    for (const Planet& p: qAsConst(scope.planets)) {
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         unsigned u = 0;
         for (const QDateTime& dt: p.angleTransit) {
@@ -581,7 +592,7 @@ describeParans(const AstroFileList& scopes,
     }
 
     if (showFixedStars) {
-        for (const Star& s: scope.stars) {
+        for (const Star& s: qAsConst(scope.stars)) {
             unsigned u = 0;
             for (const QDateTime& dt: s.angleTransit) {
                 if (!dt.isValid()) continue;

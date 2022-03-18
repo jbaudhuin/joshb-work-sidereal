@@ -224,14 +224,14 @@ void Details::filesUpdated(MembersList m)
 
     planetSelector->setItemData(0, A::Planet_None, Qt::UserRole);
     if (planetSelector->count() == 1) {
-        foreach(const A::Planet& p, file(fileIndex)->horoscope().planets) {
+        for (const A::Planet& p: qAsConst(file(fileIndex)->horoscope().planets)) {
             QString imgSrc = p.userData["icon"].toString();
             std::string nom = imgSrc.toStdString();
             planetSelector->addItem(QIcon(imgSrc), p.name, p.id);
         }
     }
 
-    if (m[0]) describePlanet();
+    if (!m.isEmpty() && m[0]) describePlanet();
 }
 
 AppSettings Details::defaultSettings()

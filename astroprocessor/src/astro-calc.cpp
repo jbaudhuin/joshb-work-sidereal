@@ -126,11 +126,26 @@ getHouse(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
 {
     if (sign == Sign_None) return 0;
 
-    for (int i = 1; i <= 12; i++)
-        if (sign == getSign(houses.cusp[i - 1], zodiac).id ||
-            (sign + 1) % 13 == getSign(houses.cusp[i % 12], zodiac).id) return i;
-
+    for (int i = 1; i <= 12; i++) {
+        auto hs = getSign(houses.cusp[i - 1], zodiac).id;
+        if (sign == hs
+                /*|| (sign + 1) % 13 == getSign(houses.cusp[i % 12], zodiac).id*/)
+            return i;
+    }
     return 0;
+}
+
+QList<int>
+getHouses(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
+{
+    if (sign == Sign_None) return { };
+
+    QList<int> ret;
+    for (int i = 1; i <= 12; i++) {
+        auto hs = getSign(houses.cusp[i - 1], zodiac).id;
+        if (sign == hs) ret << i;
+    }
+    return ret;
 }
 
 float
@@ -141,7 +156,7 @@ angle(const Star& body1, const Star& body2)
     {
         float a = angle(body1.eclipticPos.x(), body2.eclipticPos.x());
         float b = angle(body1.eclipticPos.y(), body2.eclipticPos.y());
-        return sqrt(pow(a, 2) + pow(b, 2));
+        return sqrt(a*a + b*b);
     }
     case amcEcliptic:
         return angle(body1.eclipticPos.x(), body2.eclipticPos.x());
@@ -336,7 +351,7 @@ bool rulerDisposition(int house, int houseAuthority, const Horoscope& scope)
         return false;
 
     for (const Planet& p : scope.planets)
-        if (p.house == house && p.houseRuler == houseAuthority)
+        if (p.house == house && p.houseRuler.contains(houseAuthority))
             return true;
 
     return false;
@@ -484,7 +499,6 @@ calculatePlanet(PlanetId planet,
 
     char    errStr[256] = "";
 
-    // turn off true pos
     double eps, ablong;
     unsigned int flags;
     Planet ret = calculatePlanet(planet, input, jd, eps, flags, ablong,
@@ -498,9 +512,14 @@ calculatePlanet(PlanetId planet,
     ret.sign = &getSign(ret.eclipticPos.x(), zodiac);
     ret.house = getHouse(houses, ret.eclipticPos.x());
     ret.position = getPosition(ret, ret.sign->id);
-    if (ret.homeSigns.count()) {
-        ret.houseRuler = getHouse(ret.homeSigns.first(), houses, zodiac);
+    int prev = -1;
+    for (auto s: qAsConst(ret.homeSigns)) {
+        if (s == prev) continue;
+        ret.houseRuler << getHouses(s, houses, zodiac);
+        prev = s;
     }
+    std::sort(ret.houseRuler.begin(),
+              ret.houseRuler.end());
 
     double rettm;
     int eflg = SEFLG_SWIEPH;
@@ -1096,7 +1115,7 @@ calculatePlanetPower(const Planet& planet, const Horoscope& scope)
             ret.deficient -= 4;
     }
 
-
+    if (planet.id != Planet_Jupiter)
     switch (aspect(planet, scope.jupiter, topAspectSet())) {
     case Aspect_Conjunction: ret.dignity += 5; break;
     case Aspect_Trine:       ret.dignity += 4; break;
@@ -1104,6 +1123,7 @@ calculatePlanetPower(const Planet& planet, const Horoscope& scope)
     default: break;
     }
 
+    if (planet.id != Planet_Venus)
     switch (aspect(planet, scope.venus, topAspectSet())) {
     case Aspect_Conjunction: ret.dignity += 5; break;
     case Aspect_Trine:       ret.dignity += 4; break;
@@ -1111,6 +1131,7 @@ calculatePlanetPower(const Planet& planet, const Horoscope& scope)
     default: break;
     }
 
+    if (planet.id != Planet_NorthNode)
     switch (aspect(planet, scope.northNode, topAspectSet())) {
     case Aspect_Conjunction:
     /*case Aspect_Trine:
@@ -1119,6 +1140,7 @@ calculatePlanetPower(const Planet& planet, const Horoscope& scope)
     default: break;
     }
 
+    if (planet.id != Planet_Mars)
     switch (aspect(planet, scope.mars, topAspectSet())) {
     case Aspect_Conjunction: ret.deficient -= 5; break;
     case Aspect_Opposition:  ret.deficient -= 4; break;
@@ -1126,13 +1148,13 @@ calculatePlanetPower(const Planet& planet, const Horoscope& scope)
     default: break;
     }
 
+    if (planet.id != Planet_Saturn)
     switch (aspect(planet, scope.saturn, topAspectSet())) {
     case Aspect_Conjunction: ret.deficient -= 5; break;
     case Aspect_Opposition:  ret.deficient -= 4; break;
     case Aspect_Quadrature:  ret.deficient -= 3; break;
     default: break;
     }
-
 
     if (aspect(planet, scope.stars["Regulus"], tightConjunction()) == Aspect_Conjunction)
         ret.dignity += 6;                  // Regulus coordinates at 2000year: 29LEO50, +00.27'
@@ -1305,7 +1327,7 @@ calculateHarmonic(double        h,
     houses.MC = harmonic(h, houses.MC);
     houses.RAMC = harmonic(h, houses.RAMC);
 
-    for (PlanetId id : getPlanets()) {
+    for (PlanetId id : getPlanets(false,true)) {
         calculateHarmonic(h, planets[id]);
     }
 }
@@ -2346,13 +2368,15 @@ QList<QDateTime>
 quotidianSearch(PlanetProfile& poses,
                 const InputData& locale,
                 const QDateTime& endDT,
-                double span /*= 1.0*/)
+                double span /*= 1.0*/,
+                bool forceMin)
 {
     modalize<bool> mum(s_quiet,true);
 
     double jd1 = getJulianDate(locale.GMT);
     double jd2 = getJulianDate(endDT);
 
+    poses.setForceMinimize(forceMin);
     if (poses.needsFindMinimalSpread()) span *= 2.; else span /= 4.;
 
 #if 0
@@ -2486,19 +2510,29 @@ calculateAll(const InputData& input)
             scope.planets[id] = hc;
         } else {
             scope.planets[id] =
-                    calculatePlanet(id, input, scope.houses, scope.zodiac);
+                    calculatePlanet(id, input,
+                                    scope.houses,
+                                    scope.zodiac);
         }
     }
 
-    for (const QString& name : getStars()) {
+    for (const QString& name : qAsConst(getStars())) {
         scope.stars[name.toStdString()] =
             calculateStar(name, input, scope.houses, scope.zodiac);
+    }
+
+    if (scope.planets.contains(-1)) {
+        qDebug() << "Wha?";
     }
 
     scope.housesOrig = scope.houses;
     scope.planetsOrig = scope.planets;
 
     calculateBaseChartHarmonic(scope);
+
+    if (scope.planets.contains(-1)) {
+        qDebug() << "Wha?";
+    }
 
     return scope;
 }
@@ -2517,6 +2551,8 @@ EventOptions::EventOptions(const QVariantMap& map)
     limitLunarTransits = map.value("Events/limitLunarTransits").toBool();
     showTransitsToNatalPlanets = map.value("Events/showTransitsToNatalPlanets").toBool();
     includeOnlyOuterTransitsToNatal = map.value("Events/includeOnlyOuterTransitsToNatal").toBool();
+    includeAsteroids = map.value("Events/includeAsteroids").toBool();
+    includeCentaurs = map.value("Events/includeCentaurs").toBool();
     showTransitsToNatalAngles = map.value("Events/showTransitsToNatalAngles").toBool();
     showTransitsToHouseCusps = map.value("Events/showTransitsToHouseCusps").toBool();
     showReturns = map.value("Events/showReturns").toBool();
@@ -2555,6 +2591,8 @@ EventOptions::toMap()
     ret.insert("Events/limitLunarTransits",             limitLunarTransits);
     ret.insert("Events/showTransitsToNatalPlanets",     showTransitsToNatalPlanets);
     ret.insert("Events/includeOnlyOuterTransitsToNatal", includeOnlyOuterTransitsToNatal);
+    ret.insert("Events/includeAsteroids",               includeAsteroids);
+    ret.insert("Events/includeCentaurs",                includeCentaurs);
     ret.insert("Events/showTransitsToNatalAngles",      showTransitsToNatalAngles);
     ret.insert("Events/showTransitsToHouseCusps",       showTransitsToHouseCusps);
     ret.insert("Events/showReturns",                    showReturns);
@@ -2579,13 +2617,11 @@ EventOptions::toMap()
     return ret;
 }
 
-AspectFinder::AspectFinder(HarmonicEvents& evs,
-                           const ADateRange& range,
-                           const uintSSet& hset,
-                           const AstroFileList& files) :
-    EventFinder(evs, range),
-    _gt(afcFindStuff),
-    _hsets()
+OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
+                             const ADateRange& range,
+                             const uintSSet& hset,
+                             const AstroFileList& files) :
+    AspectFinder(evs, range, hset, afcFindStuff)
 {
     // This ugly jumble intends to generate the appropriate planet listings,
     // and then create the T-T T-N P-P P-N pairings. And the ingresses, etc.
@@ -2645,9 +2681,12 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
     Houses houses;  // natal houses if needed
 
     typedef std::function<unsigned(PlanetId)> getter;
+    getter getNatalPlanet = nullptr;
+    getter getTransitPlanet = nullptr;
+    getter getProgressedPlanet = nullptr;
+
     typedef std::function<unsigned(PlanetId,bool)> getterAlt;
-    getter getNatalPlanet, getTransitPlanet, getProgressedPlanet;
-    getterAlt getHouseIngress;
+    getterAlt getHouseIngress = nullptr;
     if (natal) {
         getNatalPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(natus, pid, Planet_None);
@@ -2682,6 +2721,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
             };
         }
     }
+    if (!trans && prog) { locus = progr; trans = true; }
     if (trans) {
         getTransitPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(locus, pid, Planet_None);
@@ -2693,12 +2733,12 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
         };
     }
     if (!prog && trans) { progr = locus; prog = true; }
-    if (prog) {
+    if (natal) {
         getProgressedPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(progr, pid, Planet_None);
             if (!index.contains(cpid)) {
                 index[cpid] = _alist.size();
-                auto pl = new ProgressedPosition(cpid, _ids[progr], njd);
+                auto pl = new ProgressedPosition(cpid, _ids[natus], njd);
                 if (pid >= Houses_Start && pid < Houses_End) {
                     pl->allowAspects = PlanetLoc::aspOnlyConj;
                 }
@@ -2719,7 +2759,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
             ppi << getTransitPlanet(pid);
         }
         if (includeOnlyOuterTransitsToNatal) {
-            for (auto pid: getOuterPlanets()) {
+            for (auto pid: getOuterPlanets(includeCentaurs)) {
                 ppo << getTransitPlanet(pid);
             }
         } else ppo = ppi;
@@ -2819,9 +2859,9 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
             {
                 QList<PlanetId> tpl;
                 if (includeOnlyOuterTransitsToNatal) {
-                    tpl = getOuterPlanets();
+                    tpl = getOuterPlanets(includeCentaurs);
                 } else {
-                    tpl = getPlanets();
+                    tpl = getPlanets(includeAsteroids);
                 }
 
                 for (auto pid: qAsConst(tpl)) {
@@ -2880,10 +2920,11 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
 
         if (showProgressionsToNatal) {
             QList<PlanetId> ppl;
-            if (includeOnlyInnerProgressionsToNatal) ppl = getInnerPlanets();
-            else ppl = getPlanets();
+            if (includeOnlyInnerProgressionsToNatal)
+                ppl = getInnerPlanets(includeAsteroids);
+            else ppl = getPlanets(includeAsteroids,includeCentaurs);
 
-            auto npl = getPlanets();
+            auto npl = getPlanets(includeAsteroids,includeCentaurs);
             npl << getAngles();
 
             for (auto pid: qAsConst(ppl)) {
@@ -2930,7 +2971,7 @@ AspectFinder::AspectFinder(HarmonicEvents& evs,
 #endif
 }
 
-void EventFinder::prepThread()
+void AspectFinder::prepThread()
 {
 #if MSDOS
     char ephePath[] = "swe\\";
@@ -3120,6 +3161,7 @@ void AspectFinder::findStuff()
     bool showPatterns = showTransitAspectPatterns || !nats.empty();
 
     QThreadPool tp;
+    tp.setMaxThreadCount(QThread::idealThreadCount());
 
     const auto& start = _range.first;
     auto end = _range.second;

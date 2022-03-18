@@ -123,14 +123,14 @@ Planets::drawPlanets()
         item->setProperty("imageSignTip", planet.sign->name);
         item->setProperty("degreeTip",    QString("%1°").arg((int)planet.eclipticPos.x()));
 
-        if (planet.houseRuler > 0)
-        {
-            item->setProperty("ruler",   tr("ruler of %1").arg(A::romanNum(planet.houseRuler)));
+        if (!planet.houseRuler.isEmpty()) {
+            QStringList rs;
+            for (auto r: planet.houseRuler) rs << A::romanNum(r);
+            auto rlr = rs.join("+");
+            item->setProperty("ruler",   tr("ruler of %1").arg(rlr));
             item->setProperty("ruleTip",    planet.name + "+" + A::houseNum(planet) + "+" +
-                              "ruler" + A::romanNum(planet.houseRuler));
-        }
-        else
-        {
+                              "ruler" + rs.join(":"));
+        } else {
             item->setProperty("ruler", "");
         }
 

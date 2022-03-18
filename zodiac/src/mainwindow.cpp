@@ -113,7 +113,7 @@ AstroFileInfo::filesUpdated(MembersList m)
         setText("");
         return;
     }
-    while (currentIndex >= m.size()) m << 0;
+    while (currentIndex >= m.size()) m.append(0);
     if (m[currentIndex] & (AstroFile::Name
                            | AstroFile::GMT
                            | AstroFile::Timezone

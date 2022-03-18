@@ -5,6 +5,7 @@
 #include <QTranslator>
 #include <QFontDatabase>
 #include <QDebug>
+#include <QThreadPool>
 #include <memory>
 #include "mainwindow.h"
 
@@ -96,6 +97,8 @@ int main(int argc, char *argv[])
 
         loadTranslations(&a, lang);
     }
+
+    qDebug() << "Ideal thread count" << QThread::idealThreadCount();
 
     QFontDatabase::addApplicationFont("fonts/Almagest.ttf");
     A::load(lang);

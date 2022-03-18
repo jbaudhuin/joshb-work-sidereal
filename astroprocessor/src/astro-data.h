@@ -285,7 +285,7 @@ typedef std::vector<FileInput> FileInputs;
 
 struct Houses
 {
-    double  cusp[12];            // angles of cuspides (0... 360)
+    double  cusp[12];   // angles of house cusps (0... 360)
     double  Asc, MC, RAMC, RAAC, RADC, OAAC, ODDC;
     double  Vx, EA, startSpeculum;
     double  halfMedium, halfImum;
@@ -388,12 +388,31 @@ struct Planet : public Star
     PlanetPosition      position = Position_Normal;
     PlanetPower         power;
     const ZodiacSign  * sign = nullptr;
-    int                 houseRuler = 0;
+    QList<int>          houseRuler = { };
 
     Planet() { }
 
     Planet(PlanetId pid, const QString& pname, const QVariant& fontChar)
     { id = pid; name = pname; userData["fontChar"] = fontChar; }
+
+    Planet& operator=(const Planet& other)
+    {
+        Star::operator=(other);
+        sweNum = other.sweNum;
+        isReal = other.isReal;
+        defaultEclipticSpeed = other.defaultEclipticSpeed;
+        homeSigns = other.homeSigns;
+        exaltationSigns = other.exaltationSigns;
+        exileSigns = other.exileSigns;
+        downfallSigns = other.downfallSigns;
+        eclipticSpeed = other.eclipticSpeed;
+        elongation = other.elongation;
+        position = other.position;
+        power = other.power;
+        sign = other.sign;
+        houseRuler = other.houseRuler;
+        return *this;
+    }
 
     operator Planet*() { return this; }
     operator const Planet*() const { return this; }
@@ -481,9 +500,32 @@ struct AspectsSet {
 
 typedef QList<Aspect> AspectList;
 typedef QList<Planet> PlanetList;
-typedef QMap<PlanetId, Planet> PlanetMap;
+
+class PlanetMap : public QMap<PlanetId, Planet> {
+public:
+    using Base = QMap<PlanetId, Planet>;
+    using Base::Base;
+
+#if 0
+    using Base::keys;
+    using Base::count;
+#endif
+
+    Base::mapped_type& operator[](const Base::key_type& key)
+    {
+        return Base::operator[](key);
+    }
+
+    const Base::mapped_type& operator[](const Base::key_type& key) const
+    {
+        return const_cast<PlanetMap*>(this)->Base::operator[](key);
+    }
+};
+
 typedef QMap<std::string, Star> StarMap;
 typedef std::pair<int, QString> GlyphName;
+
+const PlanetMap& getPlanetMap();
 
 class Data
 {
@@ -498,6 +540,8 @@ private:
 
     static QMap<PlanetId, GlyphName> signInfo;
 
+    friend const PlanetMap& A::getPlanetMap();
+
 public:
     static void load(QString language);
     static const QString usedLanguage() { return usedLang; }
@@ -506,16 +550,17 @@ public:
     static int getSignGlyph(PlanetId id);
     static QString getSignName(PlanetId id);
 
-    static QList<PlanetId> getPlanets();
+    static QList<PlanetId> getPlanets(bool includeAsteroids,
+                                      bool includeCentaurs);
     static QList<PlanetId> getAngles();
-    static QList<PlanetId> getInnerPlanets();
-    static QList<PlanetId> getOuterPlanets();
+    static QList<PlanetId> getInnerPlanets(bool includeAsteroids = false);
+    static QList<PlanetId> getOuterPlanets(bool includeCentaurs = true);
     static QList<PlanetId> getSignIngresses();
     static QList<PlanetId> getHouses();
     static QList<PlanetId> getNonAngularHouses();
 
     static const Star& getStar(const QString& name);
-    static QList<QString> getStars();
+    static const QList<QString>& getStars();
 
     static const HouseSystem& getHouseSystem(HouseSystemId id);
     static const QList<HouseSystem> getHouseSystems();
@@ -1085,6 +1130,8 @@ class PlanetProfile :
         public Loc,
         public std::deque<Loc*>
 {
+    bool _forceMinimize = false;
+
 public:
     typedef std::deque<Loc*> Base;
     using Base::Base;
@@ -1157,7 +1204,10 @@ public:
 
     qreal operator()(double jd) { return computePos(jd); }
 
-    bool needsFindMinimalSpread() const { return size() > 2; }
+    void setForceMinimize(bool b = true) { _forceMinimize = b; }
+
+    bool needsFindMinimalSpread() const
+    { return _forceMinimize || size() > 2; }
 };
 
 struct BySpeed {
@@ -1613,14 +1663,23 @@ double getSignPos(ZodiacId zid,
                   unsigned seconds = 0);
 QString getPlanetName(const ChartPlanetId& id);
 QString getPlanetGlyph(const ChartPlanetId& id);
-inline QList<PlanetId> getPlanets() { return Data::getPlanets(); }
+
+inline QList<PlanetId> getPlanets(bool includeAsteroids = false,
+                                  bool includeCentaurs = true)
+{ return Data::getPlanets(includeAsteroids, includeCentaurs); }
+
 inline QList<PlanetId> getAngles() { return Data::getAngles(); }
-inline QList<PlanetId> getInnerPlanets() { return Data::getInnerPlanets(); }
-inline QList<PlanetId> getOuterPlanets() { return Data::getOuterPlanets(); }
+
+inline QList<PlanetId> getInnerPlanets(bool includeAsteroids)
+{ return Data::getInnerPlanets(includeAsteroids); }
+
+inline QList<PlanetId> getOuterPlanets(bool includeCentaurs)
+{ return Data::getOuterPlanets(includeCentaurs); }
+
 inline QList<PlanetId> getSignIngresses() { return Data::getSignIngresses(); }
 inline QList<PlanetId> getHouses() { return Data::getHouses(); }
 const Star& getStar(const QString& name);
-QList<QString> getStars();
+const QList<QString>& getStars();
 const HouseSystem& getHouseSystem(HouseSystemId id);
 const Zodiac& getZodiac(ZodiacId id);
 const QList<HouseSystem> getHouseSystems();

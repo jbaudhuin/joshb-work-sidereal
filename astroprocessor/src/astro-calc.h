@@ -279,6 +279,8 @@ struct EventOptions {
     bool        showTransitsToNatalAngles = true;
     bool        showTransitsToHouseCusps = false;
     bool        includeOnlyOuterTransitsToNatal = false;
+    bool        includeAsteroids = false;
+    bool        includeCentaurs = true;
 
     bool        includeTransits() const
     {
@@ -330,48 +332,36 @@ public:
     void run(); // sets ephemeris path and then runs
 };
 
-struct EventFinder :
+class AspectFinder :
         public EventOptions,
         public QRunnable
 {
-public:
-    EventFinder(HarmonicEvents& evs,
-                const ADateRange& range) :
-        EventOptions(current()), _evs(evs), _range(range)
-    { }
-
-    virtual ~EventFinder() { }
-
-    static void prepThread();
-
-    HarmonicEvents& _evs;
-    ADateRange _range;
-
-    QList<InputData> _ids;
-    PlanetProfile _alist;   ///< the planet objects to compute
-};
-
-class AspectFinder : public EventFinder {
 public:
     enum goalType {
         afcFindStuff, afcFindAspects, afcFindPatterns, afcFindStations
     };
 
     AspectFinder(HarmonicEvents& evs,
-                 const ADateRange& range,
-                 const uintSSet& hset,
-                 goalType gt = afcFindAspects) :
-        EventFinder(evs, range),
-        _gt(gt),
-        _hsets({hset})
-    {
-        if (includeMidpoints || *hset.rbegin()>4) _rate = .5;
-    }
+                const ADateRange& range) :
+        _evs(evs), _range(range)
+    { }
 
     AspectFinder(HarmonicEvents& evs,
                  const ADateRange& range,
                  const uintSSet& hset,
-                 const AstroFileList& files);
+                 goalType gt = afcFindAspects) :
+        EventOptions(current()),
+        _evs(evs),
+        _range(range),
+        _gt(gt),
+        _hsets({hset})
+    {
+        //if (includeMidpoints || *hset.rbegin()>4) _rate = .5;
+    }
+
+    virtual ~AspectFinder() { }
+
+    static void prepThread();
 
     void findAspects();
     void findPatterns();
@@ -382,6 +372,12 @@ public:
     void findStuff();
 
 protected:
+    HarmonicEvents& _evs;
+    ADateRange _range;
+
+    QList<InputData> _ids;
+    PlanetProfile _alist;   ///< the planet objects to compute
+
     unsigned _gt;
     QMutex _ctm;
 
@@ -426,6 +422,15 @@ protected:
 private:
 };
 
+class OmnibusFinder : public AspectFinder {
+public:
+    OmnibusFinder(HarmonicEvents& evs,
+                 const ADateRange& range,
+                 const uintSSet& hset,
+                 const AstroFileList& files);
+
+};
+
 class CoincidenceFinder : public QRunnable {
     HarmonicAspects& _coins;
 
@@ -467,7 +472,7 @@ public:
 
     static unsigned addEventType(const eventRegistration& ev);
     static void addEventTypes(std::initializer_list<eventRegistration> evs);
-    static EventFinder* makeFinder(unsigned et);
+    static AspectFinder* makeFinder(unsigned et);
 
 private:
     static eventNameMap     _eventNames;
@@ -531,7 +536,8 @@ QDateTime calculateClosestTime(PlanetProfile& poses,
 QList<QDateTime> quotidianSearch(PlanetProfile& poses,
                                  const InputData& locale,
                                  const QDateTime& endDt,
-                                 double span = 1.0);
+                                 double span,
+                                 bool forceMin);
 
 Horoscope   calculateAll         ( const InputData& input );
 

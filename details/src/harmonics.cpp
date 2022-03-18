@@ -578,6 +578,9 @@ Harmonics::filesUpdated(MembersList m)
         return;
     }
 
+    // XXX need a better division of in-process update and final update
+    if (QApplication::mouseButtons() & Qt::LeftButton) return;
+
     bool any = false;
     for (auto ml: m) {
         any |= (ml & ~(AstroFile::Harmonic

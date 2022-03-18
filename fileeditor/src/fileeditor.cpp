@@ -577,9 +577,8 @@ AstroFileEditor::onEditingFinished()
                     for (const auto& ppln : pln.split('/')) {
                         auto ps = ppln.split('-');
                         if (ps.size()==1) ++pop['\0'];
-                        else if (ps[1].isEmpty()) {
-                            return;
-                        } else {
+                        else if (ps[1].isEmpty()) return;
+                        else {
                             QChar t = ps[1].at(0).toLower();
                             if (QString("tpr").indexOf(t)==-1) {
                                 // warn
@@ -638,8 +637,8 @@ AstroFileEditor::onEditingFinished()
     auto dl = A::quotidianSearch(poses, inda,
                                  endDate->dateTime().toUTC(),
                                  //std::min(span/2,std::min((d1-d0)/12,45.))
-                                 std::min(span/inda.harmonic,30.)
-                                 );
+                                 std::min(span/inda.harmonic,30.),
+                                 true);
 
     auto lw = findChild<QListWidget*>();
     lw->clear();

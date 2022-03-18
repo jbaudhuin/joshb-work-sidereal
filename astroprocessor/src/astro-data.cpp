@@ -15,7 +15,7 @@
 namespace A {
 
 QMap<AspectSetId, AspectsSet> Data::aspectSets;
-QMap<PlanetId, Planet> Data::planets;
+PlanetMap Data::planets;
 QMap<std::string, Star> Data::stars;
 QMap<HouseSystemId, HouseSystem> Data::houseSystems;
 QMap<ZodiacId, Zodiac> Data::zodiacs;
@@ -357,15 +357,10 @@ Data::getSignName(PlanetId id)
 }
 
 QList<PlanetId>
-Data::getPlanets()
+Data::getPlanets(bool includeAsteroids /*=false*/,
+                 bool includeCentaurs /*=true*/)
 {
-    return {
-        Planet_Sun, Planet_Moon, Planet_Mercury, Planet_Venus,
-                Planet_Mars, Planet_Juno, Planet_Vesta, Planet_Pallas,
-                Planet_Ceres, Planet_Jupiter, Planet_NorthNode,
-                Planet_SouthNode, Planet_Saturn, Planet_Chiron, Planet_Uranus,
-                Planet_Neptune, Planet_Pluto
-    };
+    return getInnerPlanets(includeAsteroids) << getOuterPlanets(includeCentaurs);
 }
 
 QList<PlanetId>
@@ -377,22 +372,24 @@ Data::getAngles()
 }
 
 QList<PlanetId>
-Data::getInnerPlanets()
+Data::getInnerPlanets(bool includeAsteroids /*=false*/)
 {
-    return {
-        Planet_Sun, Planet_Moon, Planet_Mercury, Planet_Venus, Planet_Mars,
-                Planet_Juno, Planet_Vesta, Planet_Pallas, Planet_Ceres
-    };
+    QList<PlanetId> ret {
+        Planet_Sun, Planet_Moon, Planet_Mercury, Planet_Venus, Planet_Mars };
+    if (includeAsteroids)
+        return ret
+            << Planet_Juno << Planet_Vesta << Planet_Pallas << Planet_Ceres;
+    return ret;
 }
 
 QList<PlanetId>
-Data::getOuterPlanets()
+Data::getOuterPlanets(bool includeCentaurs /*=true*/)
 {
-    return {
-        Planet_Jupiter, Planet_NorthNode,
-                Planet_SouthNode, Planet_Saturn, Planet_Chiron, Planet_Uranus,
-                Planet_Neptune, Planet_Pluto
+    QList<PlanetId> ret {
+        Planet_Jupiter, Planet_NorthNode, Planet_SouthNode, Planet_Saturn
     };
+    if (includeCentaurs) ret << Planet_Chiron;
+    return ret << Planet_Uranus << Planet_Neptune << Planet_Pluto;
 }
 
 QList<PlanetId>
@@ -435,12 +432,14 @@ Data::getStar(const QString& name)
     return dummy;
 }
 
-QList<QString>
+const QList<QString>&
 Data::getStars()
 {
-    QList<QString> ret;
-    for (const std::string& str : stars.keys()) {
-        ret << str.c_str();
+    static QList<QString> ret;
+    if (ret.isEmpty()) {
+        for (const std::string& str : stars.keys()) {
+            ret << str.c_str();
+        }
     }
     return ret;
 }
@@ -583,14 +582,15 @@ ChartPlanetId::name() const
 void load(QString language) { Data::load(language); }
 QString usedLanguage()      { return Data::usedLanguage(); }
 const Planet& getPlanet(PlanetId pid) { return Data::getPlanet(pid); }
-
+const PlanetMap& getPlanetMap() { return Data::planets; }
 
 PlanetId
 getPlanetId(const QString& name)
 {
-    for (auto && it : getPlanets()) {
-        if (getPlanet(it).name.startsWith(name,Qt::CaseInsensitive))
-            return it;
+    const auto& planets = getPlanetMap();
+    for (const auto& it : planets) {
+        if (it.name.startsWith(name,Qt::CaseInsensitive))
+            return it.getPlanetId();
     }
     return Planet_None;
 }
@@ -599,7 +599,7 @@ getPlanetId(const QString& name)
 QString getPlanetName(const ChartPlanetId& id) { return Data::getPlanet(id).name; }
 QString getPlanetGlyph(const ChartPlanetId& id) { return id.name(); }
 const Star& getStar(const QString& name) { return Data::getStar(name); }
-QList<QString> getStars() { return Data::getStars(); }
+const QList<QString>& getStars() { return Data::getStars(); }
 const HouseSystem& getHouseSystem(HouseSystemId id) { return Data::getHouseSystem(id); }
 const Zodiac& getZodiac(ZodiacId id) { return Data::getZodiac(id); }
 const QList<HouseSystem> getHouseSystems() { return Data::getHouseSystems(); }
