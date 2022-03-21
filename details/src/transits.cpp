@@ -1003,9 +1003,14 @@ Transits::updateTransits()
     if (filesCount() == 0) return;
     if (!isVisible()) return;
 
+    if (_active) {
+        disconnect(_active,SIGNAL(finished()),this,SLOT(onCompleted()));
+        emit cancelActive();
+        if (_active) _active->wait();
+    }
+
     qDebug() << "filesCount()" << filesCount();
 
-    auto tp = QThreadPool::globalInstance();
     auto hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
 
@@ -1025,24 +1030,20 @@ Transits::updateTransits()
     if (!af && filesCount() >= 1) {
         af = new A::OmnibusFinder(_evs, r, hs, files());
     }
-    if (af) tp->start(af);
+    if (!af) return;
 
-    if (!_watcher) {
-        _watcher = new QTimer(this);
-        connect(_watcher, SIGNAL(timeout()), this, SLOT(checkComplete()));
-    }
-    _watcher->start(250);
+    auto thread = new QThread(this);
+    af->moveToThread(thread);
+    connect(this,SIGNAL(cancelActive()),af,SLOT(cancel()));
+    connect(thread,SIGNAL(started()),af,SLOT(findStuff()));
+    connect(thread,SIGNAL(finished()),this,SLOT(onCompleted()));
+    connect(thread,SIGNAL(finished()),thread,SLOT(deleteLater()));
+    connect(thread,SIGNAL(finished()),af,SLOT(deleteLater()));
+    thread->start();
+    _active = thread;
 }
 
-void
-Transits::checkComplete()
-{
-    if (QThreadPool::globalInstance()->activeThreadCount()) {
-        return;
-    }
-    _watcher->stop();
-    onCompleted();
-}
+
 
 void
 Transits::onCompleted()

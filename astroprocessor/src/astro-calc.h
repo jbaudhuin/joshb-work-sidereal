@@ -3,6 +3,7 @@
 
 #include "astro-data.h"
 #include <QRunnable>
+#include <QEventLoop>
 
 // Forward
 class AstroFile;
@@ -333,10 +334,13 @@ public:
 };
 
 class AspectFinder :
-        public EventOptions,
-        public QRunnable
+        public QObject,
+        public EventOptions
 {
+    Q_OBJECT
+
 public:
+    enum state { idle, running, cancelRequested, pauseRequested };
     enum goalType {
         afcFindStuff, afcFindAspects, afcFindPatterns, afcFindStations
     };
@@ -361,33 +365,29 @@ public:
 
     virtual ~AspectFinder() { }
 
-    static void prepThread();
 
     void findAspects();
     void findPatterns();
 
-    void run() override;
-
     void findStations();
+    void findAspectsAndPatterns();
+
+signals:
+    void progress(double p);
+
+public slots:
+    void pause() { if (_state==running) _state = pauseRequested; }
+    void resume() { if (_state==pauseRequested) _state = running; }
+    void cancel() { if (_state==running) _state = cancelRequested; }
     void findStuff();
 
 protected:
-    HarmonicEvents& _evs;
-    ADateRange _range;
-
-    QList<InputData> _ids;
-    PlanetProfile _alist;   ///< the planet objects to compute
-
-    unsigned _gt;
-    QMutex _ctm;
-
-    // having both here allows us to include aspects to stationary planets...
-    bool _includeAspectsToAngles = true;
-    double _rate = 4.0;  // # days
+    static void prepThread();
 
     bool outOfOrb(unsigned h,
                   std::initializer_list<const Loc*> locs,
                   qreal& d) const
+
     {
         auto delta = PlanetProfile::computeSpread(locs, h);
         d = delta.first;
@@ -415,6 +415,21 @@ protected:
         return true;
     }
 
+    HarmonicEvents& _evs;
+    ADateRange _range;
+
+    QList<InputData> _ids;
+    PlanetProfile _alist;   ///< the planet objects to compute
+
+    unsigned _gt;
+    QMutex _ctm;
+
+    // having both here allows us to include aspects to stationary planets...
+    bool _includeAspectsToAngles = true;
+
+    state _state = idle;
+
+    double _rate = 4.0;  // # days
     hsets _hsets;         ///< harmonic profiles
     std::list<planetsEtc> _staff;
     unsigned _evType = etcUnknownEvent;

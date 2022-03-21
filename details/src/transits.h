@@ -6,6 +6,8 @@
 #include <QModelIndex>
 #include <QButtonGroup>
 #include <QTreeView>
+#include <QPointer>
+
 #include <Astroprocessor/Gui>
 
 class QTreeView;
@@ -92,6 +94,10 @@ signals:
 
     void updateHarmonics(double);
 
+    void cancelActive();
+    void pauseActive();
+    void resumeActive();
+
 protected slots:
     void onEventSelectionChanged();
     void onDateRangeChanged();
@@ -111,7 +117,6 @@ protected slots:
     { if (!_duration->hasFocus()) onDurationChanged(); }
 
     void updateTransits();
-    void checkComplete();
     void onCompleted();
     void clickedCell(QModelIndex);
     void doubleClickedCell(QModelIndex);
@@ -134,6 +139,7 @@ private:
 
     TransitTreeView* _tview;
 
+    QPointer<QThread> _active;
     QLineEdit* _input;
     QDateEdit* _start;
     QLineEdit* _duration;
@@ -151,9 +157,6 @@ private:
 
     GeoSearchWidget* _location;
 
-    QTimer* _watcher = nullptr;
-
-    //QStandardItemModel* _tm;
     EventsTableModel* _evm;
 
     ADateDelta _ddelta;

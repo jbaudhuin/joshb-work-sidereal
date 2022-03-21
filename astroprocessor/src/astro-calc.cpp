@@ -3009,6 +3009,14 @@ AspectFinder::findStations()
     std::list<PlanetLoc*> stations;
     unsigned in = _alist.size();
     while (d < e) {
+        QCoreApplication::processEvents();
+
+        if (_state == cancelRequested) break;
+        if (_state == pauseRequested) {
+            QThread::usleep(100000);
+            continue;
+        }
+
         jd = getJulianDate(nd);
         qDebug() << "sta" << dtToString(nd);
 
@@ -3091,6 +3099,8 @@ AspectFinder::findStations()
         _alist.swap(b);
     }
 
+    if (_state == cancelRequested) tp.clear();
+
     auto active = tp.activeThreadCount();
     while (!tp.waitForDone(100)) {
         auto now = tp.activeThreadCount();
@@ -3128,7 +3138,7 @@ operator<<(std::ostream& os, const PlanetClusterMap& pcm)
     return os;
 }
 
-void AspectFinder::findStuff()
+void AspectFinder::findAspectsAndPatterns()
 {
     if (_alist.empty()) return;
 
@@ -3153,10 +3163,14 @@ void AspectFinder::findStuff()
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<PlanetLoc*>(pl);
             if (!pla) continue;
-            (pla->inMotion()? anyt : anyr) = true;
-            if (anyt && anyr) break;
+            if (pla->inMotion()) anyt = true;
+            else {
+                anyr = true;
+                nats.emplace(pla->planet);
+            }
         }
-        skipAllNatalOnly = anyr;
+        if (anyr) skipAllNatalOnly = true;
+        else nats.clear();
     }
     bool showPatterns = showTransitAspectPatterns || !nats.empty();
 
@@ -3281,6 +3295,14 @@ void AspectFinder::findStuff()
     double pjd = jd;
     auto nd = d.addDays(ndays).addSecs(nsecs);
     while (d < e || !starts.empty()) {
+        QCoreApplication::processEvents();
+
+        if (_state == cancelRequested) break;
+        if (_state == pauseRequested) {
+            QThread::usleep(100000);
+            continue;
+        }
+
         jd = getJulianDate(nd);
 
         std::unique_ptr<PlanetProfile> useProf;
@@ -3738,6 +3760,8 @@ void AspectFinder::findStuff()
         }
     }
 
+    if (_state == cancelRequested) tp.clear();
+
     auto active = tp.activeThreadCount();
     while (!tp.waitForDone(100)) {
         auto now = tp.activeThreadCount();
@@ -3748,22 +3772,34 @@ void AspectFinder::findStuff()
     }
 }
 
+#if 0
 void AspectFinder::run()
 {
-    prepThread();
     switch (_gt) {
     case afcFindPatterns:
-        findStuff(); break;
+        findAspectsAndPatterns(); break;
     case afcFindAspects:
         if (showStations) findStations();
-        findStuff(); break;
+        findAspectsAndPatterns(); break;
     case afcFindStations:
         findStations(); break;
     case afcFindStuff:
         if (showStations) findStations();
-        findStuff();
+        findAspectsAndPatterns();
         break;
     }
+}
+#endif
+
+void AspectFinder::findStuff()
+{
+    prepThread();
+
+    _state = running;
+    if (showStations) findStations();
+    if (_state != cancelRequested) findAspectsAndPatterns();
+    _state = idle;
+    thread()->exit();
 }
 
 #if 0 // has midpoints code
