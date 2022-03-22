@@ -1234,6 +1234,7 @@ Transits::clickedCell(QModelIndex inx)
         emit updateSecond(transitsAF());
         if (_trans && _trans->parent() != this) _trans = nullptr;
     }
+    ttv()->scrollTo(inx);
 }
 
 void 
@@ -1400,8 +1401,10 @@ Transits::filesUpdated(MembersList m)
         return;
     }
 
+#if 0
     // XXX need a better division of in-process update and final update
     if (QApplication::mouseButtons() & Qt::LeftButton) return;
+#endif
 
     bool any = false;
     int f = 0;

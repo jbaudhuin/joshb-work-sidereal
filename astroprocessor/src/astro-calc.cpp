@@ -3152,7 +3152,10 @@ void AspectFinder::findAspectsAndPatterns()
             nats.emplace(pla->planet);
         }
         skipAllNatalOnly = true;
-    } else if (showTransitAspectPatterns && !showTransitNatalAspectPatterns) {
+    } else if (showTransitAspectPatterns
+               && (!showTransitNatalAspectPatterns
+                   || _ids.size()==1))
+    {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<TransitPosition*>(pl);
             if (!pla || !pla->inMotion()) continue;
@@ -3163,14 +3166,10 @@ void AspectFinder::findAspectsAndPatterns()
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<PlanetLoc*>(pl);
             if (!pla) continue;
-            if (pla->inMotion()) anyt = true;
-            else {
-                anyr = true;
-                nats.emplace(pla->planet);
-            }
+            (pla->inMotion()? anyt : anyr) = true;
+            if (anyt && anyr) break;
         }
-        if (anyr) skipAllNatalOnly = true;
-        else nats.clear();
+        skipAllNatalOnly = true;
     }
     bool showPatterns = showTransitAspectPatterns || !nats.empty();
 
