@@ -114,6 +114,7 @@ class AChangeSignalFrame {
     EventsTableModel* _evm;
 public:
     AChangeSignalFrame(EventsTableModel* evm);
+    AChangeSignalFrame(AChangeSignalFrame&& from);
     ~AChangeSignalFrame();
 };
 
@@ -600,9 +601,9 @@ public:
         for (auto lievs: _evls) {
             A::modalize<eventListIndex> cev(evp::curr(), lievs.first);
             QMutexLocker ml(const_cast<QMutex*>(&(lievs.second->mutex)));
-            _evs.insert(_evs.end(),
-                        lievs.second->cbegin(),
-                        lievs.second->cend());
+            for (auto& ev: *lievs.second) {
+                if (ev.dateTime().isValid()) _evs.emplace_back(ev);
+            }
         }
 #endif
         std::sort(_evs.begin(), _evs.end(), less);
@@ -754,10 +755,14 @@ private:
 
 AChangeSignalFrame::AChangeSignalFrame(EventsTableModel* evm) :
     _evm(evm)
-{ if (!evm->_changeRef++) emit evm->aboutToChange(); }
+{ if (evm && !evm->_changeRef++) emit evm->aboutToChange(); }
+
+AChangeSignalFrame::AChangeSignalFrame(AChangeSignalFrame&& from) :
+    _evm(from._evm)
+{ from._evm = nullptr; }
 
 AChangeSignalFrame::~AChangeSignalFrame()
-{ if (!--_evm->_changeRef) emit _evm->changeDone(); }
+{ if (_evm && !--_evm->_changeRef) emit _evm->changeDone(); }
 
 
 ADateDelta::ADateDelta(const QString& str)
@@ -1009,6 +1014,8 @@ Transits::updateTransits()
         if (_active) _active->wait();
     }
 
+    if (!_chs) _chs = new AChangeSignalFrame(_evm);
+
     qDebug() << "filesCount()" << filesCount();
 
     auto hs = A::dynAspState();
@@ -1032,10 +1039,17 @@ Transits::updateTransits()
     }
     if (!af) return;
 
+    const A::Horoscope& scope(file()->horoscope());
+    const auto& ida(transitsOnly()? file()->horoscope().inputData
+                             : transitsAF()->horoscope().inputData);
+    _evm->setZodiac(scope.zodiac);
+    _evm->addEvents(_evs);
+
     auto thread = new QThread(this);
     af->moveToThread(thread);
     connect(this,SIGNAL(cancelActive()),af,SLOT(cancel()));
     connect(thread,SIGNAL(started()),af,SLOT(findStuff()));
+    connect(af,SIGNAL(progress(double)),this,SLOT(onProgress(double)));
     connect(thread,SIGNAL(finished()),this,SLOT(onCompleted()));
     connect(thread,SIGNAL(finished()),thread,SLOT(deleteLater()));
     connect(thread,SIGNAL(finished()),af,SLOT(deleteLater()));
@@ -1043,29 +1057,28 @@ Transits::updateTransits()
     _active = thread;
 }
 
-
+void
+Transits::onProgress(double prog)
+{
+    if (_chs) saveScrollPos();
+    _evm->sort();
+    if (_chs) restoreScrollPos();
+}
 
 void
 Transits::onCompleted()
 {
+#if 1
+    _evm->sort();
+#else
     const A::Horoscope& scope(file()->horoscope());
     const auto& ida(transitsOnly()? file()->horoscope().inputData
                              : transitsAF()->horoscope().inputData);
-#if 0
-    QTimeZone tz(ida.tz * 3600);
-    for (auto& ev: _evs) {
-#if 1
-        // XXX can't this just be done by the transit finder?
-        ev.dateTime().setTimeSpec(Qt::UTC);
-#else
-        ev.dateTime().setTimeZone(tz);
-#endif
-    }
-#endif
     _evm->setZodiac(scope.zodiac);
     _evm->addEvents(_evs);
     //QTimer::singleShot(0,[this]{ _tview->expandAll(); });
 
+#endif
     delete _chs;
     _chs = nullptr;
 }
@@ -1235,6 +1248,7 @@ Transits::clickedCell(QModelIndex inx)
         if (_trans && _trans->parent() != this) _trans = nullptr;
     }
     ttv()->scrollTo(inx);
+    if (_chs) saveScrollPos();
 }
 
 void 
@@ -1302,24 +1316,12 @@ Transits::tvm() const
 void
 Transits::onEventSelectionChanged()
 {
-#if OLDMODEL
-    if (_tm) { delete _tm; _tm = nullptr; }
-#else
-    if (!_chs) _chs = new AChangeSignalFrame(_evm);
-    if (_evm) { _evm->clearAllEvents(); }
-#endif
     updateTransits();
 }
 
 void
 Transits::onDateRangeChanged()
 {
-#if OLDMODEL
-    if (_tm) { delete _tm; _tm = nullptr; }
-#else
-    if (!_chs) _chs = new AChangeSignalFrame(_evm);
-    if (_evm) { _evm->clearAllEvents(); }
-#endif
     updateTransits();
 }
 
@@ -1416,6 +1418,7 @@ Transits::filesUpdated(MembersList m)
         { any |= (ml & AstroFile::GMT); }
         any |= (ml & (AstroFile::Timezone
                       | AstroFile::Zodiac
+                      | AstroFile::AspectSet
                       | AstroFile::AspectMode));
     }
     if (any) {
@@ -1518,7 +1521,7 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
     ed->addCheckBox("Events/showTransitAspectPatterns", tr("Show Transit Aspect Patterns"));
     ed->addCheckBox("Events/showTransitNatalAspectPatterns", tr("Show Transit Natal Aspect Patterns"));
-    ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"),3,6);
+    ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"),2,6);
     ed->addDoubleSpinBox("Events/patternsSpreadOrb", tr("Patterns Spread Orb"), 1., 16.);
     ed->addCheckBox("Events/patternsRestrictMoon", tr("Patterns Restrict Moon"));
     ed->addCheckBox("Events/showIngresses", tr("Show Ingresses"));

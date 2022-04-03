@@ -3182,6 +3182,8 @@ void AspectFinder::findAspectsAndPatterns()
     auto d = start.startOfDay(), e = end.startOfDay();
 
     double jd = getJulianDate(d);
+    double bjd = jd;
+    double ejd = getJulianDate(e);
     for (auto tp: _alist) (*tp)(jd, 1);   // the horror
 
     auto hs = *_hsets.crbegin();
@@ -3292,6 +3294,7 @@ void AspectFinder::findAspectsAndPatterns()
     };
 
     double pjd = jd;
+    double ljd = jd;
     auto nd = d.addDays(ndays).addSecs(nsecs);
     while (d < e || !starts.empty()) {
         QCoreApplication::processEvents();
@@ -3303,6 +3306,13 @@ void AspectFinder::findAspectsAndPatterns()
         }
 
         jd = getJulianDate(nd);
+        if (jd - ljd >= 5) {
+            emit progress((ljd - bjd) / (ejd - bjd));
+            ljd = jd;
+            QCoreApplication::processEvents();
+            if (_state == cancelRequested) break;
+            if (_state == pauseRequested) continue;
+        }
 
         std::unique_ptr<PlanetProfile> useProf;
         bool collectingStrays = (d >= e);
@@ -3438,15 +3448,60 @@ void AspectFinder::findAspectsAndPatterns()
                 doomed.emplace_back(sit++);
                 //starts[h].erase(sit++);
 
+                {
+                QMutexLocker ml(&_evs.mutex);
                 ADateTimeRange range(dateTimeFromJulian(from),
                                      dateTimeFromJulian(jd));
                 _evs.emplace_back(range,
                                   etcTransitAspectPattern,
                                   useH, PlanetSet(ps));
+                }
                 auto& ev = _evs.back();
 #if 1
                 tp.start([=, &ev] {
                     prepThread();
+#endif
+#if 0 // FIXME
+                    if (prof->size()==2) {
+                        qreal ad, asp, bd, bsp;
+
+                        // check speed
+                        prof->computePos(from,h);
+                        std::tie(ad, asp) = PlanetProfile::computeDelta((*prof)[0], (*prof)[1], h);
+                        prof->computePos(jd,h);
+                        std::tie(bd, bsp) = PlanetProfile::computeDelta((*prof)[0], (*prof)[1], h);
+                        if (sgn(ad) != sgn(bd)) {
+                            auto cps = [prof, h](double jd)
+                                    -> std::pair<qreal,qreal>
+                            {
+                                auto pos = prof->computePos(jd,h);
+                                std::pair<qreal,qreal> ret { pos, prof->speed() };
+                                if (false /*!s_quiet*/) {
+                                    QDateTime dt(dateTimeFromJulian(jd));
+                                    qDebug() << "nri " << dtToString(dt).toLatin1().constData()
+                                             << "ret:" << ret;
+                                }
+                                return ret;
+                            };
+                            uintmax_t iter = 50;
+                            static constexpr int digits =
+                                    std::numeric_limits<double>::digits;
+                            using namespace boost::math::tools;
+                            auto tjd = newton_raphson_iterate(cps,(from+jd)/2,
+                                                              from,jd,digits,iter);
+                            auto psp = PlanetProfile::computeDelta((*prof)[0],
+                                    (*prof)[1],h);
+                            if (std::abs(psp.first) <= calcLoop::tol) {
+                                qDebug() << "newton succeeded" << iter;
+                                auto qdt = dateTimeFromJulian(tjd);
+                                ev.reset(qdt, psp.first);
+                                delete prof;
+                            } else {
+                                qDebug() << "newton failed" << iter
+                                    << prof->description().toLatin1().constData();
+                            }
+                        }
+                    }
 #endif
                     auto csprd = [prof,h,this](double jd)
                     {
@@ -3458,7 +3513,7 @@ void AspectFinder::findAspectsAndPatterns()
                             double(std::numeric_limits<float>::epsilon());
 
                     double jd;
-                    double m = 100;
+                    double m = 1000;
                     double a = from;
                     double b = to;
                     double res;
@@ -3482,6 +3537,7 @@ void AspectFinder::findAspectsAndPatterns()
                         } else break;
                     } while (true);
 
+                    QMutexLocker ml(&_evs.mutex);
                     auto qdt = dateTimeFromJulian(jd);
                     ev.reset(qdt, res);
                     delete prof;
@@ -3620,7 +3676,10 @@ void AspectFinder::findAspectsAndPatterns()
 
                     bool useBZS = (_alist[i]->inMotion() && ispd < .00001)
                             || (_alist[j]->inMotion() && jspd < .00001);
+                    {
+                        QMutexLocker ml(&_evs.mutex);
                     _evs.emplace_back();
+                    }
                     auto& ev = _evs.back();
 #if 1
                     bool bQuiet = mum;
@@ -3722,6 +3781,7 @@ void AspectFinder::findAspectsAndPatterns()
                             auto p2loc = dynamic_cast<PlanetLoc*>(poses[1]);
                             PlanetRangeBySpeed plr { *p1loc, *p2loc };
 
+                            QMutexLocker ml(&_evs.mutex);
                             auto ch = static_cast<unsigned char>(h);
                             ev = HarmonicEvent(qdt, et, ch, std::move(plr));
 

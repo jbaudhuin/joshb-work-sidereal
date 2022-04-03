@@ -158,6 +158,9 @@ class AstroDatabase : public QFrame
     Q_OBJECT
 
 private:
+    enum entryType { unknownType, fileType, dirType, dbType };
+    enum { PathRole = Qt::UserRole+1, TypeRole };
+
     QTreeView* fileList;
     QStandardItemModel* dirModel;
     QSortFilterProxyModel* searchProxy;

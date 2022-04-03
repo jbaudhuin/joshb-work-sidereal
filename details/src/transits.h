@@ -117,6 +117,7 @@ protected slots:
     { if (!_duration->hasFocus()) onDurationChanged(); }
 
     void updateTransits();
+    void onProgress(double prog);
     void onCompleted();
     void clickedCell(QModelIndex);
     void doubleClickedCell(QModelIndex);

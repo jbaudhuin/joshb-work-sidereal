@@ -891,10 +891,15 @@ AstroDatabase::AstroDatabase(QWidget *parent /*=nullptr*/) :
         auto dir = AstroFile::fixedChartDirMap().value(name);
         auto dirit = new QStandardItem(name);
         dirit->setData(dir);
+        dirit->setData(dirType,TypeRole);
+        dirit->setData(dir,Qt::ToolTipRole);
+
         QFont f = dirit->data(Qt::FontRole).value<QFont>();
         f.setBold(true);
         dirit->setData(f, Qt::FontRole);
+
         dirit->setFlags(Qt::ItemIsEnabled);
+
         fswatch->addPath(dir);
         dirModel->appendRow(dirit);
     }
@@ -1007,10 +1012,11 @@ AstroDatabase::updateList()
 
             QFileInfo fi(dir, dn);
             auto subdirname = AFileInfo::decodeName(dn);
-            auto subdiritem =
-                    new QStandardItem(subdirname);
-            subdiritem->setData(fi.absoluteFilePath());
-            subdiritem->setData(subdirname, Qt::ToolTipRole);
+            auto subdiritem = new QStandardItem(subdirname);
+            subdiritem->setData(dirType, TypeRole);
+            subdiritem->setData(fi.absoluteFilePath(), PathRole);
+            subdiritem->setData(fi.absoluteFilePath(),
+                                Qt::ToolTipRole);
             subdiritem->setFlags(Qt::ItemIsEnabled);
             QFont f = subdiritem->data(Qt::FontRole).value<QFont>();
             f.setBold(true);
@@ -1036,6 +1042,7 @@ AstroDatabase::updateList()
         int j = 0;
         for (const QString& chit : list) {
             auto child = new QStandardItem(chit);
+            child->setData(fileType, TypeRole);
             child->setData(chit, Qt::ToolTipRole);
             child->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
             diritem->appendRow(child);
@@ -1172,9 +1179,29 @@ AstroDatabase::showContextMenu(QPoint p)
 {
     if (!hasSelectedItems(fileList)) return;
 
-    QMenu* mnu = new QMenu(this);
     QPoint pos = ((QWidget*)sender())->mapToGlobal(p);
 
+    p = fileList->mapFromGlobal(pos);
+    auto qmi = fileList->indexAt(p);
+    if (!qmi.isValid()) return;
+
+    qDebug() << qmi << qmi.data() << qmi.data(TypeRole);
+    qmi = searchProxy->mapToSource(qmi);
+    qDebug() << qmi;
+    auto foo = dirModel->itemFromIndex(qmi);
+    if (!foo) return;
+    auto type = entryType(foo->data(TypeRole).toUInt());
+    if (type != fileType) return;
+
+    auto getOpener = [&](const QString& name) {
+        return [&,name] {
+            for (const auto& fi: getSelectedItems(fileList)) {
+                emit openFileReturn(fi, name);
+            }
+        };
+    };
+
+    QMenu* mnu = new QMenu(this);
     mnu->addAction(tr("Open"), this, SLOT(openSelected()));
     mnu->addAction(tr("Open in new tab"), this, SLOT(openSelectedInNewTab()));
     mnu->addAction(tr("Open with Transits"), this, SLOT(openSelectedWithTransits()));
@@ -1185,73 +1212,27 @@ AstroDatabase::showContextMenu(QPoint p)
     mnu->addSeparator();
     mnu->addAction(tr("Open with Solar Return"),
                    this, SLOT(openSelectedWithSolarReturn()));
-    mnu->addAction(tr("Open Solar Return in new tab"),
+    auto smnu = mnu->addMenu("Open Return in new tab");
+    smnu->addAction(tr("Solar"),
                    this, SLOT(openSelectedSolarReturnInNewTab()));
-    mnu->addAction(tr("Open Lunar Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Moon");
-    });
-
-    mnu->addAction(tr("Open Mercury Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Mercury");
-    });
-
-    mnu->addAction(tr("Open Venus Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Venus");
-    });
-
-    mnu->addAction(tr("Open Mars Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Mars");
-    });
-
-    mnu->addAction(tr("Open Jupiter Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Jupiter");
-    });
-
-    mnu->addAction(tr("Open Saturn Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Saturn");
-    });
-
-    mnu->addAction(tr("Open Uranus Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Uranus");
-    });
-
-    mnu->addAction(tr("Open Neptune Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Neptune");
-    });
-
-    mnu->addAction(tr("Open Pluto Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Pluto");
-    });
-
-    mnu->addAction(tr("Open Chiron Return in new tab"),
-                   [this] {
-        for (const auto& fi : getSelectedItems(fileList))
-            emit openFileReturn(fi, "Chiron");
-    });
+    smnu->addAction(tr("Lunar"), getOpener("Moon"));
+    smnu->addAction(tr("Mercury"), getOpener("Mercury"));
+    smnu->addAction(tr("Venus"), getOpener("Venus"));
+    smnu->addAction(tr("Mars"), getOpener("Mars"));
+    smnu->addAction(tr("Jupiter"), getOpener("Jupiter"));
+    smnu->addAction(tr("Saturn"), getOpener("Saturn"));
+    smnu->addAction(tr("Uranus"), getOpener("Uranus"));
+    smnu->addAction(tr("Neptune"), getOpener("Neptune"));
+    smnu->addAction(tr("Pluto"), getOpener("Pluto"));
+    smnu->addAction(tr("Chiron"), getOpener("Chiron"));
 
     mnu->addSeparator();
     mnu->addAction(QIcon("style/delete.png"), tr("Delete"),
                    this, SLOT(deleteSelected()));
 
     mnu->exec(pos);
+
+    smnu->deleteLater();
     mnu->deleteLater();
 }
 
