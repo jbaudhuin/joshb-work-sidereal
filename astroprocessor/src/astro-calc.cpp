@@ -2755,7 +2755,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
                   || showIngresses))
     {
         QVector<unsigned> ppi, ppo;
-        for (auto pid: getPlanets()) {
+        for (auto pid: getPlanets(includeAsteroids,includeCentaurs)) {
             ppi << getTransitPlanet(pid);
         }
         if (includeOnlyOuterTransitsToNatal) {
@@ -2861,7 +2861,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
                 if (includeOnlyOuterTransitsToNatal) {
                     tpl = getOuterPlanets(includeCentaurs);
                 } else {
-                    tpl = getPlanets(includeAsteroids);
+                    tpl = getPlanets(includeAsteroids,includeCentaurs);
                 }
 
                 for (auto pid: qAsConst(tpl)) {
@@ -2937,7 +2937,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
         }
     }
 
-#if 1
+#if 0
     QMap<hsetId,QStringList> hsm;
     for (const auto& ij : _staff) {
         unsigned i, j;
@@ -2981,6 +2981,11 @@ void AspectFinder::prepThread()
     swe_set_ephe_path(ephePath);
 }
 
+void AspectFinder::releaseThread()
+{
+    swe_close();
+}
+
 
 void
 AspectFinder::findStations()
@@ -3011,14 +3016,14 @@ AspectFinder::findStations()
     while (d < e) {
         QCoreApplication::processEvents();
 
-        if (_state == cancelRequested) break;
-        if (_state == pauseRequested) {
+        if (_state == cancelRequestedState) break;
+        if (_state == pauseRequestedState) {
             QThread::usleep(100000);
             continue;
         }
 
         jd = getJulianDate(nd);
-        qDebug() << "sta" << dtToString(nd);
+        if (!s_quiet) qDebug() << "sta" << dtToString(nd);
 
         // compute new positions
         for (auto tp: b) (*tp)(jd, 1);
@@ -3049,7 +3054,8 @@ AspectFinder::findStations()
             auto& ev = _evs.back();
 #if 1
             tp.start([=, &stations, &ev] {
-                prepThread();
+                startTask();
+                modalize<bool> mum(s_quiet, true);
 #endif
 
                 auto pj = dynamic_cast<PlanetLoc*>(_alist[i]->clone());
@@ -3087,6 +3093,7 @@ AspectFinder::findStations()
                         << _alist[i]->description() << "!";
                 }
 #if 1
+                endTask();
             });
 #endif
         }
@@ -3099,16 +3106,30 @@ AspectFinder::findStations()
         _alist.swap(b);
     }
 
-    if (_state == cancelRequested) tp.clear();
+    bool cleared = false;
+    if (_state == cancelRequestedState) {
+        tp.clear();
+        cleared = true;
+    }
 
-    auto active = tp.activeThreadCount();
+    int active(_numTasks);
+    qDebug() << active << "activity/ies";
     while (!tp.waitForDone(100)) {
-        auto now = tp.activeThreadCount();
+        QCoreApplication::processEvents();
+        if (!cleared && _state == cancelRequestedState) {
+            tp.clear();
+            cleared = true;
+        }
+        int now(_numTasks);
         if (now != active) {
-            qDebug() << now << "threads";
+            qDebug() << now << "activity/ies";
             active = now;
         }
     }
+
+    qDebug() << "Done with finding stations";
+
+    if (_state == cancelRequestedState) return;
 
     for (auto pj: stations) {
         int i = pj->planet.fileId();
@@ -3299,8 +3320,8 @@ void AspectFinder::findAspectsAndPatterns()
     while (d < e || !starts.empty()) {
         QCoreApplication::processEvents();
 
-        if (_state == cancelRequested) break;
-        if (_state == pauseRequested) {
+        if (_state == cancelRequestedState) break;
+        if (_state == pauseRequestedState) {
             QThread::usleep(100000);
             continue;
         }
@@ -3310,8 +3331,8 @@ void AspectFinder::findAspectsAndPatterns()
             emit progress((ljd - bjd) / (ejd - bjd));
             ljd = jd;
             QCoreApplication::processEvents();
-            if (_state == cancelRequested) break;
-            if (_state == pauseRequested) continue;
+            if (_state == cancelRequestedState) break;
+            if (_state == pauseRequestedState) continue;
         }
 
         std::unique_ptr<PlanetProfile> useProf;
@@ -3459,7 +3480,7 @@ void AspectFinder::findAspectsAndPatterns()
                 auto& ev = _evs.back();
 #if 1
                 tp.start([=, &ev] {
-                    prepThread();
+                    startTask();
 #endif
 #if 0 // FIXME
                     if (prof->size()==2) {
@@ -3505,6 +3526,7 @@ void AspectFinder::findAspectsAndPatterns()
 #endif
                     auto csprd = [prof,h,this](double jd)
                     {
+                        if (_state == cancelRequestedState) throw int(1);
                         auto val = computeSpread(h,jd,*prof,_ids);
                         //qDebug() << dtToString(dateTimeFromJulian(jd)) << ps.names() << val;
                         return val;
@@ -3518,6 +3540,7 @@ void AspectFinder::findAspectsAndPatterns()
                     double b = to;
                     double res;
                     unsigned it = 0;
+                    try {
                     do {
                         double mid = a/2. + b/2.;
                         ++it;
@@ -3535,13 +3558,15 @@ void AspectFinder::findAspectsAndPatterns()
                             if (jd == b) a = b - q, b += q;
                             else b = a + q, a -= q;
                         } else break;
-                    } while (true);
+                    } while (it < 3);
 
                     QMutexLocker ml(&_evs.mutex);
                     auto qdt = dateTimeFromJulian(jd);
                     ev.reset(qdt, res);
+                    } catch (int) { }
                     delete prof;
 #if 1
+                    endTask();
                 });
 #endif
                 // TODO keep track of this start and end and then search
@@ -3684,7 +3709,7 @@ void AspectFinder::findAspectsAndPatterns()
 #if 1
                     bool bQuiet = mum;
                     tp.start([=, &ev] {
-                        prepThread();
+                        startTask();
                         modalize<bool> mum(s_quiet, bQuiet);
 #endif
                         PlanetProfile poses { _alist[i]->clone(), _alist[j]->clone() };
@@ -3698,9 +3723,10 @@ void AspectFinder::findAspectsAndPatterns()
                         bool done = false;
                         if (!useBZS) {
                             try {
-                                auto cps = [&poses, &which, h](double jd)
+                                auto cps = [&poses, &which, h, this](double jd)
                                 -> std::pair<qreal,qreal>
                                 {
+                                    if (_state == cancelRequestedState) throw int(1);
                                     auto pos = poses.computePos(jd,h);
                                     std::pair<qreal,qreal> ret { pos, poses.speed() };
                                     if (!s_quiet) {
@@ -3722,9 +3748,15 @@ void AspectFinder::findAspectsAndPatterns()
                                 } else {
                                     guess = pjd + .5;
                                 }
+                                try {
                                 tjd = newton_raphson_iterate(cps,
                                                              guess, pjd, jd,
                                                              digits, iter);
+                                } catch (int) {
+                                    endTask();
+                                    return;
+                                }
+
                                 auto psp = PlanetProfile::computeDelta(poses[0],poses[1],h);
                                 if (std::abs(psp.first) <= calcLoop::tol) {
                                     // check for actual hit per tolerance?
@@ -3735,7 +3767,7 @@ void AspectFinder::findAspectsAndPatterns()
                             } catch (...) {
                                 done = false;
                             }
-                            if (!done) {
+                            if (!done && !s_quiet) {
                                 qDebug() << "Failed"
                                 << d.date().toString()
                                 << which.c_str()
@@ -3747,7 +3779,10 @@ void AspectFinder::findAspectsAndPatterns()
                         if (!done) {
                             bzhs = true;
                             unsigned count = 0;
-                            auto cp = [&poses, &count, &which, h](double jd) {
+                            auto cp = [&poses, &count, &which,
+                                    h, this](double jd)
+                            {
+                                if (_state == cancelRequestedState) throw int(1);
                                 ++count;
                                 auto pos = poses.computePos(jd, h);
                                 if (!s_quiet) {
@@ -3758,7 +3793,13 @@ void AspectFinder::findAspectsAndPatterns()
                                 }
                                 return pos;
                             };
+                            try {
                             done = brentZhangStage(cp, pjd, jd, ad, bd, tjd);
+                            } catch (int) {
+                                endTask();
+                                return;
+                            }
+
                             iter = count;
                             auto psp = PlanetProfile::computeDelta(poses[0],poses[1],h);
                             if (std::abs(psp.first) <= calcLoop::tol) {
@@ -3768,7 +3809,7 @@ void AspectFinder::findAspectsAndPatterns()
                                 done = false;
                             }
                         }
-                        if (!done) {
+                        if (!done && !s_quiet) {
                             qDebug() << "Failed"
                                 << d.date().toString()
                                 << which.c_str()
@@ -3794,6 +3835,7 @@ void AspectFinder::findAspectsAndPatterns()
                         }
 
 #if 1
+                        endTask();
                     });
 #endif
                 }
@@ -3819,16 +3861,22 @@ void AspectFinder::findAspectsAndPatterns()
         }
     }
 
-    if (_state == cancelRequested) tp.clear();
-
-    auto active = tp.activeThreadCount();
+    bool cleared = false;
+    int active(_numTasks);
+    qDebug() << active << "activity/ies";
     while (!tp.waitForDone(100)) {
-        auto now = tp.activeThreadCount();
+        QCoreApplication::processEvents();
+        if (!cleared && _state == cancelRequestedState) {
+            tp.clear();
+            cleared = true;
+        }
+        int now(_numTasks);
         if (now != active) {
-            qDebug() << now << "threads";
+            qDebug() << now << "activity/ies";
             active = now;
         }
     }
+    qDebug() << "Done with finding aspects and patterns";
 }
 
 #if 0
@@ -3854,10 +3902,15 @@ void AspectFinder::findStuff()
 {
     prepThread();
 
-    _state = running;
+    _state = runningState;
     if (showStations) findStations();
-    if (_state != cancelRequested) findAspectsAndPatterns();
-    _state = idle;
+    if (_state != cancelRequestedState) findAspectsAndPatterns();
+    _state = idleState;
+
+    qDebug() << "Exiting finder thread";
+
+    releaseThread();
+
     thread()->exit();
 }
 

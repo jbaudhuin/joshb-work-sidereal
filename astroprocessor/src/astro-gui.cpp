@@ -567,7 +567,9 @@ AstroFileHandler::calculateSynastryAspects()
     if (fp.empty()) fp = file(1)->focalPlanets();
     const auto& curr(A::EventOptions::current());
     if (fp.size() < curr.patternsQuorum) {
-        bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
+        bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End)
+                || (fp.size() == 2
+                    && fp.begin()->planetId() == fp.rbegin()->planetId());
         A::uintSSet hs;
 #if 0
         uint h;

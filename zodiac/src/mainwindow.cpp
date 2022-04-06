@@ -1188,52 +1188,70 @@ AstroDatabase::showContextMenu(QPoint p)
     qDebug() << qmi << qmi.data() << qmi.data(TypeRole);
     qmi = searchProxy->mapToSource(qmi);
     qDebug() << qmi;
-    auto foo = dirModel->itemFromIndex(qmi);
-    if (!foo) return;
-    auto type = entryType(foo->data(TypeRole).toUInt());
-    if (type != fileType) return;
 
-    auto getOpener = [&](const QString& name) {
-        return [&,name] {
-            for (const auto& fi: getSelectedItems(fileList)) {
-                emit openFileReturn(fi, name);
-            }
-        };
-    };
+    auto item = dirModel->itemFromIndex(qmi);
+    if (!item) return;
+
+    auto type = entryType(item->data(TypeRole).toUInt());
+    if (type != dirType && type != fileType) return;
 
     QMenu* mnu = new QMenu(this);
-    mnu->addAction(tr("Open"), this, SLOT(openSelected()));
-    mnu->addAction(tr("Open in new tab"), this, SLOT(openSelectedInNewTab()));
-    mnu->addAction(tr("Open with Transits"), this, SLOT(openSelectedWithTransits()));
-    mnu->addAction(tr("Synastry view"), this, SLOT(openSelectedAsSecond()));
 
-    mnu->addAction(tr("Composite"), this, SLOT(openSelectedComposite()));
-    mnu->addAction(tr("Open Derived..."), this, SLOT(findSelectedDerived()));
-    mnu->addSeparator();
-    mnu->addAction(tr("Open with Solar Return"),
-                   this, SLOT(openSelectedWithSolarReturn()));
-    auto smnu = mnu->addMenu("Open Return in new tab");
-    smnu->addAction(tr("Solar"),
-                   this, SLOT(openSelectedSolarReturnInNewTab()));
-    smnu->addAction(tr("Lunar"), getOpener("Moon"));
-    smnu->addAction(tr("Mercury"), getOpener("Mercury"));
-    smnu->addAction(tr("Venus"), getOpener("Venus"));
-    smnu->addAction(tr("Mars"), getOpener("Mars"));
-    smnu->addAction(tr("Jupiter"), getOpener("Jupiter"));
-    smnu->addAction(tr("Saturn"), getOpener("Saturn"));
-    smnu->addAction(tr("Uranus"), getOpener("Uranus"));
-    smnu->addAction(tr("Neptune"), getOpener("Neptune"));
-    smnu->addAction(tr("Pluto"), getOpener("Pluto"));
-    smnu->addAction(tr("Chiron"), getOpener("Chiron"));
+    if (type == dirType) {
+        mnu->addAction(tr("Save here"), [&]{ saveCurrent(qmi); });
+        mnu->addAction(tr("New directory..."), [&]{ newDirectory(qmi); });
+    } else if (type == fileType) {
+        auto getOpener = [&](const QString& name) {
+            return [&,name] {
+                for (const auto& fi: getSelectedItems(fileList)) {
+                    emit openFileReturn(fi, name);
+                }
+            };
+        };
 
-    mnu->addSeparator();
-    mnu->addAction(QIcon("style/delete.png"), tr("Delete"),
-                   this, SLOT(deleteSelected()));
+        mnu->addAction(tr("Open"), this, SLOT(openSelected()));
+        mnu->addAction(tr("Open in new tab"), this, SLOT(openSelectedInNewTab()));
+        mnu->addAction(tr("Open with Transits"), this, SLOT(openSelectedWithTransits()));
+        mnu->addAction(tr("Synastry view"), this, SLOT(openSelectedAsSecond()));
+
+        mnu->addAction(tr("Composite"), this, SLOT(openSelectedComposite()));
+        mnu->addAction(tr("Open Derived..."), this, SLOT(findSelectedDerived()));
+
+        mnu->addSeparator();
+        mnu->addAction(tr("Open with Solar Return"),
+                       this, SLOT(openSelectedWithSolarReturn()));
+        auto smnu = mnu->addMenu("Open Return in new tab");
+        smnu->addAction(tr("Solar"),
+                       this, SLOT(openSelectedSolarReturnInNewTab()));
+        smnu->addAction(tr("Lunar"), getOpener("Moon"));
+        smnu->addAction(tr("Mercury"), getOpener("Mercury"));
+        smnu->addAction(tr("Venus"), getOpener("Venus"));
+        smnu->addAction(tr("Mars"), getOpener("Mars"));
+        smnu->addAction(tr("Jupiter"), getOpener("Jupiter"));
+        smnu->addAction(tr("Saturn"), getOpener("Saturn"));
+        smnu->addAction(tr("Uranus"), getOpener("Uranus"));
+        smnu->addAction(tr("Neptune"), getOpener("Neptune"));
+        smnu->addAction(tr("Pluto"), getOpener("Pluto"));
+        smnu->addAction(tr("Chiron"), getOpener("Chiron"));
+
+        mnu->addSeparator();
+        mnu->addAction(QIcon("style/delete.png"), tr("Delete"),
+                       this, SLOT(deleteSelected()));
+        smnu->deleteLater();
+    }
 
     mnu->exec(pos);
-
-    smnu->deleteLater();
     mnu->deleteLater();
+}
+
+void AstroDatabase::saveCurrent(const QModelIndex &qmi)
+{
+
+}
+
+void AstroDatabase::newDirectory(const QModelIndex &qmi)
+{
+
 }
 
 void
@@ -1581,7 +1599,10 @@ FilesBar::openTransitsAsSecond(AstroFile* af)
         connect(af, SIGNAL(destroyRequested()),
                 this, SLOT(fileDestroyed()));
         emit currentChanged(currentIndex());
-    } else if (files[currentIndex()][1] == af) {
+    } else {
+        if (files[currentIndex()][1] != af) {
+            files[currentIndex()][1] = af;  // need copy?
+        }
         //files[currentIndex()][1]->setGMT(dt);
         emit currentChanged(currentIndex());
     }

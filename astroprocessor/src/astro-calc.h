@@ -340,7 +340,12 @@ class AspectFinder :
     Q_OBJECT
 
 public:
-    enum state { idle, running, cancelRequested, pauseRequested };
+    enum state {
+        idleState,
+        runningState,
+        cancelRequestedState,
+        pauseRequestedState
+    };
     enum goalType {
         afcFindStuff, afcFindAspects, afcFindPatterns, afcFindStations
     };
@@ -376,13 +381,17 @@ signals:
     void progress(double p);
 
 public slots:
-    void pause() { if (_state==running) _state = pauseRequested; }
-    void resume() { if (_state==pauseRequested) _state = running; }
-    void cancel() { if (_state==running) _state = cancelRequested; }
+    void pause() { if (_state==runningState) _state = pauseRequestedState; }
+    void resume() { if (_state==pauseRequestedState) _state = runningState; }
+    void cancel() { if (_state==runningState) _state = cancelRequestedState; }
     void findStuff();
 
 protected:
     static void prepThread();
+    static void releaseThread();
+
+    void startTask() { prepThread(); ++_numTasks; }
+    void endTask() { releaseThread(); --_numTasks; }
 
     bool outOfOrb(unsigned h,
                   std::initializer_list<const Loc*> locs,
@@ -422,12 +431,14 @@ protected:
     PlanetProfile _alist;   ///< the planet objects to compute
 
     unsigned _gt;
+
     QMutex _ctm;
+    QAtomicInt _numTasks;
 
     // having both here allows us to include aspects to stationary planets...
     bool _includeAspectsToAngles = true;
 
-    state _state = idle;
+    QAtomicInt _state = idleState;
 
     double _rate = 4.0;  // # days
     hsets _hsets;         ///< harmonic profiles

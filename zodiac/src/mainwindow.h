@@ -173,6 +173,8 @@ protected:
 
 private slots:
     void showContextMenu(QPoint);
+    void saveCurrent(const QModelIndex& qmi);
+    void newDirectory(const QModelIndex& qmi);
     void openSelected();
     void openSelectedInNewTab();
     void openSelectedWithTransits();

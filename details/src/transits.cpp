@@ -987,7 +987,11 @@ Transits::transitsOnly() const
 AstroFile *
 Transits::transitsAF()
 {
-    if (files().count() > 1) return files()[1];
+    // TODO should this be the second file? If so, the omnibus transit
+    // setup has to handle multiple natal files... And the chart would
+    // as well...
+
+    //if (files().count() > 1) return files()[1];
     if (!_trans) {
         _trans = new AstroFile(this);
         MainWindow::theAstroWidget()->setupFile(_trans);
@@ -1011,7 +1015,11 @@ Transits::updateTransits()
     if (_active) {
         disconnect(_active,SIGNAL(finished()),this,SLOT(onCompleted()));
         emit cancelActive();
-        if (_active) _active->wait();
+        if (_active) {
+            qDebug() << "waiting for thread" << _active;
+            _active->wait();
+        }
+        _active = nullptr;
     }
 
     if (!_chs) _chs = new AChangeSignalFrame(_evm);
@@ -1028,6 +1036,17 @@ Transits::updateTransits()
     transitsAF()->setLocationName(_location->locationName());
 
     A::AspectFinder* af = nullptr;
+#if 1
+    if (filesCount() >= 1) {
+        auto type = file(0)->getType();
+        if (type == TypeMale || type == TypeFemale) {
+            af = new A::OmnibusFinder(_evs,r,hs,{file(0), transitsAF()});
+        }
+    }
+    if (!af && filesCount() >= 1) {
+        af = new A::OmnibusFinder(_evs, r, hs, files());
+    }
+#else
     if (filesCount() == 1) {
         auto type = file(0)->getType();
         if (type == TypeMale || type == TypeFemale) {
@@ -1037,6 +1056,7 @@ Transits::updateTransits()
     if (!af && filesCount() >= 1) {
         af = new A::OmnibusFinder(_evs, r, hs, files());
     }
+#endif
     if (!af) return;
 
     const A::Horoscope& scope(file()->horoscope());
@@ -1046,7 +1066,9 @@ Transits::updateTransits()
     _evm->addEvents(_evs);
 
     auto thread = new QThread(this);
+    thread->setObjectName("omnibus finder");
     af->moveToThread(thread);
+
     connect(this,SIGNAL(cancelActive()),af,SLOT(cancel()));
     connect(thread,SIGNAL(started()),af,SLOT(findStuff()));
     connect(af,SIGNAL(progress(double)),this,SLOT(onProgress(double)));
@@ -1055,6 +1077,7 @@ Transits::updateTransits()
     connect(thread,SIGNAL(finished()),af,SLOT(deleteLater()));
     thread->start();
     _active = thread;
+    qDebug() << "started thread" << thread;
 }
 
 void
