@@ -60,6 +60,8 @@ private:
     int l_cuspideLength;
     bool coloredZodiac;
     bool zodiacDropShadow;
+    bool includeAsteroids;
+    bool includeCentaurs;
 
     QMap<int, graphicsItemDict> cuspides;
     QMap<int, graphicsItemDict> cuspideLabels;

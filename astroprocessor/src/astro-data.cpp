@@ -197,6 +197,7 @@ void Data::load(QString language)
         auto sid = s.id + Ingresses_Start;
         if (!signInfo.contains(sid)) {
             signInfo.insert(sid, {s.userData["fontChar"].toInt(), s.name});
+            signInfo.insert(sid+12, {s.userData["fontChar"].toInt(), s.name});
         }
     }
 

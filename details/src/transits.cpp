@@ -20,6 +20,7 @@
 #include <QCheckBox>
 #include <QRadioButton>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QDebug>
 #include <QDateEdit>
 #include <QTimeZone>
@@ -952,8 +953,14 @@ Transits::Transits(QWidget* parent) :
     auto startOfMonth = QDate(today.year(),today.month(),1);
     _start->setDate(startOfMonth);
 
-    connect(_evm, SIGNAL(aboutToChange()), this, SLOT(saveScrollPos()));
+    connect(_evm, &EventsTableModel::aboutToChange,
+            [this] { if (!_active) saveScrollPos(); });
     connect(_evm, SIGNAL(changeDone()), this, SLOT(restoreScrollPos()));
+
+    connect(ttv()->verticalScrollBar(), &QScrollBar::valueChanged,
+            [this](int){if (_active) saveScrollPos();});
+    connect(ttv()->verticalScrollBar(), SIGNAL(rangeChanged(int,int)),
+            this, SLOT(restoreScrollPos()));
 
     QTimer::singleShot(0, [this]() {
         connect(this, SIGNAL(updateHarmonics(double)),
@@ -1012,7 +1019,9 @@ Transits::updateTransits()
     if (filesCount() == 0) return;
     if (!isVisible()) return;
 
-    if (_active) {
+    if (!_active) saveScrollPos();
+
+    else {
         disconnect(_active,SIGNAL(finished()),this,SLOT(onCompleted()));
         emit cancelActive();
         if (_active) {
@@ -1083,7 +1092,7 @@ Transits::updateTransits()
 void
 Transits::onProgress(double prog)
 {
-    if (_chs) saveScrollPos();
+    //if (_chs) saveScrollPos();
     _evm->sort();
     if (_chs) restoreScrollPos();
 }
@@ -1170,7 +1179,7 @@ Transits::restoreScrollPos()
     auto order = _evm->sortOrder();
     bool ident = false;
     if (col != _anchorSort
-            || !_anchorCur.isNull() && _anchorVisibleRow>=0)
+            || (!_anchorCur.isNull() && _anchorVisibleRow>=0))
     {
         if (_anchorCur == A::HarmonicEvent()) return;
         auto drow = _evm->rowForData(_anchorCur, ident, col,
@@ -1430,6 +1439,8 @@ Transits::filesUpdated(MembersList m)
     // XXX need a better division of in-process update and final update
     if (QApplication::mouseButtons() & Qt::LeftButton) return;
 #endif
+
+    while (m.size() < filesCount()) m << 0;
 
     bool any = false;
     int f = 0;

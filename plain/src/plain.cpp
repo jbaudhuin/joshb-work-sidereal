@@ -77,6 +77,7 @@ void Plain         :: filesUpdated(MembersList m)
     return;
    }
 
+  while (m.size() < filesCount()) m << 0;
   if (m[0] == 0) return;
 
   refresh();

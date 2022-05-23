@@ -266,6 +266,7 @@ struct EventOptions {
     qreal       expandShowOrb = 2.;
     unsigned    patternsQuorum = 3;
     qreal       patternsSpreadOrb = 8.;
+    qreal       planetPairOrb = 2.;
 
     bool        patternsRestrictMoon = true;
     bool        filterLowerUnselectedHarmonics = true;
@@ -274,6 +275,7 @@ struct EventOptions {
     bool        showStations = true;
     bool        includeShadowTransits = true;
 
+    bool        includeTransitRange = true;
     bool        showTransitsToTransits = true;
     bool        limitLunarTransits = true;
     bool        showTransitsToNatalPlanets = true;

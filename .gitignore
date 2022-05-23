@@ -56,3 +56,6 @@ resource*.h
 users*appdatalocaltemp*
 object_script.*.*
 *.autosave
+
+/bin/*.debug
+/bin/*.release

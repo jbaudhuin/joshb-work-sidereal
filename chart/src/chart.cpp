@@ -970,6 +970,8 @@ AppSettings Chart::defaultSettings()
     s.setValue("Circle/innerRadius", 130);
     s.setValue("Circle/coloredZodiac", true);
     s.setValue("Circle/zodiacDropShadow", true);
+    s.setValue("Circle/includeAsteroids", true);
+    s.setValue("Circle/includeCentaurs", true);
     return s;
 }
 
@@ -983,6 +985,8 @@ AppSettings Chart::currentSettings()
     s.setValue("Circle/innerRadius", l_innerRadius);
     s.setValue("Circle/coloredZodiac", coloredZodiac);
     s.setValue("Circle/zodiacDropShadow", zodiacDropShadow);
+    s.setValue("Circle/includeAsteroids", includeAsteroids);
+    s.setValue("Circle/includeCentaurs", includeCentaurs);
     return s;
 }
 
@@ -995,6 +999,8 @@ void Chart::applySettings(const AppSettings& s)
     l_innerRadius = s.value("Circle/innerRadius").toInt();
     coloredZodiac = s.value("Circle/coloredZodiac").toBool();
     zodiacDropShadow = s.value("Circle/zodiacDropShadow").toBool();
+    includeAsteroids = s.value("Circle/includeAsteroids").toBool();
+    includeCentaurs = s.value("Circle/includeCentaurs").toBool();
 
     refreshAll();
 }
@@ -1015,4 +1021,7 @@ void Chart::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addSpacing(10);
     ed->addControl("Circle/coloredZodiac", tr("Colored circle:"));
     ed->addControl("Circle/zodiacDropShadow", tr("Drop shadow:"));
+    ed->addSpacing(10);
+    ed->addControl("Circle/includeAsteroids", tr("Display Juno etc.:"));
+    ed->addControl("Circle/includeCentaurs", tr("Display Chiron:"));
 }

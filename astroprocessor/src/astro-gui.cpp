@@ -660,6 +660,8 @@ void
 AstroFileHandler::fileUpdatedSlot(AstroFile::Members m)
 {
     int i = f.indexOf((AstroFile*)sender());
+    if (i==-1) return; // file is not in set (yet?)
+
     if (isVisible() && !isAnyFileSuspended()) {
         MembersList mList;
         if (delayUpdate) {

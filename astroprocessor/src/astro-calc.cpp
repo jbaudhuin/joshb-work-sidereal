@@ -2476,7 +2476,7 @@ calculateAll(const InputData& input)
     scope.houses = calculateHouses(input);
     scope.zodiac = getZodiac(input.zodiac);
 
-    for (PlanetId id : getPlanets()) {
+    for (PlanetId id : getPlanets(true,true)) {
         if (id == Planet_Asc) {
             Planet asc = Data::getPlanet(id);
             asc.eclipticPos.setX(scope.houses.Asc);
@@ -2662,11 +2662,12 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
 
     QVector<ZodiacSign> signs = getZodiac(_ids[0].zodiac).signs.toVector();
     auto getIngress = [&](PlanetId ingr, bool forward = true) {
+        unsigned i = ingr - Ingresses_Start;
+        if (!forward) ingr += 12;
         ChartPlanetId cpid(-1, ingr, Planet_None);
         QMap<ChartPlanetId, unsigned>& inx = forward? index : revIndex;
         if (!inx.contains(cpid)) {
             inx[cpid] = _alist.size();
-            unsigned i = ingr - Ingresses_Start;
             qreal loc = forward? signs[i].startAngle
                                : signs[(i+1)%12].startAngle;
             auto pl = new PlanetLoc(cpid, "I", loc);
@@ -2722,6 +2723,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
         }
     }
     if (!trans && prog) { locus = progr; trans = true; }
+    else if (!trans && natal) { locus = natus; trans = true; }
     if (trans) {
         getTransitPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(locus, pid, Planet_None);
@@ -3162,7 +3164,7 @@ operator<<(std::ostream& os, const PlanetClusterMap& pcm)
 void AspectFinder::findAspectsAndPatterns()
 {
     if (_alist.empty()) return;
-
+    
     PlanetSet nats, trans;
     PlanetProfile b = _alist;
     bool skipAllNatalOnly = false;
@@ -3194,7 +3196,9 @@ void AspectFinder::findAspectsAndPatterns()
     }
     bool showPatterns = showTransitAspectPatterns || !nats.empty();
 
-    QThreadPool tp;
+    auto utp = std::unique_ptr<QThreadPool>(new QThreadPool);
+    QThreadPool& tp = *utp.get();
+
     tp.setMaxThreadCount(QThread::idealThreadCount());
 
     const auto& start = _range.first;
@@ -3234,6 +3238,9 @@ void AspectFinder::findAspectsAndPatterns()
         return keepLooking(h, i);
     };
 
+    HarmonicPlanetDateRangeMap inOrb;
+    HarmonicPlanetDateRangesMap proximityLog;
+    
     HarmonicPlanetClusters starts;
     auto useRate = 1 / double(maxH); // XXX
     if (showPatterns) {
@@ -3242,7 +3249,7 @@ void AspectFinder::findAspectsAndPatterns()
     int ndays = int(useRate);
     int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
 
-    if (showPatterns) {
+    if (showPatterns || includeTransitRange) {
         HarmonicPlanetClusters work;
         PlanetProfile* useProf = &_alist;
         std::unique_ptr<PlanetProfile> doomed;
@@ -3250,18 +3257,66 @@ void AspectFinder::findAspectsAndPatterns()
             doomed = std::unique_ptr<PlanetProfile>(_alist.profile(trans));
             useProf = doomed.get();
         }
+        HarmonicPlanetDateRangeMap tinOrb;
+        auto stuff = _staff;
         for (unsigned h = 1; h <= maxH; ++h) {
             bool unsel = hs.count(h)==0;
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-            work[h] = findClusters(h, jd, *useProf, _ids,
-                                   patternsQuorum,
-                                   nats,
-                                   patternsRestrictMoon,
-                                   patternsSpreadOrb);
+            if (showPatterns) {
+                work[h] = findClusters(h, jd, *useProf, _ids,
+                                       patternsQuorum,
+                                       nats,
+                                       patternsRestrictMoon,
+                                       patternsSpreadOrb);
+            }
+            
+            if (!includeTransitRange) continue;
+
+            int i, j;
+            qreal bd, bsp;
+            for (auto it = stuff.begin(); it != stuff.end(); ) {
+                if (_hsets[it->hsid].count(h) == 0) {
+                    ++it;
+                    continue;
+                }
+                std::tie(i,j) = *it;
+                auto bi = dynamic_cast<PlanetLoc*>((*useProf)[i]);
+                auto bj = dynamic_cast<PlanetLoc*>((*useProf)[j]);
+                bool good =
+                        ((bi->inMotion()
+                          || bi->allowAspects <= InputPosition::aspOnlyConj
+                          || ((sgn(bj->speed) <= 0)
+                              && bi->allowAspects == InputPosition::aspOnlyRetro)
+                          || ((sgn(bj->speed) >= 0)
+                              && bi->allowAspects == InputPosition::aspOnlyDirect))
+                         || (bj->inMotion()
+                             || bj->allowAspects <= InputPosition::aspOnlyConj
+                             || ((sgn(bi->speed) <= 0)
+                                 && bj->allowAspects == InputPosition::aspOnlyRetro)
+                             || ((sgn(bi->speed) >= 0)
+                                 && bj->allowAspects == InputPosition::aspOnlyDirect)));
+                if (good) {
+                std::tie(bd, bsp) =
+                        PlanetProfile::computeDelta(bi, bj, h);
+                if (bi && bj && std::abs(bd) <= planetPairOrb) {
+                    HarmonicPlanetSet hij { h, { bi->planet, bj->planet }};
+                    tinOrb[hij] = {jd, 0};
+                    if (!s_quiet)
+                    qDebug() << QString("Found H%1 inital start of %2 at %3 with orb %4")
+                                .arg(h)
+                                .arg(hij.second.names().join("="))
+                                .arg(dtToString(d)).arg(bd)
+                                .toStdString().c_str();
+                    stuff.erase(it++);
+                    continue;
+                }
+                }
+                ++it;
+            }
         }
 
         auto nd = d;
-        while (!work.empty()) {
+        while (!work.empty() || !tinOrb.empty()) {
             nd = nd.addDays(-ndays).addSecs(-nsecs);
             PlanetSet ws;
             for (const auto& hpso: work) {
@@ -3269,10 +3324,42 @@ void AspectFinder::findAspectsAndPatterns()
                     ws.insert(pso.first.begin(),pso.first.end());
                 }
             }
+            for (const auto& hijr: tinOrb) {
+                ws.insert(hijr.first.second.begin(),
+                          hijr.first.second.end());
+            }
 
             auto wp = _alist.profile(ws);   // subset of planets
             auto pjd = getJulianDate(nd);
             (*wp)(pjd); // XXX compute once
+
+            for (auto hit = tinOrb.begin(); hit != tinOrb.end(); ) {
+                const auto& hps = hit->first;
+                const auto& ps = hps.second;
+                auto hwp = wp->profile(ps);
+                auto orb = computeSpread(hps.first, *hwp);
+                delete hwp;
+                if (std::abs(orb) > planetPairOrb) {
+                    inOrb[hps] = hit->second;
+                    if (!s_quiet)
+                    qDebug() << QString("Found H%1 prior start of %2 at %3 with orb %4")
+                                .arg(hps.first)
+                                .arg(ps.names().join("="))
+                                .arg(dtToString(nd))
+                                .arg(orb)
+                                .toStdString().c_str();
+                    tinOrb.erase(hit++);
+                } else {
+                    if (false) qDebug() << QString("Still looking for H%1 start"
+                                                  "of %2 at %3 with orb %4")
+                                .arg(hps.first)
+                                .arg(ps.names().join("="))
+                                .arg(dtToString(nd)).arg(orb)
+                                .toStdString().c_str();
+                    hit->second.first = pjd;    // update range start
+                    ++hit;
+                }
+            }
 
             for (auto hit = work.begin(); hit != work.end(); ) {
                 auto h = hit->first;
@@ -3284,7 +3371,7 @@ void AspectFinder::findAspectsAndPatterns()
                     auto orb = computeSpread(h,*hwp);
                     delete hwp;
                     if (orb > patternsSpreadOrb) {
-                        starts[h].emplace(ps,pjd);
+                        starts[h].emplace(ps,ClusterOrbWhen(orb,pjd));
                         qDebug() << QString("Found H%1 prior start of %2 "
                                             "with %3 spread at %4")
                                     .arg(h).arg(ps.names().join("="))
@@ -3293,7 +3380,9 @@ void AspectFinder::findAspectsAndPatterns()
                                     .toStdString().c_str();
                         pso.erase(spit++);
                     } else {
-                        spit->second = orb;
+                        if (orb < spit->second.orb) {
+                            spit->second = { orb, pjd };
+                        }
                         ++spit;
                     }
                 }
@@ -3317,7 +3406,7 @@ void AspectFinder::findAspectsAndPatterns()
     double pjd = jd;
     double ljd = jd;
     auto nd = d.addDays(ndays).addSecs(nsecs);
-    while (d < e || !starts.empty()) {
+    while (d < e || !starts.empty() || !inOrb.empty()) {
         QCoreApplication::processEvents();
 
         if (_state == cancelRequestedState) break;
@@ -3343,6 +3432,10 @@ void AspectFinder::findAspectsAndPatterns()
                 for (const auto& pso: hpso.second) {
                     ws.insert(pso.first.begin(),pso.first.end());
                 }
+            }
+            for (const auto& hijr: inOrb) {
+                ws.insert(hijr.first.second.begin(),
+                          hijr.first.second.end());
             }
             if (ws.empty()) break;  // all done
             if (ws.size() != b.size()) {
@@ -3413,7 +3506,7 @@ void AspectFinder::findAspectsAndPatterns()
                     continue;
                 }
 
-                double from = sit->second;
+                double from = sit->second.when;
                 double to = jd;
 
                 bool cancel = (from == 0);
@@ -3600,21 +3693,34 @@ void AspectFinder::findAspectsAndPatterns()
                                 .arg(cl.second)
                                 .arg(dtToString(dateTimeFromJulian(jd)))
                                 .toStdString().c_str();
-                    starts[h].emplace(ps, pjd);
+                    starts[h].emplace(ps, ClusterOrbWhen(cl.second.orb, pjd));
                 }
             }
             for (auto it: doomed) starts[h].erase(it);
         }
         } // if includeAspectPatterns
 
+        if (collectingStrays && !inOrb.empty()) {
+            for (auto hit = inOrb.begin(); hit != inOrb.end(); ) {
+                const auto& hps = hit->first;
+                auto hwp = b.profile(hps.second);
+                auto orb = computeSpread(hps.first/*harmonic*/, *hwp);
+                delete hwp;
+                if (orb > planetPairOrb) {
+                    hit->second.second = pjd;
+                    proximityLog[hps].emplace(hit->second);
+                    inOrb.erase(hit++);
+                } else {
+                    ++hit;
+                }
+            }
+        }
         if (!collectingStrays && !_staff.empty()) {
-            auto stuff = _staff;
-
             qreal ad, asp;
             qreal bd, bsp;
+
             unsigned i, j;
             QString wha_;
-
             auto what = [&]{
                 if (wha_.isEmpty()) {
                     wha_ = QString("H%1 %2=%3")
@@ -3624,6 +3730,74 @@ void AspectFinder::findAspectsAndPatterns()
                 }
                 return wha_.toStdString();
             };
+
+            auto stuff = _staff;
+            if (includeTransitRange) {
+                for (h = 1; h <= maxH; ++h) {
+                    for (auto it = stuff.begin(); it != stuff.end(); ) {
+                        bool unsel = hs.count(h)==0;
+                        if ((unsel && !filterLowerUnselectedHarmonics)
+                                || (_hsets[it->hsid].count(h) == 0))
+                        {
+                            ++it;
+                            continue;
+                        }
+                        std::tie(i,j) = *it;
+                        std::tie(bd, bsp) =
+                                PlanetProfile::computeDelta(b[i], b[j], h);
+                        auto bi = dynamic_cast<PlanetLoc*>(b[i]);
+                        auto bj = dynamic_cast<PlanetLoc*>(b[j]);
+                        auto good = bi && bj &&
+                                ((bi->inMotion()
+                                  || bi->allowAspects <= InputPosition::aspOnlyConj
+                                  || ((sgn(bj->speed) <= 0)
+                                      && bi->allowAspects == InputPosition::aspOnlyRetro)
+                                  || ((sgn(bj->speed) >= 0)
+                                      && bi->allowAspects == InputPosition::aspOnlyDirect))
+                                 || (bj->inMotion()
+                                     || bj->allowAspects <= InputPosition::aspOnlyConj
+                                     || ((sgn(bi->speed) <= 0)
+                                         && bj->allowAspects == InputPosition::aspOnlyRetro)
+                                     || ((sgn(bi->speed) >= 0)
+                                         && bj->allowAspects == InputPosition::aspOnlyDirect)));
+                        bool isInOrb = false;
+                        if (good) {
+                            HarmonicPlanetSet hij
+                            { h, { bi->planet, bj->planet }};
+                            HarmonicPlanetSet hji { h, { bj->planet, bi->planet }};
+
+                            auto hasit = inOrb.find(hij);
+                            isInOrb = std::abs(bd) <= planetPairOrb;
+                            if (hasit == inOrb.end() && isInOrb) {
+                                if (!s_quiet)
+                                qDebug() << QString("Found H%1 start of %2 at %3")
+                                            .arg(h)
+                                            .arg(hij.second.names().join("="))
+                                            .arg(dtToString(d))
+                                            .toStdString().c_str();
+                                inOrb[hij] = {pjd, 0};
+                                isInOrb = true;
+                            } else if (hasit != inOrb.end() && !isInOrb) {
+                                hasit->second.second = jd;
+                                proximityLog[hasit->first]
+                                        .emplace(hasit->second);
+                                if (!s_quiet)
+                                qDebug() << QString("Found H%1 range of %2 at %3 to %4")
+                                            .arg(h)
+                                            .arg(hij.second.names().join("="))
+                                            .arg(dtToString(dateTimeFromJulian(hasit->second.first)))
+                                            .arg(dtToString(d))
+                                            .toStdString().c_str();
+                                inOrb.erase(hasit);
+                            }
+                        }
+                        if (isInOrb) stuff.erase(it++);
+                        else ++it;
+                    }
+                }
+
+                stuff = _staff;
+            }
 
             for (h = 1; h <= maxH; ++h) {
                 bool unsel = hs.count(h)==0;
@@ -3655,8 +3829,10 @@ void AspectFinder::findAspectsAndPatterns()
                     qreal jspd = qAbs(_alist[j]->speed/2. + b[j]->speed/2.);
                     if (ispd > jspd) { std::swap(i,j); std::swap(ispd,jspd); }
 
-                    std::tie(ad, asp) = PlanetProfile::computeDelta(_alist[i], _alist[j], h);
-                    std::tie(bd, bsp) = PlanetProfile::computeDelta(b[i], b[j], h);
+                    std::tie(ad, asp) = 
+                            PlanetProfile::computeDelta(_alist[i],_alist[j],h);
+                    std::tie(bd, bsp) = 
+                            PlanetProfile::computeDelta(b[i], b[j], h);
                     if (sgn(ad)==sgn(bd) || (abs(ad)>=90. || abs(bd)>=90.)) {
                         if (!keep(i) || !keep(j)) {
                             stuff.erase(it++);
@@ -3703,7 +3879,7 @@ void AspectFinder::findAspectsAndPatterns()
                             || (_alist[j]->inMotion() && jspd < .00001);
                     {
                         QMutexLocker ml(&_evs.mutex);
-                    _evs.emplace_back();
+                        _evs.emplace_back();
                     }
                     auto& ev = _evs.back();
 #if 1
@@ -3849,16 +4025,66 @@ void AspectFinder::findAspectsAndPatterns()
         if (!collectingStrays) _alist.swap(b);
     }
 
+    qDebug() << inOrb.size() << "pending pairs";
+    qDebug() << proximityLog.size() << "completed range pairs";
+
+    auto frameJob = [&](HarmonicEvent& e, bool prep = true)
+    {
+        if (e.planets().size()!=2) return;
+        if (e.range().first != QDateTime()) return;
+
+        HarmonicPlanetSet hps { e.harmonic(), e.planets() };
+        auto lit = proximityLog.find(hps);
+        if (lit == proximityLog.end()) return;
+
+        if (prep) prepThread();
+        auto& ranges = lit->second;
+        auto jd = getJulianDate(e.dateTime());
+        auto it = ranges.upper_bound({jd,jd});
+        auto rit = std::make_reverse_iterator(it);
+        while (rit != ranges.rend() && rit->first <= jd) {
+            if (rit->second >= jd) {
+                e.setRange({dateTimeFromJulian(rit->first),
+                            dateTimeFromJulian(rit->second)});
+                break;
+            }
+            ++rit;
+        }
+        if (prep) releaseThread();
+    };
+
+    {
+    // get those planet pairs framed
+    QMutexLocker ml(&_evs.mutex);   // lock for swoosh through paired events
+    for (auto& ev: _evs) frameJob(ev, false);
+    }
+
+    if (!s_quiet) {
+    for (const auto& pl: proximityLog) {
+        QStringList sl;
+        for (const auto& r: pl.second) {
+            sl << QString("[%1 - %2]")
+                  .arg(dtToString(dateTimeFromJulian(r.first)),
+                       dtToString(dateTimeFromJulian(r.second)));
+        }
+        if (sl.empty()) continue;
+        qDebug() << QString("H%1 %2: %3").arg(pl.first.first)
+                    .arg(pl.first.second.names().join("="))
+                    .arg(sl.join(", "))
+                    .toStdString().c_str();
+    }
+
     for (const auto& hpc : starts) {
         for (const auto& pso: hpc.second) {
-            if (!pso.second) continue;
+            if (pso.second.when == qreal()) continue;
             qDebug() << QString("Pending pattern H%1 %2 started at %3")
                         .arg(hpc.first)
                         .arg(pso.first.names().join("="))
-                        .arg(dtToString(dateTimeFromJulian(pso.second)))
+                        .arg(dtToString(dateTimeFromJulian(pso.second.when)))
                         .toStdString().c_str();
 
         }
+    }
     }
 
     bool cleared = false;
@@ -3876,6 +4102,13 @@ void AspectFinder::findAspectsAndPatterns()
             active = now;
         }
     }
+    utp.reset();    // release thread pool
+
+    // now get remaining
+    QMutexLocker ml(&_evs.mutex);   // lock for swoosh through paired events
+    auto fut = QtConcurrent::map(_evs, frameJob);
+    fut.waitForFinished();
+
     qDebug() << "Done with finding aspects and patterns";
 }
 
@@ -4392,7 +4625,7 @@ computeSpread(unsigned h,
         if (!ploc) continue;
 
         auto cpid = ploc->planet;
-        if (cpid.fileId() < 0) continue;
+        if (cpid.fileId() < 0 && prof.size()>2) continue;
 
         qreal pos;
         unsigned vroom(ploc->inMotion());

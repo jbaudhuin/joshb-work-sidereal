@@ -76,6 +76,9 @@ bool dynAspState(unsigned);
 void setDynAspState(unsigned, bool);
 uintSSet dynAspState();
 
+QString dtToString(const QDateTime& dt);
+QDateTime dateTimeFromJulian(double jd);
+
 inline bool getDynAspState(QVariant& var)
 {
     QVariant ret;
@@ -191,7 +194,22 @@ const PlanetId Ingress_Aquarius = Ingresses_Start + 10;
 const PlanetId Ingress_Pisces = Ingresses_Start + 11;
 const PlanetId Ingresses_End = Ingresses_Start + 12;
 
-const PlanetId Parts_Start = Ingresses_End;
+const PlanetId Regresses_Start = Ingresses_End;
+const PlanetId Regress_Aries = Regresses_Start;
+const PlanetId Regress_Taurus = Regresses_Start + 1;
+const PlanetId Regress_Gemini = Regresses_Start + 2;
+const PlanetId Regress_Cancer = Regresses_Start + 3;
+const PlanetId Regress_Leo = Regresses_Start + 4;
+const PlanetId Regress_Virgo = Regresses_Start + 5;
+const PlanetId Regress_Libra = Regresses_Start + 6;
+const PlanetId Regress_Scorpio = Regresses_Start + 7;
+const PlanetId Regress_Sagittarius = Regresses_Start + 8;
+const PlanetId Regress_Capricorn = Regresses_Start + 9;
+const PlanetId Regress_Aquarius = Regresses_Start + 10;
+const PlanetId Regress_Pisces = Regresses_Start + 11;
+const PlanetId Regresses_End = Regresses_Start + 12;
+
+const PlanetId Parts_Start = Regresses_End;
 const PlanetId Part_of_Fortune = Parts_Start;
 const PlanetId Part_of_Spirit = Part_of_Fortune + 1;
 const PlanetId Parts_End = Part_of_Spirit + 1;
@@ -998,7 +1016,29 @@ struct PlanetLoc : public Loc {
 
 typedef std::list<Loc*> Locs;
 
-typedef std::map<PlanetSet, qreal> PlanetClusterMap;
+struct ClusterOrbWhen {
+    qreal orb;
+    qreal when;
+
+    ClusterOrbWhen() : orb(), when() { }
+    ClusterOrbWhen(qreal orb) : orb(orb), when() { }
+    ClusterOrbWhen(qreal orb, qreal when) : orb(orb), when(when) { }
+
+    operator QString() const
+    {
+        if (orb == qreal() && when == qreal()) return "0:0";
+        if (when == qreal()) return QString::number(orb);
+        return QString("%1 at %2").arg(orb)
+                .arg(dtToString(dateTimeFromJulian(when)));
+    }
+};
+
+inline
+std::ostream &
+operator<<(std::ostream& os, const ClusterOrbWhen& cow)
+{ return os << QString(cow).toStdString(); }
+
+typedef std::map<PlanetSet, ClusterOrbWhen> PlanetClusterMap;
 typedef std::map<unsigned, PlanetClusterMap> HarmonicPlanetClusters;
 
 class NatalLoc : public PlanetLoc {
@@ -1160,13 +1200,16 @@ public:
         return *this;
     }
 
-    PlanetProfile* profile(const PlanetSet& psp) const
+    PlanetProfile* profile(PlanetSet psp) const
     {
         auto ret = new PlanetProfile;
         for (auto loc : *this) {
             if (auto ploc = dynamic_cast<const PlanetLoc*>(loc)) {
-                if (psp.count(ploc->planet)) {
+                auto psit = psp.find(ploc->planet);
+                if (psit != psp.end()) {
                     ret->emplace_back(ploc->clone());
+                    psp.erase(psit);
+                    if (psp.empty()) break;
                 }
             }
         }
@@ -1384,6 +1427,12 @@ struct ARange : public QPair<T,T> {
 typedef ARange<QDate> ADateRange;
 typedef ARange<QDateTime> ADateTimeRange;
 
+typedef std::pair<unsigned, PlanetSet> HarmonicPlanetSet;
+typedef std::pair<double, double> JDateRange;
+typedef std::set<JDateRange> JDateRanges;
+typedef std::map<HarmonicPlanetSet, JDateRange> HarmonicPlanetDateRangeMap;
+typedef std::map<HarmonicPlanetSet, JDateRanges> HarmonicPlanetDateRangesMap;
+
 class HarmonicAspect {
     unsigned            _eventType;  ///< type of event
     unsigned char       _harmonic;   ///< harmonic of aspect (or 1)
@@ -1521,6 +1570,7 @@ public:
     const QDateTime& dateTime() const { return _dateTime; }
 
     const ADateTimeRange& range() const { return _range; }
+    void setRange(const ADateTimeRange& r) { _range = r; }
 
     HarmonicAspects& coincidences() { return _coincidences; }
     const HarmonicAspects& coincidences() const { return _coincidences; }

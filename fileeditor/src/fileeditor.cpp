@@ -412,6 +412,7 @@ void AstroFileEditor::setCurrentFile(int index)
 
 void AstroFileEditor::filesUpdated(MembersList members)
 {
+    while (members.size() < filesCount()) members << 0;
     updateTabs();
     if (!filesCount())
         close();
