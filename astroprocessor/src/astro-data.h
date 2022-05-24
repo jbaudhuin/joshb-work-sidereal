@@ -17,6 +17,7 @@
 #include <set>
 #include <deque>
 #include <algorithm>
+#include <fstream>
 
 #include <math.h>
 
@@ -1036,7 +1037,7 @@ struct ClusterOrbWhen {
 inline
 std::ostream &
 operator<<(std::ostream& os, const ClusterOrbWhen& cow)
-{ return os << QString(cow).toStdString(); }
+{ return os << QString(cow).toLocal8Bit().constData(); }
 
 typedef std::map<PlanetSet, ClusterOrbWhen> PlanetClusterMap;
 typedef std::map<unsigned, PlanetClusterMap> HarmonicPlanetClusters;
