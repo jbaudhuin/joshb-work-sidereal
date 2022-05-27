@@ -478,7 +478,7 @@ Chart::updatePlanetsAndCusps(int fileIndex)
             cuspate(cusp, 0);
             cusp = swe_degnorm(cusp+180);
             cuspate(cusp, 6);
-            if (file(fileIndex)->horoscope().inputData.harmonic == 1) {
+            if (file(fileIndex)->getHarmonic() == 1) {
                 cusp = houses.RAMC;
                 cuspate(cusp, 9);
                 cusp = swe_degnorm(cusp+180);

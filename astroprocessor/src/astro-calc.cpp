@@ -588,10 +588,7 @@ PlanetLoc::compute(const InputData& ida,
     qreal pos;
     std::tie(pos, speed) = compute(planet, ida, jd);
     loc = _rasiLoc = pos;
-    if (h == -1 && ida.harmonic != 1.0) {
-        loc = harmonic(ida.harmonic, pos);
-        speed *= ida.harmonic;
-    } else if (h > 1) {
+    if (h > 1) {
         loc = harmonic(h, pos);
         speed *= h;
     }
@@ -1315,7 +1312,9 @@ calculateHarmonic(double h, Planet& p)
 void
 calculateHarmonic(double        h,
                   Houses&       houses,
-                  PlanetMap&    planets)
+                  PlanetMap&    planets,
+                  bool          includeAsteroids = true,
+                  bool          includeCentaurs = true)
 {
     houses.cusp[0] = harmonic(h, houses.cusp[0]);
     for (int i = 1; i < 12; ++i) {
@@ -1327,7 +1326,7 @@ calculateHarmonic(double        h,
     houses.MC = harmonic(h, houses.MC);
     houses.RAMC = harmonic(h, houses.RAMC);
 
-    for (PlanetId id : getPlanets(false,true)) {
+    for (PlanetId id : getPlanets(includeAsteroids,includeCentaurs)) {
         calculateHarmonic(h, planets[id]);
     }
 }
@@ -1785,8 +1784,8 @@ calculateBaseChartHarmonic(Horoscope& scope)
     scope.planets = scope.planetsOrig;
 
     const InputData& input(scope.inputData);
-    if (input.harmonic != 1.0 && aspectMode != amcGreatCircle) {
-        calculateHarmonic(input.harmonic, scope.houses, scope.planets);
+    if (scope.harmonic != 1.0 && aspectMode != amcGreatCircle) {
+        calculateHarmonic(scope.harmonic, scope.houses, scope.planets);
     } else {
         findPlanetStarConfigs(scope.planets, scope.stars);
     }
@@ -2321,13 +2320,14 @@ calcLoop::doIterativeCalc<posSpd>(double& jd,
 void
 calculateOrbAndSpan(const PlanetProfile& poses,
                     const InputData& locale,
+                    double harmonic,
                     double& orb,
                     double& horb,
                     double& span)
 {
     if (aspectMode == amcPrimeVertical) horb = .5;
     float speed = poses.defaultSpeed();
-    orb = 360 / speed / locale.harmonic;
+    orb = 360 / speed / harmonic;
     horb = orb / 1.8;
 
     //auto plid = poses.back()->planet.planetId();
@@ -2339,7 +2339,8 @@ calculateOrbAndSpan(const PlanetProfile& poses,
 
 QDateTime
 calculateClosestTime(PlanetProfile& poses,
-                    const InputData& locale)
+                     const InputData& locale,
+                     double harmonic)
 {
 
     double jdIn = getJulianDate(locale.GMT);
@@ -2348,7 +2349,7 @@ calculateClosestTime(PlanetProfile& poses,
     calcLoop looper(poses, jd);
 
     double orb, horb, span;
-    calculateOrbAndSpan(poses, locale, orb, horb, span);
+    calculateOrbAndSpan(poses, locale, harmonic, orb, horb, span);
 
     double begin = jdIn-orb/2;
     double end = begin + horb*2;
@@ -2456,7 +2457,8 @@ quotidianSearch(PlanetProfile& poses,
 QDateTime
 calculateReturnTime(PlanetId id,
                     const InputData& native,
-                    const InputData& locale)
+                    const InputData& locale,
+                    double harmonic)
 {
     modalize<bool> mum(s_quiet,true);
 
@@ -2464,7 +2466,7 @@ calculateReturnTime(PlanetId id,
     poses.push_back(new NatalLoc(id, native));
     poses.push_back(new TransitPosition(id, locale));
 
-    return calculateClosestTime(poses, locale);
+    return calculateClosestTime(poses, locale, harmonic);
 }
 
 
@@ -2999,7 +3001,6 @@ AspectFinder::findStations()
     auto d = start.startOfDay(), e = end.startOfDay();
 
     modalize<bool> mum(s_quiet, true);
-    harmonize haha(_ids, 1);
 
     double jd = getJulianDate(d);
     for (auto tp: _alist) (*tp)(jd, 1);   // the horror
@@ -3215,7 +3216,6 @@ void AspectFinder::findAspectsAndPatterns()
     unsigned maxH = hs.empty()? 1 : *hs.crbegin();
 
     modalize<bool> mum(s_quiet,true);
-    harmonize haha(_ids, 1);
 
     // a simplistic predicate for determining whether to prune the
     // planet pair list as the harmonics go up. We want to limit

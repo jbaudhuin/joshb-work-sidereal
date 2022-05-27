@@ -236,27 +236,6 @@ struct planetsEtc : public uintPair {
 
 typedef QList<InputData> idlist;
 
-class harmonize {
-    idlist& _ids;
-    QList<double> _was;
-
-public:
-    harmonize(idlist& ids, double harmonic) : _ids(ids)
-    {
-        for (auto idit = _ids.begin(); idit != _ids.end(); ++idit) {
-            _was << idit->harmonic;
-            idit->harmonic = harmonic;
-        }
-    }
-
-    ~harmonize()
-    {
-        auto idit = _ids.begin();
-        auto wit = _was.begin();
-        while (idit != _ids.end()) (*idit++).harmonic = *wit++;
-    }
-};
-
 struct EventOptions {
     EventOptions() { };
     EventOptions(const QVariantMap& map);
@@ -553,14 +532,17 @@ AspectList calculateAspects(const AspectsSet&, const ChartPlanetPtrMap& planets)
 
 void calculateOrbAndSpan(const PlanetProfile& poses,
                          const InputData& locale,
+                         double harmonic,
                          double& orb,
                          double& horb,
                          double& span);
 QDateTime calculateReturnTime(PlanetId pid,
                               const InputData& native,
-                              const InputData& locale);
+                              const InputData& locale,
+                              double harmonic);
 QDateTime calculateClosestTime(PlanetProfile& poses,
-                               const InputData& locale);
+                               const InputData& locale,
+                               double harmonic);
 QList<QDateTime> quotidianSearch(PlanetProfile& poses,
                                  const InputData& locale,
                                  const QDateTime& endDt,

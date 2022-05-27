@@ -280,8 +280,7 @@ struct InputData
     ZodiacId       zodiac;
     AspectSetId    aspectSet;
     short          tz;
-    double         harmonic;
-
+    //double         harmonic;
     //double         RAMC;
 
     InputData()
@@ -293,7 +292,7 @@ struct InputData
         zodiac      = Zodiac_Tropical;
         aspectSet   = AspectSet_Default;
         tz          = 0;
-        harmonic    = 1;
+        //harmonic    = 1;
     }
 
     //void            computeRAMC() { }
@@ -1099,13 +1098,7 @@ public:
     { return new NatalPosition(*this); }
 
     qreal operator()(double, int h) override
-    {
-        return loc = h==1
-                ? _rasiLoc
-                : (h==-1 && input().harmonic != 1.0)
-                  ? fmod(_rasiLoc*input().harmonic,360.)
-                  : fmod(_rasiLoc*h,360.);
-    }
+    { return loc = h==1? _rasiLoc : fmod(_rasiLoc*h,360.); }
 };
 
 class TransitPosition : public InputPosition {
@@ -1684,6 +1677,7 @@ struct Horoscope
                mars, jupiter, saturn, uranus,
                neptune, pluto, northNode;
     StarMap    stars;
+    double     harmonic = 1.0;
 
     ChartPlanetMap getOrigChartPlanets(int fileId) const
     {

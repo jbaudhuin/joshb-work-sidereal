@@ -1626,8 +1626,8 @@ FilesBar::openFileReturn(const AFileInfo& fi, const QString& body)
 
     QString planet =
             body=="Sun"? "Solar" : body=="Moon"? "Lunar" : body;
-    if (native->data().harmonic != 1.0) {
-        planet += " H" + QString::number(native->data().harmonic);
+    if (native->getHarmonic() != 1.0) {
+        planet += " H" + QString::number(native->getHarmonic());
     }
 
     A::PlanetId pid = A::getPlanetId(body);
@@ -1640,7 +1640,8 @@ FilesBar::openFileReturn(const AFileInfo& fi, const QString& body)
     //planetReturn->setGMT(QDateTime::currentDateTime());
 
     auto dt = A::calculateReturnTime(pid, native->data(),
-                                     planetReturn->data());
+                                     planetReturn->data(),
+                                     native->getHarmonic());
     delete native;
 
     planetReturn->setGMT(dt);
@@ -1669,8 +1670,8 @@ FilesBar::openFileInNewTabWithReturn(const AFileInfo& fi,
     addFile(native);
 
     QString planet = body=="Sun"? "Solar" : body=="Moon"? "Lunar" : body;
-    if (native->data().harmonic != 1.0) {
-        planet += " H" + QString::number(native->data().harmonic);
+    if (native->getHarmonic() != 1.0) {
+        planet += " H" + QString::number(native->getHarmonic());
     }
 
     A::PlanetId pid = A::getPlanetId(body);
@@ -1679,7 +1680,8 @@ FilesBar::openFileInNewTabWithReturn(const AFileInfo& fi,
     MainWindow::theAstroWidget()->setupFile(planetReturn, true);
 
     auto dt = A::calculateReturnTime(pid, native->data(),
-                                     planetReturn->data());
+                                     planetReturn->data(),
+                                     native->getHarmonic());
     planetReturn->setGMT(dt);
 
     planetReturn->setName(QString("%1 %2 Return %3")

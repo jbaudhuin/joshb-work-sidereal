@@ -376,7 +376,7 @@ void
 AstroFile::setHarmonic(double harmonic)
 {
     if (getHarmonic() != harmonic) {
-        scope.inputData.harmonic = harmonic;
+        scope.harmonic = harmonic;
         change(Harmonic);
     }
 }

@@ -523,6 +523,7 @@ AstroFileEditor::onEditingFinished()
     else if (has("ret")) return;
 
     double orb, horb, span;
+    A::uintSSet harmonics { 1 };
 
     if (has("station")) {
         auto planet = match.captured("station");
@@ -531,12 +532,9 @@ AstroFileEditor::onEditingFinished()
         poses.push_back(new A::TransitPosition(pid, inda));
         span = 10;
     } else {
-        inda.harmonic = 1;
-        if (filesCount() > 1) indb.harmonic = 1;
         auto str = match.captured("harmonic");
         if (!str.isNull()) {
-            inda.harmonic = str.toDouble();
-            if (currentFile > 0) indb.harmonic = inda.harmonic;
+            harmonics = { str.toUInt() };
         }
 
         if (has("ingress")) {
@@ -629,7 +627,7 @@ AstroFileEditor::onEditingFinished()
             if (poses.size() < 2) return;
         }
         if (poses.empty()) return;
-        A::calculateOrbAndSpan(poses, inda, orb, horb, span);
+        A::calculateOrbAndSpan(poses, inda, *harmonics.rbegin(), orb, orb, span);
     }
 
     //auto d0 = A::getJulianDate(startDate->dateTime().toUTC());
@@ -637,8 +635,7 @@ AstroFileEditor::onEditingFinished()
     inda.GMT = startDate->dateTime().toUTC();
     auto dl = A::quotidianSearch(poses, inda,
                                  endDate->dateTime().toUTC(),
-                                 //std::min(span/2,std::min((d1-d0)/12,45.))
-                                 std::min(span/inda.harmonic,30.),
+                                 std::min(span/(*harmonics.rbegin()),30.),
                                  true);
 
     auto lw = findChild<QListWidget*>();

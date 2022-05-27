@@ -102,10 +102,13 @@ public:
     A::HouseSystemId getHouseSystem()  const { return scope.inputData.houseSystem; }
     A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac; }
     A::AspectSetId   getAspectSetId() const { return scope.inputData.aspectSet; }
-    const A::AspectsSet& getAspectSet()  const { return A::getAspectSet(scope.inputData.aspectSet); }
+
+    const A::AspectsSet& getAspectSet()  const
+    { return A::getAspectSet(scope.inputData.aspectSet); }
+
     A::aspectModeEnum getAspectMode()  const { return A::aspectMode; }
     const QList<QDateTime>& getEventList() const { return _eventList; }
-    double           getHarmonic()     const { return scope.inputData.harmonic; }
+    double           getHarmonic()     const { return scope.harmonic; }
     QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(getTimezone() * 3600); }
     const ADateRange& getDateRange() const { return _dateRange; }
 
