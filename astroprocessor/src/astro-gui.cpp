@@ -294,8 +294,8 @@ AstroFile::setType(const FileType   type)
 void
 AstroFile::setGMT(const QDateTime& gmt)
 {
-    if (scope.inputData.GMT != gmt) {
-        scope.inputData.GMT = gmt;
+    if (scope.inputData.GMT() != gmt) {
+        scope.inputData.setGMT(gmt);
         change(GMT);
     }
 }
@@ -303,8 +303,8 @@ AstroFile::setGMT(const QDateTime& gmt)
 void
 AstroFile::setTimezone(const short& zone)
 {
-    if (scope.inputData.tz != zone) {
-        scope.inputData.tz = zone;
+    if (scope.inputData.tz() != zone) {
+        scope.inputData.setTZ(zone);
         change(Timezone);
     }
 }
@@ -312,8 +312,8 @@ AstroFile::setTimezone(const short& zone)
 void
 AstroFile::setLocation(const QVector3D location)
 {
-    if (scope.inputData.location != location) {
-        scope.inputData.location = location;
+    if (scope.inputData.location() != location) {
+        scope.inputData.setLocation(location);
         change(Location);
     }
 }
@@ -340,7 +340,7 @@ void
 AstroFile::setHouseSystem(A::HouseSystemId system)
 {
     if (getHouseSystem() != system) {
-        scope.inputData.houseSystem = system;
+        scope.inputData.setHouseSystem(system);
         change(HouseSystem);
     }
 }
@@ -349,7 +349,7 @@ void
 AstroFile::setZodiac(A::ZodiacId zod)
 {
     if (getZodiac() != zod) {
-        scope.inputData.zodiac = zod;
+        scope.inputData.setZodiac(zod);
         change(Zodiac);
     }
 }
@@ -358,7 +358,7 @@ void
 AstroFile::setAspectSet(A::AspectSetId set, bool force)
 {
     if (getAspectSet().id != set || force) {
-        scope.inputData.aspectSet = set;
+        scope.inputData.setAspectSet(set);
         change(AspectSet);
     }
 }
@@ -491,7 +491,7 @@ AstroFileHandler::calculateAspects()
     A::setOrbFactor(1);
     if (file(0)->focalPlanets().empty()) {
         scope.aspects =
-                A::calculateAspects(A::getAspectSet(input.aspectSet),
+                A::calculateAspects(A::getAspectSet(input.aspectSet()),
                                     scope.planets);
         return scope.aspects;
     }
@@ -537,7 +537,7 @@ AstroFileHandler::calculateAspects()
         aspset = MainWindow::theAstroWidget()->overrideAspectSet();
     }
 
-    const auto& asps = A::getAspectSet(aspset == -1? input.aspectSet : aspset);
+    const auto& asps = A::getAspectSet(aspset == -1? input.aspectSet() : aspset);
     A::ChartPlanetPtrMap planets;
     //A::setOrbFactor(curr.patternsSpreadOrb / A::harmonicsMaxQOrb());
     for (const auto& cpid : fp) {
@@ -625,7 +625,7 @@ AstroFileHandler::calculateSynastryAspects()
     }
 
     const auto& asps = A::getAspectSet(aspset == -1
-                                       ? file(0)->horoscope().inputData.aspectSet
+                                       ? file(0)->horoscope().inputData.aspectSet()
                                        : aspset);
     //const auto& asps = aspset != -1? A::getAspectSet(aspset) : file(0)->getAspectSet();
     A::ChartPlanetPtrMap planets;

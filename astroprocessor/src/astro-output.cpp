@@ -165,14 +165,15 @@ describeInput(const InputData& data)
 {
     QString ret;
 
-    auto date = QLocale().toString(data.GMT.date(),QLocale::LongFormat);
-    auto time = QLocale().toString(data.GMT.time(),QLocale::LongFormat);
-    QString dayOfWeek = data.GMT.date().toString("ddd");
+    auto date = QLocale().toString(data.GMT().date(),QLocale::LongFormat);
+    auto time = QLocale().toString(data.GMT().time(),QLocale::LongFormat);
+    QString dayOfWeek = data.GMT().date().toString("ddd");
 
     ret += QObject::tr("Date: %1, %2 %3 GMT\n").arg(dayOfWeek).arg(date).arg(time);
     ret += "\n";
-    ret += QObject::tr("Location: %1N %2E").arg(degreeToString(data.location.y(), HighPrecision))
-        .arg(degreeToString(data.location.x(), HighPrecision));
+    ret += QObject::tr("Location: %1N %2E")
+            .arg(degreeToString(data.location().y(), HighPrecision))
+            .arg(degreeToString(data.location().x(), HighPrecision));
     return ret;
 }
 
@@ -571,14 +572,14 @@ describeParans(const AstroFileList& scopes,
 {
     bool showDates = scopes.count() == 1;
     auto scope = scopes.first()->horoscope();
-    short tz = scope.inputData.tz;
+    short tz = scope.inputData.tz();
     QVector<event> events;
-    events << event(scope.inputData.GMT, NULL, 4);    // radix
+    events << event(scope.inputData.GMT(), NULL, 4);    // radix
 
     int& maxWidth(event::_maxWidth);
     maxWidth = 0;
 
-    event::_radix = scope.inputData.GMT;
+    event::_radix = scope.inputData.GMT();
 
     for (const Planet& p: qAsConst(scope.planets)) {
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
@@ -664,7 +665,7 @@ QString
 describeSpeculum(const Horoscope &scope,
                  bool showFixedStars)
 {
-    short tz = scope.inputData.tz;
+    short tz = scope.inputData.tz();
     int& maxWidth(event::_maxWidth);
     if (maxWidth == 0) {
         for (const Planet& p: scope.planets) {

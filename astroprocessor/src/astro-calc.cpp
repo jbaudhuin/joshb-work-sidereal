@@ -450,8 +450,8 @@ calculatePlanet(PlanetId planet,
     }
 
     double geopos[3];
-    geopos[0] = input.location.x();
-    geopos[1] = input.location.y();
+    geopos[0] = input.location().x();
+    geopos[1] = input.location().y();
     geopos[2] = 199 /*meters*/; //input.location.z();
 
     ablong = xx[0];
@@ -495,7 +495,7 @@ calculatePlanet(PlanetId planet,
                 const Houses& houses,
                 const Zodiac& zodiac)
 {
-    double  jd = getJulianDate(input.GMT);
+    double  jd = getJulianDate(input.GMT());
 
     char    errStr[256] = "";
 
@@ -505,8 +505,8 @@ calculatePlanet(PlanetId planet,
                                  houses.RAMC, zodiac.id);
 
     double geopos[3];
-    geopos[0] = input.location.x();
-    geopos[1] = input.location.y();
+    geopos[0] = input.location().x();
+    geopos[1] = input.location().y();
     geopos[2] = 199 /*meters*/; //input.location.z();
 
     ret.sign = &getSign(ret.eclipticPos.x(), zodiac);
@@ -534,9 +534,9 @@ calculatePlanet(PlanetId planet,
     double at[4];
     double RA = at[Star::atMC] = ret.equatorialPos.x();
     double DD = asind(sind(eps) * sind(ablong));
-    double AD = asind(tand(DD) * tand(input.location.y()));
-    double OA = input.location.y() >= 0 ? (RA - AD) : (RA + AD);
-    double OD =input.location.y() >= 0 ? (RA + AD) : (RA - AD);
+    double AD = asind(tand(DD) * tand(input.location().y()));
+    double OA = input.location().y() >= 0 ? (RA - AD) : (RA + AD);
+    double OD =input.location().y() >= 0 ? (RA + AD) : (RA - AD);
     // RA - (OAAC - OA)
     at[Star::atAsc] = swe_degnorm(houses.RAMC - (houses.OAAC - OA));
     at[Star::atDesc] = swe_degnorm(houses.RAMC - (houses.ODDC - OD));
@@ -555,7 +555,7 @@ calculatePlanet(PlanetId planet,
                            geopos, 1013.25/*atpress*/, 10/*attemp*/,
                            &rettm, errStr) >= 0)
         {
-            st = swe_degnorm(swe_sidtime(rettm) * 15 + input.location.x());
+            st = swe_degnorm(swe_sidtime(rettm) * 15 + input.location().x());
             swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
             //qDebug("  %s %3d %02d %02d", qPrintable(angleDesc[m]), deg, min, sec);
             ret.angleTransit[m] = Planet::timeToDT(rettm);
@@ -606,10 +606,10 @@ PlanetLoc::compute(const ChartPlanetId& planet,
     const Planet& p1(getPlanet(planet.planetId()));
     uint flags = (SEFLG_SWIEPH | p1.sweFlags) & ~SEFLG_TRUEPOS;
     bool trop = true;
-    if (ida.zodiac > 1) {
+    if (ida.zodiac() > 1) {
         trop = false;
         flags |= SEFLG_SIDEREAL;
-        swe_set_sid_mode(ida.zodiac - 2, 0, 0);
+        swe_set_sid_mode(ida.zodiac() - 2, 0, 0);
     }
 
     double xx[6];
@@ -625,7 +625,7 @@ PlanetLoc::compute(const ChartPlanetId& planet,
         uint flags = SEFLG_SWIEPH;
         if (!trop) flags |= SEFLG_SIDEREAL;
         swe_houses_ex2(jdut, flags,
-                      ida.location.y(), ida.location.x(),
+                      ida.location().y(), ida.location().x(),
                       'C', cusps, ascmc, cuspspd, ascmcspd,
                        errStr);
         return { ascmc[i], ascmcspd[i] };
@@ -696,7 +696,7 @@ PlanetLoc::compute(const ChartPlanetId& planet,
                                   flags & ~SEFLG_SIDEREAL,
                                   xx, errStr);
                 auto housePos = swe_house_pos(getAscMC(2,true/*trop*/).first,
-                                              ida.location.y(), eps,
+                                              ida.location().y(), eps,
                                               'C', xx, errStr);
                 pos = (housePos - 1)/12*360;
             }
@@ -726,7 +726,7 @@ PlanetLoc::compute(const ChartPlanetId& planet,
 qreal
 PlanetLoc::compute(const InputData& ida)
 {
-    return compute(ida, getJulianDate(ida.GMT), -1);
+    return compute(ida, getJulianDate(ida.GMT()), -1);
 }
 
 qreal
@@ -873,7 +873,7 @@ Star calculateStar(const QString& name,
     Star ret = getStar(name);
 
     uint    invertPositionFlag = 256 * 1024;
-    double  jd = getJulianDate(input.GMT);
+    double  jd = getJulianDate(input.GMT());
     char    errStr[256] = "";
     double  xx[6];
     unsigned int flags = ret.sweFlags & ~SEFLG_TRUEPOS; // turn off true pos
@@ -905,9 +905,9 @@ Star calculateStar(const QString& name,
 
         double geopos[3];                  // calculate horizontal coordinates
         double hor[3];
-        geopos[0] = input.location.x();
-        geopos[1] = input.location.y();
-        geopos[2] = input.location.z();
+        geopos[0] = input.location().x();
+        geopos[1] = input.location().y();
+        geopos[2] = input.location().z();
         swe_azalt(jd, SE_ECL2HOR, geopos, 0, 0, xx, hor);
         ret.horizontalPos.setX(hor[0]);
         ret.horizontalPos.setY(hor[1]);
@@ -940,15 +940,15 @@ Houses
 calculateHouses( const InputData& input )
 {
     Houses ret;
-    ret.system = &getHouseSystem(input.houseSystem);
+    ret.system = &getHouseSystem(input.houseSystem());
     unsigned int flags = SEFLG_SWIEPH;
-    if (input.zodiac > 1) {
+    if (input.zodiac() > 1) {
         flags |= SEFLG_SIDEREAL;
-        swe_set_sid_mode(input.zodiac - 2, 0, 0);
+        swe_set_sid_mode(input.zodiac() - 2, 0, 0);
     }
 
-    double julianDay = getJulianDate(input.GMT, false/*i.e., UT*/);
-    double  jd = getJulianDate(input.GMT, true/*i.e., ET*/);
+    double julianDay = getJulianDate(input.GMT(), false/*i.e., UT*/);
+    double  jd = getJulianDate(input.GMT(), true/*i.e., ET*/);
     char    errStr[256] = "";
     double  xx[6];
 
@@ -959,7 +959,7 @@ calculateHouses( const InputData& input )
 
     // get the tropical ascendant...
     swe_houses_ex(julianDay, flags & ~SEFLG_SIDEREAL, 
-                  input.location.y(), input.location.x(),
+                  input.location().y(), input.location().x(),
                   ret.system->sweCode, hcusps, ascmc);
     double asc = ascmc[0];   // tropical asc
     xx[0] = ascmc[0]; xx[1] = 0.0; xx[2] = 1.0;
@@ -971,7 +971,7 @@ calculateHouses( const InputData& input )
     // TODO could also get eastpoint and vertex in RA here...
 
     if (flags & SEFLG_SIDEREAL) {
-        swe_houses_ex(julianDay, flags, input.location.y(), input.location.x(),
+        swe_houses_ex(julianDay, flags, input.location().y(), input.location().x(),
                       ret.system->sweCode, hcusps, ascmc);
     }
 
@@ -984,7 +984,7 @@ calculateHouses( const InputData& input )
     ret.Vx    = ascmc[3];
     ret.EA    = ascmc[4];
 
-    double st = swe_degnorm((swe_sidtime(julianDay)) * 15 + input.location.x());
+    double st = swe_degnorm((swe_sidtime(julianDay)) * 15 + input.location().x());
     double frac;
     int deg, min, sec, sgn;
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
@@ -998,11 +998,11 @@ calculateHouses( const InputData& input )
     //qDebug("RAAC %3d %02d %02d", deg, min, sec);
 #if 1
     double DD = asind(sind(eps) * sind(asc));
-    double AD = asind(tand(DD) * tand(input.location.y()));
-    ret.OAAC = input.location.y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
+    double AD = asind(tand(DD) * tand(input.location().y()));
+    ret.OAAC = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
     DD = asind(sind(eps) * sind(swe_degnorm(asc + 180)));
-    AD = asind(tand(DD) * tand(input.location.y()));
-    ret.ODDC = input.location.y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
+    AD = asind(tand(DD) * tand(input.location().y()));
+    ret.ODDC = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
 #endif
 
     ret.halfMedium = swe_difdegn(ret.RAAC, ret.RAMC);
@@ -1016,9 +1016,9 @@ calculateHouses( const InputData& input )
     swe_calc_ut(julianDay,SE_SUN,flags & ~SEFLG_SIDEREAL, xx, errStr);
 
     double geopos[3] = {
-        input.location.x(),
-        input.location.y(),
-        input.location.z()
+        input.location().x(),
+        input.location().y(),
+        input.location().z()
     };
 
     double housePos = swe_house_pos(ret.RAMC,geopos[1],eps, 'C',
@@ -2343,7 +2343,7 @@ calculateClosestTime(PlanetProfile& poses,
                      double harmonic)
 {
 
-    double jdIn = getJulianDate(locale.GMT);
+    double jdIn = getJulianDate(locale.GMT());
 
     double jd = jdIn;
     calcLoop looper(poses, jd);
@@ -2362,7 +2362,7 @@ calculateClosestTime(PlanetProfile& poses,
     if (looper(begin, end, span, flo, splo, true/*cont*/))
         return dateTimeFromJulian(jd);
 
-    return locale.GMT;
+    return locale.GMT();
 }
 
 QList<QDateTime>
@@ -2374,7 +2374,7 @@ quotidianSearch(PlanetProfile& poses,
 {
     modalize<bool> mum(s_quiet,true);
 
-    double jd1 = getJulianDate(locale.GMT);
+    double jd1 = getJulianDate(locale.GMT());
     double jd2 = getJulianDate(endDT);
 
     poses.setForceMinimize(forceMin);
@@ -2476,7 +2476,7 @@ calculateAll(const InputData& input)
     Horoscope scope;
     scope.inputData = input;
     scope.houses = calculateHouses(input);
-    scope.zodiac = getZodiac(input.zodiac);
+    scope.zodiac = getZodiac(input.zodiac());
 
     for (PlanetId id : getPlanets(true,true)) {
         if (id == Planet_Asc) {
@@ -2656,13 +2656,13 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
         auto type = f->getType();
         if (type == TypeMale || type == TypeFemale) {
             natus = i, natal = true;
-            njd = getJulianDate(ida.GMT);
+            njd = getJulianDate(ida.GMT());
         }
         else if (type == TypeDerivedProg) progr = i, prog = true;
         else locus = i, trans = true;
     }
 
-    QVector<ZodiacSign> signs = getZodiac(_ids[0].zodiac).signs.toVector();
+    QVector<ZodiacSign> signs = getZodiac(_ids[0].zodiac()).signs.toVector();
     auto getIngress = [&](PlanetId ingr, bool forward = true) {
         unsigned i = ingr - Ingresses_Start;
         if (!forward) ingr += 12;

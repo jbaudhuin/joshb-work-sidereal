@@ -92,24 +92,24 @@ public:
     
     const QString&   getComment()      const { return comment; }
     FileType         getType()         const { return type; }
-    const QVector3D& getLocation()     const { return scope.inputData.location; }
+    const QVector3D& getLocation()     const { return scope.inputData.location(); }
     const QString&   getLocationName() const { return locationName; }
-    const QDateTime& getGMT()          const { return scope.inputData.GMT; }
-    const short&     getTimezone()     const { return scope.inputData.tz; }
+    const QDateTime& getGMT()          const { return scope.inputData.GMT(); }
+    short            getTimezone()     const { return scope.inputData.tz(); }
     //A::Horoscope& horoscope() { return scope; }
     A::Horoscope& horoscope() { return scope; }
     const A::Horoscope& horoscope()    const { return scope; }
-    A::HouseSystemId getHouseSystem()  const { return scope.inputData.houseSystem; }
-    A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac; }
-    A::AspectSetId   getAspectSetId() const { return scope.inputData.aspectSet; }
+    A::HouseSystemId getHouseSystem()  const { return scope.inputData.houseSystem(); }
+    A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac(); }
+    A::AspectSetId   getAspectSetId() const { return scope.inputData.aspectSet(); }
 
     const A::AspectsSet& getAspectSet()  const
-    { return A::getAspectSet(scope.inputData.aspectSet); }
+    { return A::getAspectSet(scope.inputData.aspectSet()); }
 
     A::aspectModeEnum getAspectMode()  const { return A::aspectMode; }
     const QList<QDateTime>& getEventList() const { return _eventList; }
     double           getHarmonic()     const { return scope.harmonic; }
-    QDateTime        getLocalTime()    const { return scope.inputData.GMT.addSecs(getTimezone() * 3600); }
+    QDateTime        getLocalTime()    const { return getGMT().addSecs(getTimezone() * 3600); }
     const ADateRange& getDateRange() const { return _dateRange; }
 
     A::FileInput     fileInputData() const { return { type, scope.inputData }; }

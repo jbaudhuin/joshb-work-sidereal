@@ -271,29 +271,66 @@ struct HouseSystem {
 };
 
 
-struct InputData
-{
-    QDateTime      GMT;      // greenwich time & date
-    QVector3D      location; // x - longitude (-180...180);
+class InputData {
+    QDateTime      _GMT;      // greenwich time & date
+    QDateTime      _baseGMT;
+    QVector3D      _location; // x - longitude (-180...180);
                              // y - latitude (-180...180), z - height
-    HouseSystemId  houseSystem;
-    ZodiacId       zodiac;
-    AspectSetId    aspectSet;
-    short          tz;
+    HouseSystemId  _houseSystem;
+    ZodiacId       _zodiac;
+    AspectSetId    _aspectSet;
+    short          _tz;
     //double         harmonic;
     //double         RAMC;
 
+public:
     InputData()
     {
-        GMT.setTimeSpec(Qt::UTC);
-        GMT.setSecsSinceEpoch(0);
-        location    = QVector3D(0,0,0);
-        houseSystem = Housesystem_Placidus;
-        zodiac      = Zodiac_Tropical;
-        aspectSet   = AspectSet_Default;
-        tz          = 0;
+        _GMT.setTimeSpec(Qt::UTC);
+        _GMT.setSecsSinceEpoch(0);
+        _baseGMT = _GMT;
+        _location    = QVector3D(0,0,0);
+        _houseSystem = Housesystem_Placidus;
+        _zodiac      = Zodiac_Tropical;
+        _aspectSet   = AspectSet_Default;
+        _tz          = 0;
         //harmonic    = 1;
     }
+
+    InputData(const QDateTime& gmt,
+              short tz,
+              const QVector3D& loc = {0,0,0},
+              HouseSystemId hsys = Housesystem_Placidus,
+              ZodiacId zid = Zodiac_Tropical,
+              AspectSetId asid = AspectSet_Default) :
+        _GMT(gmt),
+        _location(loc),
+        _houseSystem(hsys),
+        _zodiac(zid),
+        _aspectSet(asid),
+        _tz(tz)
+    { _baseGMT.setTimeSpec(Qt::UTC); _baseGMT.setSecsSinceEpoch(0); }
+
+    const QVector3D& location() const { return _location; }
+    void setLocation(const QVector3D& loc) { _location = loc; }
+
+    const QDateTime& GMT() const { return dateTime(); }
+    void setGMT(const QDateTime& gmt) { _GMT = gmt; }
+    const QDateTime& dateTime() const { return _GMT; }
+    short tz() const { return _tz; }
+    void setTZ(short tz) { _tz = tz; }
+
+    QDateTime getEffectiveDateTime() const
+    { return dateTime(); /* XXX timezone etc? */ }
+
+    HouseSystemId houseSystem() const { return _houseSystem; }
+    void setHouseSystem(HouseSystemId hsys) { _houseSystem = hsys; }
+
+    ZodiacId zodiac() const { return _zodiac; }
+    void setZodiac(ZodiacId zid) { _zodiac = zid; }
+
+    AspectSetId aspectSet() const { return _aspectSet; }
+    void setAspectSet(AspectSetId asid) { _aspectSet = asid; }
 
     //void            computeRAMC() { }
 };

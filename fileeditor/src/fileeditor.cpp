@@ -545,7 +545,7 @@ AstroFileEditor::onEditingFinished()
             unsigned deg = capUInt("deg");
             unsigned min = capUInt("min");
             unsigned sec = capUInt("sec");
-            auto pos = A::getSignPos(inda.zodiac, sgn, deg, min, sec);
+            auto pos = A::getSignPos(inda.zodiac(), sgn, deg, min, sec);
             poses.push_front(new A::Loc(match.captured("ingress"), pos));
             poses.push_back(new A::TransitPosition(pid, inda));
         } else if (has("ret")) {
@@ -614,7 +614,7 @@ AstroFileEditor::onEditingFinished()
                     unsigned deg = capUInt("dega");
                     unsigned min = capUInt("mina");
                     unsigned sec = capUInt("seca");
-                    auto pos = A::getSignPos(inda.zodiac, sgn, deg, min, sec);
+                    auto pos = A::getSignPos(inda.zodiac(), sgn, deg, min, sec);
                     poses.push_front(new A::Loc(match.captured("posa"), pos));
                     continue;
                 }
@@ -632,7 +632,7 @@ AstroFileEditor::onEditingFinished()
 
     //auto d0 = A::getJulianDate(startDate->dateTime().toUTC());
     //auto d1 = A::getJulianDate(endDate->dateTime().toUTC());
-    inda.GMT = startDate->dateTime().toUTC();
+    inda.setGMT(startDate->dateTime().toUTC());
     auto dl = A::quotidianSearch(poses, inda,
                                  endDate->dateTime().toUTC(),
                                  std::min(span/(*harmonics.rbegin()),30.),
