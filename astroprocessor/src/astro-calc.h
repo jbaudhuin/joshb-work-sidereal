@@ -209,31 +209,6 @@ uintMSet getPrimes(unsigned top);
 void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
 void calculateBaseChartHarmonic(Horoscope& scope);
 
-using uintPair = std::pair<unsigned,unsigned>;
-using hsets = std::vector<uintSSet>;
-using hsetId = unsigned short int;
-
-struct planetsEtc : public uintPair {
-    hsetId hsid;
-    EventType et;
-
-    using uintPair::uintPair;
-
-    planetsEtc(const uintPair& ab, hsetId hs/*=0*/,
-               EventType et /*= etcUnknownEvent*/) :
-        uintPair(ab), hsid(hs), et(et)
-    { }
-
-    planetsEtc(unsigned a, unsigned b,
-               hsetId hs /*= 0*/,
-               EventType et /*= etcUnknownEvent*/) :
-        uintPair(a,b), hsid(hs), et(et)
-    { }
-
-    unsigned a() const { return first; }
-    unsigned b() const { return second; }
-};
-
 typedef QList<InputData> idlist;
 
 struct EventOptions {
@@ -423,7 +398,7 @@ protected:
 
     double _rate = 4.0;  // # days
     hsets _hsets;         ///< harmonic profiles
-    std::list<planetsEtc> _staff;
+    searchPairList _staff;
     unsigned _evType = etcUnknownEvent;
 
 private:
@@ -457,9 +432,9 @@ public:
                                       const QString& desc);
     static unsigned registerEventType(const eventTypeInfo& evtinf);
     static QString eventTypeToString(EventType et)
-    { return std::get<1>(singleton()._eventIdToString.value(et)); }
-    static QString eventTypeToBrief(EventType et)
     { return std::get<2>(singleton()._eventIdToString.value(et)); }
+    static QString eventTypeToBrief(EventType et)
+    { return std::get<1>(singleton()._eventIdToString.value(et)); }
 
 private:
     unsigned _numEvents = etcUserEventStart;

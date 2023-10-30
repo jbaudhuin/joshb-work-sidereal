@@ -167,8 +167,8 @@ void GeoSuggestCompletion::doneCompletion()
     if (item) {
         QVector3D vec;
         QString text = item->text(2);
-        vec.setX(text.mid(0, text.indexOf(' ')).toFloat());
-        vec.setY(text.mid(text.indexOf(' ') + 1).toFloat());
+        vec.setX(text.midRef(0, text.indexOf(' ')).toFloat());
+        vec.setY(text.midRef(text.indexOf(' ') + 1).toFloat());
 
         editor->setCoordinate(vec, item->text(1));
         QMetaObject::invokeMethod(editor, "returnPressed");
@@ -388,7 +388,7 @@ GeoSearchWidget::GeoSearchWidget(bool vbox /*=true*/,
     connect(geoSearchBox, SIGNAL(returnPressed()),      this, SLOT(proofCoordinates()));
     connect(latitude,     SIGNAL(valueChanged(double)), this, SIGNAL(locationChanged()));
     connect(longitude,    SIGNAL(valueChanged(double)), this, SIGNAL(locationChanged()));
-    connect(geoSearchBox, SIGNAL(textChanged(QString)), this, SIGNAL(locationChanged()));
+    //connect(geoSearchBox, SIGNAL(editingFinished()),    this, SIGNAL(locationChanged()));
 }
 
 void GeoSearchWidget::turnGoogleSearch()

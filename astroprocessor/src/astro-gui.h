@@ -61,12 +61,12 @@ public:
     void load(const AFileInfo& name);
     void loadComposite(const AFileInfoList& names);
 
-    void suspendUpdate()            { holdUpdate = true; }
-    bool isSuspendedUpdate()  const { return holdUpdate; }
+    void suspendUpdate()            { _holdUpdate = true; }
+    bool isSuspendedUpdate()  const { return _holdUpdate; }
     void resumeUpdate();
 
     void clearUnsavedState();
-    bool hasUnsavedChanges()  const { return unsavedChanges; }
+    bool hasUnsavedChanges()  const { return _unsavedChanges; }
     bool isEmpty()            const { return scope.planets.count() == 0; }
 
     void setName         (const QString&   name);
@@ -151,9 +151,9 @@ public slots:
     void destroy();
 
 private:
-    bool unsavedChanges;
-    bool holdUpdate;
-    Members holdUpdateMembers;
+    bool _unsavedChanges;
+    bool _holdUpdate;
+    Members _holdUpdateMembers;
     static int counter;
 
     AFileInfo _fileInfo;

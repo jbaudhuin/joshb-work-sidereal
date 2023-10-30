@@ -54,6 +54,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     addFileBtn        = new QPushButton(tr("+"));
     name              = new QLineEdit;
     type              = new QComboBox;
+    basis             = new QComboBox;
     dateTime          = new QDateTimeEdit;
     timeZone          = new QDoubleSpinBox;
     geoSearch         = new GeoSearchWidget;
@@ -63,7 +64,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     tabs     -> setMovable(true);
     addFileBtn -> setMaximumWidth(32);
 
-    for (unsigned i = TypeOther, n = TypeCount;
+    for (unsigned i = TypeEvent, n = TypeCount;
          i < n; ++i)
     {
         type->addItem(tr(AstroFile::typeToString(i).toLatin1().constData()));
@@ -107,6 +108,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
 
     QFormLayout* lay1 = new QFormLayout;
     lay1->addRow(tr("Name:"),       lay3);
+    lay1->addRow(tr("Based on:"),   basis);
     lay1->addRow(tr("Local time:"), lay2);
     lay1->addRow(tr("Location:"),   geoSearch);
     lay1->addItem(new QSpacerItem(1,20));
@@ -322,7 +324,6 @@ AstroFileEditor::updateTimezone()
             .arg(dateTime->dateTime().toSecsSinceEpoch());
     qDebug() << "Issuing TZ URL:" << url;
     nm->get(QNetworkRequest(url));
-
 }
 
 void AstroFileEditor::updateTabs()

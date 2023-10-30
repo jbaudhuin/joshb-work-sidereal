@@ -79,6 +79,7 @@ protected:                            // AstroFileHandler implementation
 
     AstroFile* transitsAF();
 
+
 signals:
     //void updateTransits(double);
     void planetSelected(A::PlanetId, int);
@@ -99,6 +100,7 @@ signals:
     void resumeActive();
 
 protected slots:
+    void updateTimezone();
     void onEventSelectionChanged();
     void onDateRangeChanged();
 
@@ -129,12 +131,14 @@ protected slots:
 
 public slots:
     void setCurrentPlanet(A::PlanetId, int);
+    void onLocationChange();
 
 private:
     A::PlanetId _planet;
     int _fileIndex;
     bool _expandedAspects;
     bool _inhibitUpdate;
+    bool _pendingLocationChange = false;
 
     AstroFile* _trans = nullptr;
 
@@ -155,6 +159,7 @@ private:
     int                     _anchorSort;
     Qt::SortOrder           _anchorOrder;
     int                     _anchorVisibleRow;
+    bool                    _inRestoreScrollPos = false;
 
     GeoSearchWidget* _location;
 

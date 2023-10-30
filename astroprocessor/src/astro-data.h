@@ -21,7 +21,7 @@
 
 #include <math.h>
 
-enum FileType { TypeOther, TypeMale, TypeFemale, TypeSearch,
+enum FileType { TypeEvent, TypeMale, TypeFemale, TypeOther, TypeSearch,
                 TypeDerivedSA, TypeDerivedProg, TypeDerivedPD,
                 TypeDerivedSearch, TypeCount };
 
@@ -781,6 +781,20 @@ public:
     using Base = std::set<ChartPlanetId>;
     using Base::Base;
 
+    bool heterogeneous() const
+    {
+        std::set<int> seen;
+        return std::any_of(begin(), end(),
+                           [&seen](const ChartPlanetId& cpid)
+        {
+            if (cpid.fileId() != -1) {
+                seen.insert(cpid.fileId());
+                return seen.size() > 1;
+            }
+            return false;
+        } );
+    }
+
     bool contains(PlanetId pid) const
     { return std::any_of(begin(), end(), samePlanet(pid)); }
 
@@ -843,6 +857,21 @@ public:
             lastFid = cpid.fileId();
         }
         return res;
+    }
+
+    QString describe() const
+    {
+        QStringList res;
+
+        std::map<int,unsigned> ids;
+        for (const auto& cpid: *this) ids[cpid.fileId()]++;
+
+        for (const ChartPlanetId& cpid: *this) {
+            auto name = cpid.name().left(3);
+            if (cpid.fileId() == 0 && ids.size()>1) res << name + "-r";
+            else res << name;
+        }
+        return res.join("=");
     }
 
     unsigned pop() const
@@ -1030,6 +1059,14 @@ struct PlanetLoc : public Loc {
 
     Loc* clone() const override { return new PlanetLoc(*this); }
 
+    bool aspectable() const
+    {
+        return inMotion()
+                || allowAspects <= aspOnlyConj
+                || (speed <= 0 && allowAspects == aspOnlyRetro)
+                || (speed >= 0 && allowAspects == aspOnlyDirect);
+    }
+
     PlanetLoc& operator==(const PlanetLoc& other)
     { planet = other.planet; loc = other.loc; return *this; }
 
@@ -1197,6 +1234,72 @@ getSpread(const T& range)
     return ret>180? 360-ret : ret;
 }
 
+enum DerivedEventFlag {
+    etcNoDerivedEvent  = 0,
+    etcEventToTransitAspect = 1,    // *T
+    etcEventToNatalAspect   = 2,    // *N
+    etcEventTransitToTransitAspect = 4, // *TT
+    etcEventTransitToNatalAspect = 8, // *TN
+    etcEventAspectPattern   = 16,    // *A
+    etcEventTypeStart       = etcEventAspectPattern << 1,
+    etcDerivedEventMask     = etcEventTypeStart - 1
+};
+Q_DECLARE_FLAGS(DerivedEventFlags, DerivedEventFlag);
+
+enum EventType {
+    etcUnknownEvent         = 0,
+    etcStation              = etcEventTypeStart, // S
+    etcTransitToStation,        // T=S
+    etcTransitToTransit,        // T=T
+    etcTransitToNatal,          // T=N
+    etcOuterTransitToNatal,     // OT=N
+    etcReturn,                  // R
+    etcProgressedToProgressed,  // P=P
+    etcProgressedToNatal,       // P=N
+    etcInnerProgressedToNatal,  // IP=N
+    etcTransitToProgressed,     // T=P
+    etcSolarArcToNatal,         // D=N
+    etcSignIngress,             // T=I
+    etcHouseIngress,            // T=H
+    etcLunation,                // L
+    etcEclipse,                 // E
+    etcSolarEclipse,            // SE
+    etcLunarEclipse,            // LE
+    etcHeliacalEvents,          // HRS
+    etcTransitAspectPattern,    // TA
+    etcTransitNatalAspectPattern,   // TNA
+    etcUserEventStart
+};
+
+using uintPair = std::pair<unsigned,unsigned>;
+using hsets = std::vector<uintSSet>;
+using hsetId = unsigned short int;
+
+struct planetsEtc : public uintPair {
+    hsetId hsid;
+    EventType et;
+
+    using uintPair::uintPair;
+
+    planetsEtc(const uintPair& ab, hsetId hs/*=0*/,
+               EventType et /*= etcUnknownEvent*/) :
+        uintPair(ab), hsid(hs), et(et)
+    { }
+
+    planetsEtc(unsigned a, unsigned b,
+               hsetId hs /*= 0*/,
+               EventType et /*= etcUnknownEvent*/) :
+        uintPair(a,b), hsid(hs), et(et)
+    { }
+
+    unsigned a() const { return first; }
+    void setA(unsigned a) { first = a; }
+    unsigned b() const { return second; }
+    void setB(unsigned b) { second = b; }
+};
+
+typedef std::list<planetsEtc> searchPairList;
+
 class PlanetProfile :
         public Loc,
         public std::deque<Loc*>
@@ -1231,19 +1334,37 @@ public:
         return *this;
     }
 
-    PlanetProfile* profile(PlanetSet psp) const
+    static searchPairList& ignore()
+    { static searchPairList s_dummy; return s_dummy; }
+
+    PlanetProfile* profile(PlanetSet psp,
+                           searchPairList& stuff = ignore()) const
     {
         auto ret = new PlanetProfile;
+        QMap<int, int> inxUpd;
+        int inxOld = 0, inxNew = 0;
         for (auto loc : *this) {
             if (auto ploc = dynamic_cast<const PlanetLoc*>(loc)) {
                 auto psit = psp.find(ploc->planet);
                 if (psit != psp.end()) {
                     ret->emplace_back(ploc->clone());
+                    inxUpd[inxOld] = inxNew;
+                    ++inxNew;
                     psp.erase(psit);
                     if (psp.empty()) break;
                 }
             }
+            ++inxOld;
         }
+        searchPairList retsp;
+        for (auto petc : stuff) {
+            if (inxUpd.contains(petc.a()) && inxUpd.contains(petc.b())) {
+                petc.setA(inxUpd.value(petc.a()));
+                petc.setB(inxUpd.value(petc.b()));
+                retsp.emplace_back(petc);
+            }
+        }
+        if (!stuff.empty()) stuff.swap(retsp);
         return ret;
     }
 
@@ -1377,43 +1498,6 @@ public:
     void insert(const PlanetQueue& planets, unsigned minQuorum = 2);
 };
 
-enum DerivedEventFlag {
-    etcNoDerivedEvent  = 0,
-    etcEventToTransitAspect = 1,    // *T
-    etcEventToNatalAspect   = 2,    // *N
-    etcEventTransitToTransitAspect = 4, // *TT
-    etcEventTransitToNatalAspect = 8, // *TN
-    etcEventAspectPattern   = 16,    // *A
-    etcEventTypeStart       = etcEventAspectPattern << 1,
-    etcDerivedEventMask     = etcEventTypeStart - 1
-};
-Q_DECLARE_FLAGS(DerivedEventFlags, DerivedEventFlag);
-
-enum EventType {
-    etcUnknownEvent         = 0,
-    etcStation              = etcEventTypeStart, // S
-    etcTransitToStation,        // T=S
-    etcTransitToTransit,        // T=T
-    etcTransitToNatal,          // T=N
-    etcOuterTransitToNatal,     // OT=N
-    etcReturn,                  // R
-    etcProgressedToProgressed,  // P=P
-    etcProgressedToNatal,       // P=N
-    etcInnerProgressedToNatal,  // IP=N
-    etcTransitToProgressed,     // T=P
-    etcSolarArcToNatal,         // D=N
-    etcSignIngress,             // T=I
-    etcHouseIngress,            // T=H
-    etcLunation,                // L
-    etcEclipse,                 // E
-    etcSolarEclipse,            // SE
-    etcLunarEclipse,            // LE
-    etcHeliacalEvents,          // HRS
-    etcTransitAspectPattern,    // TA
-    etcTransitNatalAspectPattern,   // TNA
-    etcUserEventStart
-};
-
 enum EventUpdateType {
     etcMerge,
     etcUpdate
@@ -1461,8 +1545,9 @@ typedef ARange<QDateTime> ADateTimeRange;
 typedef std::pair<unsigned, PlanetSet> HarmonicPlanetSet;
 typedef std::pair<double, double> JDateRange;
 typedef std::set<JDateRange> JDateRanges;
+typedef std::map<JDateRange, unsigned char> JDateRangeHits;
 typedef std::map<HarmonicPlanetSet, JDateRange> HarmonicPlanetDateRangeMap;
-typedef std::map<HarmonicPlanetSet, JDateRanges> HarmonicPlanetDateRangesMap;
+typedef std::map<HarmonicPlanetSet, JDateRangeHits> HarmonicPlanetDateRangesMap;
 
 class HarmonicAspect {
     unsigned            _eventType;  ///< type of event
@@ -1526,7 +1611,7 @@ public:
         _orb = delta;
     }
 
-    unsigned int eventType() const { return _eventType; }
+    EventType eventType() const { return EventType(_eventType); }
     unsigned int harmonic() const { return _harmonic; }
     qreal orb() const { return _orb; }
     const PlanetRangeBySpeed& locations() const { return _locations; }

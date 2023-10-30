@@ -18,6 +18,9 @@
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QCheckBox>
+#include <QJsonDocument>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <QRadioButton>
 #include <QPushButton>
 #include <QScrollBar>
@@ -124,18 +127,13 @@ class EventsTableModel : public QAbstractItemModel {
 
 public:
     enum {
-        sortByDate,
-        sortByHarmonic,
-        sortByTransitBody,
-        sortByNatalBody
-    };
-
-    enum {
-        dateCol             = 0,
-        orbCol              = 0,
-        harmonicCol         = 1,
-        transitBodyCol      = 2,
-        natalTransitBodyCol = 3
+        eventTypeCol        = 0,
+        dateCol,
+        orbCol              = dateCol,
+        harmonicCol,
+        transitBodyCol,
+        natalTransitBodyCol,
+        numCols
     };
 
     enum roles {
@@ -148,9 +146,11 @@ public:
     { }
 
     EventsTableModel(A::AspectSetId asps,
-                       QObject* parent = nullptr) :
+                     const QStringList& suff,
+                     QObject* parent = nullptr) :
         QAbstractItemModel(parent),
-        _aspects(asps)
+        _aspects(asps),
+        _suffixes(suff)
     { }
 
     QModelIndex index(int row, int column,
@@ -182,7 +182,7 @@ public:
     }
 
     int columnCount(const QModelIndex& =QModelIndex()) const override
-    { return 4; }
+    { return numCols; }
 
     int topLevelRow(const QModelIndex& inx) const
     { return (inx.parent().isValid()) ? inx.parent().row() : inx.row(); }
@@ -237,6 +237,7 @@ public:
         }
         if (role != Qt::DisplayRole) return QVariant();
         switch (col) {
+        case eventTypeCol: return tr("ET");
         case dateCol: return tr("Date");
         case harmonicCol: return tr("Asp");
         case transitBodyCol: return tr("Trans");
@@ -246,6 +247,8 @@ public:
     }
 
     void setZodiac(const A::Zodiac& zod) { _zodiac = zod; }
+
+    void setSuffixes(const QStringList& suff) { _suffixes = suff; }
 
     QString getPos(float deg) const
     {
@@ -284,10 +287,9 @@ public:
         const A::ChartPlanetId& cpid = s.planet;
         auto g = cpid.glyph();
         auto pid = cpid.planetId();
-        if ((pid >= A::Ingresses_Start
-             && pid < A::Ingresses_End)
-                || (pid >= A::Houses_Start
-                    && pid < A::Houses_End))
+        if ((pid >= A::Ingresses_Start && pid < A::Ingresses_End)
+                || (pid >= A::Regresses_Start && pid < A::Regresses_End)
+                || (pid >= A::Houses_Start && pid < A::Houses_End))
         { return g; }
 
         if (cpid.isMidpt()) g = g.mid(1);   // skip conj/opp
@@ -305,7 +307,12 @@ public:
     }
 
     QString summary(const A::ChartPlanetId& cpid) const
-    { return cpid.name(); }
+    {
+        if (cpid.fileId() >= 0 && _suffixes.size() > cpid.fileId()) {
+            return cpid.name() + "-" + _suffixes[cpid.fileId()];
+        }
+        return cpid.name();
+    }
 
     QString summary(const A::PlanetLoc& s) const
     {
@@ -402,9 +409,12 @@ public:
     QVariant data(const QModelIndex& index,
                   int role = Qt::DisplayRole) const override
     {
-        if (role == Qt::TextAlignmentRole
-                && index.column() == harmonicCol)
-        { return Qt::AlignHCenter; }
+        if (role == Qt::TextAlignmentRole) {
+            if (index.column() == harmonicCol
+                    || index.column() == eventTypeCol)
+            { return unsigned(Qt::AlignHCenter | Qt::AlignBaseline); }
+            return unsigned(Qt::AlignLeft | Qt::AlignBaseline);
+        }
 
         if (role  != Qt::DisplayRole
                 && role != Qt::ToolTipRole
@@ -431,6 +441,17 @@ public:
         }
 
         switch (col) {
+        case eventTypeCol:
+            if (prow == -1) {
+                auto type = _evs[row]->eventType();
+                if (role == Qt::ToolTipRole) {
+                    return A::EventTypeManager::eventTypeToString(type);
+                }
+                if (role == Qt::DisplayRole) {
+                    return A::EventTypeManager::eventTypeToBrief(type);
+                }
+            }
+            break;
         case dateCol:
             if (prow == -1) {
                 // HarmonicEvent
@@ -739,11 +760,13 @@ private:
     }
 
     bool _sortPending           = false;
-    int _sortBy                 = sortByDate;
+    int _sortBy                 = dateCol;
     Qt::SortOrder _sortOrder    = Qt::AscendingOrder;
 
     A::Zodiac _zodiac;
     A::AspectSetId _aspects = 0;
+
+    QStringList _suffixes;
 
     int _changeRef = 0;
 
@@ -831,7 +854,8 @@ Transits::Transits(QWidget* parent) :
             _evm, &EventsTableModel::onSortChange);
     hdr->setSectionsClickable(true);
     hdr->setSortIndicatorShown(true);
-    hdr->setSortIndicator(0, Qt::AscendingOrder);
+    _tview->header()->setSortIndicator(_evm->sortColumn(),
+                                       _evm->sortOrder());
     hdr->setSectionResizeMode(QHeaderView::ResizeToContents);
 
     QAction* act = new QAction("Copy");
@@ -884,12 +908,16 @@ Transits::Transits(QWidget* parent) :
     l3->addWidget(_tview, 5);
 
     _location = new GeoSearchWidget(false/*hbox*/);
+#if 0
     connect(_location, &GeoSearchWidget::locationChanged,
             [this] {
-        if (!transitsAF()) return;
-        transitsAF()->setLocation(_location->location());
-        transitsAF()->setLocationName(_location->locationName());
+
+        if (!_pendingLocationChange) {
+            _pendingLocationChange = true;
+            QTimer::singleShot(0, this, SLOT(onLocationChange()));
+        }
     });
+#endif
     l3->addWidget(_location);
 
     setLayout(l3);
@@ -988,7 +1016,8 @@ Transits::transitsOnly() const
 {
     auto ftype = file()->getType();
     return (ftype != TypeMale
-            && ftype != TypeFemale);
+            && ftype != TypeFemale
+            && ftype != TypeEvent);
 }
 
 AstroFile *
@@ -999,6 +1028,8 @@ Transits::transitsAF()
     // as well...
 
     //if (files().count() > 1) return files()[1];
+    if (transitsOnly())
+        return file();
     if (!_trans) {
         _trans = new AstroFile(this);
         MainWindow::theAstroWidget()->setupFile(_trans);
@@ -1014,10 +1045,66 @@ Transits::transitsAF()
 }
 
 void
+Transits::updateTimezone()
+{
+    QVector3D vec(_location->location());
+
+    auto nm = new QNetworkAccessManager(this);
+    connect(nm, &QNetworkAccessManager::finished,
+            [this](QNetworkReply* reply)
+    {
+        reply->deleteLater();
+        if (auto nm = sender()) {
+            nm->deleteLater();
+        }
+        if (reply->error() != QNetworkReply::NoError) return;
+
+        QJsonDocument response =
+                QJsonDocument::fromJson(reply->readAll());
+        if (response["status"].toString()!="OK") {
+            qDebug() << "Timezone request failed:"
+                     << response["status"].toString()
+                     << response["errorMessage"].toString();
+            return;
+        }
+        qreal tz = (response["rawOffset"].toInt()
+                /*+ response["dstOffset"].toInt()*/)/3600;
+        transitsAF()->suspendUpdate();
+        transitsAF()->setLocation(_location->location());
+        transitsAF()->setLocationName(_location->locationName());
+        transitsAF()->setTimezone(short(tz));
+        transitsAF()->resumeUpdate();
+
+        qDebug() << "Timezone for location is"
+                 << response["rawOffset"].toInt()/60 /*minsPerSec*/
+                 << "with dstOffset"
+                 << response["dstOffset"].toInt()/60
+                 << "in" << response["timeZoneName"].toString();
+
+        //if (transitsOnly()) updateFirst(file());
+        //else updateSecond(transitsAF());
+    });
+
+    QString url =
+            QString(A::googMapURL + "/timezone/json?"
+                                "location=%1,%2"
+                                "&timestamp=%4"
+                                "&key=%3"
+                                "&language=en")
+            .arg(vec.y()).arg(vec.x())
+            .arg(A::googAPIKey)
+            .arg(transitsAF()->getGMT().toSecsSinceEpoch());
+    qDebug() << "Issuing TZ URL:" << url;
+    nm->get(QNetworkRequest(url));
+
+}
+
+void
 Transits::updateTransits()
 {
     if (filesCount() == 0) return;
     if (!isVisible()) return;
+    if (transitsAF()->isSuspendedUpdate()) return;
 
     if (!_active) saveScrollPos();
 
@@ -1039,18 +1126,24 @@ Transits::updateTransits()
     ADateRange r { _start->date(), _end->date() };
 
     _evm->removeEvents(_evs);
+    _evm->setSuffixes({});
     _evs.clear();
 
+#if 0
+    transitsAF()->suspendUpdate();
     transitsAF()->setLocation(_location->location());
     transitsAF()->setLocationName(_location->locationName());
+    transitsAF()->resumeUpdate();
+#endif
 
     A::AspectFinder* af = nullptr;
 #if 1
     if (filesCount() >= 1) {
         auto type = file(0)->getType();
-        if (type == TypeMale || type == TypeFemale) {
+        if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
             af = new A::OmnibusFinder(_evs,r,hs,{file(0), transitsAF()});
         }
+        if (filesCount() > 1) _evm->setSuffixes({"r"});
     }
     if (!af && filesCount() >= 1) {
         af = new A::OmnibusFinder(_evs, r, hs, files());
@@ -1124,6 +1217,13 @@ Transits::setCurrentPlanet(A::PlanetId p, int file)
     describePlanet();
 }
 
+void Transits::onLocationChange()
+{
+    _pendingLocationChange = false;
+    if (!transitsAF()) return;
+    updateTimezone();
+}
+
 void
 Transits::findIt(const QString& val)
 {
@@ -1143,6 +1243,15 @@ Transits::findIt(const QString& val)
 void
 Transits::saveScrollPos()
 {
+    if (_inRestoreScrollPos) return;
+
+    auto sender = this->sender();
+    if (!sender) return;
+
+    if (_evm->rowCount()==0) {
+        return;
+    }
+
     _anchorTop.clear();
     _anchorCur.clear();
 
@@ -1175,6 +1284,9 @@ Transits::restoreScrollPos()
         return;
     }
 
+    if (_inRestoreScrollPos) return;
+
+    A::modalize<bool> irsp(_inRestoreScrollPos);
     int col = _evm->sortColumn();
     auto order = _evm->sortOrder();
     bool ident = false;
@@ -1256,7 +1368,12 @@ Transits::clickedCell(QModelIndex inx)
         return;
     }
     auto dt = _evm->rowDate(inx.row());
-    auto desc = _evm->rowDesc(inx.row());
+    QString desc;
+    if (focal.empty()) desc = _evm->rowDesc(inx.row());
+    else {
+        desc = inx.siblingAtColumn(EventsTableModel::harmonicCol).data().toString()
+                + " " + focal.describe();
+    }
     A::modalize<bool> noup(_inhibitUpdate);
     if (transitsOnly()) {
         file()->setFocalPlanets(focal);
@@ -1447,9 +1564,10 @@ Transits::filesUpdated(MembersList m)
     for (auto ml: m) {
         FileType type = file(f++)->getType();
         if (type >= TypeSearch) continue;
-        if (type == TypeMale
-                || type == TypeFemale)
+
+        if (type == TypeMale || type == TypeFemale || type == TypeEvent)
         { any |= (ml & AstroFile::GMT); }
+
         any |= (ml & (AstroFile::Timezone
                       | AstroFile::Zodiac
                       | AstroFile::AspectSet
@@ -1489,6 +1607,7 @@ Transits::applySettings(const AppSettings& s)
     bool changed =
             (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
             || s.value("Events/patternsSpreadOrb").toDouble() != curr.patternsSpreadOrb
+            || s.value("Events/planetPairOrb").toDouble() != curr.expandShowOrb
             || s.value("Events/patternsRestrictMoon").toBool() != curr.patternsRestrictMoon
             || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
             || s.value("Events/showStations").toBool() != curr.showStations
@@ -1556,7 +1675,8 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Events/showTransitAspectPatterns", tr("Show Transit Aspect Patterns"));
     ed->addCheckBox("Events/showTransitNatalAspectPatterns", tr("Show Transit Natal Aspect Patterns"));
     ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"),2,6);
-    ed->addDoubleSpinBox("Events/patternsSpreadOrb", tr("Patterns Spread Orb"), 1., 16.);
+    ed->addDoubleSpinBox("Events/patternsSpreadOrb", tr("Patterns Spread Orb"), .1, 16.);
+    ed->addDoubleSpinBox("Events/planetPairOrb", tr("Planet pair orb"), 0.1, 16.);
     ed->addCheckBox("Events/patternsRestrictMoon", tr("Patterns Restrict Moon"));
     ed->addCheckBox("Events/showIngresses", tr("Show Ingresses"));
     ed->addCheckBox("Events/showProgressionsToProgressions", tr("Show Progressions to Progressions"));

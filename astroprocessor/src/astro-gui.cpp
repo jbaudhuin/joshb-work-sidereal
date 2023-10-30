@@ -1,4 +1,5 @@
 ﻿#include <memory>
+#include <QApplication>
 #include <QFile>
 #include <QDir>
 #include <QSettings>
@@ -22,9 +23,9 @@ AstroFile::AstroFile(QObject* parent) : QObject(parent)
     } while (fileInfo().exists());
 
     type = TypeOther;
-    unsavedChanges = false;
-    holdUpdate = false;
-    holdUpdateMembers = None;
+    _unsavedChanges = false;
+    _holdUpdate = false;
+    _holdUpdateMembers = None;
     qDebug() << "Created file" << getName();
 }
 
@@ -45,6 +46,7 @@ AstroFile::typeToString(unsigned ft)
     case TypeDerivedSearch: return "Der";
     case TypeMale: return "Male";
     case TypeFemale: return "Female";
+    case TypeEvent: return "Event";
     case TypeOther: return "Other";
     default: break;
     }
@@ -61,6 +63,7 @@ AstroFile::typeFromString(const QString& str)
     if (str == "Prog") return TypeDerivedProg;
     if (str == "SA") return TypeDerivedSA;
     if (str == "Search") return TypeSearch;
+    if (str == "Event") return TypeEvent;
     return TypeOther;
 }
 
@@ -231,10 +234,10 @@ AstroFile::loadComposite(const AFileInfoList& names)
 void
 AstroFile::resumeUpdate()
 {
-    if (!holdUpdate) return;
-    holdUpdate = false;
-    change(holdUpdateMembers, false);
-    holdUpdateMembers = None;
+    if (!_holdUpdate) return;
+    _holdUpdate = false;
+    change(_holdUpdateMembers, false);
+    _holdUpdateMembers = None;
 }
 
 void
@@ -243,11 +246,11 @@ AstroFile::change(AstroFile::Members members,
 {
     if (members == None) return;
 
-    bool unsavedBefore = unsavedChanges;
-    if (affectChangedState && !(members & ChangedState)) unsavedChanges = true;
-    if (unsavedBefore != unsavedChanges) members |= ChangedState;
+    bool unsavedBefore = _unsavedChanges;
+    if (affectChangedState && !(members & ChangedState)) _unsavedChanges = true;
+    if (unsavedBefore != _unsavedChanges) members |= ChangedState;
 
-    if (!holdUpdate) {
+    if (!_holdUpdate) {
         if (members & (GMT | Location | HouseSystem | Zodiac | AspectSet | AspectMode))
             recalculate();
         else if (members & Harmonic) {
@@ -256,7 +259,7 @@ AstroFile::change(AstroFile::Members members,
 
         emit changed(members);
     } else {
-        holdUpdateMembers |= members;
+        _holdUpdateMembers |= members;
     }
 }
 
@@ -264,11 +267,11 @@ void
 AstroFile::clearUnsavedState()
 {
     if (hasUnsavedChanges()) {
-        unsavedChanges = false;
-        if (!holdUpdate)
+        _unsavedChanges = false;
+        if (!_holdUpdate)
             change(ChangedState);
-        else if (holdUpdateMembers & ChangedState)
-            holdUpdateMembers ^= ChangedState;
+        else if (_holdUpdateMembers & ChangedState)
+            _holdUpdateMembers ^= ChangedState;
     }
 }
 
@@ -489,7 +492,15 @@ AstroFileHandler::calculateAspects()
     const auto& input = scope.inputData;
 
     A::setOrbFactor(1);
-    if (file(0)->focalPlanets().empty()) {
+    auto fp = file(0)->focalPlanets();
+    bool useFocal = !fp.empty();
+    for (const auto &p: fp) {
+        if (files().count() <= p.fileId()) {
+            useFocal = false;
+            break;
+        }
+    }
+    if (!useFocal) {
         scope.aspects =
                 A::calculateAspects(A::getAspectSet(input.aspectSet()),
                                     scope.planets);
@@ -497,7 +508,6 @@ AstroFileHandler::calculateAspects()
     }
 
     A::AspectSetId aspset = -1;
-    auto fp = file(0)->focalPlanets();
     const auto& curr(A::EventOptions::current());
     if (fp.size() < curr.patternsQuorum) {
         bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
@@ -555,13 +565,21 @@ A::AspectList
 AstroFileHandler::calculateSynastryAspects()
 {
     qDebug() << "Calculate synatry apects" << file(0)->getAspectSet().id;
-    if (file(1)->focalPlanets().empty()) {
+    auto useFocal = !file(1)->focalPlanets().empty();
+    for (const auto& p: file(1)->focalPlanets()) {
+        if (files().count() <= p.fileId()) {
+            useFocal = false;
+            break;
+        }
+    }
+    if (!useFocal) {
         A::setOrbFactor(0.25);
         return A::calculateAspects(file(0)->getAspectSet(),
                                    file(0)->horoscope().planets,
                                    file(1)->horoscope().planets);
     }
 
+    bool alt = (QApplication::keyboardModifiers() & Qt::AltModifier);
     A::AspectSetId aspset = -1;
     auto fp = file(1)->focalPlanets();
     if (fp.empty()) fp = file(1)->focalPlanets();
@@ -591,7 +609,7 @@ AstroFileHandler::calculateSynastryAspects()
         QList<A::Aspect> alist;
         auto hpc = A::findClusters(hs, pf,
                                    qMax(size_t(2),fp.size()),
-                                   skip? A::PlanetSet() : fp,
+                                   skip && alt? A::PlanetSet() : fp,
                                    true /*skipAllNatalOnly*/,
                                    false /*curr.patternsRestrictMoon*/,
                                    curr.expandShowOrb);

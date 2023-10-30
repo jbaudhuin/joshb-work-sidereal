@@ -31,6 +31,7 @@ protected:
     QPushButton* addFileBtn;
     QLineEdit* name;
     QComboBox* type;
+    QComboBox* basis;
     QDateTimeEdit* dateTime;
     QDoubleSpinBox* timeZone;
     GeoSearchWidget* geoSearch;
