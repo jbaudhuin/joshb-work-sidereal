@@ -93,21 +93,25 @@ QString degreeToString(float deg, AnglePrecision precision)
 QString
 zodiacPosition(float deg,
                const Zodiac& zodiac,
-               AnglePrecision precision)
+               AnglePrecision precision /*=Normal*/,
+               bool isRetro /*=false*/)
 {
     const ZodiacSign& sign = getSign(deg, zodiac);
     int ang = floor(deg) - sign.startAngle;
     if (ang < 0) ang += 360;
 
+    QString ret;
     if (precision) {
         QString str = degreeToString(deg, precision);
         str.remove(0, str.indexOf(A_DECODE("°")));
-        return QString("%1%2 %3").arg(ang).arg(str).arg(sign.tag);
+        ret = QString("%1%2 %3").arg(ang).arg(str).arg(sign.tag);
     } else {
         int m = (int)(60.0*(deg - (int)deg));
-        return QString("%1 %2 %3%4").arg(ang).arg(sign.tag)
+        ret = QString("%1 %2 %3%4").arg(ang).arg(sign.tag)
                 .arg(m >= 10 ? "" : "0").arg(m);
     }
+    if (isRetro) return ret + " R";
+    return ret;
 }
 
 QString zodiacPosition(const Star& star, const Zodiac& zodiac, AnglePrecision precision)
@@ -120,7 +124,8 @@ QString zodiacPosition(const Star& star, const Zodiac& zodiac, AnglePrecision pr
     case amcEcliptic: deg = star.eclipticPos.x(); break;
     }
 
-    return zodiacPosition(deg, zodiac, precision);
+    return zodiacPosition(deg, zodiac, precision,
+                          star.isRetro());
 }
 
 void sortPlanets(PlanetList &planets, PlanetsOrder order)
@@ -131,18 +136,22 @@ void sortPlanets(PlanetList &planets, PlanetsOrder order)
     for (int i = 0; i < planets.count(); i++) {
         for (int j = i + 1; j < planets.count(); j++) {
             if (order == Order_House) {
-                if (planets[i].house > planets[j].house || (planets[i].house == planets[j].house &&
-                                                            isEarlier(planets[j], planets[i]))) {
+                if (planets[i].house > planets[j].house
+                        || (planets[i].house == planets[j].house
+                            && isEarlier(planets[j], planets[i])))
+                {
                     Planet t = planets[i];
                     planets[i] = planets[j];
                     planets[j] = t;
                 }
             } else if (order == Order_Power) {
-                if ((planets[i].power.dignity > 0 && planets[j].power.dignity > 0 &&
-                     planets[i].power.deficient + planets[i].power.dignity <
-                     planets[j].power.deficient + planets[j].power.dignity)
-                    ||
-                    (planets[i].power.dignity == 0 && planets[i].power.dignity > 0)) {
+                if ((planets[i].power.dignity > 0
+                     && planets[j].power.dignity > 0
+                     && (planets[i].power.deficient + planets[i].power.dignity
+                         < planets[j].power.deficient + planets[j].power.dignity))
+                    || (planets[i].power.dignity == 0
+                        && planets[i].power.dignity > 0))
+                {
                     Planet t = planets[i];
                     planets[i] = planets[j];
                     planets[j] = t;

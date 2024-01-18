@@ -377,6 +377,7 @@ struct Star
     virtual bool    isStar() const { return true; }
     virtual bool    isAsteroid() const { return false; }
     virtual bool    isPlanet() const { return false; }
+    virtual bool    isRetro() const { return false; }
 
     bool            isConfiguredWithPlanet() const
     { return configuredWithPlanet != Planet_None; }
@@ -473,10 +474,13 @@ struct Planet : public Star
     operator const Planet*() const { return this; }
 
     PlanetId            getPlanetId() const { return id; }
-    virtual int         getSWENum() const { return sweNum; }
-    virtual bool        isStar() const { return false; }
+    int                 getSWENum() const override { return sweNum; }
+    bool                isStar() const override { return false; }
     //virtual bool      isAsteroid() const { return false; }
-    virtual bool        isPlanet() const { return true; }
+    bool                isPlanet() const override { return true; }
+
+    bool                isRetro() const override
+    { return eclipticSpeed.x() < 0; }
 
     double              getPrefPos() const;
     double              getPrefSpd() const;
@@ -1268,6 +1272,7 @@ enum EventType {
     etcHeliacalEvents,          // HRS
     etcTransitAspectPattern,    // TA
     etcTransitNatalAspectPattern,   // TNA
+    etcParanatellonta,          // Par
     etcUserEventStart
 };
 

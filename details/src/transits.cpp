@@ -276,7 +276,8 @@ public:
         return QString(s.planet.fileId()==1
                        ? "<i>%1</i>" : "%1").arg(s.description())
                 + " " + A::zodiacPosition(s.rasiLoc(), _zodiac,
-                                          A::HighPrecision);
+                                          A::HighPrecision,
+                                          s.speed < 0);
     }
 
     QString glyph(const A::ChartPlanetId& cpid) const
@@ -409,10 +410,25 @@ public:
     QVariant data(const QModelIndex& index,
                   int role = Qt::DisplayRole) const override
     {
+        int row = index.row();
+        int prow = int(index.internalId());
+
+        auto evr = prow==-1? _evs[row] : _evs[prow];
+        QMutexLocker ml(&getEvents(evr)->mutex);
+
+        int col = index.column();
+        const auto& asp(prow==-1 ? (*_evs[row])
+                                 : _evs[prow]->coincidence(row));
+
         if (role == Qt::TextAlignmentRole) {
             if (index.column() == harmonicCol
                     || index.column() == eventTypeCol)
             { return unsigned(Qt::AlignHCenter | Qt::AlignBaseline); }
+            if (index.column() == transitBodyCol) {
+                if (asp.locations().empty()) {
+                    return unsigned(Qt::AlignRight | Qt::AlignBaseline);
+                }
+            }
             return unsigned(Qt::AlignLeft | Qt::AlignBaseline);
         }
 
@@ -425,15 +441,6 @@ public:
                     || (role != Qt::FontRole && role != Qt::ForegroundRole)))
         { return QVariant(); }
 
-        int row = index.row();
-        int prow = int(index.internalId());
-
-        auto evr = prow==-1? _evs[row] : _evs[prow];
-        QMutexLocker ml(&getEvents(evr)->mutex);
-
-        int col = index.column();
-        const auto& asp(prow==-1 ? (*_evs[row])
-                                 : _evs[prow]->coincidence(row));
         auto et = asp.eventType();
 
         if (col >= transitBodyCol && role == RawRole) {
@@ -457,10 +464,12 @@ public:
                 // HarmonicEvent
                 auto dt = _evs[row]->dateTime().toLocalTime();
                 if (role == RawRole) return dt;
+
                 constexpr const char fmt[] = "yyyy/MM/dd";
                 constexpr const char sfmt[] = "MM/dd hh:mm";
                 constexpr const char ssfmt[] = "hh:mm";
                 if (role != Qt::ToolTipRole) return dt.toString(fmt);
+
                 QString res = dt.toString("ddd hh:mm:ss.zzz");
                 const auto& r(_evs[row]->range());
                 if (r != A::ADateTimeRange()) {
@@ -1557,7 +1566,7 @@ Transits::filesUpdated(MembersList m)
     if (QApplication::mouseButtons() & Qt::LeftButton) return;
 #endif
 
-    while (m.size() < filesCount()) m << 0;
+    while (m.size() < filesCount()) m.append(AstroFile::Member());
 
     bool any = false;
     int f = 0;
@@ -1614,6 +1623,7 @@ Transits::applySettings(const AppSettings& s)
             || s.value("Events/includeShadowTransits").toBool() != curr.includeShadowTransits
             || s.value("Events/showTransitsToTransits").toBool() != curr.showTransitsToTransits
             || s.value("Events/includeOnlyOuterTransitsToNatal").toBool() != curr.includeOnlyOuterTransitsToNatal
+            || s.value("Events/limitLunarTransits").toBool() != curr.limitLunarTransits
             || s.value("Events/showTransitsToNatalPlanets").toBool() != curr.showTransitsToNatalPlanets
             || s.value("Events/showTransitsToNatalAngles").toBool() != curr.showTransitsToNatalAngles
             || s.value("Events/includeAsteroids").toBool() != curr.includeAsteroids
@@ -1668,6 +1678,7 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Events/showTransitsToNatalPlanets", tr("Show Transits to Natal"));
     ed->addCheckBox("Events/showTransitsToNatalAngles", tr("Show Transits to natal angles"));
     ed->addCheckBox("Events/includeOnlyOuterTransitsToNatal", tr("Include only outer planet transits to natal"));
+    ed->addCheckBox("Events/limitLunarTransits", tr("Limit Lunar Transits"));
     ed->addCheckBox("Events/includeAsteroids", tr("Include asteroids"));
     ed->addCheckBox("Events/includeCentaurs", tr("Include centaurs"));
     ed->addCheckBox("Events/showTransitsToHouseCusps", tr("Show Transits to all house cusps"));

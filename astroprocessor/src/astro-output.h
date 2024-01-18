@@ -38,8 +38,8 @@ QString houseTag             ( int num );
 QString houseNum             ( const Planet& planet );
 QString getPositionName      ( PlanetPosition p );
 QString degreeToString       ( float deg, AnglePrecision precision = NormalPrecision );
-QString zodiacPosition       ( float deg, const Zodiac& zodiac, AnglePrecision precision = NormalPrecision );
-QString zodiacPosition       ( const Star& planet, const Zodiac& zodiac, AnglePrecision precision = NormalPrecision );
+QString zodiacPosition( float deg, const Zodiac& zodiac, AnglePrecision precision = NormalPrecision, bool isRetro = false );
+QString zodiacPosition( const Star& planet, const Zodiac& zodiac, AnglePrecision precision = NormalPrecision );
 void    sortPlanets          ( PlanetList &planets, PlanetsOrder order );
 
 

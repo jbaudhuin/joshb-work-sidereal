@@ -437,7 +437,7 @@ Harmonics::clickedCell(const QModelIndex& inx)
         bool ok;
         val = val.split(":").first();
         if (val.startsWith("H")
-                && (d = val.midRef(1).toDouble(&ok), ok)) {
+                && (d = val.mid(1).toDouble(&ok), ok)) {
             v = d;
             return true;
         }
@@ -583,7 +583,7 @@ Harmonics::filesUpdated(MembersList m)
 
     bool any = false;
     for (auto ml: m) {
-        any |= (ml & ~(AstroFile::Harmonic
+        any |= !!(ml & ~(AstroFile::Harmonic
                        | AstroFile::AspectSet
                        | AstroFile::HouseSystem));
     }

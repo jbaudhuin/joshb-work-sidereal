@@ -2030,7 +2030,10 @@ dateTimeFromJulian(double jd)
     return QDateTime(QDate(y,m,d), QTime(hr,min,sec,msec), Qt::UTC);
 }
 
-namespace { thread_local bool s_quiet = false; }
+namespace {
+static bool s_quiet = false;
+thread_local bool st_quiet = s_quiet;
+}
 
 struct calcPos {
     PlanetProfile& poses;
@@ -2042,7 +2045,7 @@ struct calcPos {
     {
         ++_iter;
         auto ret = poses.computePos(jd);
-        if (!s_quiet) {
+        if (!st_quiet) {
             QDateTime dt(dateTimeFromJulian(jd));
             qDebug() << "calc iter:" << dtToString(dt) << "Ret:" << ret;
         }
@@ -2059,7 +2062,7 @@ struct calcSpd {
     qreal operator()(double jd)
     {
         poses.computePos(jd);
-        if (!s_quiet) {
+        if (!st_quiet) {
             qDebug() << "calc iter:" << dtToString(dateTimeFromJulian(jd)) << "Ret:" << poses.speed();
         }
         return poses.speed();
@@ -2076,7 +2079,7 @@ struct calcPosSpd {
         auto pos = poses.computePos(jd);
         auto ret = std::make_pair(pos, poses.speed());
 
-        if (!s_quiet) {
+        if (!st_quiet) {
             QDateTime dt(dateTimeFromJulian(jd));
             qDebug() << "ncalc iter:" << dtToString(dt) << "Ret:" << ret;
         }
@@ -2387,7 +2390,7 @@ quotidianSearch(PlanetProfile& poses,
                 double span /*= 1.0*/,
                 bool forceMin)
 {
-    modalize<bool> mum(s_quiet,true);
+    modalize<bool> mum(st_quiet,true);
 
     double jd1 = getJulianDate(locale.GMT());
     double jd2 = getJulianDate(endDT);
@@ -2475,7 +2478,7 @@ calculateReturnTime(PlanetId id,
                     const InputData& locale,
                     double harmonic)
 {
-    modalize<bool> mum(s_quiet,true);
+    modalize<bool> mum(st_quiet,true);
 
     PlanetProfile poses;
     poses.push_back(new NatalLoc(id, native));
@@ -2779,10 +2782,11 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
         for (auto pid: getPlanets(includeAsteroids,includeCentaurs)) {
             ppi << getTransitPlanet(pid);
         }
-        if (includeOnlyOuterTransitsToNatal) {
+        if (false && includeOnlyOuterTransitsToNatal) {
             for (auto pid: getOuterPlanets(includeCentaurs)) {
                 ppo << getTransitPlanet(pid);
             }
+            //if (!showTransitsToNatalPlanets) ppi = ppo; // only outer-to-outer!
         } else ppo = ppi;
         // the above loop has added the planets to the list used
         // by pattern or station finder
@@ -2794,20 +2798,26 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
                 hsetId hs = allAsp;
                 auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[i]]);
                 auto pl = tp->planet.planetId();
-                if (pl == Planet_NorthNode || pl == Planet_SouthNode)
+                if (pl == Planet_NorthNode || pl == Planet_SouthNode
+                        || (pl > Planet_Moon && pl <= Planet_Jupiter))
+                {
                     hs = conj;
-                else if (limitLunarTransits && pl == Planet_Moon)
-                    hs = conjOpp;
+                } else if (limitLunarTransits && pl == Planet_Moon) {
+                    continue;
+                }
                 for (int j = qMax(0,i+1-(in-on)); j < on; ++j) {
                     if (ppi[i] == ppo[j]) continue;
                     auto hst = hs;
                     auto tp = dynamic_cast<TransitPosition*>(_alist[ppo[j]]);
                     auto opl = tp->planet.planetId();
-                    if (opl == Planet_NorthNode || opl == Planet_SouthNode) {
+                    if (opl == Planet_NorthNode || opl == Planet_SouthNode
+                            || (opl > Planet_Moon && opl <= Planet_Jupiter)) {
                         if (hs == conj) continue;
                         hst = conj;
                     }
-                    if (opl == Planet_Moon) hst = conj;
+                    if (opl == Planet_Moon) {
+                        hst = conjOppSq;
+                    }
                     //else if (opl == Planet_Sun) hst = conjOpp;
                     _staff.emplace_back(ppi[i], ppo[j], hst,
                                         etcTransitToTransit);
@@ -3018,7 +3028,7 @@ AspectFinder::findStations()
     auto d = start.startOfDay().toUTC();
     auto e = end.startOfDay().toUTC();
 
-    modalize<bool> mum(s_quiet, true);
+    modalize<bool> mum(st_quiet, true);
 
     double jd = getJulianDate(d);
     for (auto tp: _alist) (*tp)(jd, 1);   // the horror
@@ -3026,7 +3036,7 @@ AspectFinder::findStations()
     PlanetProfile b = _alist;
 
     auto useRate = 15;  // search every 15 days
-    if (!s_quiet) qDebug() << "sta" << dtToString(d);
+    if (!st_quiet) qDebug() << "sta" << dtToString(d);
 
     double pjd = jd;
     int ndays = int(useRate);
@@ -3044,7 +3054,7 @@ AspectFinder::findStations()
         }
 
         jd = getJulianDate(nd);
-        if (!s_quiet) qDebug() << "sta" << dtToString(nd);
+        if (!st_quiet) qDebug() << "sta" << dtToString(nd);
 
         // compute new positions
         for (auto tp: b) (*tp)(jd, 1);
@@ -3065,7 +3075,7 @@ AspectFinder::findStations()
 
             auto aspd = _alist[i]->speed;
             auto bspd = b[i]->speed;
-            if (!s_quiet) {
+            if (!st_quiet) {
                 qDebug() << "  " << _alist[i]->description() << aspd << bspd;
             }
             if (sgn(aspd) == sgn(bspd)) continue;
@@ -3076,7 +3086,7 @@ AspectFinder::findStations()
 #if 1
             tp.start([=, &stations, &ev] {
                 startTask();
-                modalize<bool> mum(s_quiet, true);
+                modalize<bool> mum(st_quiet, true);
 #endif
 
                 auto pj = dynamic_cast<PlanetLoc*>(_alist[i]->clone());
@@ -3097,7 +3107,7 @@ AspectFinder::findStations()
 
                     ev = HarmonicEvent(qdt, etcStation, 1, std::move(plr));
 
-                    if (!s_quiet) qDebug() << dt << pj->description();
+                    if (!st_quiet) qDebug() << dt << pj->description();
 
                     if (includeShadowTransits) {
                         // Add shadow-period transit lookup
@@ -3158,7 +3168,7 @@ AspectFinder::findStations()
         _alist.push_back(pj);
         pj->planet.setFileId(-1);   // hides it from clusterer
         _staff.emplace_back(i, j,0,etcTransitToStation);
-        qDebug() << "Added transit search for " << i << j
+        qDebug() << "Added transit search for" << i << j
                  << QString("H1 %1=%2")
                     .arg(_alist[i]->description())
                     .arg(_alist[j]->description());
@@ -3218,7 +3228,9 @@ void AspectFinder::findAspectsAndPatterns()
     auto utp = std::unique_ptr<QThreadPool>(new QThreadPool);
     QThreadPool& tp = *utp.get();
 
-    tp.setMaxThreadCount(QThread::idealThreadCount());
+    auto itc = QThread::idealThreadCount();
+    qDebug() << "Ideal thread count" << itc;
+    tp.setMaxThreadCount(itc);
 
     const auto& start = _range.first;
     auto end = _range.second;
@@ -3231,9 +3243,15 @@ void AspectFinder::findAspectsAndPatterns()
     for (auto tp: _alist) (*tp)(jd, 1);   // the horror
 
     auto hs = *_hsets.crbegin();
-    unsigned maxH = hs.empty()? 1 : *hs.crbegin();
+    unsigned maxH =
+            (hs.empty()
+             || (!showTransitAspectPatterns
+                 && !showTransitsToTransits
+                 && (nats.empty() && !showTransitsToNatalPlanets)))
+            ? 1
+            : *hs.crbegin();
 
-    modalize<bool> mum(s_quiet,true);
+    modalize<bool> mum(st_quiet, true);
 
     // a simplistic predicate for determining whether to prune the
     // planet pair list as the harmonics go up. We want to limit
@@ -3305,7 +3323,7 @@ void AspectFinder::findAspectsAndPatterns()
                 bool good = bi->aspectable() || bj->aspectable();
                 std::tie(bd, bsp) =
                         PlanetProfile::computeDelta(bi, bj, h);
-                //if (!s_quiet)
+                if (!st_quiet)
                 qDebug() << QString("H%1 %2 at %3 with orb %4")
                             .arg(h)
                             .arg(PlanetSet({bi->planet,bj->planet}).names().join('='))
@@ -3314,7 +3332,7 @@ void AspectFinder::findAspectsAndPatterns()
                 if (good && std::abs(bd) <= planetPairOrb) {
                     HarmonicPlanetSet hij { h, { bi->planet, bj->planet }};
                     tinOrb[hij] = {jd, 0};
-                    if (!s_quiet)
+                    //if (!s_quiet)
                     qDebug() << QString("Found H%1 inital start of %2 at %3 with orb %4")
                                 .arg(h)
                                 .arg(hij.second.names().join("="))
@@ -3370,7 +3388,7 @@ void AspectFinder::findAspectsAndPatterns()
                                 .toStdString().c_str();
                     tinOrb.erase(hit++);
                 } else {
-                    if (!s_quiet)
+                    if (!st_quiet)
                     qDebug() << QString("Still looking for H%1 start"
                                         " of %2 at %3 with orb %4")
                                 .arg(hps.first)
@@ -3459,7 +3477,7 @@ void AspectFinder::findAspectsAndPatterns()
         }
 
         for (auto tp: b) (*tp)(jd, 1);
-        if (!s_quiet) qDebug() << "stuff" << dtToString(nd);
+        if (!st_quiet) qDebug() << "stuff" << dtToString(nd);
 
         if (!collectingStrays && !trans.empty()) {
             useProf = std::unique_ptr<PlanetProfile>(b.profile(trans));
@@ -3778,7 +3796,7 @@ void AspectFinder::findAspectsAndPatterns()
                                         .arg(dtToString(d))
                                         .toStdString().c_str();
                             if (hasit == inOrb.end() && isInOrb) {
-                                if (!s_quiet)
+                                if (!st_quiet)
                                 qDebug() << QString("Found H%1 start of %2 at %3")
                                             .arg(h)
                                             .arg(hij.second.names().join("="))
@@ -3788,9 +3806,11 @@ void AspectFinder::findAspectsAndPatterns()
                                 isInOrb = true;
                             } else if (hasit != inOrb.end() && !isInOrb) {
                                 hasit->second.second = jd;
-                                proximityLog[hasit->first]
-                                        .emplace(hasit->second,0);
-                                if (!s_quiet)
+                                if (it->et != etcTransitToStation) {
+                                    proximityLog[hasit->first]
+                                            .emplace(hasit->second,0);
+                                }
+                                if (!st_quiet)
                                 qDebug() << QString("Found H%1 range of %2 at %3 to %4")
                                             .arg(h)
                                             .arg(hij.second.names().join("="))
@@ -3869,7 +3889,7 @@ void AspectFinder::findAspectsAndPatterns()
                     }
 #endif
 
-                    if (!s_quiet) {
+                    if (!st_quiet) {
                         QDateTime pdt(dateTimeFromJulian(pjd));
                         QDateTime dt(dateTimeFromJulian(jd));
                         qDebug() << what().c_str()
@@ -3898,7 +3918,7 @@ void AspectFinder::findAspectsAndPatterns()
                     bool bQuiet = mum;
                     tp.start([=, &ev] {
                         startTask();
-                        modalize<bool> mum(s_quiet, bQuiet);
+                        modalize<bool> mum(st_quiet, bQuiet);
 #endif
                         PlanetProfile poses { _alist[i]->clone(), _alist[j]->clone() };
 
@@ -3917,7 +3937,7 @@ void AspectFinder::findAspectsAndPatterns()
                                     if (_state == cancelRequestedState) throw int(1);
                                     auto pos = poses.computePos(jd,h);
                                     std::pair<qreal,qreal> ret { pos, poses.speed() };
-                                    if (!s_quiet) {
+                                    if (!st_quiet) {
                                         QDateTime dt(dateTimeFromJulian(jd));
                                         qDebug() << "nri " << (which + ":").c_str()
                                                  << dtToString(dt)
@@ -3955,7 +3975,7 @@ void AspectFinder::findAspectsAndPatterns()
                             } catch (...) {
                                 done = false;
                             }
-                            if (!done && !s_quiet) {
+                            if (!done && !st_quiet) {
                                 qDebug() << "Failed"
                                 << d.date().toString()
                                 << which.c_str()
@@ -3973,7 +3993,7 @@ void AspectFinder::findAspectsAndPatterns()
                                 if (_state == cancelRequestedState) throw int(1);
                                 ++count;
                                 auto pos = poses.computePos(jd, h);
-                                if (!s_quiet) {
+                                if (!st_quiet) {
                                     QDateTime dt(dateTimeFromJulian(jd));
                                     qDebug() << "bzhs " << (which + ":").c_str()
                                              << dtToString(dt)
@@ -4069,7 +4089,11 @@ void AspectFinder::findAspectsAndPatterns()
     {
     // get those planet pairs framed
     QMutexLocker ml(&_evs.mutex);   // lock for swoosh through paired events
-    for (auto& ev: _evs) frameJob(ev, false);
+    for (auto& ev: _evs) {
+        if (ev.eventType() != etcTransitToStation) {
+        frameJob(ev, false);
+        }
+    }
     }
 
     //if (!s_quiet)
@@ -4312,6 +4336,7 @@ EventTypeManager::EventTypeManager()
     {
         { etcUnknownEvent,          0, "?",    "unknown" },
         { etcStation,               1, "S",    "Stations" },
+        { etcTransitToStation,      1, "T=S",  "Transits to Station" },
         { etcTransitToTransit,      1, "T=T",  "Transits to Transit" },
         { etcTransitToNatal,        2, "T=N",  "Transits to Natal" },
         { etcOuterTransitToNatal,   2, "OT=N", "Outer Transits to Natal" },
@@ -4332,7 +4357,8 @@ EventTypeManager::EventTypeManager()
         { etcLunarEclipse,          1, "LE",   "Lunar Eclipses" },
         { etcHeliacalEvents,        1, "HRS",   "Heliacal Risings/Settings" },
         { etcTransitAspectPattern,  1, "TA",    "Transit Aspect Patterns"},
-        { etcTransitNatalAspectPattern,  2, "TNA", "Transit-Natal Aspect Patterns"}
+        { etcTransitNatalAspectPattern,  2, "TNA", "Transit-Natal Aspect Patterns"},
+        { etcParanatellonta,        2, "Par",   "Paranatellonta" }
     };
 
     unsigned id;
