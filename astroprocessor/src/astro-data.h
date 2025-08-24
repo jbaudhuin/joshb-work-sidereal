@@ -1,6 +1,7 @@
 #ifndef A_DATA_H
 #define A_DATA_H
 
+#include <QtGlobal>
 #include <QColor>
 #include <QSet>
 #include <QString>
@@ -24,6 +25,20 @@
 enum FileType { TypeEvent, TypeMale, TypeFemale, TypeOther, TypeSearch,
                 TypeDerivedSA, TypeDerivedProg, TypeDerivedPD,
                 TypeDerivedSearch, TypeCount };
+
+#if QT_VERSION < QT_VERSION_CHECK(6,7,0)
+#define VAR_TYPE(var) var.type()
+#define VAR_TYPE_CHECK(var,val) (var.type()==QMetaType::val)
+#define VAR_QTYPE_CHECK(var,val) (var.type()==QMetaType::val)
+#define CHECK_VARTYPE(type,val) (type==QMetaType::val)
+#define CHECK_VARQTYPE(type,val) (type==QMetaType::val)
+#else
+#define VAR_TYPE(var) var.typeId()
+#define VAR_TYPE_CHECK(var,val) (var.typeId()==QMetaType::val)
+#define VAR_QTYPE_CHECK(var,val) (var.typeId()==QMetaType::Q##val)
+#define CHECK_VARTYPE(type,val) (type==QMetaType::val)
+#define CHECK_VARQTYPE(type,val) (type==QMetaType::Q##val)
+#endif
 
 namespace A {
 
@@ -100,15 +115,15 @@ inline void setDynAspState(const QVariant& var)
 {
     setDynAspState(uintSSet());
     if (var.isNull()) return;
-    if (var.type()==QVariant::String) {
+    if (VAR_TYPE_CHECK(var,QString)) {
         auto str = var.toString();
         if (str == "all") {
             for (unsigned i = 1; i <= 32; ++i) setDynAspState(i,true);
         }
         return;
     }
-    auto type = var.type();
-    if (type==QVariant::List || type==QVariant::StringList) {
+    auto type = VAR_TYPE(var);
+    if (type==QMetaType::QVariantList || type==QMetaType::QStringList) {
         for (const auto& v : var.toList()) {
             setDynAspState(v.toUInt(), true);
         }
@@ -350,7 +365,7 @@ struct Houses
     {
         for (auto& c : cusp) c = 0;
         system = nullptr;
-        Asc = MC = RAMC = RAAC = RADC = OAAC = ODDC, Vx = EA =
+        Asc = MC = RAMC = RAAC = RADC = OAAC = ODDC = Vx = EA =
             startSpeculum = 0;
         halfMedium = halfImum = 0;
     }
@@ -473,7 +488,7 @@ struct Planet : public Star
     operator Planet*() { return this; }
     operator const Planet*() const { return this; }
 
-    PlanetId            getPlanetId() const { return id; }
+    PlanetId            getPlanetId() const override { return id; }
     int                 getSWENum() const override { return sweNum; }
     bool                isStar() const override { return false; }
     //virtual bool      isAsteroid() const { return false; }
@@ -670,6 +685,15 @@ public:
         _fid(otro._fid), _pid(otro._pid), _pid2(otro._pid2),
         _oppMidpt(otro._oppMidpt)
     { }
+
+    ChartPlanetId& operator=(const ChartPlanetId& otro)
+    {
+        _fid      = otro._fid;
+        _pid      = otro._pid;
+        _pid2     = otro._pid2;
+        _oppMidpt = otro._oppMidpt;
+        return *this;
+    }
 
     QString name() const;
     QString glyph() const;
@@ -1071,7 +1095,7 @@ struct PlanetLoc : public Loc {
                 || (speed >= 0 && allowAspects == aspOnlyDirect);
     }
 
-    PlanetLoc& operator==(const PlanetLoc& other)
+    PlanetLoc& operator=(const PlanetLoc& other)
     { planet = other.planet; loc = other.loc; return *this; }
 
     bool operator<(const PlanetLoc& other) const
@@ -1280,27 +1304,26 @@ using uintPair = std::pair<unsigned,unsigned>;
 using hsets = std::vector<uintSSet>;
 using hsetId = unsigned short int;
 
-struct planetsEtc : public uintPair {
-    hsetId hsid;
+struct planetsEtc {
+    uintPair  planetPair;
+    hsetId    hsid;
     EventType et;
-
-    using uintPair::uintPair;
 
     planetsEtc(const uintPair& ab, hsetId hs/*=0*/,
                EventType et /*= etcUnknownEvent*/) :
-        uintPair(ab), hsid(hs), et(et)
+        planetPair(ab), hsid(hs), et(et)
     { }
 
     planetsEtc(unsigned a, unsigned b,
                hsetId hs /*= 0*/,
                EventType et /*= etcUnknownEvent*/) :
-        uintPair(a,b), hsid(hs), et(et)
+        planetPair(a,b), hsid(hs), et(et)
     { }
 
-    unsigned a() const { return first; }
-    void setA(unsigned a) { first = a; }
-    unsigned b() const { return second; }
-    void setB(unsigned b) { second = b; }
+    unsigned a() const { return planetPair.first; }
+    void setA(unsigned a) { planetPair.first = a; }
+    unsigned b() const { return planetPair.second; }
+    void setB(unsigned b) { planetPair.second = b; }
 };
 
 typedef std::list<planetsEtc> searchPairList;
@@ -1526,7 +1549,7 @@ struct ARange : public QPair<T,T> {
 
     ARange& operator=(const QVariant& v)
     {
-        if (v.isNull() || v.type() != QVariant::List) {
+        if (v.isNull() || VAR_TYPE(v) != QMetaType::QVariantList) {
             first = T();
             second = T();
         } else {
@@ -1746,7 +1769,17 @@ public:
 
     operator const HarmonicEvents*() const { return this; }
 
-    QMutex mutex;
+    template<typename... Args>
+    HarmonicEvent& safe_emplace_back(Args&&... args)
+    {
+        QMutexLocker ml{&_mutex};
+        return HarmonicEventsBase::emplace_back(std::forward<Args>(args)...);
+    }
+
+    QMutex* mutex() { return &_mutex; }
+
+  private:
+    QMutex _mutex;
 };
 
 typedef std::set<ADateRange> ADateRangeSet;

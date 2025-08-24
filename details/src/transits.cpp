@@ -19,6 +19,7 @@
 #include <QLineEdit>
 #include <QCheckBox>
 #include <QJsonDocument>
+#include <QJsonValue>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QRadioButton>
@@ -414,7 +415,7 @@ public:
         int prow = int(index.internalId());
 
         auto evr = prow==-1? _evs[row] : _evs[prow];
-        QMutexLocker ml(&getEvents(evr)->mutex);
+        QMutexLocker ml(getEvents(evr)->mutex());
 
         int col = index.column();
         const auto& asp(prow==-1 ? (*_evs[row])
@@ -631,7 +632,7 @@ public:
         _evs.clear();
         for (auto lievs: _evls) {
             A::modalize<eventListIndex> cev(evp::curr(), lievs.first);
-            QMutexLocker ml(const_cast<QMutex*>(&(lievs.second->mutex)));
+            QMutexLocker ml(const_cast<QMutex*>(lievs.second->mutex()));
             for (auto& ev: *lievs.second) {
                 if (ev.dateTime().isValid()) _evs.emplace_back(ev);
             }
@@ -643,10 +644,10 @@ public:
         delete _chs; _chs = nullptr;
     }
 
-    void addEvents(const A::HarmonicEvents& evs)
+    void addEvents(A::HarmonicEvents& evs)
     {
         auto li = currentEvents()++;
-        auto ins = _evls.emplace(li,evs);
+        auto ins = _evls.emplace(li,&evs);
         if (!ins.second) return;
 
         AChangeSignalFrame chs(this);
@@ -759,13 +760,13 @@ private:
     { static eventListIndex s_curr = 0; return s_curr; }
 
     std::vector<evp> _evs;
-    std::map<eventListIndex, const A::HarmonicEvents*> _evls;
+    std::map<eventListIndex, A::HarmonicEvents*> _evls;
 
     A::HarmonicEvents* getEvents(eventListIndex li) const
     {
         auto evlit = _evls.find(li);
         if (evlit == _evls.end()) return nullptr;
-        return const_cast<A::HarmonicEvents*>(evlit->second);
+        return evlit->second;
     }
 
     bool _sortPending           = false;
@@ -917,7 +918,7 @@ Transits::Transits(QWidget* parent) :
     l3->addWidget(_tview, 5);
 
     _location = new GeoSearchWidget(false/*hbox*/);
-#if 0
+#if 1
     connect(_location, &GeoSearchWidget::locationChanged,
             [this] {
 
@@ -928,6 +929,7 @@ Transits::Transits(QWidget* parent) :
     });
 #endif
     l3->addWidget(_location);
+    //connect(_location, SIGNAL(coordinateUpdated()), this, SLOT(onLocationChange()));
 
     setLayout(l3);
 
@@ -1090,18 +1092,18 @@ Transits::updateTimezone()
                  << response["dstOffset"].toInt()/60
                  << "in" << response["timeZoneName"].toString();
 
-        //if (transitsOnly()) updateFirst(file());
-        //else updateSecond(transitsAF());
+        if (transitsOnly()) emit updateFirst(file());
+        else emit updateSecond(transitsAF());
     });
 
     QString url =
-            QString(A::googMapURL + "/timezone/json?"
+        QString(A::googMapURL + "/timezone/json?"
                                 "location=%1,%2"
                                 "&timestamp=%4"
                                 "&key=%3"
                                 "&language=en")
             .arg(vec.y()).arg(vec.x())
-            .arg(A::googAPIKey)
+            .arg(MainWindow::instance()->APIKey().c_str())
             .arg(transitsAF()->getGMT().toSecsSinceEpoch());
     qDebug() << "Issuing TZ URL:" << url;
     nm->get(QNetworkRequest(url));
@@ -1519,11 +1521,12 @@ void
 Transits::onEndChanged()
 {
     auto sd = _end->date();
-    if (_grp->checkedId()==0) {
+    if (_grp->checkedId() == 0) {
         auto newDate = _ddelta.subtractFrom(sd);
         if (_start->date() != newDate) {
             /*block*/ {
-                ASignalBlocker sb(_start); _start->setDate(newDate);
+                ASignalBlocker sb(_start);
+                _start->setDate(newDate);
             }
             onDateRangeChanged();
         }
@@ -1543,7 +1546,8 @@ Transits::onDurationChanged()
         auto str = _ddelta.toString();
         if (str != _duration->text()) {
             /*block*/ {
-            ASignalBlocker sb(_duration); _duration->setText(str);
+                ASignalBlocker sb(_duration);
+                _duration->setText(str);
             }
         }
         _end->setDate(_ddelta.addTo(_start->date()));

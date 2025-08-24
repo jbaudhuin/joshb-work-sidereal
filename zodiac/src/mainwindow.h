@@ -279,6 +279,8 @@ private:
     QToolBar       *toolBar, *toolBar2, *helpToolBar;
     QMenu*         panelsMenu;
 
+    std::string     _APIKey;
+
     void addToolBarActions();
     QAction* createActionForPanel(QWidget* w/*, const QIcon &icon*/);
 
@@ -300,6 +302,8 @@ protected:
 
 public:
     MainWindow(QWidget *parent = nullptr);
+
+    const std::string& APIKey() const { return _APIKey; }
 
     static MainWindow* instance();
     static AstroWidget* theAstroWidget() { return instance()->astroWidget; }

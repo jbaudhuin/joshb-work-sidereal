@@ -37,6 +37,7 @@
 #include <QDebug>
 
 #include "appsettings.h"
+#include "astro-data.h"
 
 namespace {
 int lastTab = -1;
@@ -191,11 +192,12 @@ AppSettingsEditor::addControl(const QString& valueName,
     if (valueName.isEmpty()) return nullptr;
 
     QVariant ds = defaultSettings.value(valueName);
-    if (ds.type() == QVariant::Int) {
+    auto     type = VAR_TYPE(ds);
+    if (type == QMetaType::Int) {
         return addLineEdit(valueName, label);
-    } else if (ds.type() == QVariant::Bool) {
+    } else if (type == QMetaType::Bool) {
         return addCheckBox(valueName, label);
-    } else if (ds.type() == QVariant::String) {
+    } else if (type == QMetaType::QString) {
         return addLineEdit(valueName, label);
     } else {
         qDebug("AppSettingsEditor: can't add control: unsupported control type `%s`",

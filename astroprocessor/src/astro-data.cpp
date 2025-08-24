@@ -539,13 +539,14 @@ ChartPlanetId::glyph() const
         if (_pid >= Ingresses_Start && _pid < Ingresses_End) {
             return QString(QChar(Data::getSignGlyph(_pid)));
         }
-        auto var = Data::getPlanet(_pid).userData["fontChar"];
+
+        auto&& var = Data::getPlanet(_pid).userData["fontChar"];
 
         // Grr not sure why these are different... If we prefer the string,
         // to the int, the planet glyphs are not correct.
         if (_pid >= Houses_Start && _pid < Houses_End) {
             //return QString("%1H").arg(_pid - Houses_Start + 1);
-            if (var.type()==QVariant::String) {
+            if (VAR_TYPE(var) == QMetaType::QString) {
                 return var.toString();
             } else if (var.canConvert<int>()) {
                 return QString(QChar(var.toInt()));
@@ -553,8 +554,8 @@ ChartPlanetId::glyph() const
         }
 
         if (var.canConvert<int>()) {
-                    return QString(QChar(var.toInt()));
-        } else if (var.type()==QVariant::String) {
+            return QString(QChar(var.toInt()));
+        } else if (VAR_TYPE(var) == QMetaType::QString) {
             return var.toString();
         }
 

@@ -1418,7 +1418,12 @@ FilesBar::fileUpdated(AstroFile::Members m)
     if (!(m & (AstroFile::Name | AstroFile::ChangedState))) return;
     qDebug() << "FilesBar::updateTab";
     AstroFile* file = (AstroFile*)sender();
-    updateTab(getTabIndex(file));
+    auto       tab  = getTabIndex(file);
+    if (tab == -1) {
+        qDebug() << "  Couldn't find sender in tab index!";
+    } else {
+        updateTab(tab);
+    }
 }
 
 void
@@ -1941,6 +1946,7 @@ MainWindow::defaultSettings()
     s.setValue("Window/Geometry", 0);
     s.setValue("Window/State", 0);
     s.setValue("askToSave", false);
+    s.setValue("Key", "");
     return s;
 }
 
@@ -1952,6 +1958,7 @@ MainWindow::currentSettings()
     s.setValue("Window/Geometry", this->saveGeometry());
     s.setValue("Window/State", this->saveState());
     s.setValue("askToSave", askToSave);
+    s.setValue("Key", this->APIKey().c_str());
     return s;
 }
 
@@ -1962,12 +1969,14 @@ MainWindow::applySettings(const AppSettings& s)
     this->restoreGeometry(s.value("Window/Geometry").toByteArray());
     this->restoreState(s.value("Window/State").toByteArray());
     askToSave = s.value("askToSave").toBool();
+    _APIKey = s.value("Key").toString().toStdString();
 }
 
 void
 MainWindow::setupSettingsEditor(AppSettingsEditor* ed)
 {
     ed->addControl("askToSave", tr("Ask about unsaved files"));
+    ed->addControl("Key", "Timezone and Geography API");
     astroWidget->setupSettingsEditor(ed);
 }
 

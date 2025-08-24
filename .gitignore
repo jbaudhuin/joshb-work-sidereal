@@ -59,3 +59,7 @@ object_script.*.*
 
 /bin/*.debug
 /bin/*.release
+/zodiac/build
+**/.cache
+build/
+builds/

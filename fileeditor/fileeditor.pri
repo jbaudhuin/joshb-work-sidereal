@@ -9,4 +9,4 @@ HEADERS += \
     #../astroprocessor/src/astro-gui.h \
     src/geosearch.h
 
-INCLUDEPATH += ../astroprocessor/include/
+INCLUDEPATH += ../astroprocessor/include/ ../zodiac/src/

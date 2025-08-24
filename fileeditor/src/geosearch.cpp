@@ -23,8 +23,6 @@
 
 namespace A {
 const QString googMapURL("https://maps.googleapis.com/maps/api");
-const char* _googAPIKey = getenv("ZOD_GOOG_API_KEY");
-const QString googAPIKey(_googAPIKey? _googAPIKey : "");
 }
 
 GeoSuggestCompletion::GeoSuggestCompletion(GeoSearchBox *parent) :
@@ -187,13 +185,13 @@ void GeoSuggestCompletion::autoSuggest()
     {
     case Google:
         url = QString(A::googMapURL + "/geocode/xml?"
-                      "address=%1"
-                      "&key=%2"
-                      "&sensor=false"
-                      "&language=%3")
-                .arg(str)
-                .arg(A::googAPIKey)
-                .arg(lang);
+                                      "address=%1"
+                                      "&key=%2"
+                                      "&sensor=false"
+                                      "&language=%3")
+                  .arg(str)
+                  .arg(MainWindow::instance()->APIKey().c_str())
+                  .arg(lang);
         break;
 
     case Yandex:

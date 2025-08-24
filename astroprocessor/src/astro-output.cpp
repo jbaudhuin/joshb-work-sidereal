@@ -114,45 +114,52 @@ zodiacPosition(float deg,
     return ret;
 }
 
-QString zodiacPosition(const Star& star, const Zodiac& zodiac, AnglePrecision precision)
+QString zodiacPosition(const Star&    star,
+                       const Zodiac&  zodiac,
+                       AnglePrecision precision)
 {
     float deg;
     switch (aspectMode) {
-    case amcEquatorial: deg = star.equatorialPos.x(); break;
-    case amcPrimeVertical: deg = star.pvPos; break;
+    case amcEquatorial:
+        deg = star.equatorialPos.x();
+        break;
+    case amcPrimeVertical:
+        deg = star.pvPos;
+        break;
     default:
-    case amcEcliptic: deg = star.eclipticPos.x(); break;
+    case amcEcliptic:
+        deg = star.eclipticPos.x();
+        break;
     }
 
-    return zodiacPosition(deg, zodiac, precision,
-                          star.isRetro());
+    return zodiacPosition(deg, zodiac, precision, star.isRetro());
 }
 
-void sortPlanets(PlanetList &planets, PlanetsOrder order)
+void sortPlanets(PlanetList& planets, PlanetsOrder order)
 {
-    if (!planets.count()) return;
-    if (order == Order_NoOrder) return;
+    if (!planets.count())
+        return;
+    if (order == Order_NoOrder)
+        return;
 
     for (int i = 0; i < planets.count(); i++) {
         for (int j = i + 1; j < planets.count(); j++) {
             if (order == Order_House) {
                 if (planets[i].house > planets[j].house
-                        || (planets[i].house == planets[j].house
-                            && isEarlier(planets[j], planets[i])))
-                {
-                    Planet t = planets[i];
+                    || (planets[i].house == planets[j].house
+                        && isEarlier(planets[j], planets[i]))) {
+                    Planet t   = planets[i];
                     planets[i] = planets[j];
                     planets[j] = t;
                 }
             } else if (order == Order_Power) {
-                if ((planets[i].power.dignity > 0
-                     && planets[j].power.dignity > 0
+                if ((planets[i].power.dignity > 0 && planets[j].power.dignity > 0
                      && (planets[i].power.deficient + planets[i].power.dignity
-                         < planets[j].power.deficient + planets[j].power.dignity))
+                         < planets[j].power.deficient
+                               + planets[j].power.dignity))
                     || (planets[i].power.dignity == 0
-                        && planets[i].power.dignity > 0))
-                {
-                    Planet t = planets[i];
+                        && planets[i].power.dignity > 0)) {
+                    Planet t   = planets[i];
                     planets[i] = planets[j];
                     planets[j] = t;
                 }
@@ -160,7 +167,7 @@ void sortPlanets(PlanetList &planets, PlanetsOrder order)
                 int sign1 = planets[i].sign->id;
                 int sign2 = planets[j].sign->id;
                 if ((sign1 - 1) % 4 > (sign2 - 1) % 4) {
-                    Planet t = planets[i];
+                    Planet t   = planets[i];
                     planets[i] = planets[j];
                     planets[j] = t;
                 }
@@ -220,21 +227,25 @@ QString     describeAspect(const Aspect &aspect, bool monospace)
     return ret;
 }
 
-QString     describeAspectFull(const Aspect &asp, QString tag1, QString tag2)
+QString
+describeAspectFull(const Aspect& asp, QString tag1, QString tag2)
 {
- //if (!tag1.isEmpty()) tag1 = " (" + tag1 + ")";
- //if (!tag2.isEmpty()) tag1 = " (" + tag2 + ")";
+    //if (!tag1.isEmpty()) tag1 = " (" + tag1 + ")";
+    //if (!tag2.isEmpty()) tag1 = " (" + tag2 + ")";
 
-    return QString("%1 (%2) %3%4-%5%6 [%7]\n").arg(asp.d->name)
-        .arg(degreeToString(asp.angle))
-        .arg(asp.planet1->name)
-        .arg(tag1)
-        .arg(asp.planet2->name)
-        .arg(tag2)
-        .arg(degreeToString(asp.d->angle)) +
-        QObject::tr("Orb: %1 (max: %2)\n").arg(degreeToString(asp.orb))
-        .arg(degreeToString(asp.d->orb())) +
-        (asp.applying ? QObject::tr("Applying") : QObject::tr("Separating"));
+    return QString("%1 (%2) %3%4-%5%6 [%7]\n")
+               .arg(asp.d->name)
+               .arg(degreeToString(asp.angle))
+               .arg(asp.planet1->name)
+               .arg(tag1)
+               .arg(asp.planet2->name)
+               .arg(tag2)
+               .arg(degreeToString(asp.d->angle))
+           + QObject::tr("Orb: %1 (max: %2)\n")
+                 .arg(degreeToString(asp.orb))
+                 .arg(degreeToString(asp.d->orb()))
+           + (asp.applying ? QObject::tr("Applying")
+                           : QObject::tr("Separating"));
 }
 
 QString

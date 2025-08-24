@@ -109,9 +109,9 @@ public:
         _value(amcUnknown)
     {
         if (var.isValid()) {
-            if (var.type() == QVariant::String) {
+            if (VAR_TYPE(var) == QMetaType::QString) {
                 _value = fromString(var.toString());
-            } else if (var.type() == QVariant::Int) {
+            } else if (VAR_TYPE(var) == QMetaType::Int) {
                 _value = aspectModeEnum(var.toInt());
             }
         }
@@ -173,29 +173,33 @@ private:
 
 extern aspectModeType aspectMode;
 
-double  getJulianDate            ( QDateTime GMT, bool ephemerisTime=false );
-float   roundDegree              ( float deg );         // returns 0...360
-const ZodiacSign& getSign        ( float deg, const Zodiac& zodiac );
-int     getHouse                 ( const Houses& houses, float deg ); // returns 1...12
-int     getHouse                 ( ZodiacSignId sign, const Houses& houses, const Zodiac& zodiac );
+double            getJulianDate(QDateTime GMT, bool ephemerisTime = false);
+float             roundDegree(float deg); // returns 0...360
+const ZodiacSign& getSign(float deg, const Zodiac& zodiac);
+int               getHouse(const Houses& houses, float deg); // returns 1...12
+int getHouse(ZodiacSignId sign, const Houses& houses, const Zodiac& zodiac);
 
-float   angle                    (const Star& body1, const Star& body2 );
-float   angle                    ( const Star& body, float deg );
-float   angle                    (const Star& body, QPointF coordinate );
-float   angle                    ( float deg1, float deg2 );
-AspectId aspect                  ( const Star& planet1, const Star& planet2, const AspectsSet& aspectSet );
-AspectId aspect                  ( const Star& planet, QPointF coordinate, const AspectsSet& aspectSet );
-AspectId aspect                  ( const Star& planet1, float degree, const AspectsSet& aspectSet );
-AspectId aspect                  ( float angle, const AspectsSet& aspectSet );
-bool    towardsMovement          ( const Star& planet1, const Star& planet2 );
-PlanetPosition getPosition       ( const Planet& planet, ZodiacSignId sign );
-const Planet* doryphoros         ( const Horoscope& scope );
-const Planet* auriga             ( const Horoscope& scope );
-const Planet* almuten            ( const Horoscope& scope );
-bool    rulerDisposition         ( int house, int houseAuthority, const Horoscope& scope );
-bool    isEarlier                ( const Planet& planet, const Planet& sun );
+float    angle(const Star& body1, const Star& body2);
+float    angle(const Star& body, float deg);
+float    angle(const Star& body, QPointF coordinate);
+float    angle(float deg1, float deg2);
+AspectId aspect(const Star&       planet1,
+                const Star&       planet2,
+                const AspectsSet& aspectSet);
+AspectId aspect(const Star&       planet,
+                QPointF           coordinate,
+                const AspectsSet& aspectSet);
+AspectId aspect(const Star& planet1, float degree, const AspectsSet& aspectSet);
+AspectId aspect(float angle, const AspectsSet& aspectSet);
+bool     towardsMovement(const Star& planet1, const Star& planet2);
+PlanetPosition getPosition(const Planet& planet, ZodiacSignId sign);
+const Planet*  doryphoros(const Horoscope& scope);
+const Planet*  auriga(const Horoscope& scope);
+const Planet*  almuten(const Horoscope& scope);
+bool rulerDisposition(int house, int houseAuthority, const Horoscope& scope);
+bool isEarlier(const Planet& planet, const Planet& sun);
 //const Planet& ruler          ( int house, const Horoscope& scope );
-PlanetId receptionWith           ( const Planet& planet, const Horoscope& scope );
+PlanetId receptionWith(const Planet& planet, const Horoscope& scope);
 
 uintMSet getAllFactors(unsigned h);
 void getAllFactors(unsigned h, uintSSet& ss);
@@ -211,76 +215,88 @@ void calculateBaseChartHarmonic(Horoscope& scope);
 
 typedef QList<InputData> idlist;
 
-struct EventOptions {
-    EventOptions() { };
+struct EventOptions
+{
+    EventOptions() {};
     EventOptions(const QVariantMap& map);
 
-    ADateDelta  defaultTimespan { 0/*yr*/, 1/*mo*/, 0/*dy*/ };
+    ADateDelta defaultTimespan{0 /*yr*/, 1 /*mo*/, 0 /*dy*/};
 
-    qreal       expandShowOrb = 2.;
-    unsigned    patternsQuorum = 3;
-    qreal       patternsSpreadOrb = 8.;
-    qreal       planetPairOrb = 2.;
+    static const QString&            zposPat();
+    static const QRegularExpression& zposRE();
+    static const QString&            eventPat();
+    static const QRegularExpression& eventRE();
 
-    bool        patternsRestrictMoon = true;
-    bool        filterLowerUnselectedHarmonics = true;
-    bool        includeMidpoints = false;
+    qreal    expandShowOrb     = 2.;
+    unsigned patternsQuorum    = 3;
+    qreal    patternsSpreadOrb = 8.;
+    qreal    planetPairOrb     = 2.;
 
-    bool        showStations = true;
-    bool        includeShadowTransits = true;
+    bool patternsRestrictMoon           = true;
+    bool filterLowerUnselectedHarmonics = true;
+    bool includeMidpoints               = false;
 
-    bool        includeTransitRange = true;
-    bool        showTransitsToTransits = true;
-    bool        limitLunarTransits = true;
-    bool        showTransitsToNatalPlanets = true;
-    bool        showTransitsToNatalAngles = true;
-    bool        showTransitsToHouseCusps = false;
-    bool        includeOnlyOuterTransitsToNatal = false;
-    bool        includeAsteroids = false;
-    bool        includeCentaurs = true;
+    bool showStations          = true;
+    bool includeShadowTransits = true;
 
-    bool        includeTransits() const
+    bool includeTransitRange             = true;
+    bool showTransitsToTransits          = true;
+    bool limitLunarTransits              = true;
+    bool showTransitsToNatalPlanets      = true;
+    bool showTransitsToNatalAngles       = true;
+    bool showTransitsToHouseCusps        = false;
+    bool includeOnlyOuterTransitsToNatal = false;
+    bool includeAsteroids                = false;
+    bool includeCentaurs                 = true;
+
+    bool includeTransits() const
     {
-        return showTransitsToTransits
-                || showTransitsToNatalPlanets
-                || showTransitsToNatalAngles
-                || showTransitsToHouseCusps;
+        return showTransitsToTransits || showTransitsToNatalPlanets
+               || showTransitsToNatalAngles || showTransitsToHouseCusps;
     }
 
-    bool        showReturns = true;
+    bool showReturns = true;
 
-    bool        showProgressionsToProgressions = false;
-    bool        showProgressionsToNatal = false;
-    bool        includeOnlyInnerProgressionsToNatal = true;
+    bool showProgressionsToProgressions      = false;
+    bool showProgressionsToNatal             = false;
+    bool includeOnlyInnerProgressionsToNatal = true;
 
-    bool        includeProgressions() const
-    { return showProgressionsToNatal || showProgressionsToProgressions; }
+    bool includeProgressions() const
+    {
+        return showProgressionsToNatal || showProgressionsToProgressions;
+    }
 
-    bool        showTransitAspectPatterns = true;
-    bool        showTransitNatalAspectPatterns = true;
+    bool showTransitAspectPatterns      = true;
+    bool showTransitNatalAspectPatterns = true;
 
-    bool        includeAspectPatterns() const
-    { return showTransitAspectPatterns || showTransitNatalAspectPatterns; }
+    bool includeAspectPatterns() const
+    {
+        return showTransitAspectPatterns || showTransitNatalAspectPatterns;
+    }
 
-    bool        showIngresses = false;
-    bool        showLunations = false;
-    bool        showHeliacalEvents = false;
-    bool        showPrimaryDirections = false;
-    bool        showLifeEvents = false;
+    bool showIngresses         = false;
+    bool showLunations         = false;
+    bool showHeliacalEvents    = false;
+    bool showPrimaryDirections = false;
+    bool showLifeEvents        = false;
 
-    bool        expandShowAspectPatterns = true;
-    bool        expandShowHousePlacementsOfTransits = true;
-    bool        expandShowRulershipTips = true;
+    bool expandShowAspectPatterns            = true;
+    bool expandShowHousePlacementsOfTransits = true;
+    bool expandShowRulershipTips             = true;
 
-    bool        expandShowStationAspectsToTransits = true;
-    bool        expandShowStationAspectsToNatal = true;
+    bool expandShowStationAspectsToTransits = true;
+    bool expandShowStationAspectsToNatal    = true;
 
-    bool        expandShowReturnAspects = true;
-    bool        expandShowTransitAspectsToReturnPlanet = true;
+    bool expandShowReturnAspects                = true;
+    bool expandShowTransitAspectsToReturnPlanet = true;
 
     QVariantMap toMap();
 
-    static EventOptions& current() { static EventOptions s_; return s_; }
+    static EventOptions& current()
+    {
+        static EventOptions s_;
+        return s_;
+    }
 };
 
 class EventFinderBase : public QRunnable {

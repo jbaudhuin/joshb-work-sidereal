@@ -1,16 +1,16 @@
-﻿#include <QGraphicsView>
-#include <QVBoxLayout>
-#include <QEvent>
-#include <QGraphicsSceneMouseEvent>
-#include <QWheelEvent>
-#include <QGraphicsDropShadowEffect>
+﻿#include "chart.h"
 #include <QDebug>
-#include <math.h>
-#include <Astroprocessor/Output>
+#include <QEvent>
+#include <QGraphicsDropShadowEffect>
+#include <QGraphicsSceneMouseEvent>
+#include <QGraphicsView>
+#include <QVBoxLayout>
+#include <QWheelEvent>
+#include "qregularexpression.h"
 #include <Astroprocessor/Calc>
-#include "chart.h"
+#include <Astroprocessor/Output>
+#include <math.h>
 #include <swephexp.h>
-
 
 RotatingCircleItem::RotatingCircleItem(QRect rect, const QPen& pen) : QAbstractGraphicsShapeItem()
 {
@@ -281,8 +281,21 @@ Chart::updateScene()
     circle->setFile(file());
     float rotate;
 
-    if (circleStart == Start_Ascendent) {
-        const auto& houses = file()->horoscope().houses;
+    bool useReturnAsc = false;
+    if (false && circleStart == Start_Outer_Ascendant && files().size() > 1) {
+        static QRegularExpression re(R"(^H\d+ (\w+)-r=\1.*)");
+
+        auto id    = file(1)->getName();
+        auto match = re.match(id);
+
+        useReturnAsc = match.hasMatch();
+    }
+
+    switch (circleStart) {
+    case Start_Outer_Ascendant:
+    case Start_Ascendent:
+    {
+        const auto& houses = file(useReturnAsc ? 1 : 0)->horoscope().houses;
         switch (A::aspectMode) {
         case A::amcEquatorial:
             rotate = houses.RAAC;
@@ -292,10 +305,15 @@ Chart::updateScene()
             rotate = houses.cusp[0];
             break;
         }
-    } else {
-        rotate = file()->horoscope().zodiac.signs[0].startAngle;
+        break;
     }
-    if (clockwise) rotate = -rotate;
+    default:
+        rotate = file()->horoscope().zodiac.signs[0].startAngle;
+        break;
+    }
+    if (clockwise) {
+        rotate = -rotate;
+    }
 
     for (QGraphicsItem* i : signIcons)
         i->setRotation(-rotate);
@@ -626,10 +644,10 @@ void Chart::drawPlanets(int fileIndex)
 
         QGraphicsSimpleTextItem* text = nullptr;
 #if 0
-        if (planet.userData["fontChar"].type() == QVariant::String) {
+        if (planet.userData["fontChar"].typeId() == QMetaType::QString) {
             text = s->addSimpleText(planet.userData["fontChar"].toString(),
                     planet.isReal? planetFont : planetFontSmall);
-        } else if (planet.userData["fontChar"].type() == QVariant::Int) {
+        } else if (planet.userData["fontChar"].typeId() == QMetaType::Int) {
 #endif
             int charIndex = planet.userData["fontChar"].toInt();
             text = s->addSimpleText(QChar(charIndex),
@@ -1011,6 +1029,7 @@ void Chart::setupSettingsEditor(AppSettingsEditor* ed)
 
     QMap<QString, QVariant> values;
     values[tr("Ascendent")] = Start_Ascendent;
+    values[tr("Ascendant (prefer outer)")] = Start_Outer_Ascendant;
     values[tr("0 Aries")] = Start_ZeroDegree;
     ed->addComboBox("Circle/circleStart", tr("Circle start:"), values);
 

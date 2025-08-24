@@ -4,6 +4,7 @@
 #include <QStringList>
 #include <QVariant>
 #include <QMetaType>
+#include <QTimeZone>
 
 #include "astro-data.h"
 #include "astro-calc.h"
@@ -106,10 +107,13 @@ public:
     const A::AspectsSet& getAspectSet()  const
     { return A::getAspectSet(scope.inputData.aspectSet()); }
 
-    A::aspectModeEnum getAspectMode()  const { return A::aspectMode; }
+    A::aspectModeEnum       getAspectMode() const { return A::aspectMode; }
     const QList<QDateTime>& getEventList() const { return _eventList; }
-    double           getHarmonic()     const { return scope.harmonic; }
-    QDateTime        getLocalTime()    const { return getGMT().addSecs(getTimezone() * 3600); }
+    double                  getHarmonic() const { return scope.harmonic; }
+
+    QDateTime               getLocalTime() const
+    { return getGMT().toTimeZone(QTimeZone(int(getTimezone())*3600)); }
+
     const ADateRange& getDateRange() const { return _dateRange; }
 
     A::FileInput     fileInputData() const { return { type, scope.inputData }; }

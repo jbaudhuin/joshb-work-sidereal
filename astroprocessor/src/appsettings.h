@@ -37,6 +37,11 @@ class QSpinBox;
 class QDoubleSpinBox;
 class QCheckBox;
 
+#if QT_VERSION < QT_VERSION_CHECK(6,7,0)
+#define VAR_TYPE(var) var.type()
+#else
+#define VAR_TYPE(var) var.typeId()
+#endif
 
 /* =========================== APP SETTINGS ========================================= */
 

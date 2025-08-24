@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QComboBox>
 #include <QDateTimeEdit>
+#include <QTimeZone>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QDebug>
@@ -50,15 +51,15 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
 
     currentFile = 0;
 
-    tabs              = new QTabBar;
-    addFileBtn        = new QPushButton(tr("+"));
-    name              = new QLineEdit;
-    type              = new QComboBox;
-    basis             = new QComboBox;
-    dateTime          = new QDateTimeEdit;
-    timeZone          = new QDoubleSpinBox;
-    geoSearch         = new GeoSearchWidget;
-    comment           = new QPlainTextEdit;
+    tabs       = new QTabBar;
+    addFileBtn = new QPushButton(tr("+"));
+    name       = new QLineEdit;
+    type       = new QComboBox;
+    basis      = new QComboBox;
+    dateTime   = new QDateTimeEdit;
+    timeZone   = new QDoubleSpinBox;
+    geoSearch  = new GeoSearchWidget;
+    comment    = new QPlainTextEdit;
 
     tabs     -> setTabsClosable(true);
     tabs     -> setMovable(true);
@@ -84,12 +85,12 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     dateTime->setMinimumDate(QDate(100,1,1));
     qDebug() << "Minimum date:" << dateTime->minimumDate();
 
-    comment  -> setMaximumHeight(70);
+    comment->setMaximumHeight(70);
     if (!parent) {
-    this     -> setWindowTitle(tr("Edit entry"));
-    this     -> setWindowFlags(Qt::Dialog /*|
-                               Qt::MSWindowsFixedSizeDialogHint*/ |
-                               Qt::WindowStaysOnTopHint);
+        this->setWindowTitle(tr("Edit entry"));
+        this->setWindowFlags(Qt::Dialog /*|
+                               Qt::MSWindowsFixedSizeDialogHint*/
+                             | Qt::WindowStaysOnTopHint);
     }
 
     QHBoxLayout* lay4 = new QHBoxLayout;
@@ -146,15 +147,17 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     lbll = lay1->itemAt(crow, QFormLayout::LabelRole);
     auto fndlblw = lbll->widget();
 
-    connect(name, SIGNAL(editingFinished()),
-            this, SLOT(onEditingFinished()));
-    connect(startDate, &QDateTimeEdit::dateTimeChanged,
+    connect(name, SIGNAL(editingFinished()), this, SLOT(onEditingFinished()));
+    connect(startDate,
+            &QDateTimeEdit::dateTimeChanged,
+            this,
             [this](const QDateTime& dt) {
-        if (endDateCB->isChecked()) return;
-        endDate->blockSignals(true);
-        endDate->setDateTime(dt.addYears(1));
-        endDate->blockSignals(false);
-    });
+                if (endDateCB->isChecked())
+                    return;
+                endDate->blockSignals(true);
+                endDate->setDateTime(dt.addYears(1));
+                endDate->blockSignals(false);
+            });
     connect(startDate, SIGNAL(dateTimeChanged(const QDateTime&)),
             this, SLOT(onEditingFinished()));
     connect(endDate, SIGNAL(dateTimeChanged(const QDateTime&)),
@@ -271,6 +274,28 @@ AstroFileEditor::timezoneChanged()
         timeZone->setPrefix("");
     else
         timeZone->setPrefix("+");
+
+    QTimeZone tz(3600 * timeZone->value());
+    QDateTime dt  = dateTime->dateTime();
+    auto      otz = dt.timeZone();
+    if (tz != otz) {
+        bool blocked = dateTime->signalsBlocked();
+        if (!blocked) {
+            dateTime->blockSignals(true);
+        }
+#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
+        auto newd  = tz.offsetFromUtc(dt);
+        auto oldd  = otz.offsetFromUtc(dt);
+        auto delta = newd - oldd;
+        auto upd   = dt.addSecs(delta);
+        dateTime->setDateTime(upd);
+#else
+        dateTime->setTimeZone(tz);
+#endif
+        if (!blocked) {
+            dateTime->blockSignals(false);
+        }
+    }
 }
 
 void
@@ -320,7 +345,7 @@ AstroFileEditor::updateTimezone()
                                 "&key=%3"
                                 "&language=en")
             .arg(vec.y()).arg(vec.x())
-            .arg(A::googAPIKey)
+                      .arg(MainWindow::instance()->APIKey().c_str())
             .arg(dateTime->dateTime().toSecsSinceEpoch());
     qDebug() << "Issuing TZ URL:" << url;
     nm->get(QNetworkRequest(url));
@@ -356,10 +381,18 @@ void AstroFileEditor::update(AstroFile::Members m)
     }
 
     name->setText(source->getName());
+    geoSearch->blockSignals(true);
+    timeZone->blockSignals(true);
+    dateTime->blockSignals(true);
     geoSearch->setLocation(source->getLocation(),
                            source->getLocationName());
     timeZone->setValue(source->getTimezone());
-    dateTime->setDateTime(source->getLocalTime());
+    auto dt = source->getGMT();
+    dateTime->setDateTime(dt);
+    dateTime->setTimeZone(QTimeZone(3600 * source->getTimezone()));
+    geoSearch->blockSignals(false);
+    timeZone->blockSignals(false);
+    dateTime->blockSignals(false);
     //if (source->getType()==TypeEvents) {
     // startDate->setDate(source->getStartDate());
     auto r = source->getDateRange();
@@ -458,11 +491,14 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     dst->setLocation(geoSearch->location());
     dst->setTimezone(timeZone->value());
     if (update) {
-#if 0
+#if 1
         dst->setGMT(dateTime->dateTime().toUTC());
 #else
-        QString ugh = dateTime->dateTime().addSecs(timeZone->value()*-3600)
-                .toString(Qt::ISODate) + "Z";
+        auto    gmt = dateTime->dateTime().toUTC();
+        QString ugh = gmt.toString(Qt::ISODate);
+        if (!ugh.endsWith("Z")) {
+            ugh += "Z";
+        }
         dst->setGMT(QDateTime::fromString(ugh,Qt::ISODate));
 #endif
     }

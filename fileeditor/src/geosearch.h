@@ -6,6 +6,7 @@
 #include <QStackedLayout>
 #include <QVector3D>
 #include <QTimeZone>
+#include "mainwindow.h"
 
 class QLineEdit;
 class QNetworkReply;
@@ -18,7 +19,6 @@ class QLabel;
 class QDateTime;
 
 namespace A {
-extern const QString googAPIKey;
 extern const QString googMapURL;
 }
 
@@ -60,7 +60,7 @@ class GeoSearchBox: public QLineEdit
         QString associatedText;
 
     signals:
-        void coordinateUpdated() const;
+        void coordinateUpdated();
 
     protected slots:
         void doSearch();

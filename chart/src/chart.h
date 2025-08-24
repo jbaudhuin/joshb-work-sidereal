@@ -5,7 +5,7 @@
 #include <QGraphicsScene>
 #include <Astroprocessor/Gui>
 
-enum CircleStart { Start_ZeroDegree = 0, Start_Ascendent = 1 };
+enum CircleStart { Start_ZeroDegree, Start_Ascendent, Start_Outer_Ascendant };
 
 class Chart;
 
