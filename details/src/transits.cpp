@@ -39,6 +39,8 @@
 #include <math.h>
 #include <vector>
 
+using namespace std::chrono;
+
 namespace {
 #if 0
 typedef QList<QStandardItem*> itemListBase;
@@ -418,29 +420,28 @@ public:
         QMutexLocker ml(getEvents(evr)->mutex());
 
         int col = index.column();
+
         const auto& asp(prow==-1 ? (*_evs[row])
                                  : _evs[prow]->coincidence(row));
 
         if (role == Qt::TextAlignmentRole) {
-            if (index.column() == harmonicCol
-                    || index.column() == eventTypeCol)
-            { return unsigned(Qt::AlignHCenter | Qt::AlignBaseline); }
-            if (index.column() == transitBodyCol) {
-                if (asp.locations().empty()) {
-                    return unsigned(Qt::AlignRight | Qt::AlignBaseline);
-                }
+            if (col == harmonicCol || col == eventTypeCol) {
+                return unsigned(Qt::AlignHCenter | Qt::AlignBaseline);
+            }
+            if (col == transitBodyCol && asp.locations().empty()) {
+                return unsigned(Qt::AlignRight | Qt::AlignBaseline);
             }
             return unsigned(Qt::AlignLeft | Qt::AlignBaseline);
         }
 
-        if (role  != Qt::DisplayRole
-                && role != Qt::ToolTipRole
-                && role != Qt::EditRole
-                && role != SummaryRole
-                && role != RawRole
-                && (index.column() < transitBodyCol
-                    || (role != Qt::FontRole && role != Qt::ForegroundRole)))
-        { return QVariant(); }
+        if (role != Qt::DisplayRole && role != Qt::FontRole
+            && role != Qt::ToolTipRole && role != Qt::EditRole
+            && role != SummaryRole && role != RawRole
+            && (col < transitBodyCol
+                || (role != Qt::FontRole && role != Qt::ForegroundRole)))
+        {
+            return QVariant();
+        }
 
         auto et = asp.eventType();
 
@@ -450,6 +451,8 @@ public:
 
         switch (col) {
         case eventTypeCol:
+            if (role == Qt::FontRole)
+                return QFont();
             if (prow == -1) {
                 auto type = _evs[row]->eventType();
                 if (role == Qt::ToolTipRole) {
@@ -466,13 +469,27 @@ public:
                 auto dt = _evs[row]->dateTime().toLocalTime();
                 if (role == RawRole) return dt;
 
+                auto&& r = _evs[row]->range();
+                if (role == Qt::FontRole) {
+                    QFont f;
+                    auto  days = r.days();
+                    if (days >= 28) {
+                        f.setBold(true);
+                        f.setItalic(true);
+                    } else if (days >= 7) {
+                        f.setBold(true);
+                    } else if (days >= 1) {
+                        f.setItalic(true);
+                    }
+                    return f;
+                }
+
                 constexpr const char fmt[] = "yyyy/MM/dd";
                 constexpr const char sfmt[] = "MM/dd hh:mm";
                 constexpr const char ssfmt[] = "hh:mm";
                 if (role != Qt::ToolTipRole) return dt.toString(fmt);
 
                 QString res = dt.toString("ddd hh:mm:ss.zzz");
-                const auto& r(_evs[row]->range());
                 if (r != A::ADateTimeRange()) {
                     auto dtfrom = r.first.toLocalTime();
                     auto fmtFrom = dtfrom.date()==dt.date()? ssfmt : sfmt;
@@ -486,13 +503,17 @@ public:
                 return res;
             }
 
+            if (role == Qt::FontRole) {
+                return QFont();
+            }
+
             // HarmonicAspect
             return A::degreeToString(asp.orb());
 
         case harmonicCol:
             if (role == Qt::ToolTipRole) {
                 if (singleColumn(asp.locations())) return "station";
-                if (asp.locations().empty()) {
+                if (asp.orb() != qreal() /*asp.locations().empty()*/) {
                     return QString("H%1 %2").arg(asp.harmonic())
                             .arg(A::degreeToString(asp.orb(),A::HighPrecision));
                 } else {
@@ -506,6 +527,18 @@ public:
                 }
             }
             if (role == RawRole) return asp.harmonic();
+            if (role == Qt::FontRole) {
+                QFont f;
+                if (asp.locations().empty() && asp.orb() < 1.0) {
+                    if (asp.orb() >= 0.5) {
+                        f.setBold(true);
+                    }
+                    f.setItalic(true);
+                } else if (asp.orb() != qreal()) {
+                    f.setItalic(true);
+                }
+                return f;
+            }
             return "H" + QString::number(asp.harmonic());
 
         case transitBodyCol:
@@ -1617,42 +1650,70 @@ void
 Transits::applySettings(const AppSettings& s)
 {
     A::EventOptions& curr(A::EventOptions::current());
-    bool changed =
-            (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
-            || s.value("Events/patternsSpreadOrb").toDouble() != curr.patternsSpreadOrb
-            || s.value("Events/planetPairOrb").toDouble() != curr.expandShowOrb
-            || s.value("Events/patternsRestrictMoon").toBool() != curr.patternsRestrictMoon
-            || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
-            || s.value("Events/showStations").toBool() != curr.showStations
-            || s.value("Events/includeShadowTransits").toBool() != curr.includeShadowTransits
-            || s.value("Events/showTransitsToTransits").toBool() != curr.showTransitsToTransits
-            || s.value("Events/includeOnlyOuterTransitsToNatal").toBool() != curr.includeOnlyOuterTransitsToNatal
-            || s.value("Events/limitLunarTransits").toBool() != curr.limitLunarTransits
-            || s.value("Events/showTransitsToNatalPlanets").toBool() != curr.showTransitsToNatalPlanets
-            || s.value("Events/showTransitsToNatalAngles").toBool() != curr.showTransitsToNatalAngles
-            || s.value("Events/includeAsteroids").toBool() != curr.includeAsteroids
-            || s.value("Events/includeCentaurs").toBool() != curr.includeCentaurs
-            || s.value("Events/showTransitsToHouseCusps").toBool() != curr.showTransitsToHouseCusps
-            || s.value("Events/showReturns").toBool() != curr.showReturns
-            || s.value("Events/showProgressionsToProgressions").toBool() != curr.showProgressionsToProgressions
-            || s.value("Events/showProgressionsToNatal").toBool() != curr.showProgressionsToNatal
-            || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool() != curr.includeOnlyInnerProgressionsToNatal
-            || s.value("Events/showTransitAspectPatterns").toBool() != curr.showTransitAspectPatterns
-            || s.value("Events/showTransitNatalAspectPatterns").toBool() != curr.showTransitNatalAspectPatterns
-            || s.value("Events/showIngresses").toBool() != curr.showIngresses
-            || s.value("Events/showLunations").toBool() != curr.showLunations
-            || s.value("Events/showHeliacalEvents").toBool() != curr.showHeliacalEvents
-            || s.value("Events/showPrimaryDirections").toBool() != curr.showPrimaryDirections
-            || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents);
-    bool changedExpanded =
-            (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
-            || s.value("Events/expandShowAspectPatterns").toBool() != curr.expandShowAspectPatterns
-            || s.value("Events/expandShowHousePlacementsOfTransits").toBool() != curr.expandShowHousePlacementsOfTransits
-            || s.value("Events/expandShowRulershipTips").toBool() != curr.expandShowRulershipTips
-            || s.value("Events/expandShowStationAspectsToTransits").toBool() != curr.expandShowStationAspectsToTransits
-            || s.value("Events/expandShowStationAspectsToNatal").toBool() != curr.expandShowStationAspectsToNatal
-            || s.value("Events/expandShowReturnAspects").toBool() != curr.expandShowReturnAspects
-            || s.value("Events/expandShowTransitAspectsToReturnPlanet").toBool() != curr.expandShowTransitAspectsToReturnPlanet);
+
+    bool changed
+        = (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
+           || s.value("Events/patternsSpreadOrb").toDouble()
+                  != curr.patternsSpreadOrb
+           || s.value("Events/planetPairOrb").toDouble() != curr.expandShowOrb
+           || s.value("Events/patternsRestrictMoon").toBool()
+                  != curr.patternsRestrictMoon
+           || s.value("Events/includeMidpoints").toBool()
+                  != curr.includeMidpoints
+           || s.value("Events/showStations").toBool() != curr.showStations
+           || s.value("Events/includeShadowTransits").toBool()
+                  != curr.includeShadowTransits
+           || s.value("Events/showTransitsToTransits").toBool()
+                  != curr.showTransitsToTransits
+           || s.value("Events/includeOnlyOuterTransitsToNatal").toBool()
+                  != curr.includeOnlyOuterTransitsToNatal
+           || s.value("Events/limitLunarTransits").toBool()
+                  != curr.limitLunarTransits
+           || s.value("Events/skipByDuration").value<A::EventOptions::skipper>()
+                  != curr.skipByDuration
+           || s.value("Events/showTransitsToNatalPlanets").toBool()
+                  != curr.showTransitsToNatalPlanets
+           || s.value("Events/showTransitsToNatalAngles").toBool()
+                  != curr.showTransitsToNatalAngles
+           || s.value("Events/includeAsteroids").toBool()
+                  != curr.includeAsteroids
+           || s.value("Events/includeCentaurs").toBool() != curr.includeCentaurs
+           || s.value("Events/showTransitsToHouseCusps").toBool()
+                  != curr.showTransitsToHouseCusps
+           || s.value("Events/showReturns").toBool() != curr.showReturns
+           || s.value("Events/showProgressionsToProgressions").toBool()
+                  != curr.showProgressionsToProgressions
+           || s.value("Events/showProgressionsToNatal").toBool()
+                  != curr.showProgressionsToNatal
+           || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
+                  != curr.includeOnlyInnerProgressionsToNatal
+           || s.value("Events/showTransitAspectPatterns").toBool()
+                  != curr.showTransitAspectPatterns
+           || s.value("Events/showTransitNatalAspectPatterns").toBool()
+                  != curr.showTransitNatalAspectPatterns
+           || s.value("Events/showIngresses").toBool() != curr.showIngresses
+           || s.value("Events/showLunations").toBool() != curr.showLunations
+           || s.value("Events/showHeliacalEvents").toBool()
+                  != curr.showHeliacalEvents
+           || s.value("Events/showPrimaryDirections").toBool()
+                  != curr.showPrimaryDirections
+           || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents);
+    bool changedExpanded
+        = (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
+           || s.value("Events/expandShowAspectPatterns").toBool()
+                  != curr.expandShowAspectPatterns
+           || s.value("Events/expandShowHousePlacementsOfTransits").toBool()
+                  != curr.expandShowHousePlacementsOfTransits
+           || s.value("Events/expandShowRulershipTips").toBool()
+                  != curr.expandShowRulershipTips
+           || s.value("Events/expandShowStationAspectsToTransits").toBool()
+                  != curr.expandShowStationAspectsToTransits
+           || s.value("Events/expandShowStationAspectsToNatal").toBool()
+                  != curr.expandShowStationAspectsToNatal
+           || s.value("Events/expandShowReturnAspects").toBool()
+                  != curr.expandShowReturnAspects
+           || s.value("Events/expandShowTransitAspectsToReturnPlanet").toBool()
+                  != curr.expandShowTransitAspectsToReturnPlanet);
 
     auto tsp = s.value("Events/defaultTimespan").toString();
     if (filesCount()==0) {
@@ -1672,7 +1733,7 @@ Transits::applySettings(const AppSettings& s)
 void
 Transits::setupSettingsEditor(AppSettingsEditor* ed)
 {
-    ed->addTab(tr("Events"));
+    ed->addTab(tr("Events I"));
 
     ed->addLineEdit("Events/defaultTimespan", tr("Default timespan"));
     ed->addCheckBox("Events/showStations", tr("Show Stations"));
@@ -1683,6 +1744,13 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Events/showTransitsToNatalAngles", tr("Show Transits to natal angles"));
     ed->addCheckBox("Events/includeOnlyOuterTransitsToNatal", tr("Include only outer planet transits to natal"));
     ed->addCheckBox("Events/limitLunarTransits", tr("Limit Lunar Transits"));
+
+    QVariantMap vals{{tr("Show all"), A::EventOptions::SkipNone},
+                     {tr("Skip <1day"), A::EventOptions::SkipLessThanDay},
+                     {tr("Skip <1wk"), A::EventOptions::SkipLessThanWeek},
+                     {tr("Skip <1mo"), A::EventOptions::SkipLessThanMonth}};
+    ed->addComboBox("Events/skipByDuration","Skip by duration", vals);
+
     ed->addCheckBox("Events/includeAsteroids", tr("Include asteroids"));
     ed->addCheckBox("Events/includeCentaurs", tr("Include centaurs"));
     ed->addCheckBox("Events/showTransitsToHouseCusps", tr("Show Transits to all house cusps"));
@@ -1701,8 +1769,9 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Events/showHeliacalEvents", tr("Show Heliacal Events"));
     ed->addCheckBox("Events/showPrimaryDirections", tr("Show Primary Directions"));
     ed->addCheckBox("Events/showLifeEvents", tr("Show Life Events"));
-
     ed->addDoubleSpinBox("Events/secondaryOrb", tr("Secondary Orb"), .25, 16.);
+
+    ed->addTab("Events II");
     ed->addCheckBox("Events/expandShowAspectPatterns", tr("Expand to Show Aspect Patterns"));
     ed->addCheckBox("Events/expandShowHousePlacementsOfTransits", tr("Expand to Show House Placements Of Transits"));
     ed->addCheckBox("Events/expandShowRulershipTips", tr("Expand to Show Rulership Tips"));

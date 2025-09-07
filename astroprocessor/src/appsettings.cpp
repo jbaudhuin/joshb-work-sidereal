@@ -300,7 +300,9 @@ AppSettingsEditor::addDoubleSpinBox(const QString& valueName,
 }
 
 QComboBox*
-AppSettingsEditor::addComboBox(const QString& valueName, const QString& label, QMap<QString, QVariant> values)
+AppSettingsEditor::addComboBox(const QString&          valueName,
+                               const QString&          label,
+                               QMap<QString, QVariant> values)
 {
     if (valueName.isEmpty()) return nullptr;
     QVariant s = settings.value(valueName);

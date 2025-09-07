@@ -1568,7 +1568,18 @@ struct ARange : public QPair<T,T> {
 };
 
 typedef ARange<QDate> ADateRange;
-typedef ARange<QDateTime> ADateTimeRange;
+
+class ADateTimeRange : public ARange<QDateTime> {
+  public:
+    using Base = ARange<QDateTime>;
+    using Base::Base;
+
+    double days() const
+    {
+        using namespace std::chrono;
+        return double(duration_cast<hours>(second - first).count()) / 24.0;
+    }
+};
 
 typedef std::pair<unsigned, PlanetSet> HarmonicPlanetSet;
 typedef std::pair<double, double> JDateRange;

@@ -20,6 +20,8 @@
 #include <swephexp.h>
 #include <swehouse.h>
 
+using namespace boost::math::tools;
+
 namespace A {
 
 QString
@@ -2139,8 +2141,6 @@ struct calcLoop {
                  << "flo" << flo
                  << "splo" << splo;
 
-        using namespace boost::math::tools;
-
         bool done = false;
         double fhi, sphi;
         for (double& jdc = begin; !done && (cont || jdc<end);
@@ -2305,8 +2305,6 @@ calcLoop::doIterativeCalc<posSpd>(double& jd,
                                   posSpd lo,
                                   posSpd hi)
 {
-    using namespace boost::math::tools;
-
     double span = jhi-jlo;
     double g = jlo + (fabs(lo.first)/(fabs(lo.first)+fabs(hi.first)))*span;
 
@@ -2657,41 +2655,50 @@ EventOptions::toMap()
 {
     QVariantMap ret;
     ret.insert("Events/defaultTimespan", defaultTimespan.toString());
-    ret.insert("Events/secondaryOrb",                   expandShowOrb);
-    ret.insert("Events/planetPairOrb",                  planetPairOrb);
-    ret.insert("Events/patternsQuorum",                 patternsQuorum);
-    ret.insert("Events/patternsSpreadOrb",              patternsSpreadOrb);
-    ret.insert("Events/patternsRestrictMoon",           patternsRestrictMoon);
-    ret.insert("Events/includeMidpoints",               includeMidpoints);
-    ret.insert("Events/showStations",                   showStations);
-    ret.insert("Events/includeShadowTransits",          includeShadowTransits);
-    ret.insert("Events/showTransitsToTransits",         showTransitsToTransits);
-    ret.insert("Events/limitLunarTransits",             limitLunarTransits);
-    ret.insert("Events/showTransitsToNatalPlanets",     showTransitsToNatalPlanets);
-    ret.insert("Events/includeOnlyOuterTransitsToNatal", includeOnlyOuterTransitsToNatal);
-    ret.insert("Events/includeAsteroids",               includeAsteroids);
-    ret.insert("Events/includeCentaurs",                includeCentaurs);
-    ret.insert("Events/showTransitsToNatalAngles",      showTransitsToNatalAngles);
-    ret.insert("Events/showTransitsToHouseCusps",       showTransitsToHouseCusps);
-    ret.insert("Events/showReturns",                    showReturns);
-    ret.insert("Events/showProgressionsToProgressions", showProgressionsToProgressions);
-    ret.insert("Events/showProgressionsToNatal",        showProgressionsToNatal);
-    ret.insert("Events/includeOnlyInnerProgressionsToNatal", includeOnlyInnerProgressionsToNatal);
-    ret.insert("Events/showTransitAspectPatterns",      showTransitAspectPatterns);
-    ret.insert("Events/showTransitNatalAspectPatterns", showTransitNatalAspectPatterns);
-    ret.insert("Events/showIngresses",                  showIngresses);
-    ret.insert("Events/showLunations",                  showLunations);
-    ret.insert("Events/showHeliacalEvents",             showHeliacalEvents);
-    ret.insert("Events/showPrimaryDirections",          showPrimaryDirections);
-    ret.insert("Events/showLifeEvents",                 showLifeEvents);
+    ret.insert("Events/secondaryOrb", expandShowOrb);
+    ret.insert("Events/planetPairOrb", planetPairOrb);
+    ret.insert("Events/patternsQuorum", patternsQuorum);
+    ret.insert("Events/patternsSpreadOrb", patternsSpreadOrb);
+    ret.insert("Events/patternsRestrictMoon", patternsRestrictMoon);
+    ret.insert("Events/includeMidpoints", includeMidpoints);
+    ret.insert("Events/showStations", showStations);
+    ret.insert("Events/includeShadowTransits", includeShadowTransits);
+    ret.insert("Events/showTransitsToTransits", showTransitsToTransits);
+    ret.insert("Events/limitLunarTransits", limitLunarTransits);
+    ret.insert("Events/skipByDuration", skipByDuration);
+    ret.insert("Events/showTransitsToNatalPlanets", showTransitsToNatalPlanets);
+    ret.insert("Events/includeOnlyOuterTransitsToNatal",
+               includeOnlyOuterTransitsToNatal);
+    ret.insert("Events/includeAsteroids", includeAsteroids);
+    ret.insert("Events/includeCentaurs", includeCentaurs);
+    ret.insert("Events/showTransitsToNatalAngles", showTransitsToNatalAngles);
+    ret.insert("Events/showTransitsToHouseCusps", showTransitsToHouseCusps);
+    ret.insert("Events/showReturns", showReturns);
+    ret.insert("Events/showProgressionsToProgressions",
+               showProgressionsToProgressions);
+    ret.insert("Events/showProgressionsToNatal", showProgressionsToNatal);
+    ret.insert("Events/includeOnlyInnerProgressionsToNatal",
+               includeOnlyInnerProgressionsToNatal);
+    ret.insert("Events/showTransitAspectPatterns", showTransitAspectPatterns);
+    ret.insert("Events/showTransitNatalAspectPatterns",
+               showTransitNatalAspectPatterns);
+    ret.insert("Events/showIngresses", showIngresses);
+    ret.insert("Events/showLunations", showLunations);
+    ret.insert("Events/showHeliacalEvents", showHeliacalEvents);
+    ret.insert("Events/showPrimaryDirections", showPrimaryDirections);
+    ret.insert("Events/showLifeEvents", showLifeEvents);
 
-    ret.insert("Events/expandShowAspectPatterns",       expandShowAspectPatterns);
-    ret.insert("Events/expandShowHousePlacementsOfTransits", expandShowHousePlacementsOfTransits);
-    ret.insert("Events/expandShowRulershipTips",        expandShowRulershipTips);
-    ret.insert("Events/expandShowStationAspectsToTransits", expandShowStationAspectsToTransits);
-    ret.insert("Events/expandShowStationAspectsToNatal", expandShowStationAspectsToNatal);
-    ret.insert("Events/expandShowReturnAspects",        expandShowReturnAspects);
-    ret.insert("Events/expandShowTransitAspectsToReturnPlanet", expandShowTransitAspectsToReturnPlanet);
+    ret.insert("Events/expandShowAspectPatterns", expandShowAspectPatterns);
+    ret.insert("Events/expandShowHousePlacementsOfTransits",
+               expandShowHousePlacementsOfTransits);
+    ret.insert("Events/expandShowRulershipTips", expandShowRulershipTips);
+    ret.insert("Events/expandShowStationAspectsToTransits",
+               expandShowStationAspectsToTransits);
+    ret.insert("Events/expandShowStationAspectsToNatal",
+               expandShowStationAspectsToNatal);
+    ret.insert("Events/expandShowReturnAspects", expandShowReturnAspects);
+    ret.insert("Events/expandShowTransitAspectsToReturnPlanet",
+               expandShowTransitAspectsToReturnPlanet);
     return ret;
 }
 
@@ -2872,6 +2879,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
                         hst = conj;
                     }
                     if (opl == Planet_Moon) {
+                        if (pl > Planet_Sun && limitLunarTransits) continue;
                         hst = conjOppSq;
                     }
                     //else if (opl == Planet_Sun) hst = conjOpp;
@@ -3059,6 +3067,8 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
 #endif
 }
 
+namespace { static thread_local bool s_inited = false; }
+
 void AspectFinder::prepThread()
 {
 #if MSDOS
@@ -3066,13 +3076,17 @@ void AspectFinder::prepThread()
 #else
     char ephePath[] = "swe/";
 #endif
-    swe_set_ephe_path(ephePath);
+    if (!s_inited) {
+        s_inited = true;
+        swe_set_ephe_path(ephePath);
+    }
 }
 
 void AspectFinder::releaseThread()
 {
-    swe_close();
+//    swe_close();
 }
+
 
 
 void
@@ -3148,9 +3162,10 @@ AspectFinder::findStations()
 
                 auto pj = dynamic_cast<PlanetLoc*>(_alist[i]->clone());
                 pj->desc = QString("S") + (wasRetro? 'D' : 'R');
-
-                auto cspd = [&pj](double jd) {
+                unsigned iters = 0;
+                auto cspd = [&](double jd) {
                     (*pj)(jd,1);
+                    ++iters;
                     return pj->speed;
                 };
 
@@ -3164,7 +3179,8 @@ AspectFinder::findStations()
 
                     ev = HarmonicEvent(qdt, etcStation, 1, std::move(plr));
 
-                    if (!st_quiet) qDebug() << dt << pj->description();
+                    qDebug() << dt << pj->description() << "found in" << iters
+                             << "iterations(s)";
 
                     if (includeShadowTransits) {
                         // Add shadow-period transit lookup
@@ -3304,7 +3320,17 @@ void AspectFinder::findAspectsAndPatterns()
         auto&& hset = _hsets.at(ij.hsid);
         hs.insert(hset.begin(), hset.end());
     }
-    unsigned maxH = hs.empty() ? 1 : *hs.crbegin();
+    unsigned maxH = 1;
+    if (hs.empty()) {
+        if (!trans.empty() || !nats.empty()) {
+            for (auto&& hset : _hsets) {
+                hs.insert(hset.begin(), hset.end());
+            }
+        }
+    }
+    if (!hs.empty()) {
+        maxH = *hs.crbegin();
+    }
 
     modalize<bool> mum(st_quiet, true);
 
@@ -3681,7 +3707,7 @@ void AspectFinder::findAspectsAndPatterns()
                             uintmax_t iter = 50;
                             static constexpr int digits =
                                     std::numeric_limits<double>::digits;
-                            using namespace boost::math::tools;
+
                             auto tjd = newton_raphson_iterate(cps,(from+jd)/2,
                                                               from,jd,digits,iter);
                             auto psp = PlanetProfile::computeDelta((*prof)[0],
@@ -4004,7 +4030,6 @@ void AspectFinder::findAspectsAndPatterns()
                                 static constexpr int digits =
                                         std::numeric_limits<double>::digits;
 
-                                using namespace boost::math::tools;
                                 double guess;
                                 if (_alist[i]->inMotion() && _alist[j]->inMotion()) {
                                     guess = pjd + (fabs(ad)/(fabs(ad)+fabs(bd)));
@@ -4089,7 +4114,7 @@ void AspectFinder::findAspectsAndPatterns()
                             QMutexLocker(_evs.mutex()),
                             ev = HarmonicEvent(qdt, et, ch, std::move(plr));
 
-                            //if (!s_quiet)
+                            if (!s_quiet)
                                 qDebug() << dtToString(qdt).toLocal8Bit().constData()
                                          << which.c_str()
                                          << "with" << iter
@@ -4155,28 +4180,117 @@ void AspectFinder::findAspectsAndPatterns()
     {
         bool any = false;
         for (auto&& [hps, rm] : proximityLog) {
-            QStringList sl;
             for (const auto& [r, stat] : rm) {
                 if (stat)
                     continue;
-                sl << QString("[%1 - %2]")
-                          .arg(dtToString(dateTimeFromJulian(r.first)),
-                               dtToString(dateTimeFromJulian(r.second)));
+                auto& [h, ps] = hps;
+                if (ps.size() != 2) {
+                    continue; // Only for pairs
+                }
+                auto desc = QString("[%1 - %2]")
+                                .arg(dtToString(dateTimeFromJulian(r.first)),
+                                     dtToString(dateTimeFromJulian(r.second)));
+                if (ps.begin()->samePlanet({Planet_Moon})
+                    || ps.rbegin()->samePlanet({Planet_Moon}))
+                {
+#if 0
+                    qDebug() << "Skipping straggler "
+                             << QString("H%1 %2: %3")
+                                    .arg(h)
+                                    .arg(ps.names().join("="))
+                                    .arg(desc)
+                                    .toStdString()
+                                    .c_str();
+#endif
+                    continue;
+                }
+
+                // Find the corresponding InputData for each planet
+                auto     profile = _alist.profile(ps);
+                unsigned iters   = 0;
+
+                // Define the function to minimize: aspect separation at jd
+                auto csprd = [&](double jd) {
+                    ++iters;
+                    return profile->computePos(jd, h);
+                };
+
+                double minJD, minSep;
+                static constexpr int digits
+                    = std::numeric_limits<float>::digits;
+                std::tie(minJD, minSep) =
+                    brent_find_minima(csprd, r.first, r.second, digits);
+                if (minSep==qreal()) {
+                    qDebug() << "Unable to find closest using brent_find_minima "
+                             << QString("H%1 %2: %3 (%4 iters)")
+                                    .arg(h)
+                                    .arg(ps.names().join("="))
+                                    .arg(desc)
+                                    .arg(iters)
+                                    .toStdString()
+                                    .c_str();
+                    brentGlobalMin(csprd,
+                                   r.first,
+                                   r.second,
+                                   (r.first + r.second) / 2,
+                                   1 /*m*/,
+                                   1e-7,
+                                   1e-8,
+                                   minJD);
+                }
+                if (minJD == r.first || minJD == r.second) {
+                    qDebug() << "Unable to find closest "
+                             << QString("H%1 %2: %3 (%4 iters)")
+                                    .arg(h)
+                                    .arg(ps.names().join("="))
+                                    .arg(desc)
+                                    .arg(iters)
+                                    .toStdString()
+                                    .c_str();
+                    delete profile;
+                    continue;
+                }
+
+                if (!any) {
+                    qDebug() << "Ranges with no precise hits:";
+                    any = true;
+                }
+
+                EventType et = ps.heterogeneous() ? etcTransitToNatal
+                                                  : etcTransitToTransit;
+
+                // Collect the planet positions at minJD
+                minSep = profile->computePos(minJD, h);
+
+                qDebug()
+                    << QString(
+                           "Closest approach for H%1 %2 in [%3 - %4]: %5 at %6 (%7 iters)")
+                           .arg(h)
+                           .arg(ps.names().join("="))
+                           .arg(dtToString(dateTimeFromJulian(r.first)))
+                           .arg(dtToString(dateTimeFromJulian(r.second)))
+                           .arg(minSep)
+                           .arg(dtToString(dateTimeFromJulian(minJD)))
+                           .arg(iters)
+                           .toStdString();
+
+                PlanetRangeBySpeed plr;
+                for (auto loc : *profile) {
+                    if (auto ploc = dynamic_cast<PlanetLoc*>(loc)) {
+                        plr.emplace(*ploc);
+                    }
+                }
+
+                ADateTimeRange range{dateTimeFromJulian(r.first),
+                                     dateTimeFromJulian(r.second)};
+
+                QMutexLocker ml(_evs.mutex());
+
+                auto& ev = _evs.emplace_back(dateTimeFromJulian(minJD),
+                                             et, h, std::move(plr), minSep);
+                ev.setRange(range);
+                delete profile;
             }
-            if (sl.empty())
-                continue;
-
-            if (!any)
-                qDebug() << "Ranges with no precise hits:";
-            any = true;
-
-            auto&& [h, ps] = hps;
-            qDebug() << QString("H%1 %2: %3")
-                            .arg(h)
-                            .arg(ps.names().join("="))
-                            .arg(sl.join(",\n  "))
-                            .toStdString()
-                            .c_str();
         }
 
         for (const auto& hpc : starts) {

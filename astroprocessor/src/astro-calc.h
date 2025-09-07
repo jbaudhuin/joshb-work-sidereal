@@ -249,6 +249,14 @@ struct EventOptions
     bool includeAsteroids                = false;
     bool includeCentaurs                 = true;
 
+    enum skipper {
+        SkipNone,
+        SkipLessThanDay,
+        SkipLessThanWeek,
+        SkipLessThanMonth
+    };
+    skipper skipByDuration = SkipNone;
+
     bool includeTransits() const
     {
         return showTransitsToTransits || showTransitsToNatalPlanets
