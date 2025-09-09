@@ -257,6 +257,21 @@ struct EventOptions
     };
     skipper skipByDuration = SkipNone;
 
+    bool skippable(const JDateRange& r) const
+    {
+        switch (skipByDuration) {
+        case SkipNone:
+            return false;
+        case SkipLessThanDay:
+            return r.second - r.first < 1.0;
+        case SkipLessThanWeek:
+            return r.second - r.first < 7.0;
+        case SkipLessThanMonth:
+            return r.second - r.second < 28.0;
+        }
+        return false;
+    }
+
     bool includeTransits() const
     {
         return showTransitsToTransits || showTransitsToNatalPlanets
@@ -424,6 +439,9 @@ protected:
     hsets _hsets;         ///< harmonic profiles
     searchPairList _staff;
     unsigned _evType = etcUnknownEvent;
+
+    friend class PairAspectFinder;
+    friend class TaskTracker;
 
 private:
 };

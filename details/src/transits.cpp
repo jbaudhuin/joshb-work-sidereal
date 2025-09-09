@@ -1669,7 +1669,7 @@ Transits::applySettings(const AppSettings& s)
                   != curr.includeOnlyOuterTransitsToNatal
            || s.value("Events/limitLunarTransits").toBool()
                   != curr.limitLunarTransits
-           || s.value("Events/skipByDuration").value<A::EventOptions::skipper>()
+           || A::EventOptions::skipper(s.value("Events/skipByDuration").toUInt())
                   != curr.skipByDuration
            || s.value("Events/showTransitsToNatalPlanets").toBool()
                   != curr.showTransitsToNatalPlanets
@@ -1737,46 +1737,74 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
 
     ed->addLineEdit("Events/defaultTimespan", tr("Default timespan"));
     ed->addCheckBox("Events/showStations", tr("Show Stations"));
-    ed->addCheckBox("Events/includeShadowTransits", tr("Include retro shadow IN/EX"));
+    ed->addCheckBox("Events/includeShadowTransits",
+                    tr("Include retro shadow IN/EX"));
     ed->addCheckBox("Events/showReturns", tr("Show Returns"));
-    ed->addCheckBox("Events/showTransitsToTransits", tr("Show Transits to Transits"));
-    ed->addCheckBox("Events/showTransitsToNatalPlanets", tr("Show Transits to Natal"));
-    ed->addCheckBox("Events/showTransitsToNatalAngles", tr("Show Transits to natal angles"));
-    ed->addCheckBox("Events/includeOnlyOuterTransitsToNatal", tr("Include only outer planet transits to natal"));
+    ed->addCheckBox("Events/showTransitsToTransits",
+                    tr("Show Transits to Transits"));
+    ed->addCheckBox("Events/showTransitsToNatalPlanets",
+                    tr("Show Transits to Natal"));
+    ed->addCheckBox("Events/showTransitsToNatalAngles",
+                    tr("Show Transits to natal angles"));
+    ed->addCheckBox("Events/includeOnlyOuterTransitsToNatal",
+                    tr("Include only outer planet transits to natal"));
     ed->addCheckBox("Events/limitLunarTransits", tr("Limit Lunar Transits"));
 
-    QVariantMap vals{{tr("Show all"), A::EventOptions::SkipNone},
-                     {tr("Skip <1day"), A::EventOptions::SkipLessThanDay},
-                     {tr("Skip <1wk"), A::EventOptions::SkipLessThanWeek},
-                     {tr("Skip <1mo"), A::EventOptions::SkipLessThanMonth}};
-    ed->addComboBox("Events/skipByDuration","Skip by duration", vals);
+    QVariantMap vals { { tr("Show all"), A::EventOptions::SkipNone },
+                       { tr("Skip <1day"), A::EventOptions::SkipLessThanDay },
+                       { tr("Skip <1wk"), A::EventOptions::SkipLessThanWeek },
+                       { tr("Skip <1mo"),
+                         A::EventOptions::SkipLessThanMonth } };
+    ed->addComboBox("Events/skipByDuration", "Skip by duration", vals);
 
     ed->addCheckBox("Events/includeAsteroids", tr("Include asteroids"));
     ed->addCheckBox("Events/includeCentaurs", tr("Include centaurs"));
-    ed->addCheckBox("Events/showTransitsToHouseCusps", tr("Show Transits to all house cusps"));
+    ed->addCheckBox("Events/showTransitsToHouseCusps",
+                    tr("Show Transits to all house cusps"));
     ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
-    ed->addCheckBox("Events/showTransitAspectPatterns", tr("Show Transit Aspect Patterns"));
-    ed->addCheckBox("Events/showTransitNatalAspectPatterns", tr("Show Transit Natal Aspect Patterns"));
-    ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"),2,6);
-    ed->addDoubleSpinBox("Events/patternsSpreadOrb", tr("Patterns Spread Orb"), .1, 16.);
-    ed->addDoubleSpinBox("Events/planetPairOrb", tr("Planet pair orb"), 0.1, 16.);
-    ed->addCheckBox("Events/patternsRestrictMoon", tr("Patterns Restrict Moon"));
+    ed->addCheckBox("Events/showTransitAspectPatterns",
+                    tr("Show Transit Aspect Patterns"));
+    ed->addCheckBox("Events/showTransitNatalAspectPatterns",
+                    tr("Show Transit Natal Aspect Patterns"));
+    ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"), 2, 6);
+    ed->addDoubleSpinBox("Events/patternsSpreadOrb",
+                         tr("Patterns Spread Orb"),
+                         .1,
+                         16.);
+    ed->addDoubleSpinBox("Events/planetPairOrb",
+                         tr("Planet pair orb"),
+                         0.1,
+                         16.);
+    ed->addCheckBox("Events/patternsRestrictMoon",
+                    tr("Patterns Restrict Moon"));
     ed->addCheckBox("Events/showIngresses", tr("Show Ingresses"));
-    ed->addCheckBox("Events/showProgressionsToProgressions", tr("Show Progressions to Progressions"));
-    ed->addCheckBox("Events/showProgressionsToNatal", tr("Show Progressions to Natal"));
-    ed->addCheckBox("Events/includeOnlyInnerProgressionsToNatal", tr("Include only inner planet progressions to natal"));
+    ed->addCheckBox("Events/showProgressionsToProgressions",
+                    tr("Show Progressions to Progressions"));
+    ed->addCheckBox("Events/showProgressionsToNatal",
+                    tr("Show Progressions to Natal"));
+    ed->addCheckBox("Events/includeOnlyInnerProgressionsToNatal",
+                    tr("Include only inner planet progressions to natal"));
     ed->addCheckBox("Events/showLunations", tr("Show Lunations"));
     ed->addCheckBox("Events/showHeliacalEvents", tr("Show Heliacal Events"));
-    ed->addCheckBox("Events/showPrimaryDirections", tr("Show Primary Directions"));
+    ed->addCheckBox("Events/showPrimaryDirections",
+                    tr("Show Primary Directions"));
     ed->addCheckBox("Events/showLifeEvents", tr("Show Life Events"));
     ed->addDoubleSpinBox("Events/secondaryOrb", tr("Secondary Orb"), .25, 16.);
 
     ed->addTab("Events II");
-    ed->addCheckBox("Events/expandShowAspectPatterns", tr("Expand to Show Aspect Patterns"));
-    ed->addCheckBox("Events/expandShowHousePlacementsOfTransits", tr("Expand to Show House Placements Of Transits"));
-    ed->addCheckBox("Events/expandShowRulershipTips", tr("Expand to Show Rulership Tips"));
-    ed->addCheckBox("Events/expandShowStationAspectsToTransits", tr("Expand to Show Station Aspects To Transits"));
-    ed->addCheckBox("Events/expandShowStationAspectsToNatal", tr("Expand to Show Station Aspects To Natal"));
-    ed->addCheckBox("Events/expandShowReturnAspects", tr("Expand to Show Return Aspects"));
-    ed->addCheckBox("Events/expandShowTransitAspectsToReturnPlanet", tr("Expand to Show Transit Aspects To Return Planet"));
+
+    ed->addCheckBox("Events/expandShowAspectPatterns",
+                    tr("Expand to Show Aspect Patterns"));
+    ed->addCheckBox("Events/expandShowHousePlacementsOfTransits",
+                    tr("Expand to Show House Placements Of Transits"));
+    ed->addCheckBox("Events/expandShowRulershipTips",
+                    tr("Expand to Show Rulership Tips"));
+    ed->addCheckBox("Events/expandShowStationAspectsToTransits",
+                    tr("Expand to Show Station Aspects To Transits"));
+    ed->addCheckBox("Events/expandShowStationAspectsToNatal",
+                    tr("Expand to Show Station Aspects To Natal"));
+    ed->addCheckBox("Events/expandShowReturnAspects",
+                    tr("Expand to Show Return Aspects"));
+    ed->addCheckBox("Events/expandShowTransitAspectsToReturnPlanet",
+                    tr("Expand to Show Transit Aspects To Return Planet"));
 }

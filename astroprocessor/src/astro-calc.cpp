@@ -2556,41 +2556,59 @@ calculateAll(const InputData& input)
 
 EventOptions::EventOptions(const QVariantMap& map)
 {
-    defaultTimespan = map.value("Events/defaultTimespan").toString();
-    expandShowOrb = map.value("Events/secondaryOrb").toDouble();
-    planetPairOrb = map.value("Events/planetPairOrb").toDouble();
-    patternsQuorum = map.value("Events/patternsQuorum").toUInt();
-    patternsSpreadOrb = map.value("Events/patternsSpreadOrb").toDouble();
-    patternsRestrictMoon = map.value("Events/patternsRestrictMoon").toBool();
-    includeMidpoints = map.value("Events/includeMidpoints").toBool();
-    showStations = map.value("Events/showStations").toBool();
+    defaultTimespan       = map.value("Events/defaultTimespan").toString();
+    expandShowOrb         = map.value("Events/secondaryOrb").toDouble();
+    planetPairOrb         = map.value("Events/planetPairOrb").toDouble();
+    patternsQuorum        = map.value("Events/patternsQuorum").toUInt();
+    patternsSpreadOrb     = map.value("Events/patternsSpreadOrb").toDouble();
+    patternsRestrictMoon  = map.value("Events/patternsRestrictMoon").toBool();
+    includeMidpoints      = map.value("Events/includeMidpoints").toBool();
+    showStations          = map.value("Events/showStations").toBool();
     includeShadowTransits = map.value("Events/includeShadowTransits").toBool();
-    showTransitsToTransits = map.value("Events/showTransitsToTransits").toBool();
+    showTransitsToTransits =
+        map.value("Events/showTransitsToTransits").toBool();
     limitLunarTransits = map.value("Events/limitLunarTransits").toBool();
-    showTransitsToNatalPlanets = map.value("Events/showTransitsToNatalPlanets").toBool();
-    includeOnlyOuterTransitsToNatal = map.value("Events/includeOnlyOuterTransitsToNatal").toBool();
+    skipByDuration     = skipper(map.value("Events/skipByDuration").toUInt());
+    showTransitsToNatalPlanets =
+        map.value("Events/showTransitsToNatalPlanets").toBool();
+    includeOnlyOuterTransitsToNatal =
+        map.value("Events/includeOnlyOuterTransitsToNatal").toBool();
     includeAsteroids = map.value("Events/includeAsteroids").toBool();
-    includeCentaurs = map.value("Events/includeCentaurs").toBool();
-    showTransitsToNatalAngles = map.value("Events/showTransitsToNatalAngles").toBool();
-    showTransitsToHouseCusps = map.value("Events/showTransitsToHouseCusps").toBool();
+    includeCentaurs  = map.value("Events/includeCentaurs").toBool();
+    showTransitsToNatalAngles =
+        map.value("Events/showTransitsToNatalAngles").toBool();
+    showTransitsToHouseCusps =
+        map.value("Events/showTransitsToHouseCusps").toBool();
     showReturns = map.value("Events/showReturns").toBool();
-    showProgressionsToProgressions = map.value("Events/showProgressionsToProgressions").toBool();
-    showProgressionsToNatal = map.value("Events/showProgressionsToNatal").toBool();
-    includeOnlyInnerProgressionsToNatal = map.value("Events/includeOnlyInnerProgressionsToNatal").toBool();
-    showTransitAspectPatterns = map.value("Events/showTransitAspectPatterns").toBool();
-    showTransitNatalAspectPatterns = map.value("Events/showTransitNatalAspectPatterns").toBool();
-    showIngresses = map.value("Events/showIngresses").toBool();
-    showLunations = map.value("Events/showLunations").toBool();
-    showHeliacalEvents = map.value("Events/showHeliacalEvents").toBool();
+    showProgressionsToProgressions =
+        map.value("Events/showProgressionsToProgressions").toBool();
+    showProgressionsToNatal =
+        map.value("Events/showProgressionsToNatal").toBool();
+    includeOnlyInnerProgressionsToNatal =
+        map.value("Events/includeOnlyInnerProgressionsToNatal").toBool();
+    showTransitAspectPatterns =
+        map.value("Events/showTransitAspectPatterns").toBool();
+    showTransitNatalAspectPatterns =
+        map.value("Events/showTransitNatalAspectPatterns").toBool();
+    showIngresses         = map.value("Events/showIngresses").toBool();
+    showLunations         = map.value("Events/showLunations").toBool();
+    showHeliacalEvents    = map.value("Events/showHeliacalEvents").toBool();
     showPrimaryDirections = map.value("Events/showPrimaryDirections").toBool();
-    showLifeEvents = map.value("Events/showLifeEvents").toBool();
-    expandShowAspectPatterns = map.value("Events/expandShowAspectPatterns").toBool();
-    expandShowHousePlacementsOfTransits = map.value("Events/expandShowHousePlacementsOfTransits").toBool();
-    expandShowRulershipTips = map.value("Events/expandShowRulershipTips").toBool();
-    expandShowStationAspectsToTransits = map.value("Events/expandShowStationAspectsToTransits").toBool();
-    expandShowStationAspectsToNatal = map.value("Events/expandShowStationAspectsToNatal").toBool();
-    expandShowReturnAspects = map.value("Events/expandShowReturnAspects").toBool();
-    expandShowTransitAspectsToReturnPlanet = map.value("Events/expandShowTransitAspectsToReturnPlanet").toBool();
+    showLifeEvents        = map.value("Events/showLifeEvents").toBool();
+    expandShowAspectPatterns =
+        map.value("Events/expandShowAspectPatterns").toBool();
+    expandShowHousePlacementsOfTransits =
+        map.value("Events/expandShowHousePlacementsOfTransits").toBool();
+    expandShowRulershipTips =
+        map.value("Events/expandShowRulershipTips").toBool();
+    expandShowStationAspectsToTransits =
+        map.value("Events/expandShowStationAspectsToTransits").toBool();
+    expandShowStationAspectsToNatal =
+        map.value("Events/expandShowStationAspectsToNatal").toBool();
+    expandShowReturnAspects =
+        map.value("Events/expandShowReturnAspects").toBool();
+    expandShowTransitAspectsToReturnPlanet =
+        map.value("Events/expandShowTransitAspectsToReturnPlanet").toBool();
 }
 
 /*static*/
@@ -3263,6 +3281,170 @@ operator<<(std::ostream& os, const PlanetClusterMap& pcm)
     return os;
 }
 
+class TaskTracker {
+    AspectFinder* f;
+
+  public:
+    TaskTracker(AspectFinder* f) : f(f) { f->startTask(); }
+    ~TaskTracker() { f->endTask(); }
+};
+
+class PairAspectFinder : public QRunnable {
+    Loc*            _a;
+    Loc*            _b;
+    unsigned        _h;
+    double          _pjd, _jd;
+    qreal           _ad, _bd;
+    qreal           _ispd, _jspd;
+    QDateTime       _d;
+    std::string     _which;
+    EventType       _et;
+    bool            _beQuiet;
+    AspectFinder*   _finder;
+    HarmonicEvents& _evs;
+    //HarmonicEvent&  _ev;
+    bool            _useBZS;
+
+  public:
+    PairAspectFinder(Loc*             a,
+                     Loc*             b,
+                     unsigned         h,
+                     double           pjd,
+                     double           jd,
+                     qreal            ad,
+                     qreal            bd,
+                     qreal            ispd,
+                     qreal            jspd,
+                     const QDateTime& d,
+                     std::string      which,
+                     EventType        et,
+                     bool             st_quiet,
+                     AspectFinder*    finder) :
+        _a(a), _b(b), _h(h), _pjd(pjd), _jd(jd), _ad(ad), _bd(bd), _ispd(ispd),
+        _jspd(jspd), _d(d), _which(std::move(which)), _et(et),
+        _beQuiet(st_quiet), _finder(finder), _evs(_finder->_evs)//,
+        //_ev(_evs.safe_emplace_back())
+    {
+        _useBZS = (a->inMotion() && ispd < .00001)
+                  || (b->inMotion() && jspd < .00001);
+    }
+
+    void run() override
+    {
+        TaskTracker tr(_finder);
+
+        modalize<bool> mum(st_quiet, _beQuiet);
+        PlanetProfile  poses{_a->clone(), _b->clone()};
+
+        double tjd{};
+        uintmax_t iter;
+        bool bzhs = false;
+        bool done = false;
+        if (!_useBZS) {
+            try {
+                auto cps = [this, &poses](double jd) -> std::pair<qreal, qreal> {
+                    if (_finder->_state == AspectFinder::cancelRequestedState) throw int(1);
+                    auto pos = poses.computePos(jd, _h);
+                    std::pair<qreal, qreal> ret{pos, poses.speed()};
+                    if (!_beQuiet) {
+                        QDateTime dt(dateTimeFromJulian(jd));
+                        qDebug() << "nri " << (_which + ":").c_str()
+                                 << dtToString(dt)
+                                 << "ret:" << ret;
+                    }
+                    return ret;
+                };
+                iter = 50;
+                static constexpr int digits = std::numeric_limits<double>::digits;
+
+                double guess;
+                if (_a && _a->inMotion() && _b && _b->inMotion()) {
+                    guess = _pjd + (fabs(_ad) / (fabs(_ad) + fabs(_bd)));
+                } else {
+                    guess = _pjd + .5;
+                }
+                try {
+                    tjd = newton_raphson_iterate(cps, guess, _pjd, _jd, digits, iter);
+                } catch (int) {
+                    return;
+                }
+
+                auto psp = PlanetProfile::computeDelta(poses[0], poses[1], _h);
+                if (std::abs(psp.first) <= calcLoop::tol) {
+                    done = true;
+                } else {
+                    done = false;
+                }
+            } catch (...) {
+                done = false;
+            }
+            if (!done && !_beQuiet) {
+                qDebug() << "Failed"
+                         << _d.date().toString()
+                         << _which.c_str()
+                         << "after" << iter
+                         << "iteration(s) newton_raphson";
+                qDebug() << "speed" << _ispd << _jspd << "respectively";
+            }
+        }
+        if (!done) {
+            bzhs = true;
+            unsigned count = 0;
+            auto cp = [this, &poses, &count](double jd) {
+                if (_finder->_state == AspectFinder::cancelRequestedState) throw int(1);
+                ++count;
+                auto pos = poses.computePos(jd, _h);
+                if (!_beQuiet) {
+                    QDateTime dt(dateTimeFromJulian(jd));
+                    qDebug() << "bzhs " << (_which + ":").c_str()
+                             << dtToString(dt)
+                             << "ret:" << pos;
+                }
+                return pos;
+            };
+            try {
+                done = brentZhangStage(cp, _pjd, _jd, _ad, _bd, tjd);
+            } catch (int) {
+                return;
+            }
+
+            iter = count;
+            auto psp = PlanetProfile::computeDelta(poses[0], poses[1], _h);
+            if (std::abs(psp.first) <= calcLoop::tol) {
+                done = true;
+            } else {
+                done = false;
+            }
+        }
+        if (!done /*&& !_beQuiet*/) {
+            qDebug() << "Failed"
+                     << _d.date().toString()
+                     << _which.c_str()
+                     << "after" << iter
+                     << "iteration(s) brentStageZhang";
+        } else {
+            // Pack up event
+            auto qdt = dateTimeFromJulian(tjd);
+            auto p1loc = dynamic_cast<PlanetLoc*>(poses[0]);
+            auto p2loc = dynamic_cast<PlanetLoc*>(poses[1]);
+            PlanetRangeBySpeed plr{*p1loc, *p2loc};
+
+            auto ch = static_cast<unsigned char>(_h);
+            QMutexLocker ml(_evs.mutex());
+            _evs.emplace_back(qdt, _et, ch, std::move(plr));
+
+            if (!_beQuiet)
+                qDebug() << dtToString(qdt).toLocal8Bit().constData()
+                         << _which.c_str()
+                         << "with" << iter
+                         << "iteration(s)"
+                         << (bzhs ? "brentZhangStage" : "newton_raphson");
+        }
+    }
+
+    ~PairAspectFinder() {}
+};
+
 void AspectFinder::findAspectsAndPatterns()
 {
     if (_alist.empty()) return;
@@ -3361,7 +3543,11 @@ void AspectFinder::findAspectsAndPatterns()
     HarmonicPlanetClusters starts;
     auto useRate = 1 / double(maxH); // XXX
     if (showPatterns) {
-        useRate *= patternsSpreadOrb/16.;
+        useRate *= patternsSpreadOrb / 16.;
+    } else if ((showTransitsToTransits || showTransitsToNatalPlanets)
+               && includeTransitRange)
+    {
+        useRate *= planetPairOrb / 4.;
     }
     int ndays = int(useRate);
     int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
@@ -3381,10 +3567,10 @@ void AspectFinder::findAspectsAndPatterns()
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
             if (showPatterns) {
                 auto found = findClusters(h, jd, *useProf, _ids,
-                                       patternsQuorum,
-                                       nats,
-                                       patternsRestrictMoon,
-                                       patternsSpreadOrb);
+                                          patternsQuorum,
+                                          nats,
+                                          patternsRestrictMoon,
+                                          patternsSpreadOrb);
                 if (!found.empty()) work[h].swap(found);
             }
             
@@ -3476,7 +3662,7 @@ void AspectFinder::findAspectsAndPatterns()
                                 .arg(ps.names().join("="))
                                 .arg(dtToString(nd)).arg(orb)
                                 .toStdString().c_str();
-                    hit->second.first = pjd;    // update range start
+                    hit->second.range.first = pjd;    // update range start
                     ++hit;
                 }
             }
@@ -3625,10 +3811,11 @@ void AspectFinder::findAspectsAndPatterns()
                     qDebug() << QString("H%1").arg(h) << ps.names()
                              << "was previously hijacked, so skipping";
                 } else {
-                    qDebug() << QString("H%1").arg(h)
-                             << ps.names()
-                             << "from" << dtToString(dateTimeFromJulian(from))
-                             << "to" << dtToString(nd);
+                    cancel = skippable({from, to});
+                    qDebug() << QString("H%1").arg(h) << ps.names() << "from"
+                             << dtToString(dateTimeFromJulian(from)) << "to"
+                             << dtToString(nd)
+                             << std::string(cancel ? "** too short **" : "");
                 }
 
                 unsigned useH = h;
@@ -3822,8 +4009,18 @@ void AspectFinder::findAspectsAndPatterns()
                 auto orb = computeSpread(hps.first/*harmonic*/, *hwp);
                 delete hwp;
                 if (orb > planetPairOrb) {
-                    hit->second.second = pjd;
-                    proximityLog[hps].emplace(hit->second,0);
+                    hit->second.range.second = pjd;
+                    if (skippable(hit->second.range)) {
+                        for (auto r : hit->second.tasks) {
+                            delete r;
+                        }
+                        hit->second.tasks.clear();
+                    } else {
+                        proximityLog[hps].emplace(hit->second, 0);
+                        for (auto r : hit->second.tasks) {
+                            tp.start(r);
+                        }
+                    }
                     inOrb.erase(hit++);
                 } else {
                     ++hit;
@@ -3868,13 +4065,11 @@ void AspectFinder::findAspectsAndPatterns()
 
                         bool isInOrb = false;
                         if (good) {
-                            HarmonicPlanetSet hij
-                            { h, { bi->planet, bj->planet }};
-                            HarmonicPlanetSet hji { h, { bj->planet, bi->planet }};
+                            HarmonicPlanetSet hij {h, {bi->planet, bj->planet}};
 
                             auto hasit = inOrb.find(hij);
                             isInOrb = std::abs(bd) <= planetPairOrb;
-                            if (false) //if (isInOrb)
+                            if (isInOrb)
                             qDebug() << QString("Found H%1 orb %2 of %3 at %4")
                                         .arg(h).arg(std::abs(bd))
                                         .arg(hij.second.names().join("="))
@@ -3890,18 +4085,34 @@ void AspectFinder::findAspectsAndPatterns()
                                 inOrb[hij] = {pjd, 0};
                                 isInOrb = true;
                             } else if (hasit != inOrb.end() && !isInOrb) {
-                                hasit->second.second = jd;
-                                if (it->et != etcTransitToStation) {
+                                hasit->second.range.second = jd;
+                                if (it->et != etcTransitToStation
+                                    && !skippable(hasit->second.range))
+                                {
                                     proximityLog[hasit->first]
-                                            .emplace(hasit->second,0);
+                                        .emplace(hasit->second, 0);
+                                    for (auto r : hasit->second.tasks) {
+                                        tp.start(r);
+                                    }
+                                } else {
+                                    for (auto r : hasit->second.tasks) {
+                                        delete r;
+                                    }
+                                    hasit->second.tasks.clear();
                                 }
                                 if (!st_quiet)
-                                qDebug() << QString("Found H%1 range of %2 at %3 to %4")
-                                            .arg(h)
-                                            .arg(hij.second.names().join("="))
-                                            .arg(dtToString(dateTimeFromJulian(hasit->second.first)))
-                                            .arg(dtToString(d))
-                                            .toStdString().c_str();
+                                    qDebug() << QString("Found H%1 range of %2 "
+                                                        "at " "%3 to %4")
+                                                    .arg(h)
+                                                    .arg(hij.second.names()
+                                                             .join("="))
+                                                    .arg(dtToString(
+                                                        dateTimeFromJulian(
+                                                            hasit->second.range
+                                                                .first)))
+                                                    .arg(dtToString(d))
+                                                    .toStdString()
+                                                    .c_str();
                                 inOrb.erase(hasit);
                             }
                         }
@@ -3992,140 +4203,34 @@ void AspectFinder::findAspectsAndPatterns()
                     stuff.erase(it++);
                     if (unsel) { continue; }
 
-                    bool useBZS = (_alist[i]->inMotion() && ispd < .00001)
-                            || (_alist[j]->inMotion() && jspd < .00001);
-                    auto& ev = _evs.safe_emplace_back();
-#if 1
-                    bool bQuiet = mum;
-                    tp.start([=, &ev] {
-                        startTask();
-                        modalize<bool> mum(st_quiet, bQuiet);
-#endif
-                        PlanetProfile poses { _alist[i]->clone(), _alist[j]->clone() };
-
-                        // for slow planetary motion we need to use BrentZhangStage.
-                        // XXX replace magic number: might plausibly instead be
-                        // _alist certain percentage of the default speed.
-                        double tjd {};
-                        uintmax_t iter;
-                        bool bzhs = false;
-                        bool done = false;
-                        if (!useBZS) {
-                            try {
-                                auto cps = [&poses, &which, h, this](double jd)
-                                -> std::pair<qreal,qreal>
-                                {
-                                    if (_state == cancelRequestedState) throw int(1);
-                                    auto pos = poses.computePos(jd,h);
-                                    std::pair<qreal,qreal> ret { pos, poses.speed() };
-                                    if (!st_quiet) {
-                                        QDateTime dt(dateTimeFromJulian(jd));
-                                        qDebug() << "nri " << (which + ":").c_str()
-                                                 << dtToString(dt)
-                                                 << "ret:" << ret;
-                                    }
-                                    return ret;
-                                };
-                                iter = 50;  // TODO !? need to diagnose when we hit this
-                                static constexpr int digits =
-                                        std::numeric_limits<double>::digits;
-
-                                double guess;
-                                if (_alist[i]->inMotion() && _alist[j]->inMotion()) {
-                                    guess = pjd + (fabs(ad)/(fabs(ad)+fabs(bd)));
-                                } else {
-                                    guess = pjd + .5;
-                                }
-                                try {
-                                tjd = newton_raphson_iterate(cps,
-                                                             guess, pjd, jd,
-                                                             digits, iter);
-                                } catch (int) {
-                                    endTask();
-                                    return;
-                                }
-
-                                auto psp = PlanetProfile::computeDelta(poses[0],poses[1],h);
-                                if (std::abs(psp.first) <= calcLoop::tol) {
-                                    // check for actual hit per tolerance?
-                                    done = true;
-                                } else {
-                                    done = false;
-                                }
-                            } catch (...) {
-                                done = false;
-                            }
-                            if (!done && !st_quiet) {
-                                qDebug() << "Failed"
-                                << d.date().toString()
-                                << which.c_str()
-                                << "after" << iter
-                                << "iteration(s) newton_raphson";
-                                qDebug() << "speed" << ispd << jspd << "respectively";
-                            }
+                    auto r = new PairAspectFinder(_alist[i],
+                                                  _alist[j],
+                                                  h,
+                                                  pjd,
+                                                  jd,
+                                                  ad,
+                                                  bd,
+                                                  ispd,
+                                                  jspd,
+                                                  d,
+                                                  which,
+                                                  et,
+                                                  mum,
+                                                  this);
+                    auto pj = dynamic_cast<PlanetLoc*>(_alist[j]);
+                    if (includeTransitRange) {
+                        auto hasit = inOrb.find({h, {pi->planet, pj->planet}});
+                        if (hasit == inOrb.end()) {
+                            hasit = inOrb.find({h, {pj->planet, pi->planet}});
                         }
-                        if (!done) {
-                            bzhs = true;
-                            unsigned count = 0;
-                            auto cp = [&poses, &count, &which,
-                                    h, this](double jd)
-                            {
-                                if (_state == cancelRequestedState) throw int(1);
-                                ++count;
-                                auto pos = poses.computePos(jd, h);
-                                if (!st_quiet) {
-                                    QDateTime dt(dateTimeFromJulian(jd));
-                                    qDebug() << "bzhs " << (which + ":").c_str()
-                                             << dtToString(dt)
-                                             << "ret:" << pos;
-                                }
-                                return pos;
-                            };
-                            try {
-                            done = brentZhangStage(cp, pjd, jd, ad, bd, tjd);
-                            } catch (int) {
-                                endTask();
-                                return;
-                            }
-
-                            iter = count;
-                            auto psp = PlanetProfile::computeDelta(poses[0],poses[1],h);
-                            if (std::abs(psp.first) <= calcLoop::tol) {
-                                // check for actual hit per tolerance?
-                                done = true;
-                            } else {
-                                done = false;
-                            }
+                        if (hasit != inOrb.end()) {
+                            hasit->second.addTask(r);
+                            continue;
                         }
-                        if (!done /*&& !s_quiet*/) {
-                            qDebug() << "Failed"
-                                << d.date().toString()
-                                << which.c_str()
-                                << "after" << iter
-                                << "iteration(s) brentStageZhang";
-                        } else {
-                            // Pack up event
-                            auto qdt = dateTimeFromJulian(tjd);
-                            auto p1loc = dynamic_cast<PlanetLoc*>(poses[0]);
-                            auto p2loc = dynamic_cast<PlanetLoc*>(poses[1]);
-                            PlanetRangeBySpeed plr { *p1loc, *p2loc };
+                    }
 
-                            auto ch = static_cast<unsigned char>(h);
-                            QMutexLocker(_evs.mutex()),
-                            ev = HarmonicEvent(qdt, et, ch, std::move(plr));
-
-                            if (!s_quiet)
-                                qDebug() << dtToString(qdt).toLocal8Bit().constData()
-                                         << which.c_str()
-                                         << "with" << iter
-                                         << "iteration(s)"
-                                     << (bzhs? "brentZhangStage" : "newton_raphson");
-                        }
-
-#if 1
-                        endTask();
-                    });
-#endif
+                    // enqueue it now...
+                    tp.start(r);
                 }
             }
         } // if includeTransits
@@ -4190,6 +4295,33 @@ void AspectFinder::findAspectsAndPatterns()
                 auto desc = QString("[%1 - %2]")
                                 .arg(dtToString(dateTimeFromJulian(r.first)),
                                      dtToString(dateTimeFromJulian(r.second)));
+                if (skipByDuration != SkipNone) {
+                    double duration  = r.second - r.first;
+                    double threshold = 0.0;
+                    switch (skipByDuration) {
+                    case SkipLessThanDay:
+                        threshold = 1.0;
+                        break;
+                    case SkipLessThanWeek:
+                        threshold = 7.0;
+                        break;
+                    case SkipLessThanMonth:
+                        threshold = 30.0;
+                        break;
+                    default:
+                        threshold = 0.0;
+                        break;
+                    }
+                    if (duration < threshold) {
+                        if (!st_quiet) {
+                            qDebug() << "Skipping exact aspect search for pair"
+                                     << ps.names().join("=") << "harmonic" << h
+                                     << "duration" << duration
+                                     << "days (threshold:" << threshold << ")";
+                        }
+                        continue;
+                    }
+                }
                 if (ps.begin()->samePlanet({Planet_Moon})
                     || ps.rbegin()->samePlanet({Planet_Moon}))
                 {

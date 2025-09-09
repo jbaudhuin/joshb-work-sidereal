@@ -14,6 +14,7 @@
 #include <QMetaType>
 #include <QDebug>
 #include <QMutex>
+#include <QRunnable>
 
 #include <set>
 #include <deque>
@@ -1582,10 +1583,35 @@ class ADateTimeRange : public ARange<QDateTime> {
 };
 
 typedef std::pair<unsigned, PlanetSet> HarmonicPlanetSet;
+
 typedef std::pair<double, double> JDateRange;
-typedef std::set<JDateRange> JDateRanges;
-typedef std::map<JDateRange, unsigned char> JDateRangeHits;
-typedef std::map<HarmonicPlanetSet, JDateRange> HarmonicPlanetDateRangeMap;
+typedef std::set<JDateRange>      JDateRanges;
+
+typedef std::vector<QRunnable*> RunnableTasks;
+
+struct JDateRangeTasks
+{
+    JDateRange    range;
+    RunnableTasks tasks;
+
+    JDateRangeTasks() : range(), tasks() {}
+
+    JDateRangeTasks(double               start,
+                    double               finish,
+                    const RunnableTasks& tasks = {}) :
+        range(start, finish), tasks(tasks)
+    {}
+
+    operator JDateRange() const { return range; }
+
+    void addTask(QRunnable* task) { tasks.push_back(task); }
+
+    JDateRangeTasks& operator<<(QRunnable* task)
+    { addTask(task); return *this; }
+};
+typedef std::map<HarmonicPlanetSet, JDateRangeTasks> HarmonicPlanetDateRangeMap;
+
+typedef std::map<JDateRange, unsigned char>         JDateRangeHits;
 typedef std::map<HarmonicPlanetSet, JDateRangeHits> HarmonicPlanetDateRangesMap;
 
 class HarmonicAspect {
