@@ -1587,7 +1587,15 @@ typedef std::pair<unsigned, PlanetSet> HarmonicPlanetSet;
 typedef std::pair<double, double> JDateRange;
 typedef std::set<JDateRange>      JDateRanges;
 
-typedef std::vector<QRunnable*> RunnableTasks;
+class EventFinderTask : public QRunnable {
+  public:
+    EventFinderTask() { }
+    virtual ~EventFinderTask() { }
+
+    virtual EventType eventType() const { return etcUnknownEvent; }
+};
+
+typedef std::vector<EventFinderTask*> RunnableTasks;
 
 struct JDateRangeTasks
 {
@@ -1604,9 +1612,9 @@ struct JDateRangeTasks
 
     operator JDateRange() const { return range; }
 
-    void addTask(QRunnable* task) { tasks.push_back(task); }
+    void addTask(EventFinderTask* task) { tasks.push_back(task); }
 
-    JDateRangeTasks& operator<<(QRunnable* task)
+    JDateRangeTasks& operator<<(EventFinderTask* task)
     { addTask(task); return *this; }
 };
 typedef std::map<HarmonicPlanetSet, JDateRangeTasks> HarmonicPlanetDateRangeMap;

@@ -3289,7 +3289,7 @@ class TaskTracker {
     ~TaskTracker() { f->endTask(); }
 };
 
-class PairAspectFinder : public QRunnable {
+class PairAspectFinder : public EventFinderTask {
     Loc*            _a;
     Loc*            _b;
     unsigned        _h;
@@ -3329,6 +3329,8 @@ class PairAspectFinder : public QRunnable {
                   || (b->inMotion() && jspd < .00001);
     }
 
+    EventType eventType() const override { return _et; }
+
     void run() override
     {
         TaskTracker tr(_finder);
@@ -3336,10 +3338,10 @@ class PairAspectFinder : public QRunnable {
         modalize<bool> mum(st_quiet, _beQuiet);
         PlanetProfile  poses{_a->clone(), _b->clone()};
 
-        double tjd{};
+        double    tjd {};
         uintmax_t iter;
-        bool bzhs = false;
-        bool done = false;
+        bool      bzhs = false;
+        bool      done = false;
         if (!_useBZS) {
             try {
                 auto cps = [this, &poses](double jd) -> std::pair<qreal, qreal> {
@@ -3811,7 +3813,7 @@ void AspectFinder::findAspectsAndPatterns()
                     qDebug() << QString("H%1").arg(h) << ps.names()
                              << "was previously hijacked, so skipping";
                 } else {
-                    cancel = skippable({from, to});
+                    cancel = skippablePeriod({from, to});
                     qDebug() << QString("H%1").arg(h) << ps.names() << "from"
                              << dtToString(dateTimeFromJulian(from)) << "to"
                              << dtToString(nd)
@@ -4010,16 +4012,19 @@ void AspectFinder::findAspectsAndPatterns()
                 delete hwp;
                 if (orb > planetPairOrb) {
                     hit->second.range.second = pjd;
-                    if (skippable(hit->second.range)) {
-                        for (auto r : hit->second.tasks) {
+                    bool tooShort = skippablePeriod(hit->second.range);
+                    bool any      = false;
+                    for (auto r : hit->second.tasks) {
+                        if (tooShort && skippableEvent(r->eventType())) {
                             delete r;
-                        }
-                        hit->second.tasks.clear();
-                    } else {
-                        proximityLog[hps].emplace(hit->second, 0);
-                        for (auto r : hit->second.tasks) {
+                        } else {
                             tp.start(r);
+                            any = true;
                         }
+                    }
+                    hit->second.tasks.clear();
+                    if (any) {
+                        proximityLog[hps].emplace(hit->second, 0);
                     }
                     inOrb.erase(hit++);
                 } else {
@@ -4086,9 +4091,7 @@ void AspectFinder::findAspectsAndPatterns()
                                 isInOrb = true;
                             } else if (hasit != inOrb.end() && !isInOrb) {
                                 hasit->second.range.second = jd;
-                                if (it->et != etcTransitToStation
-                                    && !skippable(hasit->second.range))
-                                {
+                                if (!skippable(hasit->second.range, it->et)) {
                                     proximityLog[hasit->first]
                                         .emplace(hasit->second, 0);
                                     for (auto r : hasit->second.tasks) {

@@ -257,7 +257,10 @@ struct EventOptions
     };
     skipper skipByDuration = SkipNone;
 
-    bool skippable(const JDateRange& r) const
+    bool skippable(const JDateRange& r, EventType et) const
+    { return skippableEvent(et) && skippablePeriod(r); }
+
+    bool skippablePeriod(const JDateRange& r) const
     {
         switch (skipByDuration) {
         case SkipNone:
@@ -271,6 +274,9 @@ struct EventOptions
         }
         return false;
     }
+
+    bool skippableEvent(EventType et) const
+    { return et == etcTransitToTransit || et == etcTransitToNatal; }
 
     bool includeTransits() const
     {
