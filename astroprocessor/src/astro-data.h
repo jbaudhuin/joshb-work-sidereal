@@ -1593,6 +1593,7 @@ class EventFinderTask : public QRunnable {
     virtual ~EventFinderTask() { }
 
     virtual EventType eventType() const { return etcUnknownEvent; }
+    virtual void setInOrbRange(const JDateRange&) { }
 };
 
 typedef std::vector<EventFinderTask*> RunnableTasks;

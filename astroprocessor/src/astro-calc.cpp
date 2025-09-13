@@ -3304,6 +3304,7 @@ class PairAspectFinder : public EventFinderTask {
     HarmonicEvents& _evs;
     //HarmonicEvent&  _ev;
     bool            _useBZS;
+    JDateRange      _useRange;
 
   public:
     PairAspectFinder(Loc*             a,
@@ -3330,6 +3331,8 @@ class PairAspectFinder : public EventFinderTask {
     }
 
     EventType eventType() const override { return _et; }
+
+    void setInOrbRange(const JDateRange& r) override { _useRange = r; }
 
     void run() override
     {
@@ -3433,7 +3436,11 @@ class PairAspectFinder : public EventFinderTask {
 
             auto ch = static_cast<unsigned char>(_h);
             QMutexLocker ml(_evs.mutex());
-            _evs.emplace_back(qdt, _et, ch, std::move(plr));
+            auto&        ev = _evs.emplace_back(qdt, _et, ch, std::move(plr));
+            if (_useRange != JDateRange()) {
+                ev.setRange({ dateTimeFromJulian(_useRange.first),
+                              dateTimeFromJulian(_useRange.second) });
+            }
 
             if (!_beQuiet)
                 qDebug() << dtToString(qdt).toLocal8Bit().constData()
@@ -3551,6 +3558,14 @@ void AspectFinder::findAspectsAndPatterns()
     {
         useRate *= planetPairOrb / 4.;
     }
+    if (skipByDuration == SkipLessThanMonth) {
+        useRate *= 8;
+    } else if (skipByDuration == SkipLessThanWeek) {
+        useRate *= 2;
+    } else if (skipByDuration == SkipLessThanDay) {
+        //useRate *= 2;
+    }
+
     int ndays = int(useRate);
     int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
 
@@ -4018,6 +4033,7 @@ void AspectFinder::findAspectsAndPatterns()
                         if (tooShort && skippableEvent(r->eventType())) {
                             delete r;
                         } else {
+                            r->setInOrbRange(hit->second.range);
                             tp.start(r);
                             any = true;
                         }
@@ -4074,14 +4090,16 @@ void AspectFinder::findAspectsAndPatterns()
 
                             auto hasit = inOrb.find(hij);
                             isInOrb = std::abs(bd) <= planetPairOrb;
+#if 0
                             if (isInOrb)
                             qDebug() << QString("Found H%1 orb %2 of %3 at %4")
                                         .arg(h).arg(std::abs(bd))
                                         .arg(hij.second.names().join("="))
                                         .arg(dtToString(d))
                                         .toStdString().c_str();
+#endif
                             if (hasit == inOrb.end() && isInOrb) {
-                                if (!st_quiet)
+                                //if (!st_quiet)
                                 qDebug() << QString("Found H%1 start of %2 at %3")
                                             .arg(h)
                                             .arg(hij.second.names().join("="))
@@ -4091,10 +4109,15 @@ void AspectFinder::findAspectsAndPatterns()
                                 isInOrb = true;
                             } else if (hasit != inOrb.end() && !isInOrb) {
                                 hasit->second.range.second = jd;
-                                if (!skippable(hasit->second.range, it->et)) {
-                                    proximityLog[hasit->first]
-                                        .emplace(hasit->second, 0);
+                                if (hasit->second.tasks.empty()) {
+                                    proximityLog[hasit->first].emplace(
+                                        hasit->second,
+                                        0);
+                                } else if (!skippable(hasit->second.range,
+                                                      it->et))
+                                {
                                     for (auto r : hasit->second.tasks) {
+                                        r->setInOrbRange(hasit->second.range);
                                         tp.start(r);
                                     }
                                 } else {
@@ -4103,7 +4126,7 @@ void AspectFinder::findAspectsAndPatterns()
                                     }
                                     hasit->second.tasks.clear();
                                 }
-                                if (!st_quiet)
+                                //if (!st_quiet)
                                     qDebug() << QString("Found H%1 range of %2 "
                                                         "at " "%3 to %4")
                                                     .arg(h)
@@ -4206,19 +4229,12 @@ void AspectFinder::findAspectsAndPatterns()
                     stuff.erase(it++);
                     if (unsel) { continue; }
 
-                    auto r = new PairAspectFinder(_alist[i],
-                                                  _alist[j],
-                                                  h,
-                                                  pjd,
-                                                  jd,
-                                                  ad,
-                                                  bd,
-                                                  ispd,
-                                                  jspd,
-                                                  d,
-                                                  which,
-                                                  et,
-                                                  mum,
+                    auto r = new PairAspectFinder(_alist[i], _alist[j],
+                                                  h, pjd, jd,
+                                                  ad, bd,
+                                                  ispd, jspd,
+                                                  d, which,
+                                                  et, mum,
                                                   this);
                     auto pj = dynamic_cast<PlanetLoc*>(_alist[j]);
                     if (includeTransitRange) {
@@ -4227,13 +4243,29 @@ void AspectFinder::findAspectsAndPatterns()
                             hasit = inOrb.find({h, {pj->planet, pi->planet}});
                         }
                         if (hasit != inOrb.end()) {
+                            auto r = new PairAspectFinder(_alist[i], _alist[j],
+                                                          h, pjd, jd,
+                                                          ad, bd,
+                                                          ispd, jspd,
+                                                          d, which,
+                                                          et, mum,
+                                                          this);
                             hasit->second.addTask(r);
                             continue;
                         }
                     }
 
-                    // enqueue it now...
-                    tp.start(r);
+                    if (skipByDuration == SkipNone) {
+                        // enqueue it now if we know it would not be skipped
+                        auto r = new PairAspectFinder(_alist[i], _alist[j],
+                                                      h, pjd, jd,
+                                                      ad, bd,
+                                                      ispd, jspd,
+                                                      d, which,
+                                                      et, mum,
+                                                      this);
+                        tp.start(r);
+                    }
                 }
             }
         } // if includeTransits
@@ -4264,8 +4296,10 @@ void AspectFinder::findAspectsAndPatterns()
         auto rit = std::make_reverse_iterator(it);
         while (rit != ranges.rend() && rit->first.first <= jd) {
             if (rit->first.second >= jd) {
-                e.setRange({dateTimeFromJulian(rit->first.first),
-                            dateTimeFromJulian(rit->first.second)});
+                if (e.range() != ADateTimeRange()) {
+                    e.setRange({ dateTimeFromJulian(rit->first.first),
+                                 dateTimeFromJulian(rit->first.second) });
+                }
                 rit->second++;
                 break;
             }

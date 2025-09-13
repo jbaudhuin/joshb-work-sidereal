@@ -270,7 +270,7 @@ struct EventOptions
         case SkipLessThanWeek:
             return r.second - r.first < 7.0;
         case SkipLessThanMonth:
-            return r.second - r.second < 28.0;
+            return r.second - r.first < 28.0;
         }
         return false;
     }
