@@ -19,32 +19,29 @@ Q_DECLARE_METATYPE(ADateRange)
 
 /* =========================== ASTRO FILE ================================== */
 
-class AstroFile :
-        public QObject,
-        public A::EventStore
-{
+class AstroFile : public QObject, public A::EventStore {
     Q_OBJECT;
 
-public:
+  public:
     enum Member {
-        None = 0x0,
-        Name = 0x1,
-        Type = 0x2,
-        GMT = 0x4,
-        Timezone = 0x8,
-        Location = 0x10,
+        None         = 0x0,
+        Name         = 0x1,
+        Type         = 0x2,
+        GMT          = 0x4,
+        Timezone     = 0x8,
+        Location     = 0x10,
         LocationName = 0x20,
-        Comment = 0x40,
-        HouseSystem = 0x80,
-        Zodiac = 0x100,
-        AspectSet = 0x200,
-        AspectMode = 0x400,
-        Harmonic = 0x800,
+        Comment      = 0x40,
+        HouseSystem  = 0x80,
+        Zodiac       = 0x100,
+        AspectSet    = 0x200,
+        AspectMode   = 0x400,
+        Harmonic     = 0x800,
         HarmonicOpts = 0x1000,
-        EventList = 0x2000,
-        DateRange = 0x4000,
+        EventList    = 0x2000,
+        DateRange    = 0x4000,
         ChangedState = 0x8000,
-        All = 0xFFFF
+        All          = 0xFFFF
     };
 
     Q_DECLARE_FLAGS(Members, Member)
@@ -52,9 +49,9 @@ public:
     AstroFile(QObject* parent = nullptr);
     virtual ~AstroFile() { }
 
-    QString fileName() const;
-    static QString typeToString(unsigned type);
-    static FileType typeFromString(const QString& str);
+    QString            fileName() const;
+    static QString     typeToString(unsigned type);
+    static FileType    typeFromString(const QString& str);
     AstroFile::Members diff(AstroFile* other) const;
 
     void save();
@@ -62,81 +59,100 @@ public:
     void load(const AFileInfo& name);
     void loadComposite(const AFileInfoList& names);
 
-    void suspendUpdate()            { _holdUpdate = true; }
-    bool isSuspendedUpdate()  const { return _holdUpdate; }
+    void suspendUpdate() { _holdUpdate = true; }
+    bool isSuspendedUpdate() const { return _holdUpdate; }
     void resumeUpdate();
 
     void clearUnsavedState();
-    bool hasUnsavedChanges()  const { return _unsavedChanges; }
-    bool isEmpty()            const { return scope.planets.count() == 0; }
+    bool hasUnsavedChanges() const { return _unsavedChanges; }
+    bool isEmpty() const { return scope.planets.count() == 0; }
 
-    void setName         (const QString&   name);
+    void setName(const QString& name);
     void setFileInfo(const AFileInfo& fi) { _fileInfo = fi; }
-    void setType         (const FileType   type);
-    void setGMT          (const QDateTime& gmt);
-    void setTimezone     (const short& zone);
-    void setLocation     (const QVector3D  location);
-    void setLocationName (const QString&   location);
-    void setComment      (const QString&   comment);
-    void setHouseSystem  (A::HouseSystemId system);
-    void setZodiac       (A::ZodiacId zod);
-    void setAspectSet    (A::AspectSetId set, bool force = false);
-    void setAspectMode   (const A::aspectModeType& mode);
+    void setType(const FileType type);
+    void setGMT(const QDateTime& gmt);
+    void setTimezone(const short& zone);
+    void setLocation(const QVector3D location);
+    void setLocationName(const QString& location);
+    void setComment(const QString& comment);
+    void setHouseSystem(A::HouseSystemId system);
+    void setZodiac(A::ZodiacId zod);
+    void setAspectSet(A::AspectSetId set, bool force = false);
+    void setAspectMode(const A::aspectModeType& mode);
     void setEventList(const QList<QDateTime>& evl);
     void setDateRange(const ADateRange& startEnd) { _dateRange = startEnd; }
-    void setHarmonic     (double harmonic);
+    void setHarmonic(double harmonic);
 
     void setFocalPlanets(const A::PlanetSet& fp = {}) { _focalPlanets = fp; }
 
-    QString          getName()         const { return _fileInfo.baseName(); }
+    QString          getName() const { return _fileInfo.baseName(); }
     const AFileInfo& fileInfo() const { return _fileInfo; }
-    
-    const QString&   getComment()      const { return comment; }
-    FileType         getType()         const { return type; }
-    const QVector3D& getLocation()     const { return scope.inputData.location(); }
-    const QString&   getLocationName() const { return locationName; }
-    const QDateTime& getGMT()          const { return scope.inputData.GMT(); }
-    short            getTimezone()     const { return scope.inputData.tz(); }
-    //A::Horoscope& horoscope() { return scope; }
-    A::Horoscope& horoscope() { return scope; }
-    const A::Horoscope& horoscope()    const { return scope; }
-    A::HouseSystemId getHouseSystem()  const { return scope.inputData.houseSystem(); }
-    A::ZodiacId      getZodiac()       const { return scope.inputData.zodiac(); }
-    A::AspectSetId   getAspectSetId() const { return scope.inputData.aspectSet(); }
 
-    const A::AspectsSet& getAspectSet()  const
-    { return A::getAspectSet(scope.inputData.aspectSet()); }
+    const QString&   getComment() const { return comment; }
+    FileType         getType() const { return type; }
+    const QVector3D& getLocation() const { return scope.inputData.location(); }
+    const QString&   getLocationName() const { return locationName; }
+    const QDateTime& getGMT() const { return scope.inputData.GMT(); }
+    short            getTimezone() const { return scope.inputData.tz(); }
+
+    A::Horoscope&       horoscope() { return scope; }
+    const A::Horoscope& horoscope() const { return scope; }
+
+    A::HouseSystemId    getHouseSystem() const
+    {
+        return scope.inputData.houseSystem();
+    }
+
+    A::ZodiacId    getZodiac() const { return scope.inputData.zodiac(); }
+
+    A::AspectSetId getAspectSetId() const
+    {
+        return scope.inputData.aspectSet();
+    }
+
+    const A::AspectsSet& getAspectSet() const
+    {
+        return A::getAspectSet(getAspectSetId());
+    }
 
     A::aspectModeEnum       getAspectMode() const { return A::aspectMode; }
     const QList<QDateTime>& getEventList() const { return _eventList; }
     double                  getHarmonic() const { return scope.harmonic; }
 
-    QDateTime               getLocalTime() const
-    { return getGMT().toTimeZone(QTimeZone(int(getTimezone())*3600)); }
+    QDateTime getLocalTime() const
+    {
+        return getGMT().toTimeZone(QTimeZone(int(getTimezone()) * 3600));
+    }
 
     const ADateRange& getDateRange() const { return _dateRange; }
 
-    A::FileInput     fileInputData() const { return { type, scope.inputData }; }
-    A::FileInput     fileInputData(FileType typ) const { return { typ, scope.inputData }; }
+    A::FileInput fileInputData() const { return { type, scope.inputData }; }
+    A::FileInput fileInputData(FileType typ) const
+    {
+        return { typ, scope.inputData };
+    }
 
     const A::PlanetSet& focalPlanets() const { return _focalPlanets; }
 
-    void             calculate() { recalculate(); }
+    void calculate() { recalculate(); }
 
     const A::InputData& data() const { return scope.inputData; }
 
-    static void      addChartDir(const QString& label,
-                                 const QString& dir);
+    static void addChartDir(const QString& label, const QString& dir);
 
-    static QMap<QString,QString>& _fixedChartDirMap();
+    static QMap<QString, QString>& _fixedChartDirMap();
 
-    static const QMap<QString,QString>& fixedChartDirMap()
-    { return _fixedChartDirMap(); }
+    static const QMap<QString, QString>& fixedChartDirMap()
+    {
+        return _fixedChartDirMap();
+    }
 
     static QStringList& _fixedChartDirMapKeys();
 
     static const QStringList& fixedChartDirMapKeys()
-    { return _fixedChartDirMapKeys(); }
+    {
+        return _fixedChartDirMapKeys();
+    }
 
     static QString fixedChartDir(int i = 0)
     {
@@ -147,34 +163,34 @@ public:
         return ".";
     }
 
-signals:
+  signals:
     void changed(AstroFile::Members);
     void destroyRequested();
 
-public slots:
+  public slots:
     void destroy();
 
-private:
-    bool _unsavedChanges;
-    bool _holdUpdate;
-    Members _holdUpdateMembers;
+  private:
+    bool       _unsavedChanges;
+    bool       _holdUpdate;
+    Members    _holdUpdateMembers;
     static int counter;
 
-    AFileInfo _fileInfo;
-    QString comment;
-    QString locationName;
-    FileType type;
+    AFileInfo    _fileInfo;
+    QString      comment;
+    QString      locationName;
+    FileType     type;
     A::Horoscope scope;
 
-    QList<QDateTime> _eventList;  // computed contact dateTimes
-    ADateRange _dateRange; // really just start, end
+    QList<QDateTime> _eventList; // computed contact dateTimes
+    ADateRange       _dateRange; // really just start, end
 
     A::PlanetSet _focalPlanets;
 
     virtual void recalculate();
-    void recalculateBaseChart();
-    void recalculateHarmonics();
-    void change(AstroFile::Members, bool affectChangedState = true);
+    void         recalculateBaseChart();
+    void         recalculateHarmonics();
+    void         change(AstroFile::Members, bool affectChangedState = true);
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(AstroFile::Members)
@@ -184,47 +200,50 @@ typedef QList<AstroFile::Members> MembersList;
 
 /* =========================== ABSTRACT FILE HANDLER ================================ */
 
-class AstroFileHandler : public QWidget, public Customizable
-{
+class AstroFileHandler : public QWidget, public Customizable {
     Q_OBJECT
 
-    private:
-        AstroFileList f;
-        bool delayUpdate;
-        MembersList delayMembers;
+  private:
+    AstroFileList f;
+    bool          delayUpdate;
+    MembersList   delayMembers;
 
-        MembersList blankMembers();
-        bool isAnyFileSuspended();                      // returns true if any file has isSuspendedUpdate() == true
+    MembersList blankMembers();
+    bool        isAnyFileSuspended(); // returns true if any file has
+                                      // isSuspendedUpdate() == true
 
-    private slots:
-        void fileUpdatedSlot(AstroFile::Members);
-        void fileDestroyedSlot();
+  private slots:
+    void fileUpdatedSlot(AstroFile::Members);
+    void fileDestroyedSlot();
 
-    protected:
-        virtual void filesUpdated(MembersList members) = 0;
+  protected:
+    virtual void filesUpdated(MembersList members) = 0;
 
-        virtual void showEvent(QShowEvent* e)
-        { QWidget::showEvent(e); resumeUpdate(); }
+    virtual void showEvent(QShowEvent* e)
+    {
+        QWidget::showEvent(e);
+        resumeUpdate();
+    }
 
-    signals:
-        void requestHelp(QString tag);
+  signals:
+    void requestHelp(QString tag);
 
-    public:
-        AstroFileHandler(QWidget *parent = nullptr);
-        A::AspectList calculateAspects();
-        A::AspectList calculateSynastryAspects();
+  public:
+    AstroFileHandler(QWidget* parent = nullptr);
+    A::AspectList calculateAspects();
+    A::AspectList calculateSynastryAspects();
 
-        void resumeUpdate();
-        void setFiles(const AstroFileList& files);
+    void resumeUpdate();
+    void setFiles(const AstroFileList& files);
 
-        AstroFile* file(int index = 0) const
-        { return (f.count() > index) ? f[index] : nullptr; }
+    AstroFile* file(int index = 0) const
+    {
+        return (f.count() > index) ? f[index] : nullptr;
+    }
 
-        AstroFileList files() const { return f; }
-        int filesCount() const { return f.count(); }
+    AstroFileList files() const { return f; }
+    int           filesCount() const { return f.count(); }
 };
-
-
 
 /* =========================== ASTRO TREE VIEW ====================================== */
 

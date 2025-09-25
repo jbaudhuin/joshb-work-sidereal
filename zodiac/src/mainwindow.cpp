@@ -460,7 +460,7 @@ AstroWidget::addSlide(AstroFileHandler* w,
                       const QIcon& icon,
                       QString title)
 {
-    qDebug() << "added slide" << w << title;
+    //qDebug() << "added slide" << w << title;
     QAction* act = toolBar->addAction(icon, title, this, SLOT(toolBarActionClicked()));
     act->setCheckable(true);
     act->setActionGroup(actionGroup);
@@ -473,13 +473,13 @@ AstroWidget::addSlide(AstroFileHandler* w,
 #endif
 
     for (AstroFileHandler* wdg : dockHandlers) {
-        qDebug() << w << "connected planetSelected() to" << wdg;
+        //qDebug() << w << "connected planetSelected() to" << wdg;
         connect(w, SIGNAL(planetSelected(A::PlanetId, int)),
                 wdg, SLOT(setCurrentPlanet(A::PlanetId, int)));
     }
 
     for (QDockWidget* d : docks) {
-        qDebug() << w << "connected planetSelected() to dock" << d;
+        //qDebug() << w << "connected planetSelected() to dock" << d;
         connect(w, SIGNAL(planetSelected(A::PlanetId, int)),
                 d, SLOT(show()));
     }

@@ -48,7 +48,7 @@ int sgn(T x) {
     return sgn(x, std::is_signed<T>());
 }
 
-aspectModeType aspectMode(amcEcliptic);
+aspectModeType aspectMode { amcEcliptic };
 
 /*static*/
 const
@@ -57,6 +57,8 @@ aspectModeType::current()
 {
     return aspectMode;
 }
+
+PrimDirMode primDirMode = prdMundane;
 
 double getJulianDate(QDateTime GMT,
                      bool ephemerisTime/*=false*/)
@@ -544,49 +546,76 @@ calculatePlanet(PlanetId planet,
     double frac;
     double st = swe_degnorm(ret.equatorialPos.x());
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
-    //qDebug("Planet %s RA %d %02d %02d:",
-    //       qPrintable(getPlanetName(planet)), deg, min, sec);
+    qDebug("Planet %s RA %d %02d %02d:",
+           qPrintable(getPlanetName(planet)), deg, min, sec);
 
-    double at[4];
-    double RA = at[Star::atMC] = ret.equatorialPos.x();
-    double DD = asind(sind(eps) * sind(ablong));
-    double AD = asind(tand(DD) * tand(input.location().y()));
-    double OA = input.location().y() >= 0 ? (RA - AD) : (RA + AD);
-    double OD =input.location().y() >= 0 ? (RA + AD) : (RA - AD);
-    // RA - (OAAC - OA)
-    at[Star::atAsc] = swe_degnorm(houses.RAMC - (houses.OAAC - OA));
-    at[Star::atDesc] = swe_degnorm(houses.RAMC - (houses.ODDC - OD));
-    //at[Star::atDesc] = RA + swe_difdegn(RA, at[Star::atAsc]);
-    //at[Star::atDesc] = swe_degnorm(houses.RAMC + (houses.OAAC - OA));
-    at[Star::atIC] = swe_degnorm(RA - 180);
+    static QString angleDesc[] = { "asc", "desc", "mc", "ic" };
 
-    for (Star::angleTransitMode m = Star::atAsc;
-         m < Star::numAngles;
-         m = Star::angleTransitMode(m + 1))
-    {
-        static QString angleDesc[] = { "asc", "desc", "mc", "ic" };
-        if (swe_rise_trans(houses.startSpeculum, ret.sweNum,
-                           nullptr/*starname*/,
-                           eflg, Star::angleTransitFlag(m),
-                           geopos, 1013.25/*atpress*/, 10/*attemp*/,
-                           &rettm, errStr) >= 0)
+    if (primDirMode == prdActive) {
+        for (Star::angleTransitMode m = Star::atAsc; 
+             m < Star::numAngles;
+             m = Star::angleTransitMode(m + 1))
         {
-            st = swe_degnorm(swe_sidtime(rettm) * 15 + input.location().x());
-            swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
-            //qDebug("  %s %3d %02d %02d", qPrintable(angleDesc[m]), deg, min, sec);
-            ret.angleTransit[m] = Planet::timeToDT(rettm);
+            if (swe_rise_trans(houses.startSpeculum,
+                               ret.sweNum,
+                               nullptr /*starname*/,
+                               eflg,
+                               Star::angleTransitFlag(m),
+                               geopos,
+                               1013.25 /*atpress*/,
+                               10 /*attemp*/,
+                               &rettm,
+                               errStr)
+                >= 0)
+            {
+                st = swe_degnorm(swe_sidtime(rettm) * 15
+                                 + input.location().x());
+                swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
+                qDebug("  ACTUAL TIME %s %3d %02d %02d",
+                       qPrintable(angleDesc[m]),
+                       deg, min, sec);
+                ret.angleTransit[m] = Planet::timeToDT(rettm);
+            }
         }
+    } else {
+        double at[4];
+        double RA = ret.equatorialPos.x();
+        double DD;
+        if (primDirMode == prdZodiacal) {
+            DD = asind(sind(eps) * sind(ret.eclipticPos.x()));
+        } else {
+            DD = ret.equatorialPos.y();
+        }
+        double AD = asind(tand(DD) * tand(input.location().y()));
+        double OA = input.location().y() >= 0 ? (RA - AD) : (RA + AD);
+        double OD = input.location().y() >= 0 ? (RA + AD) : (RA - AD);
+        // RA - (OAAC - OA)
+        at[Star::atMC]   = RA;
+        at[Star::atAsc]  = swe_degnorm(houses.RAMC - (houses.OAAC - OA));
+        at[Star::atDesc] = swe_degnorm(houses.RAMC - (houses.ODDC - OD));
+        at[Star::atIC]   = swe_degnorm(RA - 180);
 
-        st = at[m];
-#if 0
-        if (rettm < houses.startSpeculum) rettm += 1;
-        else if (rettm - houses.startSpeculum >= 1) rettm -= 1;
-        st = swe_degnorm(swe_sidtime(rettm) * 15 + input.location.x());
-#endif
-        swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
-        //qDebug("  FIXED TIME %s %3d %02d %02d", qPrintable(angleDesc[m]),
-        //       deg, min, sec);
-        ret.angleTransit[m] = Planet::timeToDT(rettm);
+        double jd0 = getJulianDate(input.GMT());
+        double RAMC0 = houses.RAMC; // in degrees
+        double sidereal_day = 0.99726958; // days
+
+        for (Star::angleTransitMode m = Star::atAsc;
+             m < Star::numAngles;
+             m = Star::angleTransitMode(m + 1))
+        {
+            double RA_target = at[m];
+            double delta_deg = swe_difdegn(RA_target, RAMC0); // signed difference
+            double delta_jd = delta_deg / 360.0; // * sidereal_day;
+            double jd_target = jd0 + delta_jd;
+            ret.angleTransit[m] = dateTimeFromJulian(jd_target);
+
+            swe_split_deg(RA_target, 0, &deg, &min, &sec, &frac, &sgn);
+            qDebug("  FIXED TIME %s %3d %02d %02d",
+                   qPrintable(angleDesc[m]),
+                   deg,
+                   min,
+                   sec);
+        }
     }
     if (ret.id == Planet_SouthNode) {
         qSwap(ret.angleTransit[Star::atAsc], ret.angleTransit[Star::atDesc]);
@@ -891,7 +920,11 @@ Star calculateStar(const QString& name,
     uint    invertPositionFlag = 256 * 1024;
     double  jd = getJulianDate(input.GMT());
     char    errStr[256] = "";
+
     double  xx[6];
+    swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
+    double eps = xx[0];
+
     unsigned int flags = ret.sweFlags & ~SEFLG_TRUEPOS; // turn off true pos
     if (zodiac.id > 1) {
         flags |= SEFLG_SIDEREAL;
@@ -928,18 +961,55 @@ Star calculateStar(const QString& name,
         ret.horizontalPos.setX(hor[0]);
         ret.horizontalPos.setY(hor[1]);
 
-        double rettm;
-        int eflg = SEFLG_SWIEPH;
+        if (primDirMode == prdActive) {
+            double rettm;
+            int    eflg = SEFLG_SWIEPH;
 
-        for (auto m = Star::atAsc;
-             m < Star::numAngles;
-             m = Star::angleTransitMode(m + 1)) 
-        {
-            if (swe_rise_trans(houses.startSpeculum, -1, starName,
-                               eflg, Star::angleTransitFlag(m),
-                               geopos, 1013.25, 10,
-                               &rettm, errStr) >= 0) {
-                ret.angleTransit[m] = Planet::timeToDT(rettm);
+            for (auto m = Star::atAsc;
+                 m < Star::numAngles;
+                 m = Star::angleTransitMode(m + 1))
+            {
+                if (swe_rise_trans(houses.startSpeculum,
+                                   -1, starName, eflg,
+                                   Star::angleTransitFlag(m),
+                                   geopos, 1013.25, 10,
+                                   &rettm, errStr)
+                    >= 0)
+                {
+                    ret.angleTransit[m] = Planet::timeToDT(rettm);
+                }
+            }
+        } else {
+            double at[4];
+            double RA = ret.equatorialPos.x();
+            double DD;
+            if (primDirMode == prdZodiacal) {
+                DD = asind(sind(eps) * sind(ret.eclipticPos.x()));
+            } else {
+                DD = ret.equatorialPos.y();
+            }
+            double AD = asind(tand(DD) * tand(input.location().y()));
+            double OA = input.location().y() >= 0 ? (RA - AD) : (RA + AD);
+            double OD = input.location().y() >= 0 ? (RA + AD) : (RA - AD);
+            // RA - (OAAC - OA)
+            at[Star::atMC]   = RA;
+            at[Star::atAsc]  = swe_degnorm(houses.RAMC - (houses.OAAC - OA));
+            at[Star::atDesc] = swe_degnorm(houses.RAMC - (houses.ODDC - OD));
+            at[Star::atIC]   = swe_degnorm(RA - 180);
+
+            double jd0 = getJulianDate(input.GMT());
+            double RAMC0 = houses.RAMC; // in degrees
+            double sidereal_day = 0.99726958; // days
+
+            for (auto m = Star::atAsc;
+                 m < Star::numAngles;
+                 m = Star::angleTransitMode(m + 1))
+            {
+                double RA_target = at[m];
+                double delta_deg = swe_difdegn(RA_target, RAMC0); // signed difference
+                double delta_jd = delta_deg / 360.0; // * sidereal_day;
+                double jd_target = jd0 + delta_jd;
+                ret.angleTransit[m] = dateTimeFromJulian(jd_target);
             }
         }
     } else {
@@ -1012,14 +1082,13 @@ calculateHouses( const InputData& input )
     st = swe_degnorm(ret.RAAC);
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
     //qDebug("RAAC %3d %02d %02d", deg, min, sec);
-#if 1
+
     double DD = asind(sind(eps) * sind(asc));
     double AD = asind(tand(DD) * tand(input.location().y()));
     ret.OAAC = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
     DD = asind(sind(eps) * sind(swe_degnorm(asc + 180)));
     AD = asind(tand(DD) * tand(input.location().y()));
     ret.ODDC = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
-#endif
 
     ret.halfMedium = swe_difdegn(ret.RAAC, ret.RAMC);
     ret.halfImum = 180 - ret.halfMedium;
@@ -3305,6 +3374,7 @@ class PairAspectFinder : public EventFinderTask {
     //HarmonicEvent&  _ev;
     bool            _useBZS;
     JDateRange      _useRange;
+    bool            _ran = false;
 
   public:
     PairAspectFinder(Loc*             a,
@@ -3321,13 +3391,33 @@ class PairAspectFinder : public EventFinderTask {
                      EventType        et,
                      bool             st_quiet,
                      AspectFinder*    finder) :
-        _a(a), _b(b), _h(h), _pjd(pjd), _jd(jd), _ad(ad), _bd(bd), _ispd(ispd),
-        _jspd(jspd), _d(d), _which(std::move(which)), _et(et),
-        _beQuiet(st_quiet), _finder(finder), _evs(_finder->_evs)//,
-        //_ev(_evs.safe_emplace_back())
+        _a(a->clone()),
+        _b(b->clone()),
+        _h(h),
+        _pjd(pjd),
+        _jd(jd),
+        _ad(ad),
+        _bd(bd),
+        _ispd(ispd),
+        _jspd(jspd),
+        _d(d),
+        _which(std::move(which)),
+        _et(et),
+        _beQuiet(st_quiet),
+        _finder(finder),
+        _evs(_finder->_evs) //,
+    //_ev(_evs.safe_emplace_back())
     {
         _useBZS = (a->inMotion() && ispd < .00001)
                   || (b->inMotion() && jspd < .00001);
+    }
+
+    ~PairAspectFinder()
+    {
+        if (!_ran) {
+            delete _a;
+            delete _b;
+        }
     }
 
     EventType eventType() const override { return _et; }
@@ -3339,7 +3429,8 @@ class PairAspectFinder : public EventFinderTask {
         TaskTracker tr(_finder);
 
         modalize<bool> mum(st_quiet, _beQuiet);
-        PlanetProfile  poses{_a->clone(), _b->clone()};
+        PlanetProfile  poses { _a, _b };
+        _ran = true; // otherwise we'll clean up stuff we don't want cleaned
 
         double    tjd {};
         uintmax_t iter;
@@ -3436,7 +3527,8 @@ class PairAspectFinder : public EventFinderTask {
 
             auto ch = static_cast<unsigned char>(_h);
             QMutexLocker ml(_evs.mutex());
-            auto&        ev = _evs.emplace_back(qdt, _et, ch, std::move(plr));
+            auto& ev = _evs.emplace_back(qdt, _et, ch, std::move(plr));
+
             if (_useRange != JDateRange()) {
                 ev.setRange({ dateTimeFromJulian(_useRange.first),
                               dateTimeFromJulian(_useRange.second) });
@@ -3450,8 +3542,6 @@ class PairAspectFinder : public EventFinderTask {
                          << (bzhs ? "brentZhangStage" : "newton_raphson");
         }
     }
-
-    ~PairAspectFinder() {}
 };
 
 void AspectFinder::findAspectsAndPatterns()
@@ -4039,7 +4129,9 @@ void AspectFinder::findAspectsAndPatterns()
                         }
                     }
                     hit->second.tasks.clear();
-                    if (any) {
+                    if (!any && !tooShort) {
+                        // We didn't find a pending search, and it's not too
+                        // short to search for an imperfect aspect
                         proximityLog[hps].emplace(hit->second, 0);
                     }
                     inOrb.erase(hit++);
@@ -4211,7 +4303,7 @@ void AspectFinder::findAspectsAndPatterns()
                     }
 #endif
 
-                    if (!st_quiet) {
+                    if (true || !st_quiet) {
                         QDateTime pdt(dateTimeFromJulian(pjd));
                         QDateTime dt(dateTimeFromJulian(jd));
                         qDebug() << what().c_str()
@@ -4229,13 +4321,6 @@ void AspectFinder::findAspectsAndPatterns()
                     stuff.erase(it++);
                     if (unsel) { continue; }
 
-                    auto r = new PairAspectFinder(_alist[i], _alist[j],
-                                                  h, pjd, jd,
-                                                  ad, bd,
-                                                  ispd, jspd,
-                                                  d, which,
-                                                  et, mum,
-                                                  this);
                     auto pj = dynamic_cast<PlanetLoc*>(_alist[j]);
                     if (includeTransitRange) {
                         auto hasit = inOrb.find({h, {pi->planet, pj->planet}});
@@ -4432,8 +4517,8 @@ void AspectFinder::findAspectsAndPatterns()
                 minSep = profile->computePos(minJD, h);
 
                 qDebug()
-                    << QString(
-                           "Closest approach for H%1 %2 in [%3 - %4]: %5 at %6 (%7 iters)")
+                    << QString("Closest approach for H%1 %2 in [%3 - %4]: "
+                               "%5 at %6 (%7 iters)")
                            .arg(h)
                            .arg(ps.names().join("="))
                            .arg(dtToString(dateTimeFromJulian(r.first)))

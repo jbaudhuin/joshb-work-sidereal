@@ -4,4 +4,4 @@ TRANSLATIONS = ../bin/i18n/plain_ru.ts \
 SOURCES += src/plain.cpp
 HEADERS += src/plain.h
 
-INCLUDEPATH += ../astroprocessor/include/
+INCLUDEPATH += ../astroprocessor/src ../astroprocessor/include

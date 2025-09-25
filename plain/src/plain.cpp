@@ -10,36 +10,38 @@
 
 /* ================================== WIDGET ======================================== */
 
-Plain              :: Plain               ( QWidget* parent ) : AstroFileHandler (parent)
- {
-  QLabel* label1  = new QLabel(tr("Show:"));
-  describeInput   = new QCheckBox(tr("input;"));
-  describePlanets = new QCheckBox(tr("planets;"));
-  describeHouses  = new QCheckBox(tr("houses;"));
-  describeAspects = new QCheckBox(tr("aspects;"));
-  describePower   = new QCheckBox(tr("affetic"));
-  describeParans  = new QCheckBox(tr("parans"));
-  describeSpeculum= new QCheckBox(tr("spec"));
-  view            = new QTextBrowser();
+Plain ::Plain(QWidget* parent) : AstroFileHandler(parent)
+{
+    QLabel* label1   = new QLabel(tr("Show:"));
+    describeInput    = new QCheckBox(tr("input;"));
+    describePlanets  = new QCheckBox(tr("planets;"));
+    describeHouses   = new QCheckBox(tr("houses;"));
+    describeAspects  = new QCheckBox(tr("aspects;"));
+    describePower    = new QCheckBox(tr("affetic"));
+    describeParans   = new QCheckBox(tr("parans"));
+    describeSpeculum = new QCheckBox(tr("spec"));
+    view             = new QTextBrowser();
 
-  describeInput   -> setChecked(false);
-  describePlanets -> setChecked(true);
-  describeHouses  -> setChecked(true);
-  describeAspects -> setChecked(true);
-  describePower   -> setChecked(false);
-  describeParans  -> setChecked(true);
-  describeSpeculum-> setChecked(true);
-  showAllDiurnalEvents = false;
-  includeFixedStars = true;
+    describeInput->setChecked(false);
+    describePlanets->setChecked(true);
+    describeHouses->setChecked(true);
+    describeAspects->setChecked(true);
+    describePower->setChecked(false);
+    describeParans->setChecked(true);
+    describeSpeculum->setChecked(true);
+    showAllDiurnalEvents = false;
+    includeFixedStars    = true;
 
-  describeInput   -> setStatusTip(tr("Show input data"));
-  describePlanets -> setStatusTip(tr("Show planets"));
-  describeHouses  -> setStatusTip(tr("Show houses"));
-  describeAspects -> setStatusTip(tr("Show aspects"));
-  describePower   -> setStatusTip(tr("Show dignity and deficient points for each planet"));
+    describeInput->setStatusTip(tr("Show input data"));
+    describePlanets->setStatusTip(tr("Show planets"));
+    describeHouses->setStatusTip(tr("Show houses"));
+    describeAspects->setStatusTip(tr("Show aspects"));
+    describePower->setStatusTip(
+        tr("Show dignity and deficient points for each planet"));
 
-  QHBoxLayout* l = new QHBoxLayout();
-    l->addSpacerItem(new QSpacerItem(1,1,QSizePolicy::Expanding, QSizePolicy::Preferred));
+    QHBoxLayout* l = new QHBoxLayout();
+    l->addSpacerItem(
+        new QSpacerItem(1, 1, QSizePolicy::Expanding, QSizePolicy::Preferred));
     l->addWidget(label1);
     l->addWidget(describeInput);
     l->addWidget(describePlanets);
@@ -49,58 +51,58 @@ Plain              :: Plain               ( QWidget* parent ) : AstroFileHandler
     l->addWidget(describeParans);
     l->addWidget(describeSpeculum);
 
-  QVBoxLayout* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0,5,0,0);
+    QVBoxLayout* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 5, 0, 0);
     layout->setSpacing(0);
     layout->addLayout(l);
     layout->addWidget(view);
 
+    connect(describeInput, SIGNAL(toggled(bool)), this, SLOT(refresh()));
+    connect(describePlanets, SIGNAL(toggled(bool)), this, SLOT(refresh()));
+    connect(describeHouses, SIGNAL(toggled(bool)), this, SLOT(refresh()));
+    connect(describeAspects, SIGNAL(toggled(bool)), this, SLOT(refresh()));
+    connect(describePower, SIGNAL(toggled(bool)), this, SLOT(refresh()));
+    connect(describeParans, SIGNAL(toggled(bool)), this, SLOT(refresh()));
+    connect(describeSpeculum, SIGNAL(toggled(bool)), this, SLOT(refresh()));
 
-  connect(describeInput,   SIGNAL(toggled(bool)), this, SLOT(refresh()));
-  connect(describePlanets, SIGNAL(toggled(bool)), this, SLOT(refresh()));
-  connect(describeHouses,  SIGNAL(toggled(bool)), this, SLOT(refresh()));
-  connect(describeAspects, SIGNAL(toggled(bool)), this, SLOT(refresh()));
-  connect(describePower,   SIGNAL(toggled(bool)), this, SLOT(refresh()));
-  connect(describeParans,  SIGNAL(toggled(bool)), this, SLOT(refresh()));
-  connect(describeSpeculum,SIGNAL(toggled(bool)), this, SLOT(refresh()));
+    QFile cssfile("plain/style.css");
+    cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
+    setStyleSheet(cssfile.readAll());
+}
 
-  QFile cssfile ( "plain/style.css" );
-  cssfile.open  ( QIODevice::ReadOnly | QIODevice::Text );
-  setStyleSheet  ( cssfile.readAll() );
- }
+void
+Plain::filesUpdated(MembersList m)
+{
+    if (!file()) {
+        view->clear();
+        return;
+    }
 
-void Plain         :: filesUpdated(MembersList m)
- {
-  if (!file())
-   {
-    view->clear();
-    return;
-   }
+    while (m.size() < filesCount()) m.append(AstroFile::Member());
+    if (m[0] == 0) return;
 
-  while (m.size() < filesCount()) m.append(AstroFile::Member());
-  if (m[0] == 0) return;
+    refresh();
+}
 
-  refresh();
- }
+void
+Plain::refresh()
+{
+    qDebug() << "Plain::refresh";
+    if (!file()) {
+        return;
+    }
+    int articles = (A::Article_Input * describeInput->isChecked())
+                   | (A::Article_Planet * describePlanets->isChecked())
+                   | (A::Article_Houses * describeHouses->isChecked())
+                   | (A::Article_Aspects * describeAspects->isChecked())
+                   | (A::Article_Power * describePower->isChecked())
+                   | (A::Article_Parans * describeParans->isChecked())
+                   | (A::Article_DiurnalEvents * showAllDiurnalEvents)
+                   | (A::Article_Speculum * describeSpeculum->isChecked())
+                   | (A::Article_FixedStars * includeFixedStars);
 
-void Plain         :: refresh()
- {
-  qDebug() << "Plain::refresh";
-  if (!file()) {
-      return;
-  }
-  int articles = (A::Article_Input   * describeInput->isChecked())   |
-          (A::Article_Planet  * describePlanets->isChecked()) |
-          (A::Article_Houses  * describeHouses->isChecked())  |
-          (A::Article_Aspects * describeAspects->isChecked()) |
-          (A::Article_Power   * describePower->isChecked())   |
-          (A::Article_Parans  * describeParans->isChecked())  |
-          (A::Article_DiurnalEvents * showAllDiurnalEvents)   |
-          (A::Article_Speculum* describeSpeculum->isChecked()) |
-	  (A::Article_FixedStars * includeFixedStars);
-
-  view->setText(A::describe(files(), (A::Article)articles, paranOrb));
- }
+    view->setText(A::describe(files(), (A::Article) articles, paranOrb));
+}
 
 AppSettings
 Plain::defaultSettings()
@@ -113,6 +115,7 @@ Plain::defaultSettings()
     s.setValue("Text/describePower", false);
     s.setValue("Text/describeParans", true);
     s.setValue("Text/describeSpeculum", false);
+    s.setValue("Text/primDirMode", unsigned(A::prdMundane));
     s.setValue("Text/showAllDiurnalEvents", false);
     s.setValue("Text/paranOrb", 1.0);
     s.setValue("Text/includeFixedStars", true);
@@ -130,6 +133,7 @@ Plain::currentSettings()
     s.setValue("Text/describePower", describePower->isChecked());
     s.setValue("Text/describeParans", describeParans->isChecked());
     s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
+    s.setValue("Text/primDirMode", unsigned(A::primDirMode));
     s.setValue("Text/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Text/paranOrb", paranOrb);
     s.setValue("Text/includeFixedStars", includeFixedStars);
@@ -146,19 +150,28 @@ Plain::applySettings(const AppSettings& s)
     describePower->setChecked(s.value("Text/describePower").toBool());
     describeParans->setChecked(s.value("Text/describeParans").toBool());
     describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
+    A::primDirMode       = A::PrimDirMode(s.value("Text/primDirMode").toUInt());
     showAllDiurnalEvents = s.value("Text/showAllDiurnalEvents").toBool();
-    paranOrb = s.value("Text/paranOrb").toDouble();
-    includeFixedStars = s.value("Text/includeFixedStars").toBool();
-    //refreshAll();
+    paranOrb             = s.value("Text/paranOrb").toDouble();
+    includeFixedStars    = s.value("Text/includeFixedStars").toBool();
+
+    refresh();
 }
 
 void
 Plain::setupSettingsEditor(AppSettingsEditor* ed)
 {
-    ed->addTab(tr("Parans"));
-    ed->addCheckBox("Text/showAllDiurnalEvents", tr("Show all planetary diurnal events"));
-    ed->addDoubleSpinBox("Text/paranOrb", tr("Orb for paranatellontas"),
-			 1./60. /*1 minute*/, 5.0 /*5 degrees*/);
+    ed->addTab(tr("Parans and Speculum"));
+    ed->addComboBox("Text/primDirMode",
+                    tr("Speculum type"),
+                    { { "Mundane", A::prdMundane },
+                      { "Zodiacal", A::prdZodiacal },
+                      { "Active", A::prdActive } });
+    ed->addCheckBox("Text/showAllDiurnalEvents",
+                    tr("Show all planetary diurnal events"));
+    ed->addDoubleSpinBox("Text/paranOrb",
+                         tr("Orb for paranatellontas"),
+                         1. / 60. /*1 minute*/,
+                         5.0 /*5 degrees*/);
     ed->addCheckBox("Text/includeFixedStars", tr("Include fixed stars"));
 }
-

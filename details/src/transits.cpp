@@ -962,6 +962,20 @@ Transits::Transits(QWidget* parent) :
     });
 #endif
     l3->addWidget(_location);
+
+    // We have to defer the installation of the default loc
+    // because we might be in the process of building the
+    // astroWidget...
+    QTimer::singleShot(0, [this]() {
+        _pendingLocationChange = true;
+        auto s = MainWindow::theAstroWidget()->currentSettings();
+        auto v = s.value("Scope/defaultLocation").toString().split(" ");
+        _location->setLocation(
+            QVector3D(v.at(0).toFloat(), v.at(1).toFloat(), v.at(2).toFloat()));
+        _location->setLocationName(
+            s.value("Scope/defaultLocationName").toString());
+        _pendingLocationChange = false;
+    });
     //connect(_location, SIGNAL(coordinateUpdated()), this, SLOT(onLocationChange()));
 
     setLayout(l3);
@@ -1077,13 +1091,6 @@ Transits::transitsAF()
     if (!_trans) {
         _trans = new AstroFile(this);
         MainWindow::theAstroWidget()->setupFile(_trans);
-        auto s = MainWindow::theAstroWidget()->currentSettings();
-        auto v = s.value("Scope/defaultLocation").toString().split(" ");
-        _location->setLocation(QVector3D(v.at(0).toFloat(),
-                                         v.at(1).toFloat(),
-                                         v.at(2).toFloat()));
-        _location->setLocationName(s.value("Scope/defaultLocationName")
-                                   .toString());
     }
     return _trans;
 }

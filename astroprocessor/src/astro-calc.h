@@ -2,8 +2,8 @@
 #define A_CALC_H
 
 #include "astro-data.h"
-#include <QRunnable>
 #include <QEventLoop>
+#include <QRunnable>
 
 // Forward
 class AstroFile;
@@ -173,11 +173,16 @@ private:
 
 extern aspectModeType aspectMode;
 
+enum PrimDirMode { prdMundane, prdZodiacal, prdActive };
+extern PrimDirMode primDirMode;
+
 double            getJulianDate(QDateTime GMT, bool ephemerisTime = false);
 float             roundDegree(float deg); // returns 0...360
 const ZodiacSign& getSign(float deg, const Zodiac& zodiac);
 int               getHouse(const Houses& houses, float deg); // returns 1...12
-int getHouse(ZodiacSignId sign, const Houses& houses, const Zodiac& zodiac);
+int               getHouse(ZodiacSignId sign,
+                           const Houses& houses,
+                           const Zodiac& zodiac);
 
 float    angle(const Star& body1, const Star& body2);
 float    angle(const Star& body, float deg);

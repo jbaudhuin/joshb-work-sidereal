@@ -6,32 +6,24 @@
 
 namespace A {
 
-enum PlanetsOrder   { Order_NoOrder,
-                      Order_Power,
-                      Order_House,
-                      Order_Element
+enum PlanetsOrder { Order_NoOrder, Order_Power, Order_House, Order_Element };
+
+enum Article {
+    Article_All           = 0xFF,
+    Article_Input         = 0x1,
+    Article_Houses        = 0x2,
+    Article_Aspects       = 0x4,
+    Article_Planet        = 0x8,
+    Article_Power         = 0x10,
+    Article_Parans        = 0x20,
+    Article_DiurnalEvents = 0x40,
+    Article_FixedStars    = 0x80,
+    Article_Speculum      = 0x100
 };
 
-enum Article        { Article_All     = 0xFF,
-                      Article_Input   = 0x1,
-                      Article_Houses  = 0x2,
-                      Article_Aspects = 0x4,
-                      Article_Planet  = 0x8,
-                      Article_Power   = 0x10,
-                      Article_Parans  = 0x20,
-                      Article_DiurnalEvents = 0x40,
-                      Article_FixedStars = 0x80,
-                      Article_Speculum = 0x100 };
-
-enum AnglePrecision {
-    LowPrecision,
-    NormalPrecision,
-    HighPrecision
-};
+enum AnglePrecision { LowPrecision, NormalPrecision, HighPrecision };
 
 Q_DECLARE_FLAGS(Articles, Article)
-
-
 
 QString romanNum             ( int num );
 QString houseTag             ( int num );
