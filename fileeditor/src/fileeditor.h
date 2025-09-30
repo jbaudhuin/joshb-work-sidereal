@@ -48,8 +48,6 @@ protected:
     bool _inApply;
     bool _inDateSelection;
 
-    static QStringList planets, signs, events;
-
     void update(AstroFile::Members);
     void updateTabs();
 
@@ -82,6 +80,8 @@ public:
     void setCurrentFile(int index);
 
     bool& inUpdate() { return _inUpdate; }
+    
+    static QStringList planets, signs, events;
 };
 
 #endif // FILEEDITOR_H

@@ -187,9 +187,13 @@ describeInput(const InputData& data)
 
     ret += QObject::tr("Date: %1, %2 %3 GMT\n").arg(dayOfWeek).arg(date).arg(time);
     ret += "\n";
-    ret += QObject::tr("Location: %1N %2E")
-            .arg(degreeToString(data.location().y(), HighPrecision))
-            .arg(degreeToString(data.location().x(), HighPrecision));
+    QString lat =
+        (data.location().y() >= 0 ? QObject::tr("%1N") : QObject::tr("%1S"))
+            .arg(degreeToString(-data.location().y(), HighPrecision));
+    QString lng =
+        (data.location().x() >= 0 ? QObject::tr("%1E") : QObject::tr("%1W"))
+            .arg(degreeToString(-data.location().x(), HighPrecision));
+    ret += QObject::tr("Location: %1 %2\n").arg(lat, lng);
     return ret;
 }
 

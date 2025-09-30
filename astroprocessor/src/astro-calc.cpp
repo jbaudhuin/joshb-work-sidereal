@@ -3568,12 +3568,11 @@ void AspectFinder::findAspectsAndPatterns()
             trans.emplace(pla->planet);
         }
     } else if (showTransitAspectPatterns && showTransitNatalAspectPatterns) {
-        bool anyt = false, anyr = false;
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<PlanetLoc*>(pl);
             if (!pla) continue;
-            (pla->inMotion()? anyt : anyr) = true;
-            if (anyt && anyr) break;
+            if (pla->inMotion()) { trans.emplace(pla->planet); }
+            else { nats.emplace(pla->planet); }
         }
         skipAllNatalOnly = true;
     }
