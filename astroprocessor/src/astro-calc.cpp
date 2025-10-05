@@ -3350,6 +3350,24 @@ operator<<(std::ostream& os, const PlanetClusterMap& pcm)
     return os;
 }
 
+QDebug operator<<(QDebug qd, const PlanetClusterMap& pcm)
+{ std::stringstream ss; ss << pcm; return qd << ss.str().c_str(); }
+
+std::ostream &
+operator<<(std::ostream& os, const PlanetProfile& pp)
+{
+    bool any = false;
+    for (auto&& ploc: pp) {
+        if (any) os << " ";
+        any = true;
+        os << ploc->description().toStdString();
+    }
+    return os;
+}
+
+QDebug operator<<(QDebug qd, const PlanetProfile& pp)
+{ std::stringstream ss; ss << pp; return qd << ss.str().c_str(); }
+
 class TaskTracker {
     AspectFinder* f;
 
@@ -3663,7 +3681,7 @@ void AspectFinder::findAspectsAndPatterns()
         PlanetProfile* useProf = &_alist;
         std::unique_ptr<PlanetProfile> doomed;
         auto stuff = _staff;
-        if (!trans.empty()) {
+        if (!trans.empty() && !skipAllNatalOnly) {
             doomed = std::unique_ptr<PlanetProfile>(_alist.profile(trans, stuff));
             useProf = doomed.get();
         }
@@ -3674,7 +3692,7 @@ void AspectFinder::findAspectsAndPatterns()
             if (showPatterns) {
                 auto found = findClusters(h, jd, *useProf, _ids,
                                           patternsQuorum,
-                                          nats,
+                                          !showTransitNatalAspectPatterns?nats:PlanetSet{},
                                           patternsRestrictMoon,
                                           patternsSpreadOrb);
                 if (!found.empty()) work[h].swap(found);
@@ -3852,13 +3870,13 @@ void AspectFinder::findAspectsAndPatterns()
         for (auto tp: b) (*tp)(jd, 1);
         if (!st_quiet) qDebug() << "stuff" << dtToString(nd);
 
-        if (!collectingStrays && !trans.empty()) {
+        if (!collectingStrays && !trans.empty() && !skipAllNatalOnly) {
             useProf = std::unique_ptr<PlanetProfile>(b.profile(trans));
         }
 
         // Do all the things HERE
 
-        if (showPatterns) {
+    if (showPatterns) {
         // 1. Patterns
         for (h = maxH; h >= 1; --h) {
             bool unsel = hs.count(h)==0;
@@ -3878,7 +3896,8 @@ void AspectFinder::findAspectsAndPatterns()
                 if (useProf.get()) prof = useProf.get();
                 hpc = findClusters(h, *prof,
                                    patternsQuorum,
-                                   nats, skipAllNatalOnly,
+                                   !showTransitNatalAspectPatterns? nats:PlanetSet{},
+                                   skipAllNatalOnly,
                                    patternsRestrictMoon,
                                    patternsSpreadOrb);
             }
@@ -4948,13 +4967,26 @@ findClusters(const positions& posits,
     for (auto it = posits.begin(); it != posits.end(); ++it) {
         positions grp;
         auto maybeAddGroup = [&] {
-            if ((restrictMoon? sizeWithoutTransitingMoon(grp,moonIn1)
-                 : grp.size()) < quorum)
-            { return; }
+            if (grp.size() < quorum) return;
+            if (restrictMoon
+                && sizeWithoutTransitingMoon(grp,moonIn1) < quorum)
+            {
+                if (!st_quiet) qDebug() << "  Not actually quorum because moon";
+                return;
+            }
 
-            if ((!need.empty() && !containsAny(grp,need))
-                    || (skipAllNatalOnly && !containsAnyTrans(grp)))
-            { return; }
+            bool needed{}, allNatal{};
+            if ((needed = !need.empty() && !containsAny(grp,need))
+                    || (allNatal = skipAllNatalOnly && !containsAnyTrans(grp)))
+            {
+                if (!st_quiet) {
+                    qDebug() << "  Rejected here because missing"
+                             << QString(needed? "needed":"transit")
+                             << getSet(grp).names().join("=").toStdString()
+                                    .c_str();
+                }
+                return;
+            }
 
             auto spread = angle(grp.begin()->first, grp.rbegin()->first);
             ret[getSet(grp)] = spread;
@@ -4962,6 +4994,15 @@ findClusters(const positions& posits,
 
         auto e = posits.lower_bound(position(it->first + maxOrb,
                                              ChartPlanetId()));
+
+        if (!st_quiet) {
+            unsigned n = 0;
+            for (auto jit = it; jit != e; ++jit) ++n;
+            if (n >= quorum) {
+                qDebug() << "Found potential quorum" << n;
+            }
+        }
+
         for (auto jit = it; jit != e; ++jit) {
             maybeAddGroup();
             grp.emplace(*jit);
@@ -4980,6 +5021,21 @@ findClusters(unsigned h,
              bool restrictMoon /*=true*/,
              qreal maxOrb /*=8.*/)
 {
+    if (!st_quiet) {
+#if 1
+        qDebug() << QString("Finding H%1 ").arg(h).toStdString().c_str() << plist;
+#else
+        qDebug() <<
+            QString("Finding H%1").arg(h).toStdString().c_str();
+        for (auto p: plist) {
+            auto ploc = dynamic_cast<PlanetLoc*>(p);
+            if (!ploc) continue;
+            qDebug() << "  " << (ploc->description() + (ploc->inMotion()? "*" : ""))
+                                    .toStdString().c_str()
+                     << harmonic(h,ploc->rasiLoc());
+        }
+#endif
+    }
     positions posits;
     for (auto loc : plist) {
         auto ploc = dynamic_cast<PlanetLoc*>(loc);
@@ -5006,8 +5062,11 @@ findClusters(unsigned h,
         }
     }
 
-    return findClusters(posits, quorum, need,
+    auto&& ret = findClusters(posits, quorum, need,
                         skipAllNatalOnly, restrictMoon, maxOrb);
+    if (ret.empty() || st_quiet) return ret;
+    qDebug() << QString("Found H%1").arg(h) << "cluster map" << ret;
+    return ret;
 }
 
 PlanetClusterMap
@@ -5019,6 +5078,9 @@ findClusters(unsigned h, double jd,
              bool restrictMoon /*=true*/,
              qreal maxOrb /*=8.*/)
 {
+    if (!st_quiet) {
+        qDebug() << QString("Finding H%1 with %2 ids").arg(h).arg(ids.size()).toStdString().c_str() << plist;
+    }
     std::vector<unsigned> pfid { 0, 0, 0 };
     positions posits;
     for (auto loc : plist) {
@@ -5049,17 +5111,21 @@ findClusters(unsigned h, double jd,
         }
     }
 
-    return findClusters(posits, quorum, need,
+    auto&& ret = findClusters(posits, quorum, need,
                         pfid[0] && pfid[1], restrictMoon, maxOrb);
+    if (ret.empty() || st_quiet) return ret;
+    qDebug() << QString("Found H%1").arg(h) << "cluster map" << ret;
+    return ret;
 }
 
-HarmonicPlanetClusters findClusters(const uintSSet& hs,
-                                    const PlanetProfile& prof,
-                                    unsigned quorum,
-                                    const PlanetSet& need /*={}*/,
-                                    bool skipAllNatalOnly /*=false*/,
-                                    bool restrictMoon /*=true*/,
-                                    qreal maxOrb /*=8.*/)
+HarmonicPlanetClusters
+findClusters(const uintSSet& hs,
+             const PlanetProfile& prof,
+             unsigned quorum,
+             const PlanetSet& need /*={}*/,
+             bool skipAllNatalOnly /*=false*/,
+             bool restrictMoon /*=true*/,
+             qreal maxOrb /*=8.*/)
 {
     HarmonicPlanetClusters ret;
     for (auto h: hs) {
