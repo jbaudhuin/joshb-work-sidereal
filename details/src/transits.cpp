@@ -529,6 +529,16 @@ public:
             if (role == RawRole) return asp.harmonic();
             if (role == Qt::FontRole) {
                 QFont f;
+#if 1
+                if (asp.orb()==qreal()) {
+                    f.setItalic(true);
+                    f.setBold(true);
+                } else if (asp.orb() <= 0.5) {
+                    f.setBold(true);
+                } else if (asp.orb() <= 1.0) {
+                    f.setItalic(true);
+                }
+#else
                 if (asp.locations().empty() && asp.orb() < 1.0) {
                     if (asp.orb() >= 0.5) {
                         f.setBold(true);
@@ -537,6 +547,7 @@ public:
                 } else if (asp.orb() != qreal()) {
                     f.setItalic(true);
                 }
+#endif
                 return f;
             }
             return "H" + QString::number(asp.harmonic());

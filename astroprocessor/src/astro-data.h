@@ -1283,6 +1283,8 @@ enum EventType {
     etcTransitToNatal,          // T=N
     etcOuterTransitToNatal,     // OT=N
     etcReturn,                  // R
+    etcSolarReturn,             // SR
+    etcLunarReturn,             // LR
     etcProgressedToProgressed,  // P=P
     etcProgressedToNatal,       // P=N
     etcInnerProgressedToNatal,  // IP=N
@@ -1298,7 +1300,8 @@ enum EventType {
     etcTransitAspectPattern,    // TA
     etcTransitNatalAspectPattern,   // TNA
     etcParanatellonta,          // Par
-    etcUserEventStart
+    etcNumStandardEvents,
+    etcUserEventStart       = 64
 };
 
 using uintPair = std::pair<unsigned,unsigned>;

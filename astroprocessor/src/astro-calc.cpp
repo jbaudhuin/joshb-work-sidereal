@@ -2814,8 +2814,8 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
     hsetId conjOppSq = _hsets.size();
     _hsets.emplace_back(conjOppSqSet);
 
-    hsetId allAsp = _hsets.size();
-    _hsets.emplace_back(hset);  // the all aspects set...
+    hsetId allAsp = 0;
+    //_hsets.emplace_back(hset);  // the all aspects set already there...
 
     double njd = 0;
     for (int i = 0, n = files.count(); i < n; ++i) {
@@ -3617,6 +3617,10 @@ void AspectFinder::findAspectsAndPatterns()
     for (const auto& ij : _staff) {
         auto&& hset = _hsets.at(ij.hsid);
         hs.insert(hset.begin(), hset.end());
+    }
+    if (showTransitAspectPatterns || showTransitNatalAspectPatterns) {
+        auto&& hset = _hsets.at(0);
+        hs.insert(hset.begin(),hset.end());
     }
     unsigned maxH = 1;
     if (hs.empty()) {
@@ -4792,6 +4796,8 @@ EventTypeManager::EventTypeManager()
         { etcTransitToNatal,        2, "T=N",  "Transits to Natal" },
         { etcOuterTransitToNatal,   2, "OT=N", "Outer Transits to Natal" },
         { etcReturn,                2, "R",    "Returns" },
+        { etcSolarReturn, 2, "SR", "Solar Returns" },
+        { etcLunarReturn, 2, "LR", "Lunar Returns" },
         //{ etcAspectToReturn,        "R=T",  "Aspects to Return" },
         //{ etcReturnTransitToTransit,"RT=T", "Transits in Return" },
         //{ etcReturnTransitToNatal,  "RT=N", "Transits to Natal in Return" },
