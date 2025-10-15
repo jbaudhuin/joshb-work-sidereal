@@ -4,6 +4,7 @@
 //#undef MSDOS     // undef macroses that made by SWE library
 #undef UCHAR
 #undef forward
+#undef sleep
 
 #include <QDebug>
 #include <QColor>
@@ -14,14 +15,14 @@
 
 namespace A {
 
-QMap<AspectSetId, AspectsSet> Data::aspectSets;
-PlanetMap Data::planets;
-QMap<std::string, Star> Data::stars;
-QMap<HouseSystemId, HouseSystem> Data::houseSystems;
-QMap<ZodiacId, Zodiac> Data::zodiacs;
-AspectSetId Data::topAspSet;
-QString Data::usedLang;
-/*static*/ QMap<PlanetId, GlyphName> Data::signInfo;
+/*static*/ QMap<AspectSetId, AspectsSet>    Data::aspectSets;
+/*static*/ PlanetMap                        Data::planets;
+/*static*/ QMap<std::string, Star>          Data::stars;
+/*static*/ QMap<HouseSystemId, HouseSystem> Data::houseSystems;
+/*static*/ QMap<ZodiacId, Zodiac>           Data::zodiacs;
+/*static*/ AspectSetId                      Data::topAspSet;
+/*static*/ QString                          Data::usedLang;
+/*static*/ QMap<PlanetId, GlyphName>        Data::signInfo;
 
 void Data::load(QString language)
 {

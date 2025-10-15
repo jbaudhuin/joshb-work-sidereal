@@ -1,7 +1,7 @@
 #include <QtConcurrent/QtConcurrent>
 #include <QDebug>
 
-#undef MSDOS     // undef macroses that made by SWE library
+#undef MSDOS     // undef macros made by SWE library
 #undef UCHAR
 #undef forward
 
