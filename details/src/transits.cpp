@@ -6,6 +6,7 @@
 #include <QAction>
 #include <QFile>
 #include <QComboBox>
+#include <QCloseEvent>
 #include <QLabel>
 #include <QStandardItemModel>
 #include <QStandardItem>
@@ -1065,6 +1066,8 @@ Transits::Transits(QWidget* parent) :
     });
 }
 
+Transits::~Transits() { stopThreads(); }
+
 QTreeView *
 Transits::ttv() const
 { return _tview; }
@@ -1078,6 +1081,16 @@ Transits::describePlanet()
 
     _fileIndex = qBound(0, _fileIndex, filesCount() - 1);
     updateTransits();
+}
+
+void
+Transits::stopThreads()
+{
+    if (_active && !_active->isFinished()) {
+        qDebug() << "Cancelling active finder";
+        emit cancelActive();
+        QThread::usleep(100000);
+    }
 }
 
 bool
@@ -1168,9 +1181,9 @@ Transits::updateTransits()
     if (!isVisible()) return;
     if (transitsAF()->isSuspendedUpdate()) return;
 
-    if (!_active) saveScrollPos();
-
-    else {
+    if (!_active) {
+        saveScrollPos();
+    } else {
         disconnect(_active,SIGNAL(finished()),this,SLOT(onCompleted()));
         emit cancelActive();
         if (_active) {
@@ -1257,6 +1270,7 @@ Transits::onCompleted()
 {
 #if 1
     _evm->sort();
+    _active = nullptr;
 #else
     const A::Horoscope& scope(file()->horoscope());
     const auto& ida(transitsOnly()? file()->horoscope().inputData

@@ -52,23 +52,22 @@ protected:
     { emit currently(now); }
 };
 
-class Transits : public AstroFileHandler
-{
+class Transits : public AstroFileHandler {
     Q_OBJECT
 
-public:
+  public:
     Transits(QWidget* parent = nullptr);
-    ~Transits() { }
+    ~Transits();
 
     QTreeView* ttv() const;
 
-protected:                            // AstroFileHandler implementation
-    void filesUpdated(MembersList);
+  protected: // AstroFileHandler implementation
+    void filesUpdated(MembersList) override;
 
-    AppSettings defaultSettings();
-    AppSettings currentSettings();
-    void applySettings(const AppSettings&);
-    void setupSettingsEditor(AppSettingsEditor*);
+    AppSettings defaultSettings() override;
+    AppSettings currentSettings() override;
+    void        applySettings(const AppSettings&) override;
+    void        setupSettingsEditor(AppSettingsEditor*) override;
 
     void describePlanet();
     void clear();
@@ -78,20 +77,19 @@ protected:                            // AstroFileHandler implementation
     bool transitsOnly() const;
 
     AstroFile* transitsAF();
+    void       stopThreads();
 
-
-signals:
-    //void updateTransits(double);
+  signals:
+    // void updateTransits(double);
     void planetSelected(A::PlanetId, int);
     void needToFindIt(const QString&);
-    //void addChart(const A::InputData&);
-    //void completed();
+    // void addChart(const A::InputData&);
+    // void completed();
 
     void updateFirst(AstroFile*);
     void updateSecond(AstroFile*);
     void addChart(AstroFile*);
-    void addChartWithTransits(const AFileInfo&,
-                              AstroFile*);
+    void addChartWithTransits(const AFileInfo&, AstroFile*);
 
     void updateHarmonics(double);
 
@@ -99,7 +97,7 @@ signals:
     void pauseActive();
     void resumeActive();
 
-protected slots:
+  protected slots:
     void updateTimezone();
     void onEventSelectionChanged();
     void onDateRangeChanged();
@@ -108,15 +106,21 @@ protected slots:
 
     void onStartChanged();
     void onStartChanged(const QDate&)
-    { if (!_start->hasFocus()) onStartChanged(); }
+    {
+        if (!_start->hasFocus()) onStartChanged();
+    }
 
     void onEndChanged();
     void onEndChanged(const QDate&)
-    { if (!_end->hasFocus()) onEndChanged(); }
+    {
+        if (!_end->hasFocus()) onEndChanged();
+    }
 
     void onDurationChanged();
     void onDurationChanged(const QString&)
-    { if (!_duration->hasFocus()) onDurationChanged(); }
+    {
+        if (!_duration->hasFocus()) onDurationChanged();
+    }
 
     void updateTransits();
     void onProgress(double prog);
@@ -129,37 +133,37 @@ protected slots:
     void saveScrollPos();
     void restoreScrollPos();
 
-public slots:
+  public slots:
     void setCurrentPlanet(A::PlanetId, int);
     void onLocationChange();
 
-private:
+  private:
     A::PlanetId _planet;
-    int _fileIndex;
-    bool _expandedAspects;
-    bool _inhibitUpdate;
-    bool _pendingLocationChange = false;
+    int         _fileIndex;
+    bool        _expandedAspects;
+    bool        _inhibitUpdate;
+    bool        _pendingLocationChange = false;
 
     AstroFile* _trans = nullptr;
 
     TransitTreeView* _tview;
 
     QPointer<QThread> _active;
-    QLineEdit* _input;
-    QDateEdit* _start;
-    QLineEdit* _duration;
-    QButtonGroup* _grp;
-    QRadioButton* _endRB;
-    QRadioButton* _duraRB;
-    QPushButton* _back;
-    QPushButton* _forth;
-    QDateEdit* _end;
+    QLineEdit*        _input;
+    QDateEdit*        _start;
+    QLineEdit*        _duration;
+    QButtonGroup*     _grp;
+    QRadioButton*     _endRB;
+    QRadioButton*     _duraRB;
+    QPushButton*      _back;
+    QPushButton*      _forth;
+    QDateEdit*        _end;
 
-    A::HarmonicEvent        _anchorTop, _anchorCur;
-    int                     _anchorSort;
-    Qt::SortOrder           _anchorOrder;
-    int                     _anchorVisibleRow;
-    bool                    _inRestoreScrollPos = false;
+    A::HarmonicEvent _anchorTop, _anchorCur;
+    int              _anchorSort;
+    Qt::SortOrder    _anchorOrder;
+    int              _anchorVisibleRow;
+    bool             _inRestoreScrollPos = false;
 
     GeoSearchWidget* _location;
 

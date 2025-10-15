@@ -3175,166 +3175,6 @@ void AspectFinder::releaseThread()
 }
 
 
-
-void
-AspectFinder::findStations()
-{
-    QThreadPool tp;
-
-    const auto& start = _range.first;
-    const auto& end = _range.second.addDays(1);
-    auto d = start.startOfDay().toUTC();
-    auto e = end.startOfDay().toUTC();
-
-    modalize<bool> mum(st_quiet, true);
-
-    double jd = getJulianDate(d);
-    for (auto tp: _alist) (*tp)(jd, 1);   // the horror
-
-    PlanetProfile b = _alist;
-
-    auto useRate = 15;  // search every 15 days
-    if (!st_quiet) qDebug() << "sta" << dtToString(d);
-
-    double pjd = jd;
-    int ndays = int(useRate);
-    int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
-    auto nd = d.addDays(ndays).addSecs(nsecs);
-    std::list<PlanetLoc*> stations;
-    unsigned in = _alist.size();
-    while (d < e) {
-        QCoreApplication::processEvents();
-
-        if (_state == cancelRequestedState) break;
-        if (_state == pauseRequestedState) {
-            QThread::usleep(100000);
-            continue;
-        }
-
-        jd = getJulianDate(nd);
-        if (!st_quiet) qDebug() << "sta" << dtToString(nd);
-
-        // compute new positions
-        for (auto tp: b) (*tp)(jd, 1);
-
-        std::set<unsigned> stationChecked;
-        for (unsigned i = 0; i < in; ++i) {
-            if (stationChecked.count(i)!=0) continue;
-            stationChecked.insert(i);
-
-            auto pl = dynamic_cast<TransitPosition*>(_alist[i]);
-            if (!pl) continue;
-
-            auto pid = pl->planet.planetId();
-            if (pid <= Planet_Moon
-                    || pid == Planet_NorthNode || pid == Planet_SouthNode
-                    || pid >= Planets_End)
-            { continue; }
-
-            auto aspd = _alist[i]->speed;
-            auto bspd = b[i]->speed;
-            if (!st_quiet) {
-                qDebug() << "  " << _alist[i]->description() << aspd << bspd;
-            }
-            if (sgn(aspd) == sgn(bspd)) continue;
-
-            bool wasRetro = aspd < 0;
-            _evs.emplace_back();
-            auto& ev = _evs.back();
-#if 1
-            tp.start([=, &stations, &ev] {
-                startTask();
-                modalize<bool> mum(st_quiet, true);
-#endif
-
-                auto pj = dynamic_cast<PlanetLoc*>(_alist[i]->clone());
-                pj->desc = QString("S") + (wasRetro? 'D' : 'R');
-                unsigned iters = 0;
-                auto cspd = [&](double jd) {
-                    (*pj)(jd,1);
-                    ++iters;
-                    return pj->speed;
-                };
-
-                double tjd = jd/2.+pjd/2.;
-                if (brentZhangStage(cspd, pjd, jd, aspd, bspd, tjd)) {
-                    auto qdt = dateTimeFromJulian(tjd);
-                    auto ploc = dynamic_cast<PlanetLoc*>(pj);
-
-                    auto dt = dtToString(qdt);
-                    PlanetRangeBySpeed plr { *ploc };
-
-                    ev = HarmonicEvent(qdt, etcStation, 1, std::move(plr));
-
-                    qDebug() << dt << pj->description() << "found in" << iters
-                             << "iterations(s)";
-
-                    if (includeShadowTransits) {
-                        // Add shadow-period transit lookup
-                        QMutexLocker mlb(&_ctm);
-                        auto pj = new KnownPosition(ploc, tjd,
-                                                    wasRetro? "IN" : "EX");
-                        pj->planet.setFileId(i);
-                        pj->allowAspects = PlanetLoc::aspOnlyDirect;
-                        pj->speed = 0;
-                        stations.emplace_back(pj);
-                    }
-                } else {
-                    qDebug() << "Couldn't find station for"
-                        << _alist[i]->description() << "!";
-                }
-#if 1
-                endTask();
-            });
-#endif
-        }
-
-        d = nd;
-        nd = d.addDays(ndays).addSecs(nsecs);
-        //nd = d.addDays(_rate);
-        pjd = jd;
-
-        _alist.swap(b);
-    }
-
-    bool cleared = false;
-    if (_state == cancelRequestedState) {
-        tp.clear();
-        cleared = true;
-    }
-
-    int active(_numTasks);
-    qDebug() << active << "activity/ies";
-    while (!tp.waitForDone(100)) {
-        QCoreApplication::processEvents();
-        if (!cleared && _state == cancelRequestedState) {
-            tp.clear();
-            cleared = true;
-        }
-        int now(_numTasks);
-        if (now != active) {
-            qDebug() << now << "activity/ies";
-            active = now;
-        }
-    }
-
-    qDebug() << "Done with finding stations";
-
-    if (_state == cancelRequestedState) return;
-
-    for (auto pj: stations) {
-        int i = pj->planet.fileId();
-        int j = int(_alist.size());
-        _alist.push_back(pj);
-        pj->planet.setFileId(-1);   // hides it from clusterer
-        _staff.emplace_back(i, j,0,etcTransitToStation);
-        qDebug() << "Added transit search for" << i << j
-                 << QString("H1 %1=%2")
-                    .arg(_alist[i]->description())
-                    .arg(_alist[j]->description());
-    }
-}
-
 std::ostream &
 operator<<(std::ostream& os, const PlanetClusterMap& pcm)
 {
@@ -3427,7 +3267,7 @@ class PairAspectFinder : public EventFinderTask {
     //_ev(_evs.safe_emplace_back())
     {
         _useBZS = (a->inMotion() && ispd < .00001)
-                  || (b->inMotion() && jspd < .00001);
+        || (b->inMotion() && jspd < .00001);
     }
 
     ~PairAspectFinder()
@@ -3454,6 +3294,7 @@ class PairAspectFinder : public EventFinderTask {
         uintmax_t iter;
         bool      bzhs = false;
         bool      done = false;
+        bool      cancelled = false;
         if (!_useBZS) {
             try {
                 auto cps = [this, &poses](double jd) -> std::pair<qreal, qreal> {
@@ -3490,18 +3331,16 @@ class PairAspectFinder : public EventFinderTask {
                     done = false;
                 }
             } catch (...) {
-                done = false;
+                cancelled = false;
             }
             if (!done && !_beQuiet) {
-                qDebug() << "Failed"
-                         << _d.date().toString()
-                         << _which.c_str()
-                         << "after" << iter
-                         << "iteration(s) newton_raphson";
+                qDebug() << QString(cancelled ? "Cancelled" : "Failed")
+                << _d.date().toString() << _which.c_str() << "after"
+                << iter << "iteration(s) newton_raphson";
                 qDebug() << "speed" << _ispd << _jspd << "respectively";
             }
         }
-        if (!done) {
+        if (!done && !cancelled) {
             bzhs = true;
             unsigned count = 0;
             auto cp = [this, &poses, &count](double jd) {
@@ -3562,6 +3401,166 @@ class PairAspectFinder : public EventFinderTask {
     }
 };
 
+
+void
+AspectFinder::findStations()
+{
+    const auto& start = _range.first;
+    const auto& end = _range.second.addDays(1);
+    auto d = start.startOfDay().toUTC();
+    auto e = end.startOfDay().toUTC();
+
+    modalize<bool> mum(st_quiet, true);
+
+    double jd = getJulianDate(d);
+    for (auto trans: _alist) (*trans)(jd, 1);   // the horror
+
+    PlanetProfile b = _alist;
+
+    auto useRate = 15;  // search every 15 days
+    if (!st_quiet) qDebug() << "sta" << dtToString(d);
+
+    double pjd = jd;
+    int ndays = int(useRate);
+    int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
+    auto nd = d.addDays(ndays).addSecs(nsecs);
+    std::list<PlanetLoc*> stations;
+    unsigned in = _alist.size();
+    while (d < e) {
+        QCoreApplication::processEvents();
+
+        if (_state == cancelRequestedState) break;
+        if (_state == pauseRequestedState) {
+            QThread::usleep(100000);
+            continue;
+        }
+
+        jd = getJulianDate(nd);
+        if (!st_quiet) qDebug() << "sta" << dtToString(nd);
+
+        // compute new positions
+        for (auto pos: b) (*pos)(jd, 1);
+
+        std::set<unsigned> stationChecked;
+        for (unsigned i = 0; i < in; ++i) {
+            if (stationChecked.count(i)!=0) continue;
+            stationChecked.insert(i);
+
+            auto pl = dynamic_cast<TransitPosition*>(_alist[i]);
+            if (!pl) continue;
+
+            auto pid = pl->planet.planetId();
+            if (pid <= Planet_Moon
+                    || pid == Planet_NorthNode || pid == Planet_SouthNode
+                    || pid >= Planets_End)
+            { continue; }
+
+            auto aspd = _alist[i]->speed;
+            auto bspd = b[i]->speed;
+            if (!st_quiet) {
+                qDebug() << "  " << _alist[i]->description() << aspd << bspd;
+            }
+            if (sgn(aspd) == sgn(bspd)) continue;
+
+            bool wasRetro = aspd < 0;
+            auto& ev = _evs.safe_emplace_back();
+#if 1
+            _tp->start([=, &stations, &ev] {
+                startTask();
+                modalize<bool> mum(st_quiet, true);
+#endif
+
+                auto pj = dynamic_cast<PlanetLoc*>(_alist[i]->clone());
+                pj->desc = QString("S") + (wasRetro? 'D' : 'R');
+                unsigned iters = 0;
+                auto cspd = [&](double jd) {
+                    (*pj)(jd,1);
+                    ++iters;
+                    return pj->speed;
+                };
+
+                double tjd = jd/2.+pjd/2.;
+                if (brentZhangStage(cspd, pjd, jd, aspd, bspd, tjd)) {
+                    auto qdt = dateTimeFromJulian(tjd);
+                    auto ploc = dynamic_cast<PlanetLoc*>(pj);
+
+                    auto dt = dtToString(qdt);
+                    PlanetRangeBySpeed plr { *ploc };
+
+                    ev = HarmonicEvent(qdt, etcStation, 1, std::move(plr));
+
+                    qDebug() << dt << pj->description() << "found in" << iters
+                             << "iterations(s)";
+
+                    if (includeShadowTransits) {
+                        // Add shadow-period transit lookup
+                        QMutexLocker mlb(&_ctm);
+                        auto pj = new KnownPosition(ploc, tjd,
+                                                    wasRetro? "IN" : "EX");
+                        pj->planet.setFileId(i);
+                        pj->allowAspects = PlanetLoc::aspOnlyDirect;
+                        pj->speed = 0;
+                        stations.emplace_back(pj);
+                    }
+                } else {
+                    qDebug() << "Couldn't find station for"
+                        << _alist[i]->description() << "!";
+                }
+#if 1
+                endTask();
+            });
+#endif
+        }
+
+        d = nd;
+        nd = d.addDays(ndays).addSecs(nsecs);
+        //nd = d.addDays(_rate);
+        pjd = jd;
+
+        _alist.swap(b);
+    }
+
+    bool cleared = false;
+    if (_state == cancelRequestedState) {
+        _tp->clear();
+        cleared = true;
+    }
+
+    int active(_numTasks);
+    qDebug() << active << "activity/ies";
+    while (!_tp->waitForDone(100)) {
+        QCoreApplication::processEvents();
+        if (!cleared && _state == cancelRequestedState) {
+            _tp->clear();
+            cleared = true;
+        }
+        int now(_numTasks);
+        if (now != active) {
+            qDebug() << now << "activity/ies";
+            active = now;
+        }
+    }
+
+    qDebug() << "Done with finding stations";
+
+    if (_state == cancelRequestedState) return;
+
+    for (PlanetLoc* pj : stations) {
+        auto* kp = dynamic_cast<KnownPosition*>(pj);
+        if (!kp) continue;
+        auto jd = kp->julianDate();
+        int i = pj->planet.fileId();
+        int j = int(_alist.size());
+        _alist.push_back(pj);
+        pj->planet.setFileId(-1); // hides it from clusterer
+        _staff.emplace_back(i, j, 0, etcTransitToStation);
+        qDebug() << "Added transit search for" << i << j
+                 << QString("H1 %1=%2")
+                        .arg(_alist[i]->description())
+                        .arg(_alist[j]->description());
+    }
+}
+
 void AspectFinder::findAspectsAndPatterns()
 {
     if (_alist.empty()) return;
@@ -3595,13 +3594,6 @@ void AspectFinder::findAspectsAndPatterns()
         skipAllNatalOnly = true;
     }
     bool showPatterns = showTransitAspectPatterns || !nats.empty();
-
-    auto utp = std::unique_ptr<QThreadPool>(new QThreadPool);
-    QThreadPool& tp = *utp.get();
-
-    auto itc = QThread::idealThreadCount();
-    qDebug() << "Ideal thread count" << itc;
-    tp.setMaxThreadCount(itc);
 
     const auto& start = _range.first;
     auto end = _range.second;
@@ -3995,7 +3987,7 @@ void AspectFinder::findAspectsAndPatterns()
                                                  : etcTransitAspectPattern;
                 auto& ev = _evs.safe_emplace_back(range, et, useH, PlanetSet(ps));
 #if 1
-                tp.start([=, &ev] {
+                _tp->start([=, &ev] {
                     startTask();
 #endif
 #if 0 // FIXME
@@ -4146,7 +4138,7 @@ void AspectFinder::findAspectsAndPatterns()
                             delete r;
                         } else {
                             r->setInOrbRange(hit->second.range);
-                            tp.start(r);
+                            _tp->start(r);
                             any = true;
                         }
                     }
@@ -4232,7 +4224,7 @@ void AspectFinder::findAspectsAndPatterns()
                                 {
                                     for (auto r : hasit->second.tasks) {
                                         r->setInOrbRange(hasit->second.range);
-                                        tp.start(r);
+                                        _tp->start(r);
                                     }
                                 } else {
                                     for (auto r : hasit->second.tasks) {
@@ -4371,7 +4363,7 @@ void AspectFinder::findAspectsAndPatterns()
                                                       d, which,
                                                       et, mum,
                                                       this);
-                        tp.start(r);
+                        _tp->start(r);
                     }
                 }
             }
@@ -4415,7 +4407,7 @@ void AspectFinder::findAspectsAndPatterns()
         if (prep) releaseThread();
     };
 
-    {
+    if (_state != cancelRequestedState) {
         // get those planet pairs framed
         QMutexLocker ml(_evs.mutex()); // lock for swoosh through paired events
         for (auto& ev : _evs) {
@@ -4425,14 +4417,13 @@ void AspectFinder::findAspectsAndPatterns()
         }
     }
 
-    //if (!s_quiet)
-    {
+    if (_state != cancelRequestedState) {
         bool any = false;
         for (auto&& [hps, rm] : proximityLog) {
             for (const auto& [r, stat] : rm) {
-                if (stat)
-                    continue;
-                auto& [h, ps] = hps;
+                if (stat) continue;
+                auto h = hps.first;
+                auto&& ps = hps.second;
                 if (ps.size() != 2) {
                     continue; // Only for pairs
                 }
@@ -4548,7 +4539,7 @@ void AspectFinder::findAspectsAndPatterns()
                            .arg(minSep)
                            .arg(dtToString(dateTimeFromJulian(minJD)))
                            .arg(iters)
-                           .toStdString();
+                           .toStdString().c_str();
 
                 PlanetRangeBySpeed plr;
                 for (auto loc : *profile) {
@@ -4587,10 +4578,10 @@ void AspectFinder::findAspectsAndPatterns()
     bool cleared = false;
     int active(_numTasks);
     qDebug() << active << "activity/ies";
-    while (!tp.waitForDone(100)) {
+    while (!_tp->waitForDone(100)) {
         QCoreApplication::processEvents();
         if (!cleared && _state == cancelRequestedState) {
-            tp.clear();
+            _tp->clear();
             cleared = true;
         }
         int now(_numTasks);
@@ -4599,12 +4590,13 @@ void AspectFinder::findAspectsAndPatterns()
             active = now;
         }
     }
-    utp.reset();    // release thread pool
 
-    // now get remaining
-    QMutexLocker ml(_evs.mutex());   // lock for swoosh through paired events
-    auto fut = QtConcurrent::map(_evs, frameJob);
-    fut.waitForFinished();
+    if (_state != cancelRequestedState) {
+        // now get remaining
+        QMutexLocker ml(_evs.mutex()); // lock for swoosh through paired events
+        auto         fut = QtConcurrent::map(_evs, frameJob);
+        fut.waitForFinished();
+    }
 
     qDebug() << "Done with finding aspects and patterns";
 }
@@ -4631,6 +4623,12 @@ void AspectFinder::run()
 void AspectFinder::findStuff()
 {
     prepThread();
+
+    _tp = std::make_unique<QThreadPool>();
+
+    auto itc = QThread::idealThreadCount();
+    qDebug() << "Ideal thread count" << itc;
+    _tp->setMaxThreadCount(itc);
 
     _state = runningState;
     if (showStations) findStations();

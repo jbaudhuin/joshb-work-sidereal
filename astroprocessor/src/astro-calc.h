@@ -4,6 +4,7 @@
 #include "astro-data.h"
 #include <QEventLoop>
 #include <QRunnable>
+#include <QThreadPool>
 
 // Forward
 class AstroFile;
@@ -383,6 +384,9 @@ public:
     void findStations();
     void findAspectsAndPatterns();
 
+    bool isActive() const { return _numTasks != 0; }
+
+
 signals:
     void progress(double p);
 
@@ -429,6 +433,8 @@ protected:
         if (p->inMotion() && pid == Planet_Moon) return h < 4;
         return true;
     }
+
+    std::unique_ptr<QThreadPool> _tp;
 
     HarmonicEvents& _evs;
     ADateRange _range;
