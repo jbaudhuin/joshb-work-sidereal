@@ -4,6 +4,12 @@
 #include "astro-data.h"
 #include "astro-gui.h"
 
+#if (QT_VERSION < QT_VERSION_CHECK(6,0,0)) && defined(_MSC_VER)
+#define A_DECODE(s) QString::fromLocal8Bit(s)
+#else
+#define A_DECODE(s) QString::fromUtf8(s)
+#endif
+
 namespace A {
 
 enum PlanetsOrder { Order_NoOrder, Order_Power, Order_House, Order_Element };

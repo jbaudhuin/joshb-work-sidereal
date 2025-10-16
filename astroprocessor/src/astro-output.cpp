@@ -9,12 +9,6 @@
 
 namespace A {
 
-#if (QT_VERSION < QT_VERSION_CHECK(6,0,0)) && defined(_MSC_VER)
-#define A_DECODE(s) QString::fromLocal8Bit(s)
-#else
-#define A_DECODE(s) QString::fromUtf8(s)
-#endif
-
 QString romanNum(int num)
 {
     static const char* h[] = { "I", "II", "III", "IV",

@@ -15,6 +15,7 @@
 
 #include "astro-calc.h"
 #include "astro-gui.h"
+#include "astro-output.h"
 #include "fileeditor.h"
 
 #include <swephexp.h>
@@ -23,6 +24,8 @@
 using namespace boost::math::tools;
 
 namespace A {
+
+static QString angleDesc[] = { "asc", "desc", "mc", "ic" };
 
 QString
 dtToString(const QDateTime& dt)
@@ -546,10 +549,6 @@ calculatePlanet(PlanetId planet,
     double frac;
     double st = swe_degnorm(ret.equatorialPos.x());
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
-    qDebug("Planet %s RA %d %02d %02d:",
-           qPrintable(getPlanetName(planet)), deg, min, sec);
-
-    static QString angleDesc[] = { "asc", "desc", "mc", "ic" };
 
     if (primDirMode == prdActive) {
         for (Star::angleTransitMode m = Star::atAsc; 
@@ -599,23 +598,30 @@ calculatePlanet(PlanetId planet,
         double RAMC0 = houses.RAMC; // in degrees
         double sidereal_day = 0.99726958; // days
 
+        QString rastr =
+            "Planet Angle Transits in RA of " + ret.name.left(3);
+
+        char delim = ':';
         for (Star::angleTransitMode m = Star::atAsc;
              m < Star::numAngles;
              m = Star::angleTransitMode(m + 1))
         {
             double RA_target = at[m];
-            double delta_deg = swe_difdegn(RA_target, RAMC0); // signed difference
-            double delta_jd = delta_deg / 360.0; // * sidereal_day;
+            double delta_deg = swe_difdeg2n(RA_target, RAMC0); // signed difference
+            double delta_jd = delta_deg / 360.0 * sidereal_day;
             double jd_target = jd0 + delta_jd;
             ret.angleTransit[m] = dateTimeFromJulian(jd_target);
 
             swe_split_deg(RA_target, 0, &deg, &min, &sec, &frac, &sgn);
-            qDebug("  FIXED TIME %s %3d %02d %02d",
-                   qPrintable(angleDesc[m]),
-                   deg,
-                   min,
-                   sec);
+            rastr += QString("%1 %2 %3 %4'%5\"")
+                         .arg(delim)
+                         .arg(angleDesc[m])
+                         .arg(deg, 3, 10, QChar(' '))
+                         .arg(min, 2, 10, QChar('0'))
+                         .arg(sec, 2, 10, QChar('0'));
+            delim = ',';
         }
+        qDebug() << qPrintable(rastr);
     }
     if (ret.id == Planet_SouthNode) {
         qSwap(ret.angleTransit[Star::atAsc], ret.angleTransit[Star::atDesc]);
@@ -936,7 +942,8 @@ Star calculateStar(const QString& name,
     char starName[256];
     strcpy(starName, ret.name.toStdString().c_str());
     if (swe_fixstar_ut(starName, jd, flags | SEFLG_SWIEPH, xx, errStr) != ERR
-        && strlen(errStr) != ERR) {
+        && strlen(errStr) != ERR)
+    {
         if (!(ret.sweFlags & invertPositionFlag))
             ret.eclipticPos.setX(xx[0]);
         else                               // found 'inverted position' flag
@@ -945,9 +952,13 @@ Star calculateStar(const QString& name,
         ret.eclipticPos.setY(xx[1]);
         ret.distance = xx[2];
 
-        if (swe_fixstar_ut(starName, jd, flags | SEFLG_SWIEPH | SEFLG_EQUATORIAL,
-                           xx, errStr) != ERR
-            && strlen(errStr) == 0) {
+        if (swe_fixstar_ut(starName, jd,
+                           (flags & ~SEFLG_SIDEREAL) | SEFLG_SWIEPH
+                               | SEFLG_EQUATORIAL,
+                           xx, errStr)
+                != ERR
+            && strlen(errStr) == 0)
+        {
             ret.equatorialPos.setX(xx[0]);
             ret.equatorialPos.setY(xx[1]);
         }
@@ -1001,16 +1012,33 @@ Star calculateStar(const QString& name,
             double RAMC0 = houses.RAMC; // in degrees
             double sidereal_day = 0.99726958; // days
 
+#if 0
+            QString rastr = "Star Angle Transits in RA of " + ret.name.left(3);
+            char    delim = ':';
+            int32   deg, min, sec, sgn;
+            double  frac;
+#endif
             for (auto m = Star::atAsc;
                  m < Star::numAngles;
                  m = Star::angleTransitMode(m + 1))
             {
                 double RA_target = at[m];
-                double delta_deg = swe_difdegn(RA_target, RAMC0); // signed difference
-                double delta_jd = delta_deg / 360.0; // * sidereal_day;
+                double delta_deg = swe_difdeg2n(RA_target, RAMC0); // signed difference
+                double delta_jd = delta_deg / 360.0 * sidereal_day;
                 double jd_target = jd0 + delta_jd;
                 ret.angleTransit[m] = dateTimeFromJulian(jd_target);
+#if 0
+                swe_split_deg(RA_target, 0, &deg, &min, &sec, &frac, &sgn);
+                rastr += QString(A_DECODE("%1 %2 %3 %4'%5\""))
+                             .arg(delim)
+                             .arg(angleDesc[m])
+                             .arg(deg)
+                             .arg(min, 2, 10, QChar('0'))
+                             .arg(sec, 2, 10, QChar('0'));
+                delim = ',';
+#endif
             }
+            //qDebug() << qPrintable(rastr);
         }
     } else {
         qDebug("A: can't calculate position of '%s' at julian day %f: %s",
