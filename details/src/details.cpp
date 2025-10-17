@@ -22,7 +22,7 @@ Details::Details(QWidget* parent) :
     planetSelector = new QComboBox;
     position = new ExpandWidget(tr("Astronomic data"));
     aspects = new ExpandWidget(tr("Aspects"));
-    power = new ExpandWidget(tr("Affetic"));
+    power = new ExpandWidget(tr("Aphetic"));
 
     positionLabel = new QLabel;
     aspectsList = new QListWidget;

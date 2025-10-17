@@ -256,12 +256,14 @@ struct ZodiacSign {
   QString name;
   float startAngle;
   float endAngle;
+  PlanetId ruler;
   QMap<QString, QVariant> userData;
 
   ZodiacSign() { id         = Zodiac_None;
                  zodiacId   = -1;
                  startAngle = 0;
-                 endAngle   = 0; }
+                 endAngle   = 0;
+                 ruler      = Planet_None; }
 };
 
 struct Zodiac {

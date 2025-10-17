@@ -195,24 +195,70 @@ describeInput(const InputData& data)
 
 QString
 describeHouses(const Houses& houses,
-               const Zodiac& zodiac)
+               const Zodiac& zodiac,
+               const PlanetMap& planets)
 {
+    // CONFIGURABLE: Cell padding for houses table
+    const QString cellPadding = "0px";
+    
     QString ret;
     ret += "<h3>" + QObject::tr("Houses (%1)").arg(houses.system->name) + "</h3>";
     ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
     
+    // Table header
+    ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("House") + "</th>";
+    ret += "<th style='padding: 4px 8px;'></th>";
+    ret += "<th style='padding: 4px 8px; text-align: right;'>" + QObject::tr("Cusp") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Ruler") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Ruler in") + "</th>";
+    ret += "</tr>";
+    
     for (int i = 0; i < 12; i++) {
         ret += "<tr>";
-        ret += "<td style='padding: 2px 8px; text-align: right; font-weight: bold; color: #e9e9e4;'>" + 
+        ret += "<td style='padding: " + cellPadding + " 8px; text-align: right; font-weight: bold; color: #e9e9e4;'>" + 
                houseTag(i + 1) + "</td>";
-        ret += "<td style='padding: 2px 8px;'>-</td>";
-        ret += "<td style='padding: 2px 8px; text-align: right;'>" + 
+        ret += "<td style='padding: " + cellPadding + " 8px;'>-</td>";
+        ret += "<td style='padding: " + cellPadding + " 8px; text-align: right;'>" + 
                zodiacPosition(houses.cusp[i], zodiac, HighPrecision) + "</td>";
+        
+        // Find the sign on the house cusp and its ruler
+        const ZodiacSign& sign = getSign(houses.cusp[i], zodiac);
+        QString rulerName = "";
+        QString rulerHouse = "";
+        
+        if (sign.ruler != Planet_None) {
+            rulerName = getPlanet(sign.ruler).name;
+            
+            // Find which house the ruler is in
+            foreach(const Planet& planet, planets) {
+                if (planet.id == sign.ruler) {
+                    rulerHouse = romanNum(planet.house);
+                    break;
+                }
+            }
+            
+            if (rulerHouse.isEmpty()) {
+                rulerHouse = "?";
+            }
+        }
+        
+        ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + rulerName + "</td>";
+        ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + rulerHouse + "</td>";
         ret += "</tr>";
     }
     
     ret += "</table>";
     return ret;
+}
+
+// 2-parameter overload for backward compatibility
+QString
+describeHouses(const Houses& houses,
+               const Zodiac& zodiac)
+{
+    PlanetMap emptyPlanets; // Empty planet map
+    return describeHouses(houses, zodiac, emptyPlanets);
 }
 
 QString     describeAspect(const Aspect &aspect, bool monospace)
@@ -255,17 +301,20 @@ QString
 describePlanet(const Planet& planet,
                const Zodiac& zodiac)
 {
+    // CONFIGURABLE: Cell padding for planets table
+    const QString cellPadding = "0px";
+    
     QString ret = "<tr>";
 
     // Planet name
-    ret += "<td style='padding: 2px 8px; font-weight: bold; color: #e9e9e4;'>" + planet.name + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px; font-weight: bold; color: #e9e9e4;'>" + planet.name + "</td>";
     
     // Position
-    ret += "<td style='padding: 2px 8px; text-align: right;'>" + 
+    ret += "<td style='padding: " + cellPadding + " 8px; text-align: right;'>" + 
            zodiacPosition(planet, zodiac, HighPrecision) + "</td>";
     
     // House
-    ret += "<td style='padding: 2px 8px; text-align: center;'>" + houseNum(planet) + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + houseNum(planet) + "</td>";
 
     // Speed
     QString speedStr;
@@ -273,7 +322,7 @@ describePlanet(const Planet& planet,
         float speed = planet.eclipticSpeed.x() / planet.defaultEclipticSpeed.x();
         speedStr = QString("(%1%)").arg((int)(speed * 100));
     }
-    ret += "<td style='padding: 2px 8px; text-align: center;'>" + speedStr + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + speedStr + "</td>";
 
     // Power
     QString powerStr;
@@ -281,7 +330,7 @@ describePlanet(const Planet& planet,
         QString plus = planet.power.dignity != 0 ? "+" : "";
         powerStr = QString("%1%2|%3").arg(plus).arg(planet.power.dignity).arg(planet.power.deficient);
     }
-    ret += "<td style='padding: 2px 8px; text-align: center;'>" + powerStr + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + powerStr + "</td>";
 
     // Ruler
     QStringList rs;
@@ -289,14 +338,14 @@ describePlanet(const Planet& planet,
         rs << romanNum(r);
     }
     QString rulerStr = rs.isEmpty() ? "" : QObject::tr("ruler of %1").arg(rs.join("+"));
-    ret += "<td style='padding: 2px 8px;'>" + rulerStr + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px;'>" + rulerStr + "</td>";
 
     // Position name
     QString positionStr;
     if (planet.position != Position_Normal) {
         positionStr = getPositionName(planet.position);
     }
-    ret += "<td style='padding: 2px 8px; font-style: italic;'>" + positionStr + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px; font-style: italic;'>" + positionStr + "</td>";
 
     ret += "</tr>";
     return ret;
@@ -790,10 +839,10 @@ describeSpeculum(const Horoscope &scope,
     for (const Planet& p: scope.planets) {
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         ret += "<tr>";
-        ret += "<td style='padding: 2px 8px; font-weight: bold; color: #e9e9e4;'>" + p.name + "</td>";
+        ret += "<td style='padding: 0px 8px; font-weight: bold; color: #e9e9e4;'>" + p.name + "</td>";
         for (int i : QList<int>({0, 2, 1, 3})) {
             QString timeStr = _formatTime(p.angleTransit.at(i), tz);
-            ret += "<td style='padding: 2px 8px; text-align: center;'>" + timeStr + "</td>";
+            ret += "<td style='padding: 0px 8px; text-align: center;'>" + timeStr + "</td>";
         }
         ret += "</tr>";
     }
@@ -801,10 +850,10 @@ describeSpeculum(const Horoscope &scope,
     if (showFixedStars) {
         for (const Star& s: scope.stars) {
             ret += "<tr>";
-            ret += "<td style='padding: 2px 8px;'>" + s.name + "</td>";
+            ret += "<td style='padding: 0px 8px;'>" + s.name + "</td>";
             for (int i : QList<int>({0, 2, 1, 3})) {
                 QString timeStr = _formatTime(s.angleTransit.at(i), tz);
-                ret += "<td style='padding: 2px 8px; text-align: center;'>" + timeStr + "</td>";
+                ret += "<td style='padding: 0px 8px; text-align: center;'>" + timeStr + "</td>";
             }
             ret += "</tr>";
         }
@@ -829,15 +878,18 @@ describe(AstroFileList&& scopes,
     ret += "h1 { font-size: 1.4em; }";
     ret += "h2 { font-size: 1.2em; }";
     ret += "h3 { font-size: 1.1em; }";
+    ret += "h4 { color: #e9e9e4; font-size: 1.0em; margin-top: 12px; margin-bottom: 4px; }";
     ret += "table { margin: 10px 0; border-collapse: collapse; background-color: transparent; }";
     ret += "th { background-color: rgba(255,255,255,0.1); font-weight: bold; color: #e9e9e4; border: 1px solid #555; }";
     ret += "td { border: 1px solid #555; color: #b5bfdf; }";
     ret += "tr:nth-child(even) { background-color: rgba(255,255,255,0.05); }";
     ret += ".planets-table td:first-child { font-weight: bold; color: #e9e9e4; }";
-    ret += "p { color: #b5bfdf; }";
-    ret += "ul { color: #b5bfdf; }";
-    ret += "li { margin: 2px 0; }";
+    ret += "p { color: #b5bfdf; margin: 2px 0; line-height: 1.2; }";
+    ret += "ul { color: #b5bfdf; margin: 4px 0; }";
+    ret += "li { margin: 1px 0; line-height: 1.2; }";
     ret += "strong { color: #e9e9e4; }";
+    ret += ".dignity-list { margin: 4px 0; }";
+    ret += ".dignity-list p { margin: 1px 0; padding: 0; line-height: 1.1; }";
     ret += "</style>";
     ret += "</head><body>";
 
@@ -878,7 +930,7 @@ describe(AstroFileList&& scopes,
     }
 
     if ((article & Article_Houses) && scope.houses.system)
-        ret += describeHouses(scope.houses, scope.zodiac);
+        ret += describeHouses(scope.houses, scope.zodiac, scope.planets);
 
     if ((article & Article_Aspects) && scope.aspects.count()) {
         ret += "<h3>" + QObject::tr("Aspects") + "</h3>";
@@ -893,7 +945,7 @@ describe(AstroFileList&& scopes,
         foreach(const Planet& p, scope.planets) {
             if (p.isReal) {
                 ret += "<h4>" + p.name + "</h4>";
-                ret += describePowerInHtml(p, scope);
+                ret += "<div class='dignity-list'>" + describePowerInHtml(p, scope) + "</div>";
             }
         }
     }

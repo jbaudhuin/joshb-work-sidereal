@@ -189,8 +189,13 @@ void Data::load(QString language)
         s.endAngle = f.row(6).toFloat() + s.startAngle;
         if (s.endAngle > 360) s.endAngle -= 360;
 
-        for (int i = 7; i < f.columnsCount(); i++)
-            s.userData[f.header(i)] = f.row(i);
+        for (int i = 7; i < f.columnsCount(); i++) {
+            if (f.header(i) == "ruler") {
+                s.ruler = static_cast<PlanetId>(f.row(i).toInt());
+            } else {
+                s.userData[f.header(i)] = f.row(i);
+            }
+        }
 
         zodiacs[s.zodiacId].signs << s;
         signs.insert(s.tag, s.id);

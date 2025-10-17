@@ -17,7 +17,7 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     describePlanets  = new QCheckBox(tr("planets;"));
     describeHouses   = new QCheckBox(tr("houses;"));
     describeAspects  = new QCheckBox(tr("aspects;"));
-    describePower    = new QCheckBox(tr("affetic"));
+    describePower    = new QCheckBox(tr("aphetic"));
     describeParans   = new QCheckBox(tr("parans"));
     describeSpeculum = new QCheckBox(tr("spec"));
     view             = new QTextBrowser();
