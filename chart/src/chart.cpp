@@ -282,7 +282,7 @@ Chart::updateScene()
     float rotate;
 
     bool useReturnAsc = false;
-    if (false && circleStart == Start_Outer_Ascendant && files().size() > 1) {
+    if (circleStart == Start_Outer_Ascendant && files().size() > 1) {
         static QRegularExpression re(R"(^H\d+ (\w+)-r=\1.*)");
 
         auto id    = file(1)->getName();
@@ -903,48 +903,53 @@ void Chart::refreshAll()
     updateAspects();
 }
 
-void Chart::filesUpdated(MembersList m)
+void
+Chart::filesUpdated(MembersList m)
 {
-    while (m.size() < filesCount()) m.append(AstroFile::Member());
-    if (chartsCount && (chartsCount != filesCount() ||     // clear if charts count or zodiac has changed
-                        (filesCount() && (m[0] & AstroFile::Zodiac))))
+    while (m.size() < filesCount()) {
+        m.append(AstroFile::Member());
+    }
+    if (chartsCount
+        && (chartsCount != filesCount()
+            || (filesCount() && (m[0] & AstroFile::Zodiac))))
+    {
+        // clear if charts count or zodiac has changed
         clearScene();
+    }
 
     bool justCreated = false;
-    bool updAspects = false;
+    bool updAspects  = false;
     if (!chartsCount && filesCount()) {
         createScene();
         justCreated = true;
     }
 
-    AstroFile::Members updateFlags = AstroFile::GMT
-            | AstroFile::Timezone | AstroFile::Location
-            | AstroFile::HouseSystem | AstroFile::AspectSet
-            | AstroFile::Zodiac | AstroFile::Harmonic;
+    AstroFile::Members updateFlags =
+        AstroFile::GMT | AstroFile::Timezone | AstroFile::Location
+        | AstroFile::HouseSystem | AstroFile::AspectSet | AstroFile::Zodiac
+        | AstroFile::Harmonic;
 
     if (filesCount() && (justCreated || (m[0] & updateFlags))) {
         updateScene();
-        updatePlanetsAndCusps(0);
+        for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
         updAspects = true;
-    } else if (!updAspects && filesCount()
-               && (m[0] & AstroFile::AspectMode))
-    {
+    } else if (!updAspects && filesCount() && (m[0] & AstroFile::AspectMode)) {
         // aspect mode changed
         updateScene();
-        updatePlanetsAndCusps(0);
+        for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
         updAspects = true;
     }
 
     if (filesCount() > 1
-            && (justCreated
-                || (m[1] & updateFlags)
-                || ((m[0] & updateFlags) && startPoint() == Start_Ascendent))) {
-        updatePlanetsAndCusps(1);
+        && (justCreated || (m[1] & updateFlags)
+            || ((m[0] & updateFlags) && startPoint() == Start_Ascendent)))
+    {
+        updateScene();
+        for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
         updAspects = true;
     }
 
-    if (updAspects)
-        updateAspects();
+    if (updAspects) updateAspects();
 }
 
 bool
@@ -1028,7 +1033,7 @@ void Chart::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addTab(tr("Chart"));
 
     QMap<QString, QVariant> values;
-    values[tr("Ascendent")] = Start_Ascendent;
+    values[tr("Ascendant")] = Start_Ascendent;
     values[tr("Ascendant (prefer outer)")] = Start_Outer_Ascendant;
     values[tr("0 Aries")] = Start_ZeroDegree;
     ed->addComboBox("Circle/circleStart", tr("Circle start:"), values);
