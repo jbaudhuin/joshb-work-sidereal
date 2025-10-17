@@ -315,7 +315,7 @@ Chart::updateScene()
         rotate = -rotate;
     }
 
-    for (QGraphicsItem* i : signIcons)
+    for (QGraphicsItem* i : std::as_const(signIcons))
         i->setRotation(-rotate);
 
     circle->setRotation(rotate);
@@ -380,10 +380,10 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     {
         qreal angle = 0.0;
         switch (A::aspectMode) {
-        case A::amcEcliptic: angle = b.eclipticPos.x(); break;
-        case A::amcEquatorial: angle = b.equatorialPos.x(); break;
+        case A::amcEcliptic:      angle = b.eclipticPos.x(); break;
+        case A::amcEquatorial:    angle = b.equatorialPos.x(); break;
         case A::amcPrimeVertical: angle = b.pvPos; break;
-        default: hide = true; break;
+        default:                  hide = true; break;
         }
 
         QGraphicsItem* marker = planetMarkers[fileIndex][b.id];

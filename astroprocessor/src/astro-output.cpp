@@ -179,15 +179,17 @@ describeInput(const InputData& data)
     auto time = QLocale().toString(data.GMT().time(),QLocale::LongFormat);
     QString dayOfWeek = data.GMT().date().toString("ddd");
 
-    ret += QObject::tr("Date: %1, %2 %3 GMT\n").arg(dayOfWeek).arg(date).arg(time);
-    ret += "\n";
+    ret += "<p><strong>" + QObject::tr("Date:") + "</strong> " + 
+           QString("%1, %2 %3 GMT").arg(dayOfWeek).arg(date).arg(time) + "</p>";
+    
     QString lat =
         (data.location().y() >= 0 ? QObject::tr("%1N") : QObject::tr("%1S"))
             .arg(degreeToString(-data.location().y(), HighPrecision));
     QString lng =
         (data.location().x() >= 0 ? QObject::tr("%1E") : QObject::tr("%1W"))
             .arg(degreeToString(-data.location().x(), HighPrecision));
-    ret += QObject::tr("Location: %1 %2\n").arg(lat, lng);
+    ret += "<p><strong>" + QObject::tr("Location:") + "</strong> " + 
+           QString("%1 %2").arg(lat, lng) + "</p>";
     return ret;
 }
 
@@ -196,31 +198,34 @@ describeHouses(const Houses& houses,
                const Zodiac& zodiac)
 {
     QString ret;
-    ret += QObject::tr("Houses (%1)\n").arg(houses.system->name);
-
+    ret += "<h3>" + QObject::tr("Houses (%1)").arg(houses.system->name) + "</h3>";
+    ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
+    
     for (int i = 0; i < 12; i++) {
-        ret += houseTag(i + 1).rightJustified(4, ' ') + " -" +
-            zodiacPosition(houses.cusp[i], zodiac, HighPrecision).rightJustified(14, ' ');
-
-        if (i < 11) ret += '\n';
+        ret += "<tr>";
+        ret += "<td style='padding: 2px 8px; text-align: right; font-weight: bold; color: #e9e9e4;'>" + 
+               houseTag(i + 1) + "</td>";
+        ret += "<td style='padding: 2px 8px;'>-</td>";
+        ret += "<td style='padding: 2px 8px; text-align: right;'>" + 
+               zodiacPosition(houses.cusp[i], zodiac, HighPrecision) + "</td>";
+        ret += "</tr>";
     }
-
+    
+    ret += "</table>";
     return ret;
 }
 
 QString     describeAspect(const Aspect &aspect, bool monospace)
 {
-    QString ret = aspect.d->name;
-    if (monospace) ret = ret.leftJustified(14, ' ', true);
-    if (!ret.isEmpty()) ret += " ";
-
-    ret += aspect.planet1->name + "-" + aspect.planet2->name;
-    if (monospace) ret = ret.leftJustified(35, ' ', true);
+    QString ret = "<strong>" + aspect.d->name + "</strong> ";
+    ret += aspect.planet1->name + "-" + aspect.planet2->name + " ";
 
     QString angleStr = degreeToString(aspect.angle);
 
-    if (aspect.applying) ret += " >" + angleStr + "<";
-    else               ret += " <" + angleStr + ">";
+    if (aspect.applying) 
+        ret += "<span style='color: #71aeec;'>&gt;" + angleStr + "&lt;</span>";
+    else               
+        ret += "<span style='color: #dfb096;'>&lt;" + angleStr + "&gt;</span>";
 
     return ret;
 }
@@ -250,38 +255,50 @@ QString
 describePlanet(const Planet& planet,
                const Zodiac& zodiac)
 {
-    QString ret;
+    QString ret = "<tr>";
 
-    QString name = planet.name.leftJustified(14, ' ', true);
-    QString longitude = zodiacPosition(planet, zodiac, HighPrecision)
-        .rightJustified(14, ' ', true);
+    // Planet name
+    ret += "<td style='padding: 2px 8px; font-weight: bold; color: #e9e9e4;'>" + planet.name + "</td>";
+    
+    // Position
+    ret += "<td style='padding: 2px 8px; text-align: right;'>" + 
+           zodiacPosition(planet, zodiac, HighPrecision) + "</td>";
+    
+    // House
+    ret += "<td style='padding: 2px 8px; text-align: center;'>" + houseNum(planet) + "</td>";
 
-    ret = name + " " + longitude + " " + houseNum(planet).leftJustified(4, ' ');
-
+    // Speed
+    QString speedStr;
     if (planet.defaultEclipticSpeed.x() != 0) {
         float speed = planet.eclipticSpeed.x() / planet.defaultEclipticSpeed.x();
-        ret += QString(" (%1%)").arg((int)(speed * 100)).leftJustified(8, ' ', true);
-    } else
-        ret += QString().leftJustified(8, ' ');
+        speedStr = QString("(%1%)").arg((int)(speed * 100));
+    }
+    ret += "<td style='padding: 2px 8px; text-align: center;'>" + speedStr + "</td>";
 
+    // Power
+    QString powerStr;
     if (planet.power.dignity != 0 || planet.power.deficient != 0) {
         QString plus = planet.power.dignity != 0 ? "+" : "";
-        QString dignity = QString(plus + "%1").arg(planet.power.dignity).rightJustified(3, ' ');
-        QString deficient = QString("%1").arg(planet.power.deficient).leftJustified(3, ' ');
+        powerStr = QString("%1%2|%3").arg(plus).arg(planet.power.dignity).arg(planet.power.deficient);
+    }
+    ret += "<td style='padding: 2px 8px; text-align: center;'>" + powerStr + "</td>";
 
-        ret += " " + dignity + "|" + deficient;
-    } else
-        ret += QString().leftJustified(8, ' ');
-
+    // Ruler
     QStringList rs;
     for (auto r: planet.houseRuler) {
         rs << romanNum(r);
     }
-    ret += QObject::tr(" ruler of %1").arg(rs.join("+")).leftJustified(18, ' ');
+    QString rulerStr = rs.isEmpty() ? "" : QObject::tr("ruler of %1").arg(rs.join("+"));
+    ret += "<td style='padding: 2px 8px;'>" + rulerStr + "</td>";
 
-    if (planet.position != Position_Normal)
-        ret += " " + getPositionName(planet.position);
+    // Position name
+    QString positionStr;
+    if (planet.position != Position_Normal) {
+        positionStr = getPositionName(planet.position);
+    }
+    ret += "<td style='padding: 2px 8px; font-style: italic;'>" + positionStr + "</td>";
 
+    ret += "</tr>";
     return ret;
 }
 
@@ -512,32 +529,35 @@ _formatTime(const QDateTime& dt, short tz)
 }
 
 namespace {
-struct event {
-    QDateTime _dt;
-    const Star* _star;
-    unsigned _pivot;
 
-    static int _maxWidth;
+struct event {
+    QDateTime   _dt;
+    const Star* _star;
+    unsigned    _pivot;
+
+    static int       _maxWidth;
     static QDateTime _radix;
 
-    event() : _star(NULL), _pivot(0) {}
+    event() : _star(NULL), _pivot(0) { }
 
-    event(const QDateTime& dt,
-          const Star* planet,
-          unsigned pivot) :
-        _dt(dt), _star(planet), _pivot(pivot)
+    event(const QDateTime& dt, const Star* planet, unsigned pivot) :
+        _dt(dt),
+        _star(planet),
+        _pivot(pivot)
     {
     }
 
     event(const event& other) :
-        _dt(other._dt), _star(other._star), _pivot(other._pivot)
+        _dt(other._dt),
+        _star(other._star),
+        _pivot(other._pivot)
     {
     }
 
     event& operator=(const event& other)
     {
-        _dt = other._dt;
-        _star = other._star;
+        _dt    = other._dt;
+        _star  = other._star;
         _pivot = other._pivot;
         return *this;
     }
@@ -554,27 +574,53 @@ struct event {
         return (_pivot < other._pivot);
     }
 
-    QString fmt(short tz) const
+    QString fmt(short          tz,
+                const QString& padding        = "1px",
+                bool           isFirstInGroup = false) const
     {
-        static QStringList AT {
-            QObject::tr("Rise"),
-                    QObject::tr("Set"),
-                    QObject::tr("MC"),
-                    QObject::tr("IC"),
-                    "----"
-        };
-        QString ret = QString("%1  %2  %3")
-            .arg(_star ? _star->name : QObject::tr("*Radix*"), -_maxWidth)
-            .arg(AT.at(_pivot), -6)
-            .arg(_formatTime(_dt, tz), -9);
-        if (_star) { // i.e., not radix
-            double dist = qAbs(_radix.secsTo(_dt));
-            int dayDiff = dist*(365.25 / 240.0);
-            QDateTime newDate = _radix.addDays(dayDiff);
-            ret += QString(" --> %1")
-                .arg(newDate.toString("yyyy/MM/dd"));
+        static QStringList AT { QObject::tr("Rise"),
+                                QObject::tr("Set"),
+                                QObject::tr("MC"),
+                                QObject::tr("IC"),
+                                "----" };
+
+        QString       planetName = _star ? _star->name : QObject::tr("*Radix*");
+        const Planet* planet     = dynamic_cast<const Planet*>(_star);
+
+        QString borderStyle =
+            isFirstInGroup ? " border-top: 1px solid #777;" : "";
+        QString fontWeight = planet ? " font-weight: bold;" : "";
+        QString ret        = "<tr>";
+
+        // All cells get the same styling for planets vs fixed stars
+        QString cellStyle =
+            "padding: " + padding + " 8px;" + borderStyle + fontWeight;
+
+        // Planet name with color emphasis for planets
+        if (planet) {
+            ret += "<td style='" + cellStyle + " color: #e9e9e4;'>" + planetName
+                   + "</td>";
+        } else {
+            ret += "<td style='" + cellStyle + "'>" + planetName + "</td>";
         }
-        return ret + "\n";
+
+        ret += "<td style='" + cellStyle + " text-align: center;'>"
+               + AT.at(_pivot) + "</td>";
+        ret += "<td style='" + cellStyle + " text-align: right;'>"
+               + _formatTime(_dt, tz) + "</td>";
+
+        if (_star) { // i.e., not radix
+            double    dist    = qAbs(_radix.secsTo(_dt));
+            int       dayDiff = dist * (365.25 / 240.0);
+            QDateTime newDate = _radix.addDays(dayDiff);
+            ret += "<td style='" + cellStyle + "'> --&gt; "
+                   + newDate.toString("yyyy/MM/dd") + "</td>";
+        } else {
+            ret += "<td style='" + cellStyle + "'></td>";
+        }
+
+        ret += "</tr>";
+        return ret;
     }
 };
 
@@ -584,25 +630,30 @@ QDateTime event::_radix;
 
 QString
 describeParans(const AstroFileList& scopes,
-               bool showAll,
-               bool showFixedStars,
-               double paranOrb)
+               bool                 showAll,
+               bool                 showFixedStars,
+               double               paranOrb)
 {
-    bool showDates = scopes.count() == 1;
-    auto scope = scopes.first()->horoscope();
-    short tz = scope.inputData.tz();
+    // CONFIGURABLE: Cell padding for parans table - change this to adjust row
+    // spacing Suggested values: "0px" (tight), "1px" (normal), "2px" (loose)
+    const QString cellPadding = "0px";
+
+    bool  showDates = scopes.count() == 1;
+    auto  scope     = scopes.first()->horoscope();
+    short tz        = scope.inputData.tz();
+
     QVector<event> events;
-    events << event(scope.inputData.GMT(), NULL, 4);    // radix
+    events << event(scope.inputData.GMT(), NULL, 4); // radix
 
     int& maxWidth(event::_maxWidth);
     maxWidth = 0;
 
     event::_radix = scope.inputData.GMT();
 
-    for (const Planet& p: qAsConst(scope.planets)) {
+    for (const Planet& p : qAsConst(scope.planets)) {
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         unsigned u = 0;
-        for (const QDateTime& dt: p.angleTransit) {
+        for (const QDateTime& dt : p.angleTransit) {
             if (p.name.length() > maxWidth) {
                 maxWidth = p.name.length();
             }
@@ -611,9 +662,9 @@ describeParans(const AstroFileList& scopes,
     }
 
     if (showFixedStars) {
-        for (const Star& s: qAsConst(scope.stars)) {
+        for (const Star& s : qAsConst(scope.stars)) {
             unsigned u = 0;
-            for (const QDateTime& dt: s.angleTransit) {
+            for (const QDateTime& dt : s.angleTransit) {
                 if (!dt.isValid()) continue;
                 if (s.name.length() > maxWidth) {
                     maxWidth = s.name.length();
@@ -625,59 +676,84 @@ describeParans(const AstroFileList& scopes,
 
     std::sort(events.begin(), events.end());
 
-    QString ret = QString("%1  %2  %3\n")
-        .arg(QObject::tr("Planet"), -maxWidth)
-        .arg(QObject::tr("Event"), -6)
-        .arg(QObject::tr("LT"), -9);
+    QString ret = "<h3>" + QObject::tr("Parans") + "</h3>";
+    ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
+    ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>"
+           + QObject::tr("Planet") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>"
+           + QObject::tr("Event") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: right;'>"
+           + QObject::tr("LT") + "</th>";
+    ret += "<th style='padding: 4px 8px;'></th>";
+    ret += "</tr>";
 
-    double orb = paranOrb * 240;
-    bool anyPrinted = false;
-    QVector<event>::ConstIterator lastPrinted = events.constEnd();
-    for (QVector<event>::ConstIterator it = events.constBegin();
-         it != events.constEnd(); ++it)
+    double                        orb         = paranOrb * 240;
+    bool                          anyPrinted  = false;
+
+    auto lastPrinted = events.constEnd();
+    for (auto it = events.constBegin();
+         it != events.constEnd();) // Note: no ++it here, we manage it manually
     {
         if (showAll) {
-            ret += it->fmt(tz);
+            ret += it->fmt(tz, cellPadding, false);
+            ++it;
             continue;
         }
         const Planet* p = dynamic_cast<const Planet*>(it->_star);
         if (p || !it->_star /*radix*/) {
-            int j = 1;
+            int                           j   = 1;
             QVector<event>::ConstIterator bit = it;
             while (bit != events.constBegin()
-                   && qAbs((*(bit - 1))._dt.secsTo(it->_dt)) <= orb) {
+                   && qAbs((*(bit - 1))._dt.secsTo(it->_dt)) <= orb)
+            {
                 if (bit - 1 == lastPrinted) {
                     anyPrinted = false;
                     break;
                 }
-                ++j; --bit;
+                ++j;
+                --bit;
             }
             QVector<event>::ConstIterator lastPlanet = it;
             QVector<event>::ConstIterator nit;
-            for (nit = it + 1;
-                 nit != events.constEnd()
-                 && qAbs(nit->_dt.secsTo(lastPlanet->_dt)) <= orb;
-                 ++nit) {
+            for (nit = it + 1; nit != events.constEnd()
+                               && qAbs(nit->_dt.secsTo(lastPlanet->_dt)) <= orb;
+                 ++nit)
+            {
                 if (dynamic_cast<const Planet*>(nit->_star)) {
                     lastPlanet = nit;
                 }
                 ++j;
             }
-            if (anyPrinted) {
-                ret += "\n";
-            }
-            it = nit;
+            // Remove the separate divider row approach
+            // if (anyPrinted) {
+            //     ret += "<tr style='height: 0; line-height: 0;'><td
+            //     colspan='4' style='padding: 0; margin: 0; border-top: 1px
+            //     solid #777; height: 0; line-height: 0; font-size:
+            //     0;'></td></tr>"; // visual divider
+            // }
+            // Process events in this group
+            bool isFirstInThisGroup = true;
             while (bit != events.constEnd() && j-- > 0) {
-                ret += bit->fmt(tz);
-                lastPrinted = it = bit++;
-                anyPrinted = true;
+                // Add border to first row of group if there was a previous
+                // group
+                bool addBorder = (isFirstInThisGroup && anyPrinted);
+                ret += bit->fmt(tz, cellPadding, addBorder);
+                lastPrinted = bit;
+                ++bit;
+                anyPrinted         = true;
+                isFirstInThisGroup = false;
             }
+            // Move iterator to the end of this group
+            it = nit;
+        } else {
+            ++it; // Skip non-planet, non-radix events when not showing all
         }
     }
 
+    ret += "</table>";
     return ret;
 }
-
 
 QString
 describeSpeculum(const Horoscope &scope,
@@ -700,30 +776,41 @@ describeSpeculum(const Horoscope &scope,
             }
         }
     }
-    QString ret = QString("%1  %2  %3  %4  %5\n")
-        .arg(QObject::tr("Planet"), -maxWidth)
-        .arg(QObject::tr("Rise"), -9)
-        .arg(QObject::tr("MC"), -9)
-        .arg(QObject::tr("Set"), -9)
-        .arg(QObject::tr("IC"), -9);
+    
+    QString ret = "<h3>" + QObject::tr("Speculum") + "</h3>";
+    ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
+    ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("Planet") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Rise") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("MC") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Set") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("IC") + "</th>";
+    ret += "</tr>";
+    
     for (const Planet& p: scope.planets) {
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
-        ret += QString("%1").arg(p.name, -maxWidth);
+        ret += "<tr>";
+        ret += "<td style='padding: 2px 8px; font-weight: bold; color: #e9e9e4;'>" + p.name + "</td>";
         for (int i : QList<int>({0, 2, 1, 3})) {
-            ret += " " + _formatTime(p.angleTransit.at(i), tz);
+            QString timeStr = _formatTime(p.angleTransit.at(i), tz);
+            ret += "<td style='padding: 2px 8px; text-align: center;'>" + timeStr + "</td>";
         }
-        ret += "\n";
+        ret += "</tr>";
     }
-    if (!showFixedStars) {
-        return ret;
-    }
-    for (const Star& s: scope.stars) {
-        ret += QString("%1").arg(s.name, -maxWidth);
-        for (int i : QList<int>({0, 2, 1, 3})) {
-            ret += " " + _formatTime(s.angleTransit.at(i), tz);
+    
+    if (showFixedStars) {
+        for (const Star& s: scope.stars) {
+            ret += "<tr>";
+            ret += "<td style='padding: 2px 8px;'>" + s.name + "</td>";
+            for (int i : QList<int>({0, 2, 1, 3})) {
+                QString timeStr = _formatTime(s.angleTransit.at(i), tz);
+                ret += "<td style='padding: 2px 8px; text-align: center;'>" + timeStr + "</td>";
+            }
+            ret += "</tr>";
         }
-        ret += "\n";
     }
+    
+    ret += "</table>";
     maxWidth = 0;   // reset for next time...
     return ret;
 }
@@ -734,59 +821,95 @@ describe(AstroFileList&& scopes,
          double paranOrb /*=1.0*/)
 {
     QString ret;
+    ret += "<!DOCTYPE html><html><head>";
+    ret += "<meta charset='utf-8'>";
+    ret += "<style>";
+    ret += "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu Sans Mono', 'Lucida Console'; margin: 10px; color: #b5bfdf; background-color: transparent; }";
+    ret += "h1, h2, h3 { color: #e9e9e4; margin-top: 20px; margin-bottom: 10px; }";
+    ret += "h1 { font-size: 1.4em; }";
+    ret += "h2 { font-size: 1.2em; }";
+    ret += "h3 { font-size: 1.1em; }";
+    ret += "table { margin: 10px 0; border-collapse: collapse; background-color: transparent; }";
+    ret += "th { background-color: rgba(255,255,255,0.1); font-weight: bold; color: #e9e9e4; border: 1px solid #555; }";
+    ret += "td { border: 1px solid #555; color: #b5bfdf; }";
+    ret += "tr:nth-child(even) { background-color: rgba(255,255,255,0.05); }";
+    ret += ".planets-table td:first-child { font-weight: bold; color: #e9e9e4; }";
+    ret += "p { color: #b5bfdf; }";
+    ret += "ul { color: #b5bfdf; }";
+    ret += "li { margin: 2px 0; }";
+    ret += "strong { color: #e9e9e4; }";
+    ret += "</style>";
+    ret += "</head><body>";
 
     auto scope = scopes.first()->horoscope();
 
-    ret += QObject::tr("%1 sign").arg(scope.zodiac.name) + "\n\n";
+    ret += "<h1>" + QObject::tr("%1 sign").arg(scope.zodiac.name) + "</h1>";
 
     if (article & Article_Input)
-        ret += describeInput(scope.inputData) + "\n\n";
+        ret += describeInput(scope.inputData);
 
     if ((article & Article_Planet) && scope.planets.count()) {
+        ret += "<h2>" + QObject::tr("Planets") + "</h2>";
+        ret += "<table class='planets-table' style='border-collapse: collapse; width: 100%;'>";
+        ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
+        ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("Planet") + "</th>";
+        ret += "<th style='padding: 4px 8px; text-align: right;'>" + QObject::tr("Position") + "</th>";
+        ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("House") + "</th>";
+        ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Speed") + "</th>";
+        ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Power") + "</th>";
+        ret += "<th style='padding: 4px 8px;'>" + QObject::tr("Ruler") + "</th>";
+        ret += "<th style='padding: 4px 8px;'>" + QObject::tr("Status") + "</th>";
+        ret += "</tr>";
+        
         foreach(const Planet& p, scope.planets)
-            ret += describePlanet(p, scope.zodiac) + "\n";
+            ret += describePlanet(p, scope.zodiac);
+        
+        ret += "</table>";
 
-        ret += "\n";
         if (auto p = auriga(scope)) {
-            ret += QObject::tr("Auriga:     %1").arg(p->name) + "\n";
+            ret += "<p><strong>" + QObject::tr("Auriga:") + "</strong> " + p->name + "</p>";
         }
         if (auto p = almuten(scope)) {
-            ret += QObject::tr("Almuten:    %1").arg(p->name) + "\n";
+            ret += "<p><strong>" + QObject::tr("Almuten:") + "</strong> " + p->name + "</p>";
         }
         if (auto p = doryphoros(scope)) {
-            ret += QObject::tr("Doryphoros: %1").arg(p->name) + "\n";
+            ret += "<p><strong>" + QObject::tr("Doryphoros:") + "</strong> " + p->name + "</p>";
         }
-        ret += "\n";
     }
-
 
     if ((article & Article_Houses) && scope.houses.system)
-        ret += describeHouses(scope.houses, scope.zodiac) + "\n\n";
-
+        ret += describeHouses(scope.houses, scope.zodiac);
 
     if ((article & Article_Aspects) && scope.aspects.count()) {
+        ret += "<h3>" + QObject::tr("Aspects") + "</h3>";
+        ret += "<ul>";
         foreach(const Aspect& asp, scope.aspects)
-            ret += describeAspect(asp, true) + "\n";
-        ret += "\n";
+            ret += "<li>" + describeAspect(asp, true) + "</li>";
+        ret += "</ul>";
     }
 
-
-    if ((article & Article_Power) && scope.planets.count())
-        foreach(const Planet& p, scope.planets)
-        if (p.isReal)
-            ret += p.name + "\n" + describePower(p, scope) + "\n\n";
+    if ((article & Article_Power) && scope.planets.count()) {
+        ret += "<h2>" + QObject::tr("Planetary Dignities") + "</h2>";
+        foreach(const Planet& p, scope.planets) {
+            if (p.isReal) {
+                ret += "<h4>" + p.name + "</h4>";
+                ret += describePowerInHtml(p, scope);
+            }
+        }
+    }
 
     if ((article & Article_Parans) && scope.planets.count()) {
         ret += describeParans(scopes,
                               bool(article & Article_DiurnalEvents),
                               bool(article & Article_FixedStars),
-                              paranOrb) + "\n\n";
+                              paranOrb);
     }
 
     if ((article & Article_Speculum) && scope.planets.count()) {
-        ret += describeSpeculum(scope, bool(article & Article_FixedStars)) + "\n\n";
+        ret += describeSpeculum(scope, bool(article & Article_FixedStars));
     }
 
+    ret += "</body></html>";
     return ret;
 }
 

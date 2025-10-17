@@ -10,7 +10,7 @@
 
 /* ================================== WIDGET ======================================== */
 
-Plain ::Plain(QWidget* parent) : AstroFileHandler(parent)
+Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
 {
     QLabel* label1   = new QLabel(tr("Show:"));
     describeInput    = new QCheckBox(tr("input;"));
@@ -101,7 +101,7 @@ Plain::refresh()
                    | (A::Article_Speculum * describeSpeculum->isChecked())
                    | (A::Article_FixedStars * includeFixedStars);
 
-    view->setText(A::describe(files(), (A::Article) articles, paranOrb));
+    view->setHtml(A::describe(files(), (A::Article) articles, paranOrb));
 }
 
 AppSettings
