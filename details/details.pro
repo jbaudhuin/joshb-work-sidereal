@@ -9,10 +9,12 @@ LIBS += -L$$_PRO_FILE_PWD_/../bin
 LIBS += -lastroprocessor
 
 HEADERS += \
-    src/harmonics.h
+    src/harmonics.h \
+    src/speculum.h
 
 SOURCES += \
-    src/harmonics.cpp
+    src/harmonics.cpp \
+    src/speculum.cpp
 
 
 

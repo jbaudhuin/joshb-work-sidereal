@@ -56,6 +56,7 @@ QString     describeParans      ( const AstroFileList& scopes,
                                   bool showAll=false,
                                   double orb=1.0 );
 QString     describeSpeculum    ( const Horoscope& scope );
+QString     _formatTime         ( const QDateTime& dt, short tz );
 QString     describe( AstroFileList&& scopes,
                       Articles article = Article_All,
                       double paranOrb = 1.0 );

@@ -35,6 +35,7 @@
 #include "../details/src/details.h"
 #include "../details/src/harmonics.h"
 #include "../details/src/transits.h"
+#include "../details/src/speculum.h"
 #include "mainwindow.h"
 
 
@@ -189,6 +190,7 @@ AstroWidget::AstroWidget(QWidget *parent) : QWidget(parent)
     addDockWidget(new Details, tr("Details"), true/*scrollable*/);
     addDockWidget(new Harmonics, tr("Harmonics"), false/*not scrollable*/);
     addDockWidget(new Transits, tr("Events"), false/*notScroll*/);
+    addDockWidget(new Speculum, tr("Speculum"), false/*not scrollable*/);
     addSlide(new Chart, QIcon("style/natal.png"), tr("Chart"));
     addSlide(new Planets, QIcon("style/planets.png"), tr("Planets"));
     addSlide(new Plain, QIcon("style/plain.png"), tr("Text"));
