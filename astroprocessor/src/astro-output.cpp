@@ -303,49 +303,69 @@ describePlanet(const Planet& planet,
 {
     // CONFIGURABLE: Cell padding for planets table
     const QString cellPadding = "0px";
-    
+
     QString ret = "<tr>";
 
     // Planet name
-    ret += "<td style='padding: " + cellPadding + " 8px; font-weight: bold; color: #e9e9e4;'>" + planet.name + "</td>";
-    
+    ret += "<td style='padding: " + cellPadding
+           + " 8px; font-weight: bold; color: #e9e9e4;'>" + planet.name
+           + "</td>";
+
     // Position
-    ret += "<td style='padding: " + cellPadding + " 8px; text-align: right;'>" + 
-           zodiacPosition(planet, zodiac, HighPrecision) + "</td>";
-    
+    auto zpos = zodiacPosition(planet, zodiac, HighPrecision);
+    if (zpos.endsWith(" R")) {
+        zpos = zpos.left(zpos.length() - 2)
+               + "<span style='color: #ff6666;'> R</span>";
+    } else {
+        zpos += "&nbsp;&nbsp;";
+    }
+    ret += "<td style='padding: " + cellPadding + " 8px; text-align: right;'>"
+           + zpos + "</td>";
+
     // House
-    ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + houseNum(planet) + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>"
+           + houseNum(planet) + "</td>";
 
     // Speed
     QString speedStr;
     if (planet.defaultEclipticSpeed.x() != 0) {
-        float speed = planet.eclipticSpeed.x() / planet.defaultEclipticSpeed.x();
-        speedStr = QString("(%1%)").arg((int)(speed * 100));
+        float speed =
+            planet.eclipticSpeed.x() / planet.defaultEclipticSpeed.x();
+        speedStr = QString("(%1%)").arg((int) (speed * 100));
     }
-    ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + speedStr + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>"
+           + speedStr + "</td>";
 
     // Power
     QString powerStr;
     if (planet.power.dignity != 0 || planet.power.deficient != 0) {
         QString plus = planet.power.dignity != 0 ? "+" : "";
-        powerStr = QString("%1%2|%3").arg(plus).arg(planet.power.dignity).arg(planet.power.deficient);
+        powerStr     = QString("%1%2|%3")
+                       .arg(plus)
+                       .arg(planet.power.dignity)
+                       .arg(planet.power.deficient);
+        auto sp = 3 - powerStr.indexOf('|');
+        powerStr = QString(sp, ' ').replace(" ", "&nbsp;") + powerStr;
     }
-    ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + powerStr + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px;'>"
+           + powerStr + "</td>";
 
     // Ruler
     QStringList rs;
-    for (auto r: planet.houseRuler) {
+    for (auto r : planet.houseRuler) {
         rs << romanNum(r);
     }
-    QString rulerStr = rs.isEmpty() ? "" : QObject::tr("ruler of %1").arg(rs.join("+"));
-    ret += "<td style='padding: " + cellPadding + " 8px;'>" + rulerStr + "</td>";
+    QString rulerStr = rs.isEmpty() ? "" : rs.join("+");
+    ret +=
+        "<td style='padding: " + cellPadding + " 8px;'>" + rulerStr + "</td>";
 
     // Position name
     QString positionStr;
     if (planet.position != Position_Normal) {
         positionStr = getPositionName(planet.position);
     }
-    ret += "<td style='padding: " + cellPadding + " 8px; font-style: italic;'>" + positionStr + "</td>";
+    ret += "<td style='padding: " + cellPadding + " 8px; font-style: italic;'>"
+           + positionStr + "</td>";
 
     ret += "</tr>";
     return ret;

@@ -91,6 +91,10 @@ Plain::refresh()
     if (!file()) {
         return;
     }
+    
+    // Always calculate aspects to ensure they're available
+    calculateAspects();
+    
     int articles = (A::Article_Input * describeInput->isChecked())
                    | (A::Article_Planet * describePlanets->isChecked())
                    | (A::Article_Houses * describeHouses->isChecked())
