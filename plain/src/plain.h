@@ -27,6 +27,7 @@ class Plain : public AstroFileHandler {
     bool   showAllDiurnalEvents;
     bool   includeFixedStars;
     double paranOrb;
+    A::AspectSortOrder aspectSortOrder;
 
   private slots:
     void refresh();

@@ -3,6 +3,7 @@
 #include <QRegularExpression>
 #include <stdio.h>
 #include <math.h>
+#include <algorithm>
 #include "astro-calc.h"
 #include "astro-output.h"
 //#include <QDebug>
@@ -182,12 +183,15 @@ describeInput(const InputData& data)
     ret += "<p><strong>" + QObject::tr("Date:") + "</strong> " + 
            QString("%1, %2 %3 GMT").arg(dayOfWeek).arg(date).arg(time) + "</p>";
     
+    bool north = data.location().y() >= 0;
     QString lat =
-        (data.location().y() >= 0 ? QObject::tr("%1N") : QObject::tr("%1S"))
-            .arg(degreeToString(-data.location().y(), HighPrecision));
+        (north ? QObject::tr("%1N") : QObject::tr("%1S"))
+            .arg(degreeToString((north ? 1 : -1) * data.location().y(), HighPrecision));
+    
+    bool east = data.location().x() >= 0;
     QString lng =
-        (data.location().x() >= 0 ? QObject::tr("%1E") : QObject::tr("%1W"))
-            .arg(degreeToString(-data.location().x(), HighPrecision));
+        (east ? QObject::tr("%1E") : QObject::tr("%1W"))
+            .arg(degreeToString((east ? 1 : -1) * data.location().x(), HighPrecision));
     ret += "<p><strong>" + QObject::tr("Location:") + "</strong> " + 
            QString("%1 %2").arg(lat, lng) + "</p>";
     return ret;
@@ -273,6 +277,108 @@ QString     describeAspect(const Aspect &aspect, bool monospace)
     else               
         ret += "<span style='color: #dfb096;'>&lt;" + angleStr + "&gt;</span>";
 
+    return ret;
+}
+
+QString
+describeAspectsTable(const AspectList& aspects, AspectSortOrder sortOrder)
+{
+    if (aspects.isEmpty()) return "";
+    
+    // Create a copy for sorting
+    AspectList sortedAspects = aspects;
+    
+    // Sort based on the specified order
+    std::sort(sortedAspects.begin(), sortedAspects.end(), [sortOrder](const Aspect& a, const Aspect& b) {
+        switch (sortOrder) {
+            case SortByPlanets: {
+                // Primary: planet IDs (matches original calculateAspects order), Secondary: orb strength
+                if (a.planet1->id != b.planet1->id) {
+                    return a.planet1->id < b.planet1->id;
+                }
+                if (a.planet2->id != b.planet2->id) {
+                    return a.planet2->id < b.planet2->id;
+                }
+                double strengthA = a.orb / a.d->orb();
+                double strengthB = b.orb / b.d->orb();
+                return strengthA < strengthB;
+            }
+            
+            case SortByOrbStrength: {
+                // Primary: orb strength (orb/maxOrb), tightest first
+                double strengthA = a.orb / a.d->orb();
+                double strengthB = b.orb / b.d->orb();
+                return strengthA < strengthB;
+            }
+            
+            case SortByAspectType: {
+                // Primary: aspect type, Secondary: orb strength
+                if (a.d->name != b.d->name) {
+                    return a.d->name < b.d->name;
+                }
+                double strengthA = a.orb / a.d->orb();
+                double strengthB = b.orb / b.d->orb();
+                return strengthA < strengthB;
+            }
+        }
+        return false;
+    });
+    
+    // CONFIGURABLE: Cell padding for aspects table
+    const QString cellPadding = "0px";
+    
+    QString ret = "<h3>" + QObject::tr("Aspects") + "</h3>";
+    ret += "<table style='border-collapse: collapse; font-family: monospace; width: 100%;'>";
+    
+    // Table header
+    ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("Aspect") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("Planets") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: right;'>" + QObject::tr("Angle") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: right;'>" + QObject::tr("Orb") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Status") + "</th>";
+    ret += "</tr>";
+    
+    for (const Aspect& asp : sortedAspects) {
+        ret += "<tr>";
+        
+        // Aspect name
+        ret += "<td style='padding: " + cellPadding + " 8px; font-weight: bold;'>" 
+               + asp.d->name + "</td>";
+        
+        // Planets
+        ret += "<td style='padding: " + cellPadding + " 8px;'>" 
+               + asp.planet1->name + "-" + asp.planet2->name + "</td>";
+        
+        // Actual angle
+        ret += "<td style='padding: " + cellPadding + " 8px; text-align: right;'>" 
+               + degreeToString(asp.angle) + "</td>";
+        
+        // Orb (current orb and max orb in degrees/minutes only, with padding for alignment)
+        QString currentOrbStr = degreeToString(asp.orb);
+        QString maxOrbStr = degreeToString(asp.d->orb(), NormalPrecision);
+        
+        // Pad single-digit degree numbers with &nbsp; for better alignment
+        if (currentOrbStr.length() >= 2 && currentOrbStr.indexOf("°") == 1) {
+            currentOrbStr = "&nbsp;" + currentOrbStr;
+        }
+        if (maxOrbStr.length() >= 2 && maxOrbStr.indexOf("°") == 1) {
+            maxOrbStr = "&nbsp;" + maxOrbStr;
+        }
+        
+        ret += "<td style='padding: " + cellPadding + " 8px; text-align: left;'>" 
+               + currentOrbStr + " (max: " + maxOrbStr + ")</td>";
+        
+        // Applying/Separating with color
+        QString status = asp.applying ? QObject::tr("Applying") : QObject::tr("Separating");
+        QString statusColor = asp.applying ? "#71aeec" : "#dfb096";
+        ret += "<td style='padding: " + cellPadding + " 8px; text-align: center; color: " 
+               + statusColor + ";'>" + status + "</td>";
+        
+        ret += "</tr>";
+    }
+    
+    ret += "</table>";
     return ret;
 }
 
@@ -376,19 +482,29 @@ describePlanetCoord(const Planet& planet)
 {
     QString ret;
 
-    ret += QObject::tr("Longitude: %1\n").arg(degreeToString(planet.eclipticPos.x(), HighPrecision));
-    ret += QObject::tr("Latitude: %1\n").arg(degreeToString(planet.eclipticPos.y(), HighPrecision));
-    ret += QObject::tr("Rectascension: %1\n").arg(degreeToString(planet.equatorialPos.x(), HighPrecision));
-    ret += QObject::tr("Prime Vertical: %1\n").arg(degreeToString(planet.pvPos, HighPrecision));
-    ret += QObject::tr("Declination: %1\n").arg(degreeToString(planet.equatorialPos.y(), HighPrecision));
+    ret += QObject::tr("Longitude: %1\n")
+               .arg(degreeToString(planet.eclipticPos.x(), HighPrecision));
+    ret += QObject::tr("Latitude: %1\n")
+               .arg(degreeToString(planet.eclipticPos.y(), HighPrecision));
+    ret += QObject::tr("Right Ascension: %1\n")
+               .arg(degreeToString(planet.equatorialPos.x(), HighPrecision));
+    ret += QObject::tr("Prime Vertical: %1\n")
+               .arg(degreeToString(planet.pvPos, HighPrecision));
+    ret += QObject::tr("Declination: %1\n")
+               .arg(degreeToString(planet.equatorialPos.y(), HighPrecision));
     ret += QObject::tr("Distance: %1a.u.\n").arg(planet.distance);
-    ret += QObject::tr("Azimuth: %1\n").arg(degreeToString(planet.horizontalPos.x(), HighPrecision));
-    ret += QObject::tr("Height: %1\n").arg(degreeToString(planet.horizontalPos.y(), HighPrecision));
+    ret += QObject::tr("Azimuth: %1\n")
+               .arg(degreeToString(planet.horizontalPos.x(), HighPrecision));
+    ret += QObject::tr("Height: %1\n")
+               .arg(degreeToString(planet.horizontalPos.y(), HighPrecision));
 
-    if (planet.isReal)
-        ret += QObject::tr("Speed: %1% (%2 per day)\n")
-        .arg((int)(planet.eclipticSpeed.x() / planet.defaultEclipticSpeed.x() * 100))
-        .arg(degreeToString(planet.eclipticSpeed.x(), HighPrecision));
+    if (planet.isReal) {
+        ret +=
+            QObject::tr("Speed: %1% (%2 per day)\n")
+                .arg((int) (planet.eclipticSpeed.x()
+                            / planet.defaultEclipticSpeed.x() * 100))
+                .arg(degreeToString(planet.eclipticSpeed.x(), HighPrecision));
+    }
 
     return ret;
 }
@@ -414,39 +530,54 @@ describePower(const Planet& planet, const Horoscope& scope)
 
     bool peregrine = false;
     switch (planet.position) {
-    case Position_Dwelling:   ret << QObject::tr("+5: Planet is in its own sign"); break;
-    case Position_Exaltation: ret << QObject::tr("+5: Planet is in exaltation"); break;
-    case Position_Exile:      ret << QObject::tr("-5: Planet is in detriment"); break;
-    case Position_Downfall:   ret << QObject::tr("-4: Planet is in its fall"); break;
-    case Position_Normal:     peregrine = true;
-    default: break;
+    case Position_Dwelling:
+        ret << QObject::tr("+5: Planet is in its own sign");
+        break;
+    case Position_Exaltation:
+        ret << QObject::tr("+5: Planet is in exaltation");
+        break;
+    case Position_Exile:
+        ret << QObject::tr("-5: Planet is in detriment");
+        break;
+    case Position_Downfall:
+        ret << QObject::tr("-4: Planet is in its fall");
+        break;
+    case Position_Normal: peregrine = true;
+    default:              break;
     }
 
     PlanetId pl = receptionWith(planet, scope);
     if (pl != Planet_None)
-        ret << QObject::tr("+5: Planet is in mutual reception with %1").arg(getPlanetName(pl));
+        ret << QObject::tr("+5: Planet is in mutual reception with %1")
+                   .arg(getPlanetName(pl));
     else if (peregrine)
-        ret << QObject::tr("-5: Planet is peregrine (doesn't have an essential dignity)");
+        ret << QObject::tr(
+            "-5: Planet is peregrine (doesn't have an essential dignity)");
 
-
-    int h = planet.house;
+    int     h = planet.house;
     QString p;
     switch (h) {
-    case 1: case 10:         p = "+5"; break;
-    case 4: case 7: case 11: p = "+4"; break;
-    case 2: case 5:          p = "+3"; break;
-    case 9:                  p = "+2"; break;
-    case 3:                  p = "+1"; break;
-    case 12:                 p = "-5"; break;
-    case 8: case 6:          p = "-2"; break;
+    case 1:
+    case 10: p = "+5"; break;
+    case 4:
+    case 7:
+    case 11: p = "+4"; break;
+    case 2:
+    case 5:  p = "+3"; break;
+    case 9:  p = "+2"; break;
+    case 3:  p = "+1"; break;
+    case 12: p = "-5"; break;
+    case 8:
+    case 6:  p = "-2"; break;
     default: break;
     }
-    if (!p.isEmpty()) ret << QObject::tr("%1: Planet is placed in %2 house").arg(p).arg(romanNum(h));
+    if (!p.isEmpty())
+        ret << QObject::tr("%1: Planet is placed in %2 house")
+                   .arg(p)
+                   .arg(romanNum(h));
 
-
-    if (planet.eclipticSpeed.x() > 0 &&
-        planet.id != Planet_Sun &&
-        planet.id != Planet_Moon)
+    if (planet.eclipticSpeed.x() > 0 && planet.id != Planet_Sun
+        && planet.id != Planet_Moon)
         ret << QObject::tr("+4: Planet is direct");
 
     if (planet.eclipticSpeed.x() > planet.defaultEclipticSpeed.x())
@@ -462,18 +593,22 @@ describePower(const Planet& planet, const Horoscope& scope)
     case Planet_Saturn:
 
         if (isEarlier(planet, scope.sun))
-            ret << QObject::tr("+2: %1 rises earlier than the Sun (oriental)").arg(planet.name);
+            ret << QObject::tr("+2: %1 rises earlier than the Sun (oriental)")
+                       .arg(planet.name);
         else
-            ret << QObject::tr("-2: %1 rises later than the Sun (occidental)").arg(planet.name);
+            ret << QObject::tr("-2: %1 rises later than the Sun (occidental)")
+                       .arg(planet.name);
         break;
 
     case Planet_Mercury:
     case Planet_Venus:
 
         if (!isEarlier(planet, scope.sun))
-            ret << QObject::tr("+2: %1 rises later than the Sun (occidental)").arg(planet.name);
+            ret << QObject::tr("+2: %1 rises later than the Sun (occidental)")
+                       .arg(planet.name);
         else
-            ret << QObject::tr("-2: %1 rises earlier than the Sun (occidental)").arg(planet.name);
+            ret << QObject::tr("-2: %1 rises earlier than the Sun (occidental)")
+                       .arg(planet.name);
         break;
 
     case Planet_Moon:
@@ -487,70 +622,116 @@ describePower(const Planet& planet, const Horoscope& scope)
     default: break;
     }
 
-
     if (planet.id != Planet_Sun) {
         if (angle(planet, scope.sun) > 9)
-            ret << QObject::tr("+5: Planet is neither combust nor under the beams");
+            ret << QObject::tr(
+                "+5: Planet is neither combust nor under the beams");
         else if (angle(planet, scope.sun) < 0.4)
             ret << QObject::tr("+5: Planet is cazimi");
         else
-            ret << QObject::tr("-4: Planet is either combust or under the beams");
+            ret << QObject::tr(
+                "-4: Planet is either combust or under the beams");
     }
-
 
     if (planet.id != Planet_Jupiter)
-    switch (aspect(planet, scope.jupiter, topAspectSet())) {
-    case Aspect_Conjunction: ret << QObject::tr("+5: Planet is in partile conjunction with Jupiter"); break;
-    case Aspect_Trine:       ret << QObject::tr("+4: Planet is in partile trine with Jupiter"); break;
-    case Aspect_Sextile:     ret << QObject::tr("+3: Planet is in partile sextile with Jupiter"); break;
-    default: break;
+        switch (aspect(planet, scope.jupiter, topAspectSet())) {
+        case Aspect_Conjunction:
+            ret << QObject::tr(
+                "+5: Planet is in partile conjunction with Jupiter");
+            break;
+        case Aspect_Trine:
+            ret << QObject::tr("+4: Planet is in partile trine with Jupiter");
+            break;
+        case Aspect_Sextile:
+            ret << QObject::tr("+3: Planet is in partile sextile with Jupiter");
+            break;
+        default: break;
+        }
+
+    if (planet.id != Planet_Venus) {
+        switch (aspect(planet, scope.venus, topAspectSet())) {
+        case Aspect_Conjunction:
+            ret << QObject::tr(
+                "+5: Planet is in partile conjunction with Venus");
+            break;
+        case Aspect_Trine:
+            ret << QObject::tr("+4: Planet is in partile trine with Venus");
+            break;
+        case Aspect_Sextile:
+            ret << QObject::tr("+3: Planet is in partile sextile with Venus");
+            break;
+        default: break;
+        }
     }
 
-    if (planet.id != Planet_Venus)
-    switch (aspect(planet, scope.venus, topAspectSet())) {
-    case Aspect_Conjunction: ret << QObject::tr("+5: Planet is in partile conjunction with Venus"); break;
-    case Aspect_Trine:       ret << QObject::tr("+4: Planet is in partile trine with Venus"); break;
-    case Aspect_Sextile:     ret << QObject::tr("+3: Planet is in partile sextile with Venus"); break;
-    default: break;
+    if (planet.id != Planet_NorthNode) {
+        switch (aspect(planet, scope.northNode, topAspectSet())) {
+        case Aspect_Conjunction:
+            ret << QObject::tr(
+                "+4: Planet is in partile conjunction with North Node");
+            break;
+        /*case Aspect_Trine:       ret << QObject::tr("+4: Planet is in partile
+        trine with North Node"); break; case Aspect_Sextile:     ret <<
+        QObject::tr("+4: Planet is in partile sextile with North Node"); break;
+        case Aspect_Opposition:  ret << QObject::tr("-4: Planet is in partile
+        opposition with North Node"); break;*/
+        default: break;
+        }
     }
 
-    if (planet.id != Planet_NorthNode)
-    switch (aspect(planet, scope.northNode, topAspectSet())) {
-    case Aspect_Conjunction: ret << QObject::tr("+4: Planet is in partile conjunction with North Node"); break;
-    /*case Aspect_Trine:       ret << QObject::tr("+4: Planet is in partile trine with North Node"); break;
-    case Aspect_Sextile:     ret << QObject::tr("+4: Planet is in partile sextile with North Node"); break;
-    case Aspect_Opposition:  ret << QObject::tr("-4: Planet is in partile opposition with North Node"); break;*/
-    default: break;
+    if (planet.id != Planet_Mars) {
+        switch (aspect(planet, scope.mars, topAspectSet())) {
+        case Aspect_Conjunction:
+            ret << QObject::tr(
+                "-5: Planet is in partile conjunction with Mars");
+            break;
+        case Aspect_Opposition:
+            ret << QObject::tr("-4: Planet is in partile opposition with Mars");
+            break;
+        case Aspect_Quadrature:
+            ret << QObject::tr("-3: Planet is in partile quadrature with Mars");
+            break;
+        default: break;
+        }
     }
 
-    if (planet.id != Planet_Mars)
-    switch (aspect(planet, scope.mars, topAspectSet())) {
-    case Aspect_Conjunction: ret << QObject::tr("-5: Planet is in partile conjunction with Mars"); break;
-    case Aspect_Opposition:  ret << QObject::tr("-4: Planet is in partile opposition with Mars"); break;
-    case Aspect_Quadrature:  ret << QObject::tr("-3: Planet is in partile quadrature with Mars"); break;
-    default: break;
+    if (planet.id != Planet_Saturn) {
+        switch (aspect(planet, scope.saturn, topAspectSet())) {
+        case Aspect_Conjunction:
+            ret << QObject::tr(
+                "-5: Planet is in partile conjunction with Saturn");
+            break;
+        case Aspect_Opposition:
+            ret << QObject::tr(
+                "-4: Planet is in partile opposition with Saturn");
+            break;
+        case Aspect_Quadrature:
+            ret << QObject::tr(
+                "-3: Planet is in partile quadrature with Saturn");
+            break;
+        default: break;
+        }
     }
 
-    if (planet.id != Planet_Saturn)
-    switch (aspect(planet, scope.saturn, topAspectSet())) {
-    case Aspect_Conjunction: ret << QObject::tr("-5: Planet is in partile conjunction with Saturn"); break;
-    case Aspect_Opposition:  ret << QObject::tr("-4: Planet is in partile opposition with Saturn"); break;
-    case Aspect_Quadrature:  ret << QObject::tr("-3: Planet is in partile quadrature with Saturn"); break;
-    default: break;
-    }
-
-
-    if (aspect(planet, scope.stars["Regulus"], tightConjunction()) == Aspect_Conjunction)
+    if (aspect(planet, scope.stars["Regulus"], tightConjunction())
+        == Aspect_Conjunction)
+    {
         ret << QObject::tr("+6: Planet is in conjunction with Regulus");
+    }
 
-    if (aspect(planet, scope.stars["Spica"], tightConjunction()) == Aspect_Conjunction)
+    if (aspect(planet, scope.stars["Spica"], tightConjunction())
+        == Aspect_Conjunction)
+    {
         ret << QObject::tr("+5: Planet is in conjunction with Spica");
+    }
 
-    if (aspect(planet, scope.stars["Algol"], tightConjunction()) == Aspect_Conjunction)
+    if (aspect(planet, scope.stars["Algol"], tightConjunction())
+        == Aspect_Conjunction)
+    {
         ret << QObject::tr("-5: Planet is in conjunction with Algol");
+    }
 
-
-      // sort values from biggest to smallest
+    // sort values from biggest to smallest
 
     for (int i = 0; i < ret.count(); i++) {
         for (int j = i + 1; j < ret.count(); j++) {
@@ -562,12 +743,11 @@ describePower(const Planet& planet, const Horoscope& scope)
 
             if (val1 < val2) {
                 QString t = ret[i];
-                ret[i] = ret[j];
-                ret[j] = t;
+                ret[i]    = ret[j];
+                ret[j]    = t;
             }
         }
     }
-
 
     return ret.join(";\n") + '.';
 }
@@ -578,8 +758,16 @@ QString     describePowerInHtml(const Planet& planet, const Horoscope& scope)
     if (ret.isEmpty()) return ret;
 
     ret.replace("\n", "</p><p>");
-    ret.replace(QRegularExpression("(-\\d:)"), "<font color='#dfb096'><b>\\1</b></font>");  // replaces negative values
-    ret.replace(QRegularExpression("(\\+\\d:)"), "<font color='#71aeec'><b>\\1</b></font>");  // replaces positive values
+
+    static QRegularExpression minus { "(-\\d:)" };
+    ret.replace(
+        minus,
+        "<font color='#dfb096'><b>\\1</b></font>"); // replaces negative values
+
+    static QRegularExpression plus { "(\\+\\d:)" };
+    ret.replace(
+        plus,
+        "<font color='#71aeec'><b>\\1</b></font>"); // replaces positive values
 
     return "<p>" + ret + "</p>";
 }
@@ -917,8 +1105,9 @@ describe(AstroFileList&& scopes,
 
     ret += "<h1>" + QObject::tr("%1 sign").arg(scope.zodiac.name) + "</h1>";
 
-    if (article & Article_Input)
+    if (article & Article_Input) {
         ret += describeInput(scope.inputData);
+    }
 
     if ((article & Article_Planet) && scope.planets.count()) {
         ret += "<h2>" + QObject::tr("Planets") + "</h2>";
@@ -953,19 +1142,16 @@ describe(AstroFileList&& scopes,
         ret += describeHouses(scope.houses, scope.zodiac, scope.planets);
 
     if ((article & Article_Aspects) && scope.aspects.count()) {
-        ret += "<h3>" + QObject::tr("Aspects") + "</h3>";
-        ret += "<ul>";
-        foreach(const Aspect& asp, scope.aspects)
-            ret += "<li>" + describeAspect(asp, true) + "</li>";
-        ret += "</ul>";
+        ret += describeAspectsTable(scope.aspects);
     }
 
     if ((article & Article_Power) && scope.planets.count()) {
         ret += "<h2>" + QObject::tr("Planetary Dignities") + "</h2>";
-        foreach(const Planet& p, scope.planets) {
+        foreach (const Planet& p, scope.planets) {
             if (p.isReal) {
                 ret += "<h4>" + p.name + "</h4>";
-                ret += "<div class='dignity-list'>" + describePowerInHtml(p, scope) + "</div>";
+                ret += "<div class='dignity-list'>"
+                       + describePowerInHtml(p, scope) + "</div>";
             }
         }
     }

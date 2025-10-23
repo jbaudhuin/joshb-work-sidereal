@@ -511,19 +511,7 @@ AstroFileHandler::calculateAspects()
     const auto& curr(A::EventOptions::current());
     if (fp.size() < curr.patternsQuorum) {
         bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
-        A::uintSSet hs;
-#if 0
-        uint h;
-        bool ok;
-        if (false
-                && asps.name.startsWith("H")
-                && ((h = asps.name.midRef(1).toUInt(&ok)), ok))
-        {
-            hs.insert(h);
-        } else
-#endif
-            hs = A::dynAspState();
-
+        A::uintSSet hs = A::dynAspState();
 
         auto hpc = A::findClusters(hs, {&file(0)->horoscope().planetsOrig},
                                    qMax(size_t(2),fp.size()),
@@ -531,6 +519,7 @@ AstroFileHandler::calculateAspects()
                                    false,
                                    false /*curr.patternsRestrictMoon*/,
                                    curr.expandShowOrb);
+
         for (const auto& h_pc: hpc) {
             const auto& pc = h_pc.second;
             for (const auto& p_c: pc) {

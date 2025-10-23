@@ -45,7 +45,14 @@ void    sortPlanets          ( PlanetList &planets, PlanetsOrder order );
 QString     describeInput       ( const InputData& data );
 QString     describeHouses      ( const Houses& houses, const Zodiac& zodiac );
 QString     describeHouses      ( const Houses& houses, const Zodiac& zodiac, const PlanetMap& planets );
+enum AspectSortOrder {
+    SortByPlanets = 0,      // planet names, then by orb strength - default (original)
+    SortByOrbStrength,      // orb/maxOrb (tightest first)
+    SortByAspectType        // aspect type, then by orb strength
+};
+
 QString     describeAspect      (const Aspect &aspect, bool monospace = false);
+QString     describeAspectsTable(const AspectList& aspects, AspectSortOrder sortOrder = SortByPlanets);
 QString     describeAspectFull  (const Aspect &asp, QString tag1 = "", QString tag2 = "");
 QString     describePlanet      ( const Planet& planet, const Zodiac& zodiac );
 QString     describePlanetCoord ( const Planet& planet );
@@ -53,9 +60,10 @@ QString     describePlanetCoordInHtml ( const Planet& planet );
 QString     describePower       ( const Planet& planet, const Horoscope& scope );
 QString     describePowerInHtml ( const Planet& planet, const Horoscope& scope );
 QString     describeParans      ( const AstroFileList& scopes,
-                                  bool showAll=false,
-                                  double orb=1.0 );
-QString     describeSpeculum    ( const Horoscope& scope );
+                                  bool showAll,
+                                  bool showFixedStars,
+                                  double paranOrb );
+QString     describeSpeculum    ( const Horoscope& scope, bool showFixedStars );
 QString     _formatTime         ( const QDateTime& dt, short tz );
 QString     describe( AstroFileList&& scopes,
                       Articles article = Article_All,
