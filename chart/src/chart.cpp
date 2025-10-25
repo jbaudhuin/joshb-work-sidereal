@@ -911,9 +911,13 @@ Chart::filesUpdated(MembersList m)
     }
     if (chartsCount
         && (chartsCount != filesCount()
-            || (filesCount() && (m[0] & AstroFile::Zodiac))))
+            || (filesCount()
+                && (m[0]
+                    & (AstroFile::Zodiac | AstroFile::GMT | AstroFile::Location
+                       | AstroFile::Type | AstroFile::Name
+                       | AstroFile::HouseSystem)))))
     {
-        // clear if charts count or zodiac has changed
+        // clear if charts count, zodiac, or major chart data has changed
         clearScene();
     }
 
