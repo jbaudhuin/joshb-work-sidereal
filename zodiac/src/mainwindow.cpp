@@ -1514,7 +1514,11 @@ void
 FilesBar::openFile(const AFileInfo& fi)
 {
     int i = getTabIndex(fi.baseName(), true/*firstFileOnly*/);
-    if (i != -1) return setCurrentIndex(i); // focus if the file is currently opened
+    if (i != -1) {
+        setCurrentIndex(i); // focus if the file is currently opened
+        emit currentChanged(currentIndex()); // force update even if tab was already active
+        return;
+    }
 
     /*if (currentFile()->hasUnsavedChanges())
       openFileInNewTab(name);
