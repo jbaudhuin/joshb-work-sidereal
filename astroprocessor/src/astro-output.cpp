@@ -17,6 +17,7 @@ QString romanNum(int num)
                                "IX", "X", "XI",  "XII" };
 
     if (num >= 1 && num <= 12) return h[--num];
+    if (num < 0 && num >= -12) return QString("(%1)").arg(h[-num - 1]);
     return "0";
 }
 
@@ -27,6 +28,7 @@ QString houseTag(int num)
                                "IX", "X", "XI",  "XII" };
 
     if (num >= 1 && num <= 12) return h[--num];
+    if (num < 0 && num >= -12) return QString("(%1)").arg(h[-num - 1]);
     return "0";
 }
 
@@ -1118,7 +1120,7 @@ describe(AstroFileList&& scopes,
         ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("House") + "</th>";
         ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Speed") + "</th>";
         ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Power") + "</th>";
-        ret += "<th style='padding: 4px 8px;'>" + QObject::tr("Ruler") + "</th>";
+        ret += "<th style='padding: 4px 8px;'>" + QObject::tr("Ruler of") + "</th>";
         ret += "<th style='padding: 4px 8px;'>" + QObject::tr("Status") + "</th>";
         ret += "</tr>";
         

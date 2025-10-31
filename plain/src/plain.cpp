@@ -145,7 +145,7 @@ Plain::refresh()
         html += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("House") + "</th>";
         html += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Speed") + "</th>";
         html += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Power") + "</th>";
-        html += "<th style='padding: 4px 8px;'>" + QObject::tr("Ruler") + "</th>";
+        html += "<th style='padding: 4px 8px;'>" + QObject::tr("Ruler of") + "</th>";
         html += "<th style='padding: 4px 8px;'>" + QObject::tr("Status") + "</th>";
         html += "</tr>";
         
