@@ -158,16 +158,58 @@ getHouse(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
     return 0;
 }
 
+int
+getHouse(const Horoscope& scope, float deg)
+{
+    return getHouse(scope.houses, deg);
+}
+
 QList<int>
 getHouses(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
 {
     if (sign == Sign_None) return { };
-
     QList<int> ret;
-    for (int i = 1; i <= 12; i++) {
-        auto hs = getSign(houses.cusp[i - 1], zodiac).id;
-        if (sign == hs) ret << i;
+
+    // Helper to check if angle 'x' is strictly inside the interval (a, b)
+    // moving forward around the circle (0..360). Handles wraparound.
+    auto angleInInterval = [](float x, float a, float b) -> bool {
+        x = fmod(x + 360.0f, 360.0f);
+        a = fmod(a + 360.0f, 360.0f);
+        b = fmod(b + 360.0f, 360.0f);
+        if (a < b) return (x > a && x < b);
+        // wraparound
+        return (x > a && x < 360.0f) || (x >= 0.0f && x < b);
+    };
+
+    // Get sign's angular span from the zodiac
+    const ZodiacSign* ssign = nullptr;
+    for (const ZodiacSign& zs : zodiac.signs) {
+        if (zs.id == sign) { ssign = &zs; break; }
     }
+    if (!ssign) return ret;
+
+    float sstart = ssign->startAngle;
+    float send = ssign->endAngle;
+
+    // For each house, check two cases:
+    // 1) The sign is the sign at the house start cusp -> normal rulership (positive house)
+    // 2) The sign's entire span lies strictly within the house span -> intercepted (negative house)
+    for (int i = 1; i <= 12; ++i) {
+        float houseStart = houses.cusp[i - 1];
+        float houseEnd = houses.cusp[i % 12]; // wraps to cusp[0] for house 12
+
+        // Case 1: cusp start sign equals the target sign
+        if (getSign(houseStart, zodiac).id == sign) {
+            if (!ret.contains(i)) ret << i;
+            continue;
+        }
+
+        // Case 2: intercepted sign - sign's start and end both strictly inside the house span
+        if (angleInInterval(sstart, houseStart, houseEnd) && angleInInterval(send, houseStart, houseEnd)) {
+            if (!ret.contains(-i)) ret << -i;
+        }
+    }
+
     return ret;
 }
 
@@ -394,16 +436,20 @@ bool isEarlier(const Planet& planet, const Planet& sun)
     }
 }
 
-/*const Planet& ruler ( int house, const Horoscope& scope )
+const Planet& ruler ( int house, const Horoscope& scope )
  {
-  if (house <= 0) return Planet();
+  static Planet emptyPlanet;
+  if (house <= 0 || house > 12) return emptyPlanet;
 
-  for (const Planet& p : scope.planets)
-    if (p.houseRuler == house)
+  // Iterate using keys() method like elsewhere in the code
+  for (PlanetId id : scope.planets.keys()) {
+    const Planet& p = scope.planets[id];
+    if (p.houseRuler.contains(house))
       return p;
+  }
 
-  return Planet();
- }*/
+  return emptyPlanet;
+ }
 
 PlanetId receptionWith(const Planet& planet, const Horoscope& scope)
 {
@@ -541,6 +587,10 @@ calculatePlanet(PlanetId planet,
     }
     std::sort(ret.houseRuler.begin(),
               ret.houseRuler.end());
+    // Remove duplicate house entries (can occur when multiple home signs map
+    // to the same house or interception logic produced overlaps)
+    ret.houseRuler.erase(std::unique(ret.houseRuler.begin(), ret.houseRuler.end()),
+                         ret.houseRuler.end());
 
     double rettm;
     int eflg = SEFLG_SWIEPH;
@@ -2651,6 +2701,11 @@ calculateAll(const InputData& input)
     return scope;
 }
 
+/*static*/ EventOptions::DisplayMode EventOptions::s_transitBodyColMode =
+    EventOptions::DisplayGlyphs;
+/*static*/ EventOptions::DisplayMode EventOptions::s_natalTransitBodyColMode =
+    EventOptions::DisplayGlyphs;
+
 EventOptions::EventOptions(const QVariantMap& map)
 {
     defaultTimespan       = map.value("Events/defaultTimespan").toString();
@@ -2706,6 +2761,11 @@ EventOptions::EventOptions(const QVariantMap& map)
         map.value("Events/expandShowReturnAspects").toBool();
     expandShowTransitAspectsToReturnPlanet =
         map.value("Events/expandShowTransitAspectsToReturnPlanet").toBool();
+
+    s_transitBodyColMode =
+        DisplayMode(map.value("Events/transitBodyColMode").toUInt());
+    s_natalTransitBodyColMode =
+        DisplayMode(map.value("Events/natalTransitBodyColMode").toUInt());
 }
 
 EventOptions::EventOptions(const EventOptions& opts,
@@ -2853,6 +2913,8 @@ EventOptions::toMap()
     ret.insert("Events/expandShowReturnAspects", expandShowReturnAspects);
     ret.insert("Events/expandShowTransitAspectsToReturnPlanet",
                expandShowTransitAspectsToReturnPlanet);
+    ret.insert("Events/transitBodyColMode", s_transitBodyColMode);
+    ret.insert("Events/natalTransitBodyColMode", s_natalTransitBodyColMode);
     return ret;
 }
 

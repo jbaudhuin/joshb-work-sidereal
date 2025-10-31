@@ -184,6 +184,7 @@ int               getHouse(const Houses& houses, float deg); // returns 1...12
 int               getHouse(ZodiacSignId sign,
                            const Houses& houses,
                            const Zodiac& zodiac);
+int               getHouse(const Horoscope& scope, float deg);
 
 float    angle(const Star& body1, const Star& body2);
 float    angle(const Star& body, float deg);
@@ -204,7 +205,7 @@ const Planet*  auriga(const Horoscope& scope);
 const Planet*  almuten(const Horoscope& scope);
 bool rulerDisposition(int house, int houseAuthority, const Horoscope& scope);
 bool isEarlier(const Planet& planet, const Planet& sun);
-//const Planet& ruler          ( int house, const Horoscope& scope );
+const Planet& ruler          ( int house, const Horoscope& scope );
 PlanetId receptionWith(const Planet& planet, const Horoscope& scope);
 
 uintMSet getAllFactors(unsigned h);
@@ -327,6 +328,15 @@ struct EventOptions
 
     bool expandShowReturnAspects                = true;
     bool expandShowTransitAspectsToReturnPlanet = true;
+
+    // Display modes for column content: 0=default glyphs, 1=rulership, 2=rulership+natal_house
+    enum DisplayMode {
+        DisplayGlyphs = 0,
+        DisplayRulership = 1,
+        DisplayRulershipWithNatalHouse = 2
+    };
+    static DisplayMode s_transitBodyColMode;
+    static DisplayMode s_natalTransitBodyColMode;
 
     QVariantMap toMap();
 

@@ -1748,6 +1748,9 @@ MainWindow::MainWindow(QWidget *parent) :
     this->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     this->setWindowTitle(QApplication::applicationName());
     this->setMinimumHeight(480);
+    
+    // Enable tooltips even when window doesn't have focus (for focus-follows-mouse)
+    this->setAttribute(Qt::WA_AlwaysShowToolTips, true);
 
 
     QWidget* wdg = new QWidget(this);

@@ -128,6 +128,7 @@ class Transits : public AstroFileHandler {
     void clickedCell(QModelIndex);
     void doubleClickedCell(QModelIndex);
     void headerDoubleClicked(int);
+    void headerClicked(int);
     void copySelection();
     void findIt(const QString&);
     void saveScrollPos();

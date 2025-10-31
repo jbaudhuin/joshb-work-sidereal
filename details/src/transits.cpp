@@ -12,6 +12,7 @@
 #include <QStandardItem>
 #include <QStringListModel>
 #include <QHeaderView>
+#include <QMouseEvent>
 #include <QTimer>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -126,6 +127,32 @@ public:
     ~AChangeSignalFrame();
 };
 
+// Custom header view that intercepts Ctrl+click to prevent sorting
+class TransitHeaderView : public QHeaderView {
+    Q_OBJECT
+public:
+    TransitHeaderView(Qt::Orientation orientation, QWidget* parent = nullptr)
+        : QHeaderView(orientation, parent) {}
+
+protected:
+    void mousePressEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::LeftButton && 
+            (event->modifiers() & Qt::ControlModifier)) {
+            // For Ctrl+click, emit our custom signal but don't call parent
+            int section = logicalIndexAt(event->pos());
+            if (section >= 0) {
+                emit ctrlSectionClicked(section);
+                return; // Don't call parent - prevents sorting
+            }
+        }
+        // For normal clicks, use default behavior
+        QHeaderView::mousePressEvent(event);
+    }
+
+signals:
+    void ctrlSectionClicked(int logicalIndex);
+};
+
 class EventsTableModel : public QAbstractItemModel {
     Q_OBJECT
 
@@ -144,6 +171,8 @@ public:
         SummaryRole = Qt::UserRole,
         RawRole
     };
+
+    typedef A::EventOptions::DisplayMode DisplayMode;
 
     EventsTableModel(QObject* parent = nullptr) :
         QAbstractItemModel(parent)
@@ -364,6 +393,77 @@ public:
         return sl.join(joint);
     }
 
+    // Helper method to get ChartPlanetId from different types
+    const A::ChartPlanetId& extractChartPlanetId(const A::ChartPlanetId& cpid) const {
+        return cpid;
+    }
+    
+    const A::ChartPlanetId& extractChartPlanetId(const A::PlanetLoc& ploc) const {
+        return ploc.planet;
+    }
+    
+    // Helper to get the correct house rulership string depending on input type
+    QString getCorrectHouseRulershipWithNatalHouseString(const A::PlanetLoc& ploc) const {
+        return getHouseRulershipWithNatalHouseString(ploc); // Use the position-aware version
+    }
+    
+    QString getCorrectHouseRulershipWithNatalHouseString(const A::ChartPlanetId& cpid) const {
+        return getHouseRulershipWithNatalHouseString(cpid); // Use the legacy version for aspect patterns
+    }
+
+    template <typename Iter>
+    QVariant glyphicWithMode(int role, Iter its, DisplayMode mode) const
+    {
+        if (mode == A::EventOptions::DisplayGlyphs) {
+            return glyphic(role, its);
+        }
+        
+        if (role == Qt::FontRole) {
+            // Check if any planet has rulership info
+            for (auto it = its.first; it != its.second; ++it) {
+                const auto& s = *it;
+                const A::ChartPlanetId& cpid = extractChartPlanetId(s);
+                QString rulershipText = getHouseRulershipString(cpid);
+                if (!rulershipText.isEmpty()) {
+                    return QFont(); // Use default font for text modes
+                }
+            }
+            // Fall back to glyph font if no rulership
+            static QFont f("Almagest", 11);
+            return f;
+        }
+
+        QStringList sl;
+        for (auto it = its.first; it != its.second; ++it) {
+            const auto& s = *it;
+            if (role == Qt::DisplayRole || role == Qt::EditRole) {
+                const A::ChartPlanetId& cpid = extractChartPlanetId(s);
+                QString rulershipText;
+                if (mode == A::EventOptions::DisplayRulership) {
+                    rulershipText = getHouseRulershipString(cpid);
+                } else if (mode == A::EventOptions::DisplayRulershipWithNatalHouse) {
+                    rulershipText = getCorrectHouseRulershipWithNatalHouseString(s);
+                }
+                
+                if (!rulershipText.isEmpty()) {
+                    sl << rulershipText;
+                } else {
+                    // Fall back to glyph if no rulership
+                    sl << glyph(s);
+                }
+            } else if (role == Qt::ToolTipRole) {
+                sl << display(s);
+            } else if (role == SummaryRole) {
+                sl << summary(s);
+            }
+        }
+
+        QString joint = ",";
+        if (role == Qt::ToolTipRole) joint = "-";
+        else if (role == SummaryRole) joint = "=";
+        return sl.join(joint);
+    }
+
     template <typename T>
     auto getNTColIters(const T& locs) const
     {
@@ -554,15 +654,16 @@ public:
             return "H" + QString::number(asp.harmonic());
 
         case transitBodyCol:
+            // Default glyph display mode
             if (asp.locations().empty()) {
                 // goofiness due to different sorts for planets
                 // and locations
                 if (singleColumn(asp.planets())) {
-                    return glyphic(role, getTColIters(asp.planets()));
+                    return glyphicWithMode(role, getTColIters(asp.planets()), _transitBodyColMode);
                 }
-                return glyphic(role, getNTColIters(asp.planets()));
+                return glyphicWithMode(role, getNTColIters(asp.planets()), _transitBodyColMode);
             }
-            return glyphic(role, getTColIters(asp.locations()));
+            return glyphicWithMode(role, getTColIters(asp.locations()), _transitBodyColMode);
 
         case natalTransitBodyCol:
             if (role == Qt::ForegroundRole) {
@@ -570,15 +671,16 @@ public:
                 // else falls through to default return
                 break;
             }
+            
             if (asp.locations().empty()) {
                 // goofiness due to different sorts for planets
                 // and locations
                 if (!singleColumn(asp.planets())) {
-                    return glyphic(role, getTColIters(asp.planets()));
+                    return glyphicWithMode(role, getTColIters(asp.planets()), _natalTransitBodyColMode);
                 }
                 break;
             }
-            return glyphic(role, getNTColIters(asp.locations()));
+            return glyphicWithMode(role, getNTColIters(asp.locations()), _natalTransitBodyColMode);
 
         default:
             break;
@@ -739,6 +841,146 @@ public:
     int sortColumn() const { return _sortBy; }
     Qt::SortOrder sortOrder() const { return _sortOrder; }
 
+    // Display mode methods for cycling column content
+    void cycleTransitBodyColMode()
+    {
+        _transitBodyColMode =
+            static_cast<DisplayMode>((_transitBodyColMode + 1) % 3);
+        emitColumnDataChanged(transitBodyCol);
+    }
+
+    void cycleNatalTransitBodyColMode()
+    {
+        _natalTransitBodyColMode =
+            static_cast<DisplayMode>((_natalTransitBodyColMode + 1) % 3);
+        emitColumnDataChanged(natalTransitBodyCol);
+    }
+
+    // Helper method to emit dataChanged for entire column including child rows
+    void emitColumnDataChanged(int column)
+    {
+        if (rowCount() == 0) return;
+
+        // Emit for all top-level rows
+        emit dataChanged(createIndex(0, column),
+                         createIndex(rowCount() - 1, column),
+                         { Qt::DisplayRole, Qt::FontRole });
+
+        // Also emit for all child rows (coincidences)
+        for (int i = 0; i < rowCount(); ++i) {
+            int childCount = rowCount(createIndex(i, 0));
+            if (childCount > 0) {
+                emit dataChanged(createIndex(0, column, i),
+                                 createIndex(childCount - 1, column, i),
+                                 { Qt::DisplayRole, Qt::FontRole });
+            }
+        }
+    }
+
+    // Get natal horoscope for house rulership calculations
+    const A::Horoscope& getNatalHoroscope() const
+    {
+        // Access the parent Transits object to get the file
+        if (auto transits = qobject_cast<Transits*>(QObject::parent())) {
+            if (transits->file()) {
+                auto fileType = transits->file()->getType();
+                // Only return horoscope for natal charts (Male, Female, Event)
+                if (fileType == TypeMale || fileType == TypeFemale
+                    || fileType == TypeEvent)
+                {
+                    return transits->file()->horoscope();
+                }
+            }
+        }
+        static const A::Horoscope
+            empty; // fallback for non-natal charts or when not available
+        return empty;
+    }
+
+    // Calculate house rulership display string for a planet
+    QString getHouseRulershipString(const A::ChartPlanetId& cpid) const
+    {
+        const A::Horoscope& natal = getNatalHoroscope();
+        if (natal.planets.empty()) return "";
+
+        // Always use the base planet ID (ignoring file ID) to look up rulership
+        // This means both transit Mars and natal Mars show natal Mars's
+        // rulerships
+        A::PlanetId basePlanetId = cpid.planetId();
+
+        // Get the planet from natal chart using base planet ID
+        if (!natal.planets.contains(basePlanetId)) {
+            qDebug() << "Planet not found in natal chart for planetId="
+                     << basePlanetId;
+            return "";
+        }
+        const A::Planet& planet = natal.planets[basePlanetId];
+
+        // Format as "R" + house numbers joined by "+"
+        // Negative house numbers (intercepted signs) are shown in parentheses
+        QStringList houses;
+        for (int house : planet.houseRuler) {
+            if (house < 0) {
+                // Intercepted sign: show as (house number)
+                houses << QString("(%1)").arg(-house);
+            } else {
+                // Normal cusp rulership: show as plain number
+                houses << QString::number(house);
+            }
+        }
+
+        // If planet has house rulerships, return "R" + houses
+        if (!houses.isEmpty()) {
+            return "R" + houses.join("+");
+        }
+
+        // For planets without rulerships, return abbreviated name (first 3
+        // letters, no spaces)
+        QString planetName = A::getPlanetName(cpid);
+        QString abbrev     = planetName.remove(' ').left(3);
+        return abbrev;
+    }
+
+    // Calculate which house a longitude falls into in the natal chart
+    int getNatalHouseForLongitude(qreal longitude) const
+    {
+        const A::Horoscope& natal = getNatalHoroscope();
+        if (natal.houses.system == nullptr) return 0;
+        return A::getHouse(natal, longitude);
+    }
+
+    // Calculate house rulership + natal house string using PlanetLoc position
+    QString getHouseRulershipWithNatalHouseString(
+        const A::PlanetLoc& ploc) const
+    {
+        const A::ChartPlanetId& cpid      = ploc.planet;
+        QString                 rulership = getHouseRulershipString(cpid);
+        if (rulership.isEmpty()) return "";
+
+        // Use the transiting planet's actual position to find its natal house
+        int natalHouse = getNatalHouseForLongitude(ploc.loc);
+        if (natalHouse > 0) {
+            return QString("%1H ").arg(natalHouse) + rulership;
+        }
+        return rulership;
+    }
+
+    // Calculate house rulership + natal house string (legacy ChartPlanetId
+    // version) This version incorrectly uses the natal planet's house - kept
+    // for compatibility with aspect patterns
+    QString getHouseRulershipWithNatalHouseString(
+        const A::ChartPlanetId& cpid) const
+    {
+        QString rulership = getHouseRulershipString(cpid);
+        if (rulership.isEmpty()) return "";
+
+        const A::Horoscope& natal = getNatalHoroscope();
+        if (!natal.planets.contains(cpid.planetId())) return rulership;
+
+        const A::Planet& planet = natal.planets[cpid.planetId()];
+        return QString("%1H ").arg(planet.house) + rulership;
+    }
+
 public slots:
     void rebuild()
     {
@@ -827,6 +1069,11 @@ private:
 
     AChangeSignalFrame* _chs = nullptr;
 
+    DisplayMode& _transitBodyColMode =
+        A::EventOptions::s_transitBodyColMode;
+    DisplayMode& _natalTransitBodyColMode =
+        A::EventOptions::s_natalTransitBodyColMode;
+
     friend class AChangeSignalFrame;
 };
 
@@ -897,6 +1144,9 @@ Transits::Transits(QWidget* parent) :
     _ddelta(A::EventOptions::current().defaultTimespan),
     _chs(nullptr)
 {
+    // Enable tooltips even when parent window doesn't have focus
+    this->setAttribute(Qt::WA_AlwaysShowToolTips, true);
+    
     _tview = new TransitTreeView;
     _tview->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _tview->expandAll();
@@ -904,13 +1154,17 @@ Transits::Transits(QWidget* parent) :
     _evm = new EventsTableModel(this);
     _tview->setModel(_evm);
 
-    auto hdr = _tview->header();
+    // Create and set custom header
+    auto hdr = new TransitHeaderView(Qt::Horizontal, _tview);
+    _tview->setHeader(hdr);
+    
     connect(hdr, &QHeaderView::sortIndicatorChanged,
             _evm, &EventsTableModel::onSortChange);
+    connect(hdr, &TransitHeaderView::ctrlSectionClicked,
+            this, &Transits::headerClicked);
     hdr->setSectionsClickable(true);
     hdr->setSortIndicatorShown(true);
-    _tview->header()->setSortIndicator(_evm->sortColumn(),
-                                       _evm->sortOrder());
+    hdr->setSortIndicator(_evm->sortColumn(), _evm->sortOrder());
     hdr->setSectionResizeMode(QHeaderView::ResizeToContents);
 
     QAction* act = new QAction("Copy");
@@ -1011,8 +1265,10 @@ Transits::Transits(QWidget* parent) :
     connect(_tview, SIGNAL(pressed(const QModelIndex&)),
             this, SLOT(clickedCell(const QModelIndex&)));
 #endif
-    connect(_tview->header(), SIGNAL(sectionDoubleClicked(int)),
+    connect(hdr, SIGNAL(sectionDoubleClicked(int)),
             this, SLOT(headerDoubleClicked(int)));
+    connect(hdr, SIGNAL(sectionClicked(int)),
+            this, SLOT(headerClicked(int)));
     connect(_tview, SIGNAL(currently(const QModelIndex&)),
             this, SLOT(clickedCell(const QModelIndex&)));
 
@@ -1503,6 +1759,21 @@ void
 Transits::headerDoubleClicked(int col)
 {
     // nothing doing now...
+}
+
+void
+Transits::headerClicked(int col)
+{
+    // This method is now called only for Ctrl+click events from our custom header
+    if (col == EventsTableModel::transitBodyCol) {
+        _evm->cycleTransitBodyColMode();
+        // Force immediate visual update
+        _tview->viewport()->repaint();
+    } else if (col == EventsTableModel::natalTransitBodyCol) {
+        _evm->cycleNatalTransitBodyColMode();
+        // Force immediate visual update
+        _tview->viewport()->repaint();
+    }
 }
 
 void

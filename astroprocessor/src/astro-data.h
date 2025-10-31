@@ -583,10 +583,12 @@ public:
     using Base = QMap<PlanetId, Planet>;
     using Base::Base;
 
-#if 0
     using Base::keys;
     using Base::count;
-#endif
+    using Base::constBegin;
+    using Base::constEnd;
+    using Base::begin;
+    using Base::end;
 
     Base::mapped_type& operator[](const Base::key_type& key)
     {
