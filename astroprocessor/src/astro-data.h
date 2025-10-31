@@ -1306,6 +1306,8 @@ enum EventType {
     etcUserEventStart       = 64
 };
 
+typedef std::set<EventType> EventTypeSet;
+
 using uintPair = std::pair<unsigned,unsigned>;
 using hsets = std::vector<uintSSet>;
 using hsetId = unsigned short int;

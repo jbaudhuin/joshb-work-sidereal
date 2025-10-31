@@ -662,7 +662,7 @@ void Chart::drawPlanets(int fileIndex)
                 s->addEllipse(-innerRadius(fileIndex) - radius, -radius,
                               radius * 2, radius * 2,
                               planetMarkerPen(planet, fileIndex));
-#if 1
+#if 0
         qDebug() << "planet" << planet.name << planet.name.length()
                  << "id" << planet.id;
 #endif

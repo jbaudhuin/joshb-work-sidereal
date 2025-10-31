@@ -2708,6 +2708,45 @@ EventOptions::EventOptions(const QVariantMap& map)
         map.value("Events/expandShowTransitAspectsToReturnPlanet").toBool();
 }
 
+EventOptions::EventOptions(const EventOptions& opts,
+                           const EventTypeSet& exclude) :
+    EventOptions(opts)
+{
+    for (auto excl : exclude) {
+        switch (excl) {
+        case etcStation:          showStations = false; break;
+        case etcTransitToStation: break;
+        case etcTransitToTransit: showTransitsToTransits = false; break;
+        case etcTransitToNatal:
+            showTransitsToNatalAngles = showTransitsToNatalPlanets = false;
+            break;
+        case etcOuterTransitToNatal:    showTransitsToNatalPlanets = false; break;
+        case etcReturn:                 showReturns = false; break;
+        case etcSolarReturn:            /*todo*/ break;
+        case etcLunarReturn:            /*todo*/ break;
+        case etcProgressedToProgressed: /*todo*/ break;
+        case etcProgressedToNatal:      /*todo*/ break;
+        case etcInnerProgressedToNatal: /*todo*/ break;
+        case etcTransitToProgressed:    /*todo*/ break;
+        case etcSolarArcToNatal:        /*todo*/ break;
+        case etcSignIngress:            showIngresses = false; break;
+        case etcHouseIngress:           showTransitsToHouseCusps = false; break;
+        case etcLunation:               /*todo*/ break;
+        case etcEclipse:                /*todo*/ break;
+        case etcSolarEclipse:           /*todo*/ break;
+        case etcLunarEclipse:           /*todo*/ break;
+        case etcHeliacalEvents:         /*todo*/ break;
+        case etcTransitAspectPattern:
+            showTransitAspectPatterns = false;
+            break;
+        case etcTransitNatalAspectPattern:
+            showTransitNatalAspectPatterns = false;
+            break;
+        case etcParanatellonta:            /*todo*/ break;
+        }
+    }
+}
+
 /*static*/
 const QString& EventOptions::zposPat()
 {
@@ -2817,29 +2856,32 @@ EventOptions::toMap()
     return ret;
 }
 
-OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
-                             const ADateRange& range,
-                             const uintSSet& hset,
-                             const AstroFileList& files) :
-    AspectFinder(evs, range, hset, afcFindStuff)
+/// The intent is to build _staff which comprises the aspect search and _alist
+/// which comprises the planets to be used in the aspect pattern search.
+OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
+                             const ADateRange&    range,
+                             const uintSSet&      hset,
+                             const AstroFileList& files,
+                             const EventTypeSet&  exclude /*={}*/) :
+    AspectFinder(evs, range, hset, exclude, afcFindStuff)
 {
     // This ugly jumble intends to generate the appropriate planet listings,
     // and then create the T-T T-N P-P P-N pairings. And the ingresses, etc.
     // Better to have some kind of factory scheme, but for now...
     bool natal = false, trans = false, prog = false;
-    int natus = -1, locus = -1, progr = -1;
+    int  natus = -1, locus = -1, progr = -1;
     QMap<ChartPlanetId, unsigned> index, revIndex;
 
     uintSSet conjSet { 1 };
-    hsetId conj = _hsets.size();
+    hsetId   conj = _hsets.size();
     _hsets.emplace_back(conjSet);
 
     uintSSet conjOppSet { 1, 2 };
-    hsetId conjOpp = _hsets.size();
+    hsetId   conjOpp = _hsets.size();
     _hsets.emplace_back(conjOppSet);
 
     uintSSet conjOppSqSet { 1, 2, 4 };
-    hsetId conjOppSq = _hsets.size();
+    hsetId   conjOppSq = _hsets.size();
     _hsets.emplace_back(conjOppSqSet);
 
     hsetId allAsp = 0;
@@ -2850,50 +2892,51 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
         auto f = files.at(i);
         _ids.push_back(f->horoscope().inputData);
 
-        const auto& ida = f->horoscope().inputData;
-        auto type = f->getType();
+        const auto& ida  = f->horoscope().inputData;
+        auto        type = f->getType();
         if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
             natus = i, natal = true;
             njd = getJulianDate(ida.GMT());
-        }
-        else if (type == TypeDerivedProg) progr = i, prog = true;
-        else locus = i, trans = true;
+        } else if (type == TypeDerivedProg)
+            progr = i, prog = true;
+        else
+            locus = i, trans = true;
     }
 
     QVector<ZodiacSign> signs = getZodiac(_ids[0].zodiac()).signs.toVector();
-    auto getIngress = [&](PlanetId ingr, bool forward = true) {
+    auto                getIngress = [&](PlanetId ingr, bool forward = true) {
         unsigned i = ingr - Ingresses_Start;
         if (!forward) ingr += 12;
-        ChartPlanetId cpid(-1, ingr, Planet_None);
-        QMap<ChartPlanetId, unsigned>& inx = forward? index : revIndex;
+        ChartPlanetId                  cpid(-1, ingr, Planet_None);
+        QMap<ChartPlanetId, unsigned>& inx = forward ? index : revIndex;
         if (!inx.contains(cpid)) {
             inx[cpid] = _alist.size();
-            qreal loc = forward? signs[i].startAngle
-                               : signs[(i+1)%12].startAngle;
+            qreal loc =
+                forward ? signs[i].startAngle : signs[(i + 1) % 12].startAngle;
             auto pl = new PlanetLoc(cpid, "I", loc);
-            pl->allowAspects = forward
-                    ? PlanetLoc::aspOnlyDirect
-                    : PlanetLoc::aspOnlyRetro;
+            pl->allowAspects =
+                forward ? PlanetLoc::aspOnlyDirect : PlanetLoc::aspOnlyRetro;
             _alist.push_back(pl);
         }
         return inx.value(cpid);
     };
 
-    Houses houses;  // natal houses if needed
+    Houses houses; // natal houses if needed
 
-    typedef std::function<unsigned(PlanetId)> getter;
-    getter getNatalPlanet = nullptr;
-    getter getTransitPlanet = nullptr;
-    getter getProgressedPlanet = nullptr;
+    typedef std::function<unsigned(PlanetId)>       getter;
+    typedef std::function<unsigned(PlanetId, bool)> getterAlt;
 
-    typedef std::function<unsigned(PlanetId,bool)> getterAlt;
-    getterAlt getHouseIngress = nullptr;
+    getter    getNatalPlanet;
+    getter    getTransitPlanet;
+    getter    getProgressedPlanet;
+    getterAlt getHouseIngress;
+
     if (natal) {
         getNatalPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(natus, pid, Planet_None);
             if (!index.contains(cpid)) {
                 index[cpid] = _alist.size();
-                auto pl = new NatalPosition(cpid, _ids[natus], "r");
+                auto pl     = new NatalPosition(cpid, _ids[natus], "r");
                 if (pid >= Houses_Start && pid < Houses_End) {
                     pl->allowAspects = PlanetLoc::aspOnlyConj;
                 }
@@ -2903,27 +2946,34 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
         };
 
         if (natal && showTransitsToHouseCusps) {
-            houses = calculateHouses(_ids[natus]);
+            houses          = calculateHouses(_ids[natus]);
             getHouseIngress = [&](PlanetId ingr, bool forward = true) {
                 ChartPlanetId cpid(-1, ingr, Planet_None);
-                QMap<ChartPlanetId, unsigned>& inx = forward? index : revIndex;
+
+                auto&& inx = forward ? index : revIndex;
                 if (!inx.contains(cpid)) {
-                    inx[cpid] = _alist.size();
+                    inx[cpid]  = _alist.size();
                     unsigned i = ingr - Houses_Start;
-                    qreal loc = forward? houses.cusp[i]
-                                       : houses.cusp[(i+1)%12];
+
+                    qreal loc =
+                        forward ? houses.cusp[i] : houses.cusp[(i + 1) % 12];
                     auto pl = new PlanetLoc(cpid, "HI", loc);
-                    pl->allowAspects = forward
-                            ? PlanetLoc::aspOnlyDirect
-                            : PlanetLoc::aspOnlyRetro;
+
+                    pl->allowAspects = forward ? PlanetLoc::aspOnlyDirect
+                                               : PlanetLoc::aspOnlyRetro;
                     _alist.push_back(pl);
                 }
                 return inx.value(cpid);
             };
         }
     }
-    if (!trans && prog) { locus = progr; trans = true; }
-    else if (!trans && natal) { locus = natus; trans = true; }
+    if (!trans && prog) {
+        locus = progr;
+        trans = true;
+    } else if (!trans && natal) {
+        locus = natus;
+        trans = true;
+    }
     if (trans) {
         getTransitPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(locus, pid, Planet_None);
@@ -2934,13 +2984,16 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
             return index.value(cpid);
         };
     }
-    if (!prog && trans) { progr = locus; prog = true; }
+    if (!prog && trans) {
+        progr = locus;
+        prog  = true;
+    }
     if (natal) {
         getProgressedPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(progr, pid, Planet_None);
             if (!index.contains(cpid)) {
                 index[cpid] = _alist.size();
-                auto pl = new ProgressedPosition(cpid, _ids[natus], njd);
+                auto pl     = new ProgressedPosition(cpid, _ids[natus], njd);
                 if (pid >= Houses_Start && pid < Houses_End) {
                     pl->allowAspects = PlanetLoc::aspOnlyConj;
                 }
@@ -2950,22 +3003,22 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
         };
     }
 
-    if (trans && (showTransitsToTransits
-                  || showTransitAspectPatterns
-                  || showTransitNatalAspectPatterns
-                  || showStations
-                  || showIngresses))
+    if (trans
+        && (showTransitsToTransits || showTransitAspectPatterns
+            || showTransitNatalAspectPatterns || showStations || showIngresses))
     {
         QVector<unsigned> ppi, ppo;
-        for (auto pid: getPlanets(includeAsteroids,includeCentaurs)) {
+        for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
             ppi << getTransitPlanet(pid);
         }
         if (false && includeOnlyOuterTransitsToNatal) {
-            for (auto pid: getOuterPlanets(includeCentaurs)) {
+            for (auto pid : getOuterPlanets(includeCentaurs)) {
                 ppo << getTransitPlanet(pid);
             }
-            //if (!showTransitsToNatalPlanets) ppi = ppo; // only outer-to-outer!
-        } else ppo = ppi;
+            // if (!showTransitsToNatalPlanets) ppi = ppo; // only
+            // outer-to-outer!
+        } else
+            ppo = ppi;
         // the above loop has added the planets to the list used
         // by pattern or station finder
 
@@ -2974,22 +3027,23 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
         if (showTransitsToTransits) {
             for (int i = 0; i < in; ++i) {
                 hsetId hs = allAsp;
-                auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[i]]);
-                auto pl = tp->planet.planetId();
+                auto   tp = dynamic_cast<TransitPosition*>(_alist[ppi[i]]);
+                auto   pl = tp->planet.planetId();
                 if (pl == Planet_NorthNode || pl == Planet_SouthNode
-                        || (pl > Planet_Moon && pl <= Planet_Jupiter))
+                    || (pl > Planet_Moon && pl <= Planet_Jupiter))
                 {
                     hs = conj;
                 } else if (limitLunarTransits && pl == Planet_Moon) {
                     continue;
                 }
-                for (int j = qMax(0,i+1-(in-on)); j < on; ++j) {
+                for (int j = qMax(0, i + 1 - (in - on)); j < on; ++j) {
                     if (ppi[i] == ppo[j]) continue;
                     auto hst = hs;
-                    auto tp = dynamic_cast<TransitPosition*>(_alist[ppo[j]]);
+                    auto tp  = dynamic_cast<TransitPosition*>(_alist[ppo[j]]);
                     auto opl = tp->planet.planetId();
                     if (opl == Planet_NorthNode || opl == Planet_SouthNode
-                            || (opl > Planet_Moon && opl <= Planet_Jupiter)) {
+                        || (opl > Planet_Moon && opl <= Planet_Jupiter))
+                    {
                         if (hs == conj) continue;
                         hst = conj;
                     }
@@ -2997,29 +3051,32 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
                         if (pl > Planet_Sun && limitLunarTransits) continue;
                         hst = conjOppSq;
                     }
-                    //else if (opl == Planet_Sun) hst = conjOpp;
-                    _staff.emplace_back(ppi[i], ppo[j], hst,
+                    // else if (opl == Planet_Sun) hst = conjOpp;
+                    _staff.emplace_back(ppi[i],
+                                        ppo[j],
+                                        hst,
                                         etcTransitToTransit);
                 }
             }
         }
 
         if (showIngresses) {
-            for (auto i: qAsConst(ppi)) {
+            for (auto i : qAsConst(ppi)) {
                 auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
                 auto pl = tp->planet.planetId();
-                for (PlanetId pid = Ingresses_Start; pid < Ingresses_End; ++pid) {
-                    if (limitLunarTransits && pl==Planet_Moon
-                            && ((pid - Ingresses_Start) % 3 != 0))
+                for (PlanetId pid = Ingresses_Start; pid < Ingresses_End; ++pid)
+                {
+                    if (limitLunarTransits && pl == Planet_Moon
+                        && ((pid - Ingresses_Start) % 3 != 0))
                         continue;
 
                     auto j = getIngress(pid);
                     _staff.emplace_back(i, j, conj, etcSignIngress);
 
                     // luminaries don't need the backwards ingress
-                    if (pl==Planet_Sun || pl==Planet_Moon) continue;
+                    if (pl == Planet_Sun || pl == Planet_Moon) continue;
 
-                    j = getIngress(pid, false/*backward*/);
+                    j = getIngress(pid, false /*backward*/);
                     _staff.emplace_back(i, j, conj, etcSignIngress);
                 }
             }
@@ -3028,7 +3085,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
 
     if (showProgressionsToProgressions) {
         QVector<unsigned> tpi;
-        for (auto pid: getPlanets()) {
+        for (auto pid : getPlanets()) {
             tpi << getProgressedPlanet(pid);
         }
         for (int i = 0; i < tpi.size(); ++i) {
@@ -3149,7 +3206,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents& evs,
         }
     }
 
-#if 1
+#if 0
     QMap<hsetId,QStringList> hsm;
     for (const auto& [ij, hsid, et] : _staff) {
         auto [i, j] = ij;

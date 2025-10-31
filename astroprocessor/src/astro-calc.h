@@ -225,6 +225,9 @@ struct EventOptions
 {
     EventOptions() {};
     EventOptions(const QVariantMap& map);
+    EventOptions(const EventOptions& orig) = default;
+    EventOptions(const EventOptions& orig,
+                 const EventTypeSet& exclude);
 
     ADateDelta defaultTimespan{0 /*yr*/, 1 /*mo*/, 0 /*dy*/};
 
@@ -365,13 +368,15 @@ public:
     AspectFinder(HarmonicEvents& evs,
                  const ADateRange& range,
                  const uintSSet& hset,
+                 const EventTypeSet& exclude = {},
                  goalType gt = afcFindAspects) :
-        EventOptions(current()),
+        EventOptions(current(), exclude),
         _evs(evs),
         _range(range),
         _gt(gt),
         _hsets({hset})
     {
+        if (!exclude.empty()) _restrictiveTimeRange = true;
         //if (includeMidpoints || *hset.rbegin()>4) _rate = .5;
     }
 
@@ -452,6 +457,8 @@ protected:
 
     QAtomicInt _state = idleState;
 
+    bool _restrictiveTimeRange = false;
+
     double _rate = 4.0;  // # days
     hsets _hsets;         ///< harmonic profiles
     searchPairList _staff;
@@ -468,8 +475,8 @@ public:
     OmnibusFinder(HarmonicEvents& evs,
                  const ADateRange& range,
                  const uintSSet& hset,
-                 const AstroFileList& files);
-
+                 const AstroFileList& files,
+                 const EventTypeSet& exclude = {});
 };
 
 class CoincidenceFinder : public QRunnable {

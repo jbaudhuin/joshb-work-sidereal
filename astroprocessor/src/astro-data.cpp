@@ -792,7 +792,11 @@ EventStore::getEventUpdateScope(EventScope evscope,
         return { it->ranges, it->events };
     }
     if (it->ranges.size()==1 && *it->ranges.begin() == evscope.range) {
-        throw noNeed();
+        // Also verify that we actually have events, not just range metadata
+        if (!it->events.empty()) {
+            throw noNeed();
+        }
+        // Range metadata exists but no events - need to recompute
     }
 
     ADateRange addingRange = evscope.range;
@@ -806,6 +810,7 @@ EventStore::getEventUpdateScope(EventScope evscope,
             auto nit = std::next(pit);
             while (nit != upd.end() && r.second >= nit->first) {
                 r.second = nit->second;
+                ++nit;  // CRITICAL: Advance nit to avoid infinite loop
             }
             ranges.insert(r);
             pit = nit;
