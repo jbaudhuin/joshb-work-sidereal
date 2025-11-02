@@ -965,20 +965,13 @@ public:
         return rulership;
     }
 
-    // Calculate house rulership + natal house string (legacy ChartPlanetId
-    // version) This version incorrectly uses the natal planet's house - kept
-    // for compatibility with aspect patterns
+    // Calculate house rulership string for aspect patterns (ChartPlanetId version)
+    // For aspect patterns, we only show rulership without natal house since we don't have position data
     QString getHouseRulershipWithNatalHouseString(
         const A::ChartPlanetId& cpid) const
     {
-        QString rulership = getHouseRulershipString(cpid);
-        if (rulership.isEmpty()) return "";
-
-        const A::Horoscope& natal = getNatalHoroscope();
-        if (!natal.planets.contains(cpid.planetId())) return rulership;
-
-        const A::Planet& planet = natal.planets[cpid.planetId()];
-        return QString("%1H ").arg(planet.house) + rulership;
+        // For aspect patterns, just return the rulership without natal house
+        return getHouseRulershipString(cpid);
     }
 
 public slots:
@@ -1267,8 +1260,6 @@ Transits::Transits(QWidget* parent) :
 #endif
     connect(hdr, SIGNAL(sectionDoubleClicked(int)),
             this, SLOT(headerDoubleClicked(int)));
-    connect(hdr, SIGNAL(sectionClicked(int)),
-            this, SLOT(headerClicked(int)));
     connect(_tview, SIGNAL(currently(const QModelIndex&)),
             this, SLOT(clickedCell(const QModelIndex&)));
 
