@@ -1,5 +1,50 @@
 {
-    "cmake.sourceDirectory": "C:/Users/jbaud/OneDrive/Documents/GitHub/joshb-work-sidereal/zodiac",
+    // CMake configuration - machine independent
+    "cmake.sourceDirectory": "${workspaceFolder}/zodiac",
+    "cmake.buildDirectory": "${workspaceFolder}/build",
     "cmake.options.statusBarVisibility": "visible",
-    "cmake.buildDirectory": "${workspaceFolder}\\builds\\${buildKit}\\${buildType}"
+    "cmake.generator": "Ninja",
+    "cmake.preferredGenerators": [
+        "Ninja",
+        "Unix Makefiles"
+    ],
+    // Configure clangd for better C++ support
+    "clangd.arguments": [
+        "--background-index",
+        "--log=info",
+        "--compile-commands-dir=${workspaceFolder}/build",
+        "--clang-tidy",
+        "--completion-style=detailed"
+    ],
+    // Disable the C/C++ extension's IntelliSense to avoid conflicts
+    "C_Cpp.intelliSenseEngine": "disabled",
+    // clangd configuration
+    "clangd.onConfigChanged": "restart",
+    "clangd.detectExtensionConflicts": true,
+    // clang-format configuration
+    "editor.formatOnSave": true,
+    "[cpp]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+    },
+    "[c]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+    },
+    // Debug configuration
+    "lldb.showDisassembly": "auto",
+    "lldb.dereferencePointers": true,
+    "lldb.consoleMode": "commands",
+    // Qt and CMake integration - let CMake find Qt automatically
+    "cmake.configureSettings": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+    },
+    // CMake Tools debug configuration  
+    "cmake.debugConfig": {
+        "cwd": "${workspaceFolder}/bin",
+        "sourceMap": {
+            "C:/Users/jbaud/OneDrive/Documents/GitHub/joshb-work-sidereal": "${workspaceFolder}",
+            "/Users/jbaud/OneDrive/Documents/GitHub/joshb-work-sidereal": "${workspaceFolder}"
+        }
+    },
+    // clang-format via clangd - uses project .clang-format file automatically
+    "editor.formatOnSaveTimeout": 5000
 }

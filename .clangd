@@ -1,0 +1,19 @@
+CompileFlags:
+  # Remove problematic flags if any
+  Remove: [-fmodules-ts]
+  # Add extra arguments for better diagnostics
+  Add: [-Wall, -Wextra]
+
+Index:
+  # Use a reasonable number of background threads
+  Background: 4
+
+Diagnostics:
+  # Disable IncludeCleaner which can cause issues
+  Suppress: [system_header]
+  MissingIncludes: None
+  UnusedIncludes: None
+
+# Ensure clangd looks for compile_commands.json in the build directory
+CompileFlags:
+  CompilationDatabase: build/
