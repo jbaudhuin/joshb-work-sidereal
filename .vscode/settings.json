@@ -1,6 +1,6 @@
 {
     // CMake configuration - machine independent
-    "cmake.sourceDirectory": "${workspaceFolder}/zodiac",
+    "cmake.sourceDirectory": "${workspaceFolder}",
     "cmake.buildDirectory": "${workspaceFolder}/build",
     "cmake.options.statusBarVisibility": "visible",
     "cmake.generator": "Ninja",
@@ -29,22 +29,17 @@
     "[c]": {
         "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
     },
-    // Debug configuration
-    "lldb.showDisassembly": "auto",
-    "lldb.dereferencePointers": true,
-    "lldb.consoleMode": "commands",
+    // Debug configuration - LLDB DAP
+    "lldb-dap.showDisassembly": "auto",
     // Qt and CMake integration - let CMake find Qt automatically
     "cmake.configureSettings": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
     },
     // CMake Tools debug configuration  
     "cmake.debugConfig": {
-        "cwd": "${workspaceFolder}/bin",
-        "sourceMap": {
-            "C:/Users/jbaud/OneDrive/Documents/GitHub/joshb-work-sidereal": "${workspaceFolder}",
-            "/Users/jbaud/OneDrive/Documents/GitHub/joshb-work-sidereal": "${workspaceFolder}"
-        }
+        "cwd": "${workspaceFolder}/bin"
     },
     // clang-format via clangd - uses project .clang-format file automatically
-    "editor.formatOnSaveTimeout": 5000
+    "editor.formatOnSaveTimeout": 5000,
+    "qt-qml.qmlls.traceLsp": "messages"
 }

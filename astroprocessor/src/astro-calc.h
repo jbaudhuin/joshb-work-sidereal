@@ -353,13 +353,10 @@ public:
     void run(); // sets ephemeris path and then runs
 };
 
-class AspectFinder :
-        public QObject,
-        public EventOptions
-{
+class AspectFinder : public QObject, public EventOptions {
     Q_OBJECT
 
-public:
+  public:
     enum state {
         idleState,
         runningState,
@@ -367,31 +364,34 @@ public:
         pauseRequestedState
     };
     enum goalType {
-        afcFindStuff, afcFindAspects, afcFindPatterns, afcFindStations
+        afcFindStuff,
+        afcFindAspects,
+        afcFindPatterns,
+        afcFindStations
     };
 
-    AspectFinder(HarmonicEvents& evs,
-                const ADateRange& range) :
-        _evs(evs), _range(range)
-    { }
+    AspectFinder(HarmonicEvents& evs, const ADateRange& range) :
+        _evs(evs),
+        _range(range)
+    {
+    }
 
-    AspectFinder(HarmonicEvents& evs,
-                 const ADateRange& range,
-                 const uintSSet& hset,
+    AspectFinder(HarmonicEvents&     evs,
+                 const ADateRange&   range,
+                 const uintSSet&     hset,
                  const EventTypeSet& exclude = {},
-                 goalType gt = afcFindAspects) :
+                 goalType            gt      = afcFindAspects) :
         EventOptions(current(), exclude),
         _evs(evs),
         _range(range),
         _gt(gt),
-        _hsets({hset})
+        _hsets({ hset })
     {
         if (!exclude.empty()) _restrictiveTimeRange = true;
-        //if (includeMidpoints || *hset.rbegin()>4) _rate = .5;
+        // if (includeMidpoints || *hset.rbegin()>4) _rate = .5;
     }
 
     virtual ~AspectFinder() { }
-
 
     void findAspects();
     void findPatterns();
@@ -401,30 +401,47 @@ public:
 
     bool isActive() const { return _numTasks != 0; }
 
-
-signals:
+  signals:
     void progress(double p);
 
-public slots:
-    void pause() { if (_state==runningState) _state = pauseRequestedState; }
-    void resume() { if (_state==pauseRequestedState) _state = runningState; }
-    void cancel() { if (_state==runningState) _state = cancelRequestedState; }
+  public slots:
+    void pause()
+    {
+        if (_state == runningState) _state = pauseRequestedState;
+    }
+    void resume()
+    {
+        if (_state == pauseRequestedState) _state = runningState;
+    }
+    void cancel()
+    {
+        if (_state == runningState) _state = cancelRequestedState;
+    }
     void findStuff();
 
-protected:
+  protected:
     static void prepThread();
     static void releaseThread();
 
-    void startTask() { prepThread(); ++_numTasks; }
-    void endTask() { releaseThread(); --_numTasks; }
+    void startTask()
+    {
+        prepThread();
+        ++_numTasks;
+    }
+    void endTask()
+    {
+        releaseThread();
+        --_numTasks;
+    }
 
-    bool outOfOrb(unsigned h,
+    bool outOfOrb(unsigned                          h,
                   std::initializer_list<const Loc*> locs,
-                  qreal& d) const
+                  qreal&                            d) const
 
     {
         auto delta = PlanetProfile::computeSpread(locs, h);
-        d = delta.first;
+        d          = delta.first;
+
         bool anyMidPoints = false;
         for (auto loc : locs) {
             auto ploc = dynamic_cast<const PlanetLoc*>(loc);
@@ -433,7 +450,7 @@ protected:
                 break;
             }
         }
-        return d > (anyMidPoints? expandShowOrb/8 : expandShowOrb);
+        return d > (anyMidPoints ? expandShowOrb / 8 : expandShowOrb);
     }
 
     bool keepLooking(unsigned h, unsigned i) const
@@ -441,10 +458,13 @@ protected:
         auto p = dynamic_cast<const PlanetLoc*>(_alist[i]);
         if (!p) return true;
         if (p->allowAspects >= PlanetLoc::aspOnlyConj) return false;
+
         PlanetId pid = p->planet.planetId();
-        if (!_includeAspectsToAngles
-                && (pid == Planet_MC || pid == Planet_Asc))
-        { return h < 2; }
+        if (!_includeAspectsToAngles && (pid == Planet_MC || pid == Planet_Asc))
+        {
+            return h < 2;
+        }
+
         if (p->inMotion() && pid == Planet_Moon) return h < 4;
         return true;
     }
@@ -452,14 +472,14 @@ protected:
     std::unique_ptr<QThreadPool> _tp;
 
     HarmonicEvents& _evs;
-    ADateRange _range;
+    ADateRange      _range;
 
     QList<InputData> _ids;
-    PlanetProfile _alist;   ///< the planet objects to compute
+    PlanetProfile    _alist; ///< the planet objects to compute
 
     unsigned _gt;
 
-    QMutex _ctm;
+    QMutex     _ctm;
     QAtomicInt _numTasks;
 
     // having both here allows us to include aspects to stationary planets...
@@ -469,53 +489,53 @@ protected:
 
     bool _restrictiveTimeRange = false;
 
-    double _rate = 4.0;  // # days
-    hsets _hsets;         ///< harmonic profiles
+    double         _rate = 4.0; // # days
+    hsets          _hsets;      ///< harmonic profiles
     searchPairList _staff;
-    unsigned _evType = etcUnknownEvent;
+    unsigned       _evType = etcUnknownEvent;
 
     friend class PairAspectFinder;
     friend class TaskTracker;
 
-private:
+  private:
 };
 
 class OmnibusFinder : public AspectFinder {
-public:
-    OmnibusFinder(HarmonicEvents& evs,
-                 const ADateRange& range,
-                 const uintSSet& hset,
-                 const AstroFileList& files,
-                 const EventTypeSet& exclude = {});
+  public:
+    OmnibusFinder(HarmonicEvents&      evs,
+                  const ADateRange&    range,
+                  const uintSSet&      hset,
+                  const AstroFileList& files,
+                  const EventTypeSet&  exclude = {});
 };
 
 class CoincidenceFinder : public QRunnable {
     HarmonicAspects& _coins;
 
-public:
-    CoincidenceFinder(AspectFinder* from,
-                      HarmonicAspects& coincidents);
+  public:
+    CoincidenceFinder(AspectFinder* from, HarmonicAspects& coincidents);
     void run() override;
 };
 
 class EventTypeManager {
-public:
-    typedef std::tuple<unsigned char,QString,QString> eventTypeInfo;
+  public:
+    typedef std::tuple<unsigned char, QString, QString> eventTypeInfo;
 
     static EventTypeManager& singleton();
-    static unsigned registerEventType(unsigned char chnum,
-                                      const QString& abbr,
-                                      const QString& desc);
-    static unsigned registerEventType(const eventTypeInfo& evtinf);
-    static QString eventTypeToString(EventType et)
+    static unsigned          registerEventType(unsigned char  chnum,
+                                               const QString& abbr,
+                                               const QString& desc);
+    static unsigned          registerEventType(const eventTypeInfo& evtinf);
+    static QString           eventTypeToString(EventType et)
     { return std::get<2>(singleton()._eventIdToString.value(et)); }
-    static QString eventTypeToBrief(EventType et)
+
+    static QString           eventTypeToBrief(EventType et)
     { return std::get<1>(singleton()._eventIdToString.value(et)); }
 
-private:
-    unsigned _numEvents = etcUserEventStart;
-    QMap<unsigned,eventTypeInfo> _eventIdToString;
-    QMap<QString,unsigned> _eventStringToId;
+  private:
+    unsigned                      _numEvents = etcUserEventStart;
+    QMap<unsigned, eventTypeInfo> _eventIdToString;
+    QMap<QString, unsigned>       _eventStringToId;
 
     EventTypeManager();
     ~EventTypeManager() { }

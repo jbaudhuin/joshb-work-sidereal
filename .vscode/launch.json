@@ -3,18 +3,38 @@
     "configurations": [
         {
             "name": "Debug Zodiac (CMake)",
+            "type": "lldb-dap",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/zodiac.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/bin",
+            "stopOnEntry": false,
+            "preLaunchTask": "CMake: Build",
+            "console": "internalConsole",
+            "env": {
+                "PATH": "${workspaceFolder}/bin;${env:PATH}",
+                "QML_DISABLE_DISK_CACHE": "1",
+                "QT_LOGGING_RULES": "qt.qml.debug=false"
+            }
+        },
+        {
+            "name": "Debug Zodiac (CodeLLDB)",
             "type": "lldb",
             "request": "launch",
             "program": "${command:cmake.launchTargetPath}",
             "args": [],
             "cwd": "${workspaceFolder}/bin",
-            "console": "integratedTerminal",
-            "stopOnEntry": true,
-            "preLaunchTask": "CMake: Build"
+            "stopOnEntry": false,
+            "preLaunchTask": "CMake: Build",
+            "terminal": "integrated",
+            "env": {
+                "QML_DISABLE_DISK_CACHE": "1",
+                "QT_LOGGING_RULES": "qt.qml.debug=false"
+            }
         },
         {
             "name": "Attach to Zodiac",
-            "type": "lldb",
+            "type": "lldb-dap",
             "request": "attach",
             "program": "${workspaceFolder}/bin/zodiac.exe",
             "waitFor": true

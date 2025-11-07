@@ -11,6 +11,7 @@
 
 
 #include <QSslSocket>
+#include <qlogging.h>
 
 void
 loadTranslations(QApplication* a, QString lang)
@@ -47,11 +48,18 @@ zodOutputHandler(QtMsgType                 type,
                  const QMessageLogContext& cxt,
                  const QString&            msg)
 {
-    Q_UNUSED(type);
-    Q_UNUSED(cxt);
-    if (!msg.startsWith("Invalid parameter")) {
-        // fprintf(stderr, "%s", msg.toLatin1().constData());
-    }
+  Q_UNUSED(cxt);
+  switch (type) {
+  case QtWarningMsg:
+  case QtCriticalMsg:
+  case QtFatalMsg:
+    fprintf(stderr, "%s\n", msg.toLatin1().constData());
+    break;
+  case QtInfoMsg:
+  case QtDebugMsg:
+    printf("%s\n", msg.toLatin1().constData());
+    break;
+  }
 }
 
 void
@@ -71,6 +79,8 @@ main(int argc, char* argv[])
     QApplication a(argc, argv);
     a.setApplicationName("Zodiac");
     a.setApplicationVersion("v0.8.1 (build 2019-02-08)");
+
+    auto foo = qInstallMessageHandler(nullptr);
 
     // Debug: Show current working directory and application path
     auto cwd        = QDir::currentPath();
@@ -94,7 +104,9 @@ main(int argc, char* argv[])
     QTextCodec::setCodecForTr(codec);
     qInstallMsgHandler(emptyOutput);
 #elif defined(_ZOD_DEBUG)
-    // qInstallMessageHandler(zodOutputHandler);
+    qInstallMessageHandler(zodOutputHandler);
+    setbuf(stdout, nullptr);
+    setbuf(stderr, nullptr);
 #elif defined(NDEBUG)
     qInstallMessageHandler(emptyOutput);
 #endif
