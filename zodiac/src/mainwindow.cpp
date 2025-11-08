@@ -5,12 +5,10 @@
 #include <QToolBar>
 #include <QToolButton>
 
-
 #include <QFileSystemWatcher>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QTreeView>
-
 
 #include "../astroprocessor/src/astro-calc.h"
 #include "../astroprocessor/src/astro-data.h"
@@ -418,6 +416,9 @@ AstroWidget::setFiles(const AstroFileList& files)
     for (AstroFileHandler* h : handlers) {
         if (h->isVisible()) h->resumeUpdate();
     }
+
+    // Update visibility of second file widget based on file count
+    fileView2nd->setVisible(files.count() > 1);
 }
 
 void
@@ -633,15 +634,15 @@ AstroWidget::addHoroscopeControls()
             0.2126 * clr.redF() + 0.7152 * clr.greenF() + 0.0722 * clr.blueF();
         bool   useBlack = (luma > 0.5);
         QColor darker   = clr.darker();
-        auto   style =
-            QString("QToolButton:checked " "{ background-color: %1; color: %2; "
-                                           "font: bold; } " "QToolButton { "
-                                                            "background-color: "
-                                                            "%3; color: %4; }")
-                .arg(clr.name(QColor::HexArgb))
-                .arg((useBlack ? "black" : "white"))
-                .arg(darker.name(QColor::HexArgb))
-                .arg((useBlack ? "darkgray" : "lightgray"));
+        auto
+            style = QString("QToolButton:checked " "{ background-color: %1; "
+                                                   "color: %2; " "font: bold; "
+                                                                 "} " "QToolBut"
+                                                                      "ton { " "background-color: " "%3; color: %4; }")
+                        .arg(clr.name(QColor::HexArgb))
+                        .arg((useBlack ? "black" : "white"))
+                        .arg(darker.name(QColor::HexArgb))
+                        .arg((useBlack ? "darkgray" : "lightgray"));
         btn->setStyleSheet(style);
         btn->setMaximumWidth(20);
 
@@ -680,8 +681,30 @@ AstroWidget::addHoroscopeControls()
 
     QStringList ssl {
         "QToolBar { padding: 0px; }",
-        "QToolBar#dynAspectControls QToolButton { " "padding: 0px; margin: "
-                                                    "0px; border-width: 0px; "
+        "QToolBar#dynAspectControls QToolButton { " "padding: 0px; margin: " "0"
+                                                                             "p"
+                                                                             "x"
+                                                                             ";"
+                                                                             " "
+                                                                             "b"
+                                                                             "o"
+                                                                             "r"
+                                                                             "d"
+                                                                             "e"
+                                                                             "r"
+                                                                             "-"
+                                                                             "w"
+                                                                             "i"
+                                                                             "d"
+                                                                             "t"
+                                                                             "h"
+                                                                             ":"
+                                                                             " "
+                                                                             "0"
+                                                                             "p"
+                                                                             "x"
+                                                                             ";"
+                                                                             " "
         //"width: 15px; "
         "max-width: 45px; " "min-width: 15px; " "}",
     };
@@ -728,8 +751,8 @@ AstroWidget::toolBarActionClicked()
 void
 AstroWidget::currentSlideChanged()
 {
-    fileView2nd->setVisible(slides->currentIndex()
-                            == 0); // show background data only in chart view
+    // Show second file widget when there are 2 files loaded
+    fileView2nd->setVisible(fileView->filesCount() > 1);
 }
 
 void
@@ -2164,63 +2187,40 @@ MainWindow::showAbout()
     v->addWidget(s);
     v->addLayout(h);
 
-    l->setText(
-        "<center><b><big>" + QApplication::applicationVersion()
-        + "</big></b>" "<p>" + tr("Astrological software for personal use.")
-        + "</p>"
-          //"<p><a style='color:yellow'
-          //href=\"http://www.syslog.pro/tag/zodiac\">Watch developer's
-          //blog</a>" " | <a style='color:yellow'
-          //href=\"https://github.com/atten/zodiac\"><img
-          //src=\"style/github.png\">Follow on GitHub</a></p>"
-          "<p>Copyright (C) 2012-2014 Artem Vasilev<br>" "<a "
-                                                         "style='color:white' "
-                                                         "href=\"mailto:atten@"
-                                                         "syslog.pro\">atten@"
-                                                         "syslog.pro</a></"
-                                                         "p><br>"
-        + tr("This application is provided AS IS and distributed in the hope "
-             "that it will be useful," " but WITHOUT ANY WARRANTY; without "
-                                       "even the implied warranty of "
-                                       "MERCHANTABILITY" " or FITNESS FOR A "
-                                                         "PARTICULAR PURPOSE.")
-        + "</center>");
+    l
+        ->setText(
+            "<center><b><big>" + QApplication::applicationVersion()
+            + "</big></b>" "<p>" + tr("Astrological software for personal use.")
+            + "</p>"
+              //"<p><a style='color:yellow'
+              // href=\"http://www.syslog.pro/tag/zodiac\">Watch developer's
+              // blog</a>" " | <a style='color:yellow'
+              // href=\"https://github.com/atten/zodiac\"><img
+              // src=\"style/github.png\">Follow on GitHub</a></p>"
+              "<p>Copyright (C) 2012-2014 Artem Vasilev<br>" "<a " "style='"
+                                                                   "color:"
+                                                                   "white' " "h"
+                                                                             "r"
+                                                                             "e"
+                                                                             "f"
+                                                                             "="
+                                                                             "\"mailto:atten@" "syslog.pro\">atten@" "syslog.pro</a></" "p><br>"
+            + tr(
+                "This application is provided AS IS and distributed in the "
+                "hope " "that it will be useful," " but WITHOUT ANY WARRANTY; "
+                                                  "without " "even the implied "
+                                                             "warranty of " "ME"
+                                                                            "RC"
+                                                                            "HA"
+                                                                            "NT"
+                                                                            "AB"
+                                                                            "IL"
+                                                                            "IT"
+                                                                            "Y" " or FITNESS FOR A " "PARTICULAR PURPOSE.")
+            + "</center>");
 
     l2->setText(
-        "<p><b>Swiss Ephemerides library</b><br>" "Copyright (C) 1997 - 2008 "
-                                                  "Astrodienst AG, "
-                                                  "Switzerland.  All rights "
-                                                  "reserved.<br>" "<a "
-                                                                  "style='"
-                                                                  "color:white'"
-                                                                  " href=\"ftp:"
-                                                                  "//"
-                                                                  "www.astro."
-                                                                  "ch/pub/"
-                                                                  "swisseph/"
-                                                                  "LICENSE\">"
-                                                                  "ftp://"
-                                                                  "www.astro."
-                                                                  "ch/pub/"
-                                                                  "swisseph/"
-                                                                  "LICENSE</"
-                                                                  "a></p>" "<p>"
-                                                                           "<b>"
-                                                                           "Pri"
-                                                                           "mo "
-                                                                           "Ico"
-                                                                           "n "
-                                                                           "Set"
-                                                                           "</"
-                                                                           "b> "
-                                                                           "by "
-                                                                           "Web"
-                                                                           "des"
-                                                                           "ign"
-                                                                           "er "
-                                                                           "Dep"
-                                                                           "ot<"
-                                                                           "br>" "<a style='color:white' href=\"https://www.iconfinder.com/iconsets/Primo_Icons#readme\">www.iconfinder.com/iconsets/Primo_Icons#readme</a></p>" "<p><b>Almagest True Type Font</b></p>" "<p>Additional thanks to authors of <b>\"SymSolon\"</b> project<br>" "<a style='color:white' href=\"http://sf.net/projects/symsolon\">sf.net/projects/symsolon</a></p>");
+        "<p><b>Swiss Ephemerides library</b><br>" "Copyright (C) 1997 - 2008 " "Astrodienst AG, " "Switzerland.  All rights " "reserved.<br>" "<a " "style='" "color:white'" " href=\"ftp:" "//" "www.astro." "ch/pub/" "swisseph/" "LICENSE\">" "ftp://" "www.astro." "ch/pub/" "swisseph/" "LICENSE</" "a></p>" "<p>" "<b>" "Pri" "mo " "Ico" "n " "Set" "</" "b> " "by " "Web" "des" "ign" "er " "Dep" "ot<" "br>" "<a style='color:white' href=\"https://www.iconfinder.com/iconsets/Primo_Icons#readme\">www.iconfinder.com/iconsets/Primo_Icons#readme</a></p>" "<p><b>Almagest True Type Font</b></p>" "<p>Additional thanks to authors of <b>\"SymSolon\"</b> project<br>" "<a style='color:white' href=\"http://sf.net/projects/symsolon\">sf.net/projects/symsolon</a></p>");
 
     connect(l, SIGNAL(linkActivated(QString)), this, SLOT(gotoUrl(QString)));
     connect(l2, SIGNAL(linkActivated(QString)), this, SLOT(gotoUrl(QString)));

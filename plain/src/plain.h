@@ -1,32 +1,44 @@
 #ifndef PLAIN_H
 #define PLAIN_H
 
+#include <Astroprocessor/Calc>
 #include <Astroprocessor/Gui>
 #include <Astroprocessor/Output>
-#include <Astroprocessor/Calc>
+
 
 class QCheckBox;
 class QTextBrowser;
+class QToolBar;
+class QButtonGroup;
+class QRadioButton;
 
-
-/* ================================== WIDGET ======================================== */
+/* ================================== WIDGET
+ * ======================================== */
 
 class Plain : public AstroFileHandler {
     Q_OBJECT
 
   private:
-    QCheckBox*    describeInput;
-    QCheckBox*    describePlanets;
-    QCheckBox*    describeHouses;
-    QCheckBox*    describeAspects;
-    QCheckBox*    describePower;
-    QCheckBox*    describeParans;
-    QCheckBox*    describeSpeculum;
+    int chartsCount; // Track number of charts to detect changes
+
+    QToolBar*     toolbar;
+    QAction*      describeInput;
+    QAction*      describePlanets;
+    QAction*      describeHouses;
+    QAction*      describeAspects;
+    QAction*      describePower;
+    QAction*      describeParans;
+    QAction*      describeSpeculum;
+    QWidget*      chartSelectorWidget; // Store reference to show/hide
+    QButtonGroup* chartSelector;
+    QRadioButton* showChart1;
+    QRadioButton* showChart2;
+    QRadioButton* showBothCharts;
     QTextBrowser* view;
 
-    bool   showAllDiurnalEvents;
-    bool   includeFixedStars;
-    double paranOrb;
+    bool               showAllDiurnalEvents;
+    bool               includeFixedStars;
+    double             paranOrb;
     A::AspectSortOrder aspectSortOrder;
 
   private slots:
