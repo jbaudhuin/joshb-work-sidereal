@@ -1,9 +1,10 @@
 #ifndef SPECULUM_H
 #define SPECULUM_H
 
+#include <Astroprocessor/Gui>
 #include <QDateTime>
 #include <QModelIndex>
-#include <Astroprocessor/Gui>
+
 
 class QTableWidget;
 class QTableWidgetItem;
@@ -39,6 +40,7 @@ class Speculum : public AstroFileHandler {
     void onCellClicked(int row, int column);
     void onFilterOrbChanged();
     void onClearFilter();
+    void onRadixButtonClicked(bool checked);
     void refreshSpeculum();
 
   public slots:
@@ -60,11 +62,15 @@ class Speculum : public AstroFileHandler {
     QLabel*       _filterLabel;
     QSpinBox*     _orbSpinBox;
     QPushButton*  _clearFilterBtn;
+    QPushButton*  _radixBtn;
 
     // Filter state
     bool      _filterActive;
     QDateTime _filterCenterTime;
+    QDateTime _radixTime;
     double    _filterOrbMinutes;
+    int       _clickedRow;
+    int       _clickedCol;
 
     // Settings
     bool        _showFixedStars;

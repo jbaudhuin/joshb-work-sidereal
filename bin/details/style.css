@@ -27,7 +27,7 @@ ExpandWidget QLabel {
 	font: 8pt Verdana, "DejaVu Sans";
 }
 
-ExpandWidget > Title {
+ExpandWidget>Title {
 	padding: 5px;
 	font-weight: bold;
 	color: #d8e4f4;
@@ -38,27 +38,28 @@ ExpandWidget > Title {
 	border-top-right-radius: 6px;
 }
 
-ExpandWidget > Title:checked {
+ExpandWidget>Title:checked {
 	image: url(details/arrow-down.png);
 }
 
 QTreeWidget {
 	color: #b5bfdf;
-    background: #717b88;
+	background: #717b88;
 	font: 8pt Verdana, "DejaVu Sans";
 }
 
 /* =========================== QComboBox ========================================== */
 
-QLabel, QRadioButton {
-/*border: 1px solid #585F6A;
+QLabel,
+QRadioButton {
+	/*border: 1px solid #585F6A;
 border-radius: 6px;
 padding: 5px;*/
-margin-bottom: 5px;
-margin-right: 3px;
-color: #EEEEEE;
-background: #202020;
-font:  8pt;
+	margin-bottom: 5px;
+	margin-right: 3px;
+	color: #EEEEEE;
+	background: #202020;
+	font: 8pt;
 }
 
 /*
@@ -89,58 +90,64 @@ font: 9pt;
 }
 */
 
-QLineEdit, QDateTimeEdit {
-border: 1px solid #585F6A;
-border-radius: 4px;
-padding: 3px;
-margin-bottom: 3px;
-color: #EEEEEE;
-background: #424242;
-font: 8pt;
+QLineEdit,
+QDateTimeEdit {
+	border: 1px solid #585F6A;
+	border-radius: 4px;
+	padding: 3px;
+	margin-bottom: 3px;
+	color: #EEEEEE;
+	background: #424242;
+	font: 8pt;
 }
 
 
 QComboBox {
 	border: 1px solid #585F6A;
-        border-radius: 4px;
-        padding: 3px;
-        margin-bottom: 3px;
+	border-radius: 4px;
+	padding: 3px;
+	margin-bottom: 3px;
 	color: #EEEEEE;
 	background: #424242;
-        font: bold 9pt;
+	font: bold 9pt;
 }
 
 
-QLineEdit:hover, QDateTimeEdit:hover, QComboBox:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                                stop: 0.0 #585F6A,
-                                stop: 0.3 #424242,
-                                stop: 0.7 #424242,
-                                stop: 1.0 #585F6A);
+QLineEdit:hover,
+QDateTimeEdit:hover,
+QComboBox:hover {
+	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+			stop: 0.0 #585F6A,
+			stop: 0.3 #424242,
+			stop: 0.7 #424242,
+			stop: 1.0 #585F6A);
 }
 
-QDateTimeEdit:on, QComboBox:on { /* shift the text when the popup opens */
-    padding-top: 6px;
-    padding-left: 6px;
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                                stop: 0.0 #323232,
-                                stop: 0.3 #424242,
-                                stop: 0.7 #424242,
-                                stop: 1.0 #323232);
+QDateTimeEdit:on,
+QComboBox:on {
+	/* shift the text when the popup opens */
+	padding-top: 6px;
+	padding-left: 6px;
+	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+			stop: 0.0 #323232,
+			stop: 0.3 #424242,
+			stop: 0.7 #424242,
+			stop: 1.0 #323232);
 }
 
 QComboBox::drop-down {
 	subcontrol-origin: padding;
 	subcontrol-position: top right;
 	width: 15px;
-	border:none;
+	border: none;
 }
 
 QComboBox::down-arrow {
 	image: url(details/arrow-down.png);
 }
 
-QComboBox::down-arrow:on { /* shift the arrow when popup is open */
+QComboBox::down-arrow:on {
+	/* shift the arrow when popup is open */
 	top: 1px;
 	left: 1px;
 }
@@ -148,4 +155,74 @@ QComboBox::down-arrow:on { /* shift the arrow when popup is open */
 QComboBox QListView {
 	background-color: #383838;
 	color: #EEEEEE;
+}
+
+/* =========================== Speculum Table ========================================== */
+
+QTableWidget {
+	background-color: #202020;
+	color: #b5bfdf;
+	font: 8pt 'DejaVu Sans', Verdana;
+	selection-background-color: rgba(113, 174, 236, 100);
+	border: none;
+}
+
+QTableWidget::item {
+	padding: 0px 2px;
+	border: none;
+}
+
+QTableWidget::item:selected {
+	background-color: rgba(113, 174, 236, 150);
+	color: #EEEEEE;
+}
+
+QTableWidget::item:hover {
+	background-color: rgba(181, 191, 223, 120) !important;
+	color: #EEEEEE !important;
+}
+
+QTableWidget::item:alternate {
+	background-color: rgba(255, 255, 255, 0.05);
+}
+
+QTableWidget::item:alternate:hover {
+	background-color: rgba(181, 191, 223, 120) !important;
+	color: #EEEEEE !important;
+}
+
+QHeaderView::section {
+	background-color: #717b88;
+	color: #d8e4f4;
+	font-weight: bold;
+	padding: 2px 4px;
+	border: none;
+}
+
+/* Radix filter button - styled like table cells */
+QPushButton[radixButton="true"] {
+        background-color: #202020;
+        color: #b5bfdf;
+        font: 8pt 'DejaVu Sans', Verdana;
+        border: 1px solid #585F6A;
+        border-radius: 3px;
+        padding: 4px 8px;
+        min-width: 60px;
+        text-align: center;
+}
+
+QPushButton[radixButton="true"]:hover {
+        background-color: rgba(181, 191, 223, 120);
+        color: #EEEEEE;
+}
+
+QPushButton[radixButton="true"]:checked {
+        background-color: rgba(255, 215, 0, 200);
+        color: #000000;
+        font-weight: bold;
+}
+
+QPushButton[radixButton="true"]:pressed {
+        background-color: rgba(255, 215, 0, 220);
+        color: #000000;
 }
