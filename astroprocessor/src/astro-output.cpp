@@ -1,100 +1,106 @@
-﻿#include <QObject>
-#include <QStringList>
-#include <QRegularExpression>
-#include <stdio.h>
-#include <math.h>
-#include <algorithm>
+﻿#include "astro-output.h"
 #include "astro-calc.h"
-#include "astro-output.h"
-//#include <QDebug>
+#include <QObject>
+#include <QRegularExpression>
+#include <QStringList>
+#include <algorithm>
+#include <math.h>
+#include <stdio.h>
 
-namespace A {
+// #include <QDebug>
 
-QString romanNum(int num)
+namespace A
 {
-    static const char* h[] = { "I", "II", "III", "IV",
-                               "V", "VI", "VII", "VIII",
-                               "IX", "X", "XI",  "XII" };
+
+QString
+romanNum(int num)
+{
+    static const char* h[] = { "I",   "II",   "III", "IV", "V",  "VI",
+                               "VII", "VIII", "IX",  "X",  "XI", "XII" };
 
     if (num >= 1 && num <= 12) return h[--num];
     if (num < 0 && num >= -12) return QString("(%1)").arg(h[-num - 1]);
     return "0";
 }
 
-QString houseTag(int num)
+QString
+houseTag(int num)
 {
-    static const char* h[] = { "Asc", "II", "III", "IV",
-                               "V", "VI", "VII", "VIII",
-                               "IX", "X", "XI",  "XII" };
+    static const char* h[] = { "Asc", "II",   "III", "IV", "V",  "VI",
+                               "VII", "VIII", "IX",  "X",  "XI", "XII" };
 
     if (num >= 1 && num <= 12) return h[--num];
     if (num < 0 && num >= -12) return QString("(%1)").arg(h[-num - 1]);
     return "0";
 }
 
-QString houseNum(const Planet& planet)
+QString
+houseNum(const Planet& planet)
 {
     return romanNum(planet.house);
 }
 
-QString getPositionName(PlanetPosition p)
+QString
+getPositionName(PlanetPosition p)
 {
     switch (p) {
-    case Position_Normal: return QObject::tr("");
+    case Position_Normal:     return QObject::tr("");
     case Position_Exaltation: return QObject::tr("Exaltation");
-    case Position_Dwelling: return QObject::tr("House");
-    case Position_Downfall: return QObject::tr("Fall");
-    case Position_Exile: return QObject::tr("Detriment");
+    case Position_Dwelling:   return QObject::tr("House");
+    case Position_Downfall:   return QObject::tr("Fall");
+    case Position_Exile:      return QObject::tr("Detriment");
     }
 
     return "";
 }
 
-QString degreeToString(float deg, AnglePrecision precision)
+QString
+degreeToString(float deg, AnglePrecision precision)
 {
     int d = 0, m = 0, s = 0, polarity = 0;
 
     if (deg < 0) {
         polarity = -1;
-        deg = -deg;
+        deg      = -deg;
     }
 
-    d = (int)(deg);
-    m = (int)(60.0*(deg - d));
+    d = (int) (deg);
+    m = (int) (60.0 * (deg - d));
 
     QString ret;
     if (precision == HighPrecision) {
-        s = (int)((deg - (d + m / 60.0)) * 3600.0);
+        s   = (int) ((deg - (d + m / 60.0)) * 3600.0);
         ret = QString(A_DECODE("%1%2°%3'%4\""))
-              .arg((polarity < 0) ? "-" : "")
-              .arg(d)
-              .arg(m,2,10,QChar('0'))
-              .arg(s,2,10,QChar('0'));
+                  .arg((polarity < 0) ? "-" : "")
+                  .arg(d)
+                  .arg(m, 2, 10, QChar('0'))
+                  .arg(s, 2, 10, QChar('0'));
     } else if (precision == LowPrecision) {
         ret = QString(A_DECODE("%1%2°"))
-              .arg((polarity < 0) ? "-" : "")
-              .arg(d + int(m >= 30));
+                  .arg((polarity < 0) ? "-" : "")
+                  .arg(d + int(m >= 30));
     } else {
         if (m)
             ret = QString(A_DECODE("%1%2°%3'"))
-                  .arg((polarity < 0) ? "-" : "")
-                  .arg(d).arg(m,2,10,QChar('0'));
+                      .arg((polarity < 0) ? "-" : "")
+                      .arg(d)
+                      .arg(m, 2, 10, QChar('0'));
         else
             ret = QString(A_DECODE("%1%2°"))
-                  .arg((polarity < 0) ? "-" : "")
-                  .arg(d);
+                      .arg((polarity < 0) ? "-" : "")
+                      .arg(d);
     }
     return ret;
 }
 
 QString
-zodiacPosition(float deg,
-               const Zodiac& zodiac,
+zodiacPosition(float          deg,
+               const Zodiac&  zodiac,
                AnglePrecision precision /*=Normal*/,
-               bool isRetro /*=false*/)
+               bool           isRetro /*=false*/)
 {
     const ZodiacSign& sign = getSign(deg, zodiac);
-    int ang = floor(deg) - sign.startAngle;
+    int               ang  = floor(deg) - sign.startAngle;
     if (ang < 0) ang += 360;
 
     QString ret;
@@ -103,59 +109,57 @@ zodiacPosition(float deg,
         str.remove(0, str.indexOf(A_DECODE("°")));
         ret = QString("%1%2 %3").arg(ang).arg(str).arg(sign.tag);
     } else {
-        int m = (int)(60.0*(deg - (int)deg));
-        ret = QString("%1 %2 %3%4").arg(ang).arg(sign.tag)
-                .arg(m >= 10 ? "" : "0").arg(m);
+        int m = (int) (60.0 * (deg - (int) deg));
+        ret   = QString("%1 %2 %3%4")
+                  .arg(ang)
+                  .arg(sign.tag)
+                  .arg(m >= 10 ? "" : "0")
+                  .arg(m);
     }
     if (isRetro) return ret + " R";
     return ret;
 }
 
-QString zodiacPosition(const Star&    star,
-                       const Zodiac&  zodiac,
-                       AnglePrecision precision)
+QString
+zodiacPosition(const Star& star, const Zodiac& zodiac, AnglePrecision precision)
 {
     float deg;
     switch (aspectMode) {
-    case amcEquatorial:
-        deg = star.equatorialPos.x();
-        break;
-    case amcPrimeVertical:
-        deg = star.pvPos;
-        break;
+    case amcEquatorial:    deg = star.equatorialPos.x(); break;
+    case amcPrimeVertical: deg = star.pvPos; break;
     default:
-    case amcEcliptic:
-        deg = star.eclipticPos.x();
-        break;
+    case amcEcliptic:      deg = star.eclipticPos.x(); break;
     }
 
     return zodiacPosition(deg, zodiac, precision, star.isRetro());
 }
 
-void sortPlanets(PlanetList& planets, PlanetsOrder order)
+void
+sortPlanets(PlanetList& planets, PlanetsOrder order)
 {
-    if (!planets.count())
-        return;
-    if (order == Order_NoOrder)
-        return;
+    if (!planets.count()) return;
+    if (order == Order_NoOrder) return;
 
     for (int i = 0; i < planets.count(); i++) {
         for (int j = i + 1; j < planets.count(); j++) {
             if (order == Order_House) {
                 if (planets[i].house > planets[j].house
                     || (planets[i].house == planets[j].house
-                        && isEarlier(planets[j], planets[i]))) {
+                        && isEarlier(planets[j], planets[i])))
+                {
                     Planet t   = planets[i];
                     planets[i] = planets[j];
                     planets[j] = t;
                 }
             } else if (order == Order_Power) {
-                if ((planets[i].power.dignity > 0 && planets[j].power.dignity > 0
+                if ((planets[i].power.dignity > 0
+                     && planets[j].power.dignity > 0
                      && (planets[i].power.deficient + planets[i].power.dignity
                          < planets[j].power.deficient
                                + planets[j].power.dignity))
                     || (planets[i].power.dignity == 0
-                        && planets[i].power.dignity > 0)) {
+                        && planets[i].power.dignity > 0))
+                {
                     Planet t   = planets[i];
                     planets[i] = planets[j];
                     planets[j] = t;
@@ -178,105 +182,116 @@ describeInput(const InputData& data)
 {
     QString ret;
 
-    auto date = QLocale().toString(data.GMT().date(),QLocale::LongFormat);
-    auto time = QLocale().toString(data.GMT().time(),QLocale::LongFormat);
+    auto    date = QLocale().toString(data.GMT().date(), QLocale::LongFormat);
+    auto    time = QLocale().toString(data.GMT().time(), QLocale::LongFormat);
     QString dayOfWeek = data.GMT().date().toString("ddd");
 
-    ret += "<p><strong>" + QObject::tr("Date:") + "</strong> " + 
-           QString("%1, %2 %3 GMT").arg(dayOfWeek).arg(date).arg(time) + "</p>";
-    
-    bool north = data.location().y() >= 0;
+    ret += "<p><strong>" + QObject::tr("Date:") + "</strong> "
+           + QString("%1, %2 %3 GMT").arg(dayOfWeek).arg(date).arg(time)
+           + "</p>";
+
+    bool    north = data.location().y() >= 0;
     QString lat =
         (north ? QObject::tr("%1N") : QObject::tr("%1S"))
-            .arg(degreeToString((north ? 1 : -1) * data.location().y(), HighPrecision));
-    
-    bool east = data.location().x() >= 0;
-    QString lng =
-        (east ? QObject::tr("%1E") : QObject::tr("%1W"))
-            .arg(degreeToString((east ? 1 : -1) * data.location().x(), HighPrecision));
-    ret += "<p><strong>" + QObject::tr("Location:") + "</strong> " + 
-           QString("%1 %2").arg(lat, lng) + "</p>";
+            .arg(degreeToString((north ? 1 : -1) * data.location().y(),
+                                HighPrecision));
+
+    bool    east = data.location().x() >= 0;
+    QString lng  = (east ? QObject::tr("%1E") : QObject::tr("%1W"))
+                      .arg(degreeToString((east ? 1 : -1) * data.location().x(),
+                                          HighPrecision));
+    ret += "<p><strong>" + QObject::tr("Location:") + "</strong> "
+           + QString("%1 %2").arg(lat, lng) + "</p>";
     return ret;
 }
 
 QString
-describeHouses(const Houses& houses,
-               const Zodiac& zodiac,
+describeHouses(const Houses&    houses,
+               const Zodiac&    zodiac,
                const PlanetMap& planets)
 {
     // CONFIGURABLE: Cell padding for houses table
     const QString cellPadding = "0px";
-    
+
     QString ret;
-    ret += "<h3>" + QObject::tr("Houses (%1)").arg(houses.system->name) + "</h3>";
+    ret +=
+        "<h3>" + QObject::tr("Houses (%1)").arg(houses.system->name) + "</h3>";
     ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
-    
+
     // Table header
     ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
-    ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("House") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>"
+           + QObject::tr("House") + "</th>";
     ret += "<th style='padding: 4px 8px;'></th>";
-    ret += "<th style='padding: 4px 8px; text-align: right;'>" + QObject::tr("Cusp") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Ruler") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Ruler in") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: right;'>"
+           + QObject::tr("Cusp") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>"
+           + QObject::tr("Ruler") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>"
+           + QObject::tr("Ruler in") + "</th>";
     ret += "</tr>";
-    
+
     for (int i = 0; i < 12; i++) {
         ret += "<tr>";
-        ret += "<td style='padding: " + cellPadding + " 8px; text-align: right; font-weight: bold; color: #e9e9e4;'>" + 
-               houseTag(i + 1) + "</td>";
+        ret += "<td style='padding: " + cellPadding
+               + " 8px; text-align: right; font-weight: bold; color: #e9e9e4;'>"
+               + houseTag(i + 1) + "</td>";
         ret += "<td style='padding: " + cellPadding + " 8px;'>-</td>";
-        ret += "<td style='padding: " + cellPadding + " 8px; text-align: right;'>" + 
-               zodiacPosition(houses.cusp[i], zodiac, HighPrecision) + "</td>";
-        
+        ret +=
+            "<td style='padding: " + cellPadding + " 8px; text-align: right;'>"
+            + zodiacPosition(houses.cusp[i], zodiac, HighPrecision) + "</td>";
+
         // Find the sign on the house cusp and its ruler
-        const ZodiacSign& sign = getSign(houses.cusp[i], zodiac);
-        QString rulerName = "";
-        QString rulerHouse = "";
-        
+        const ZodiacSign& sign       = getSign(houses.cusp[i], zodiac);
+        QString           rulerName  = "";
+        QString           rulerHouse = "";
+
         if (sign.ruler != Planet_None) {
             rulerName = getPlanet(sign.ruler).name;
-            
+
             // Find which house the ruler is in
-            foreach(const Planet& planet, planets) {
+            foreach (const Planet& planet, planets) {
                 if (planet.id == sign.ruler) {
                     rulerHouse = romanNum(planet.house);
                     break;
                 }
             }
-            
+
             if (rulerHouse.isEmpty()) {
                 rulerHouse = "?";
             }
         }
-        
-        ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + rulerName + "</td>";
-        ret += "<td style='padding: " + cellPadding + " 8px; text-align: center;'>" + rulerHouse + "</td>";
+
+        ret += "<td style='padding: " + cellPadding
+               + " 8px; text-align: center;'>" + rulerName + "</td>";
+        ret += "<td style='padding: " + cellPadding
+               + " 8px; text-align: center;'>" + rulerHouse + "</td>";
         ret += "</tr>";
     }
-    
+
     ret += "</table>";
     return ret;
 }
 
 // 2-parameter overload for backward compatibility
 QString
-describeHouses(const Houses& houses,
-               const Zodiac& zodiac)
+describeHouses(const Houses& houses, const Zodiac& zodiac)
 {
     PlanetMap emptyPlanets; // Empty planet map
     return describeHouses(houses, zodiac, emptyPlanets);
 }
 
-QString     describeAspect(const Aspect &aspect, bool monospace)
+QString
+describeAspect(const Aspect& aspect, bool monospace)
 {
     QString ret = "<strong>" + aspect.d->name + "</strong> ";
     ret += aspect.planet1->name + "-" + aspect.planet2->name + " ";
 
     QString angleStr = degreeToString(aspect.angle);
 
-    if (aspect.applying) 
+    if (aspect.applying)
         ret += "<span style='color: #71aeec;'>&gt;" + angleStr + "&lt;</span>";
-    else               
+    else
         ret += "<span style='color: #dfb096;'>&lt;" + angleStr + "&gt;</span>";
 
     return ret;
@@ -286,80 +301,91 @@ QString
 describeAspectsTable(const AspectList& aspects, AspectSortOrder sortOrder)
 {
     if (aspects.isEmpty()) return "";
-    
+
     // Create a copy for sorting
     AspectList sortedAspects = aspects;
-    
+
     // Sort based on the specified order
-    std::sort(sortedAspects.begin(), sortedAspects.end(), [sortOrder](const Aspect& a, const Aspect& b) {
-        switch (sortOrder) {
-            case SortByPlanets: {
-                // Primary: planet IDs (matches original calculateAspects order), Secondary: orb strength
-                if (a.planet1->id != b.planet1->id) {
-                    return a.planet1->id < b.planet1->id;
-                }
-                if (a.planet2->id != b.planet2->id) {
-                    return a.planet2->id < b.planet2->id;
-                }
-                double strengthA = a.orb / a.d->orb();
-                double strengthB = b.orb / b.d->orb();
-                return strengthA < strengthB;
-            }
-            
-            case SortByOrbStrength: {
-                // Primary: orb strength (orb/maxOrb), tightest first
-                double strengthA = a.orb / a.d->orb();
-                double strengthB = b.orb / b.d->orb();
-                return strengthA < strengthB;
-            }
-            
-            case SortByAspectType: {
-                // Primary: aspect type, Secondary: orb strength
-                if (a.d->name != b.d->name) {
-                    return a.d->name < b.d->name;
-                }
-                double strengthA = a.orb / a.d->orb();
-                double strengthB = b.orb / b.d->orb();
-                return strengthA < strengthB;
-            }
-        }
-        return false;
-    });
-    
+    std::sort(sortedAspects.begin(),
+              sortedAspects.end(),
+              [sortOrder](const Aspect& a, const Aspect& b) {
+                  switch (sortOrder) {
+                  case SortByPlanets: {
+                      // Primary: planet IDs (matches original calculateAspects
+                      // order), Secondary: orb strength
+                      if (a.planet1->id != b.planet1->id) {
+                          return a.planet1->id < b.planet1->id;
+                      }
+                      if (a.planet2->id != b.planet2->id) {
+                          return a.planet2->id < b.planet2->id;
+                      }
+                      double strengthA = a.orb / a.d->orb();
+                      double strengthB = b.orb / b.d->orb();
+                      return strengthA < strengthB;
+                  }
+
+                  case SortByOrbStrength: {
+                      // Primary: orb strength (orb/maxOrb), tightest first
+                      double strengthA = a.orb / a.d->orb();
+                      double strengthB = b.orb / b.d->orb();
+                      return strengthA < strengthB;
+                  }
+
+                  case SortByAspectType: {
+                      // Primary: aspect type, Secondary: orb strength
+                      if (a.d->name != b.d->name) {
+                          return a.d->name < b.d->name;
+                      }
+                      double strengthA = a.orb / a.d->orb();
+                      double strengthB = b.orb / b.d->orb();
+                      return strengthA < strengthB;
+                  }
+                  }
+                  return false;
+              });
+
     // CONFIGURABLE: Cell padding for aspects table
     const QString cellPadding = "0px";
-    
+
     QString ret = "<h3>" + QObject::tr("Aspects") + "</h3>";
-    ret += "<table style='border-collapse: collapse; font-family: monospace; width: 100%;'>";
-    
+    ret += "<table style='border-collapse: collapse; font-family: monospace; "
+           "width: 100%;'>";
+
     // Table header
     ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
-    ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("Aspect") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("Planets") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: right;'>" + QObject::tr("Angle") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: right;'>" + QObject::tr("Orb") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Status") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>"
+           + QObject::tr("Aspect") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>"
+           + QObject::tr("Planets") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: right;'>"
+           + QObject::tr("Angle") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: right;'>"
+           + QObject::tr("Orb") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>"
+           + QObject::tr("Status") + "</th>";
     ret += "</tr>";
-    
+
     for (const Aspect& asp : sortedAspects) {
         ret += "<tr>";
-        
+
         // Aspect name
-        ret += "<td style='padding: " + cellPadding + " 8px; font-weight: bold;'>" 
-               + asp.d->name + "</td>";
-        
+        ret += "<td style='padding: " + cellPadding
+               + " 8px; font-weight: bold;'>" + asp.d->name + "</td>";
+
         // Planets
-        ret += "<td style='padding: " + cellPadding + " 8px;'>" 
+        ret += "<td style='padding: " + cellPadding + " 8px;'>"
                + asp.planet1->name + "-" + asp.planet2->name + "</td>";
-        
+
         // Actual angle
-        ret += "<td style='padding: " + cellPadding + " 8px; text-align: right;'>" 
-               + degreeToString(asp.angle) + "</td>";
-        
-        // Orb (current orb and max orb in degrees/minutes only, with padding for alignment)
+        ret += "<td style='padding: " + cellPadding
+               + " 8px; text-align: right;'>" + degreeToString(asp.angle)
+               + "</td>";
+
+        // Orb (current orb and max orb in degrees/minutes only, with padding
+        // for alignment)
         QString currentOrbStr = degreeToString(asp.orb);
-        QString maxOrbStr = degreeToString(asp.d->orb(), NormalPrecision);
-        
+        QString maxOrbStr     = degreeToString(asp.d->orb(), NormalPrecision);
+
         // Pad single-digit degree numbers with &nbsp; for better alignment
         if (currentOrbStr.length() >= 2 && currentOrbStr.indexOf("°") == 1) {
             currentOrbStr = "&nbsp;" + currentOrbStr;
@@ -367,19 +393,22 @@ describeAspectsTable(const AspectList& aspects, AspectSortOrder sortOrder)
         if (maxOrbStr.length() >= 2 && maxOrbStr.indexOf("°") == 1) {
             maxOrbStr = "&nbsp;" + maxOrbStr;
         }
-        
-        ret += "<td style='padding: " + cellPadding + " 8px; text-align: left;'>" 
-               + currentOrbStr + " (max: " + maxOrbStr + ")</td>";
-        
+
+        ret += "<td style='padding: " + cellPadding
+               + " 8px; text-align: left;'>" + currentOrbStr
+               + " (max: " + maxOrbStr + ")</td>";
+
         // Applying/Separating with color
-        QString status = asp.applying ? QObject::tr("Applying") : QObject::tr("Separating");
+        QString status =
+            asp.applying ? QObject::tr("Applying") : QObject::tr("Separating");
         QString statusColor = asp.applying ? "#71aeec" : "#dfb096";
-        ret += "<td style='padding: " + cellPadding + " 8px; text-align: center; color: " 
-               + statusColor + ";'>" + status + "</td>";
-        
+        ret += "<td style='padding: " + cellPadding
+               + " 8px; text-align: center; color: " + statusColor + ";'>"
+               + status + "</td>";
+
         ret += "</tr>";
     }
-    
+
     ret += "</table>";
     return ret;
 }
@@ -387,8 +416,8 @@ describeAspectsTable(const AspectList& aspects, AspectSortOrder sortOrder)
 QString
 describeAspectFull(const Aspect& asp, QString tag1, QString tag2)
 {
-    //if (!tag1.isEmpty()) tag1 = " (" + tag1 + ")";
-    //if (!tag2.isEmpty()) tag1 = " (" + tag2 + ")";
+    // if (!tag1.isEmpty()) tag1 = " (" + tag1 + ")";
+    // if (!tag2.isEmpty()) tag1 = " (" + tag2 + ")";
 
     return QString("%1 (%2) %3%4-%5%6 [%7]\n")
                .arg(asp.d->name)
@@ -406,8 +435,7 @@ describeAspectFull(const Aspect& asp, QString tag1, QString tag2)
 }
 
 QString
-describePlanet(const Planet& planet,
-               const Zodiac& zodiac)
+describePlanet(const Planet& planet, const Zodiac& zodiac)
 {
     // CONFIGURABLE: Cell padding for planets table
     const QString cellPadding = "0px";
@@ -452,11 +480,11 @@ describePlanet(const Planet& planet,
                        .arg(plus)
                        .arg(planet.power.dignity)
                        .arg(planet.power.deficient);
-        auto sp = 3 - powerStr.indexOf('|');
+        auto sp  = 3 - powerStr.indexOf('|');
         powerStr = QString(sp, ' ').replace(" ", "&nbsp;") + powerStr;
     }
-    ret += "<td style='padding: " + cellPadding + " 8px;'>"
-           + powerStr + "</td>";
+    ret +=
+        "<td style='padding: " + cellPadding + " 8px;'>" + powerStr + "</td>";
 
     // Ruler
     QStringList rs;
@@ -516,7 +544,7 @@ describePlanetCoordInHtml(const Planet& planet)
 {
     QString ret = describePlanetCoord(planet);
     ret.replace(QRegularExpression(QString::fromLocal8Bit("(: [!-° ]+)")),
-                "<font color='#e9e9e4'>\\1</font>");  // replaces values
+                "<font color='#e9e9e4'>\\1</font>"); // replaces values
     ret.replace("\n", "<br>");
     return ret;
 }
@@ -754,7 +782,8 @@ describePower(const Planet& planet, const Horoscope& scope)
     return ret.join(";\n") + '.';
 }
 
-QString     describePowerInHtml(const Planet& planet, const Horoscope& scope)
+QString
+describePowerInHtml(const Planet& planet, const Horoscope& scope)
 {
     QString ret = describePower(planet, scope);
     if (ret.isEmpty()) return ret;
@@ -780,14 +809,15 @@ _formatTime(const QDateTime& dt, short tz)
     if (!dt.isValid()) {
         return "    --    ";
     }
-    QString dow(QObject::tr("MtWTFsS"));
+    QString   dow(QObject::tr("MtWTFsS"));
     QDateTime ldt = dt.addSecs(tz * 3600);
     return QString("%2 %1")
         .arg(ldt.time().toString())
         .arg(dow[ldt.date().dayOfWeek() - 1]);
 }
 
-namespace {
+namespace
+{
 
 struct event {
     QDateTime   _dt;
@@ -883,9 +913,9 @@ struct event {
     }
 };
 
-int event::_maxWidth = 0;
+int       event::_maxWidth = 0;
 QDateTime event::_radix;
-}
+} // namespace
 
 QString
 describeParans(const AstroFileList& scopes,
@@ -909,7 +939,7 @@ describeParans(const AstroFileList& scopes,
 
     event::_radix = scope.inputData.GMT();
 
-    for (const Planet& p : qAsConst(scope.planets)) {
+    for (const Planet& p : std::as_const(scope.planets)) {
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         unsigned u = 0;
         for (const QDateTime& dt : p.angleTransit) {
@@ -921,7 +951,7 @@ describeParans(const AstroFileList& scopes,
     }
 
     if (showFixedStars) {
-        for (const Star& s : qAsConst(scope.stars)) {
+        for (const Star& s : std::as_const(scope.stars)) {
             unsigned u = 0;
             for (const QDateTime& dt : s.angleTransit) {
                 if (!dt.isValid()) continue;
@@ -947,8 +977,8 @@ describeParans(const AstroFileList& scopes,
     ret += "<th style='padding: 4px 8px;'></th>";
     ret += "</tr>";
 
-    double                        orb         = paranOrb * 240;
-    bool                          anyPrinted  = false;
+    double orb        = paranOrb * 240;
+    bool   anyPrinted = false;
 
     auto lastPrinted = events.constEnd();
     for (auto it = events.constBegin();
@@ -1015,85 +1045,99 @@ describeParans(const AstroFileList& scopes,
 }
 
 QString
-describeSpeculum(const Horoscope &scope,
-                 bool showFixedStars)
+describeSpeculum(const Horoscope& scope, bool showFixedStars)
 {
     short tz = scope.inputData.tz();
-    int& maxWidth(event::_maxWidth);
+    int&  maxWidth(event::_maxWidth);
     if (maxWidth == 0) {
-        for (const Planet& p: scope.planets) {
-            if (p.id != Planet_MC
-                    && p.id != Planet_Asc
-                    && p.name.length() > maxWidth)
+        for (const Planet& p : scope.planets) {
+            if (p.id != Planet_MC && p.id != Planet_Asc
+                && p.name.length() > maxWidth)
             {
                 maxWidth = p.name.length();
             }
         }
-        for (const Star& s: scope.stars) {
+        for (const Star& s : scope.stars) {
             if (s.name.length() > maxWidth) {
                 maxWidth = s.name.length();
             }
         }
     }
-    
+
     QString ret = "<h3>" + QObject::tr("Speculum") + "</h3>";
     ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
     ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
-    ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("Planet") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Rise") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("MC") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Set") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("IC") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>"
+           + QObject::tr("Planet") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>"
+           + QObject::tr("Rise") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>"
+           + QObject::tr("MC") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>"
+           + QObject::tr("Set") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: center;'>"
+           + QObject::tr("IC") + "</th>";
     ret += "</tr>";
-    
-    for (const Planet& p: scope.planets) {
+
+    for (const Planet& p : scope.planets) {
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         ret += "<tr>";
-        ret += "<td style='padding: 0px 8px; font-weight: bold; color: #e9e9e4;'>" + p.name + "</td>";
-        for (int i : QList<int>({0, 2, 1, 3})) {
+        ret +=
+            "<td style='padding: 0px 8px; font-weight: bold; color: #e9e9e4;'>"
+            + p.name + "</td>";
+        for (int i : QList<int>({ 0, 2, 1, 3 })) {
             QString timeStr = _formatTime(p.angleTransit.at(i), tz);
-            ret += "<td style='padding: 0px 8px; text-align: center;'>" + timeStr + "</td>";
+            ret += "<td style='padding: 0px 8px; text-align: center;'>"
+                   + timeStr + "</td>";
         }
         ret += "</tr>";
     }
-    
+
     if (showFixedStars) {
-        for (const Star& s: scope.stars) {
+        for (const Star& s : scope.stars) {
             ret += "<tr>";
             ret += "<td style='padding: 0px 8px;'>" + s.name + "</td>";
-            for (int i : QList<int>({0, 2, 1, 3})) {
+            for (int i : QList<int>({ 0, 2, 1, 3 })) {
                 QString timeStr = _formatTime(s.angleTransit.at(i), tz);
-                ret += "<td style='padding: 0px 8px; text-align: center;'>" + timeStr + "</td>";
+                ret += "<td style='padding: 0px 8px; text-align: center;'>"
+                       + timeStr + "</td>";
             }
             ret += "</tr>";
         }
     }
-    
+
     ret += "</table>";
-    maxWidth = 0;   // reset for next time...
+    maxWidth = 0; // reset for next time...
     return ret;
 }
 
 QString
 describe(AstroFileList&& scopes,
-         Articles article /*=All*/,
-         double paranOrb /*=1.0*/)
+         Articles        article /*=All*/,
+         double          paranOrb /*=1.0*/)
 {
     QString ret;
     ret += "<!DOCTYPE html><html><head>";
     ret += "<meta charset='utf-8'>";
     ret += "<style>";
-    ret += "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu Sans Mono', 'Lucida Console'; margin: 10px; color: #b5bfdf; background-color: transparent; }";
-    ret += "h1, h2, h3 { color: #e9e9e4; margin-top: 20px; margin-bottom: 10px; }";
+    ret += "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu "
+           "Sans Mono', 'Lucida Console'; margin: 10px; color: #b5bfdf; "
+           "background-color: transparent; }";
+    ret +=
+        "h1, h2, h3 { color: #e9e9e4; margin-top: 20px; margin-bottom: 10px; }";
     ret += "h1 { font-size: 1.4em; }";
     ret += "h2 { font-size: 1.2em; }";
     ret += "h3 { font-size: 1.1em; }";
-    ret += "h4 { color: #e9e9e4; font-size: 1.0em; margin-top: 12px; margin-bottom: 4px; }";
-    ret += "table { margin: 10px 0; border-collapse: collapse; background-color: transparent; }";
-    ret += "th { background-color: rgba(255,255,255,0.1); font-weight: bold; color: #e9e9e4; border: 1px solid #555; }";
+    ret += "h4 { color: #e9e9e4; font-size: 1.0em; margin-top: 12px; "
+           "margin-bottom: 4px; }";
+    ret += "table { margin: 10px 0; border-collapse: collapse; "
+           "background-color: transparent; }";
+    ret += "th { background-color: rgba(255,255,255,0.1); font-weight: bold; "
+           "color: #e9e9e4; border: 1px solid #555; }";
     ret += "td { border: 1px solid #555; color: #b5bfdf; }";
     ret += "tr:nth-child(even) { background-color: rgba(255,255,255,0.05); }";
-    ret += ".planets-table td:first-child { font-weight: bold; color: #e9e9e4; }";
+    ret +=
+        ".planets-table td:first-child { font-weight: bold; color: #e9e9e4; }";
     ret += "p { color: #b5bfdf; margin: 2px 0; line-height: 1.2; }";
     ret += "ul { color: #b5bfdf; margin: 4px 0; }";
     ret += "li { margin: 1px 0; line-height: 1.2; }";
@@ -1113,30 +1157,41 @@ describe(AstroFileList&& scopes,
 
     if ((article & Article_Planet) && scope.planets.count()) {
         ret += "<h2>" + QObject::tr("Planets") + "</h2>";
-        ret += "<table class='planets-table' style='border-collapse: collapse; width: 100%;'>";
+        ret += "<table class='planets-table' style='border-collapse: collapse; "
+               "width: 100%;'>";
         ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
-        ret += "<th style='padding: 4px 8px; text-align: left;'>" + QObject::tr("Planet") + "</th>";
-        ret += "<th style='padding: 4px 8px; text-align: right;'>" + QObject::tr("Position") + "</th>";
-        ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("House") + "</th>";
-        ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Speed") + "</th>";
-        ret += "<th style='padding: 4px 8px; text-align: center;'>" + QObject::tr("Power") + "</th>";
-        ret += "<th style='padding: 4px 8px;'>" + QObject::tr("Ruler of") + "</th>";
-        ret += "<th style='padding: 4px 8px;'>" + QObject::tr("Status") + "</th>";
+        ret += "<th style='padding: 4px 8px; text-align: left;'>"
+               + QObject::tr("Planet") + "</th>";
+        ret += "<th style='padding: 4px 8px; text-align: right;'>"
+               + QObject::tr("Position") + "</th>";
+        ret += "<th style='padding: 4px 8px; text-align: center;'>"
+               + QObject::tr("House") + "</th>";
+        ret += "<th style='padding: 4px 8px; text-align: center;'>"
+               + QObject::tr("Speed") + "</th>";
+        ret += "<th style='padding: 4px 8px; text-align: center;'>"
+               + QObject::tr("Power") + "</th>";
+        ret += "<th style='padding: 4px 8px;'>" + QObject::tr("Ruler of")
+               + "</th>";
+        ret +=
+            "<th style='padding: 4px 8px;'>" + QObject::tr("Status") + "</th>";
         ret += "</tr>";
-        
-        foreach(const Planet& p, scope.planets)
+
+        foreach (const Planet& p, scope.planets)
             ret += describePlanet(p, scope.zodiac);
-        
+
         ret += "</table>";
 
         if (auto p = auriga(scope)) {
-            ret += "<p><strong>" + QObject::tr("Auriga:") + "</strong> " + p->name + "</p>";
+            ret += "<p><strong>" + QObject::tr("Auriga:") + "</strong> "
+                   + p->name + "</p>";
         }
         if (auto p = almuten(scope)) {
-            ret += "<p><strong>" + QObject::tr("Almuten:") + "</strong> " + p->name + "</p>";
+            ret += "<p><strong>" + QObject::tr("Almuten:") + "</strong> "
+                   + p->name + "</p>";
         }
         if (auto p = doryphoros(scope)) {
-            ret += "<p><strong>" + QObject::tr("Doryphoros:") + "</strong> " + p->name + "</p>";
+            ret += "<p><strong>" + QObject::tr("Doryphoros:") + "</strong> "
+                   + p->name + "</p>";
         }
     }
 
@@ -1173,5 +1228,4 @@ describe(AstroFileList&& scopes,
     return ret;
 }
 
-
-}
+} // namespace A

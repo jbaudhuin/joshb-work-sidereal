@@ -1,7 +1,7 @@
-#include <QtConcurrent/QtConcurrent>
 #include <QDebug>
+#include <QtConcurrent/QtConcurrent>
 
-#undef MSDOS     // undef macros made by SWE library
+#undef MSDOS // undef macros made by SWE library
 #undef UCHAR
 #undef forward
 
@@ -18,12 +18,14 @@
 #include "astro-output.h"
 #include "fileeditor.h"
 
-#include <swephexp.h>
+#include <sweodef.h> // the swe.h files are a little squirrely about include order
 #include <swehouse.h>
+#include <swephexp.h>
 
 using namespace boost::math::tools;
 
-namespace A {
+namespace A
+{
 
 static QString angleDesc[] = { "asc", "desc", "mc", "ic" };
 
@@ -34,28 +36,30 @@ dtToString(const QDateTime& dt)
 }
 
 template <typename T>
-inline constexpr
-int sgn(T x, std::false_type) {
+inline constexpr int
+sgn(T x, std::false_type)
+{
     return T(0) < x;
 }
 
 template <typename T>
-inline constexpr
-int sgn(T x, std::true_type) {
+inline constexpr int
+sgn(T x, std::true_type)
+{
     return (T(0) < x) - (x < T(0));
 }
 
 template <typename T>
-inline constexpr
-int sgn(T x) {
+inline constexpr int
+sgn(T x)
+{
     return sgn(x, std::is_signed<T>());
 }
 
 aspectModeType aspectMode { amcEcliptic };
 
 /*static*/
-const
-aspectModeType&
+const aspectModeType&
 aspectModeType::current()
 {
     return aspectMode;
@@ -63,11 +67,11 @@ aspectModeType::current()
 
 PrimDirMode primDirMode = prdMundane;
 
-double getJulianDate(QDateTime GMT,
-                     bool ephemerisTime/*=false*/)
+double
+getJulianDate(QDateTime GMT, bool ephemerisTime /*=false*/)
 {
-    char serr[256];
-    double ret[2];
+    char        serr[256];
+    double      ret[2];
     const auto& date(GMT.date());
     const auto& time(GMT.time());
     swe_utc_to_jd(date.year(),
@@ -76,19 +80,37 @@ double getJulianDate(QDateTime GMT,
                   time.hour(),
                   time.minute(),
                   double(time.second()) + (time.msec() / 1000.),
-                  1/*gregorian*/, ret, serr);
+                  1 /*gregorian*/,
+                  ret,
+                  serr);
     return ret[ephemerisTime ? 0 : 1]; // ET or UT
 }
 
-double getUTfromET(double et)
+double
+getUTfromET(double et)
 {
-    int32 iyear, imonth, iday, ihour, imin;
+    int32  iyear, imonth, iday, ihour, imin;
     double dsec;
-    swe_jdut1_to_utc(et,1/*greg*/,&iyear,&imonth,&iday,&ihour,&imin,&dsec);
+    swe_jdut1_to_utc(et,
+                     1 /*greg*/,
+                     &iyear,
+                     &imonth,
+                     &iday,
+                     &ihour,
+                     &imin,
+                     &dsec);
 
     double ret[2];
-    char serr[256];
-    swe_utc_to_jd(iyear,imonth,iday,ihour,imin,dsec,1/*greg*/,ret,serr);
+    char   serr[256];
+    swe_utc_to_jd(iyear,
+                  imonth,
+                  iday,
+                  ihour,
+                  imin,
+                  dsec,
+                  1 /*greg*/,
+                  ret,
+                  serr);
 
     return ret[1];
 }
@@ -98,34 +120,31 @@ windowOf(PlanetLoc* pl)
 {
     switch (pl->planet.planetId()) {
     case Planet_Mercury: return 45;
-    case Planet_Venus: return 90;
-    case Planet_Mars: return 210;
-    default:
-        return 360;
+    case Planet_Venus:   return 90;
+    case Planet_Mars:    return 210;
+    default:             return 360;
     }
 };
 
-inline
-qreal
+inline qreal
 harmonic(double h, qreal value)
 {
-    return fmod(value*h,360.);
+    return fmod(value * h, 360.);
 }
 
-float roundDegree(float deg)
+float
+roundDegree(float deg)
 {
     deg = deg - (int(deg / 360)) * 360;
     if (deg < 0) deg += 360;
     return deg;
 }
 
-const
-ZodiacSign&
+const ZodiacSign&
 getSign(float deg, const Zodiac& zodiac)
 {
     for (const ZodiacSign& s : zodiac.signs)
-        if (s.startAngle <= deg && s.endAngle > deg)
-            return s;
+        if (s.startAngle <= deg && s.endAngle > deg) return s;
     return zodiac.signs[zodiac.signs.count() - 1];
 }
 
@@ -134,9 +153,8 @@ getHouse(const Houses& houses, float deg)
 {
     for (int i = 0; i <= 10; i++)
         if ((deg >= houses.cusp[i] && deg < houses.cusp[i + 1])
-            || (houses.cusp[i] > 180
-                && houses.cusp[i + 1] < 180
-                && (deg < houses.cusp[i + 1] || deg >= houses.cusp[i]))) 
+            || (houses.cusp[i] > 180 && houses.cusp[i + 1] < 180
+                && (deg < houses.cusp[i + 1] || deg >= houses.cusp[i])))
         {
             return i + 1;
         }
@@ -145,14 +163,14 @@ getHouse(const Houses& houses, float deg)
 }
 
 int
-getHouse(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
+getHouse(ZodiacSignId sign, const Houses& houses, const Zodiac& zodiac)
 {
     if (sign == Sign_None) return 0;
 
     for (int i = 1; i <= 12; i++) {
         auto hs = getSign(houses.cusp[i - 1], zodiac).id;
         if (sign == hs
-                /*|| (sign + 1) % 13 == getSign(houses.cusp[i % 12], zodiac).id*/)
+            /*|| (sign + 1) % 13 == getSign(houses.cusp[i % 12], zodiac).id*/)
             return i;
     }
     return 0;
@@ -165,9 +183,9 @@ getHouse(const Horoscope& scope, float deg)
 }
 
 QList<int>
-getHouses(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
+getHouses(ZodiacSignId sign, const Houses& houses, const Zodiac& zodiac)
 {
-    if (sign == Sign_None) return { };
+    if (sign == Sign_None) return {};
     QList<int> ret;
 
     // Helper to check if angle 'x' is strictly inside the interval (a, b)
@@ -184,19 +202,23 @@ getHouses(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
     // Get sign's angular span from the zodiac
     const ZodiacSign* ssign = nullptr;
     for (const ZodiacSign& zs : zodiac.signs) {
-        if (zs.id == sign) { ssign = &zs; break; }
+        if (zs.id == sign) {
+            ssign = &zs;
+            break;
+        }
     }
     if (!ssign) return ret;
 
     float sstart = ssign->startAngle;
-    float send = ssign->endAngle;
+    float send   = ssign->endAngle;
 
     // For each house, check two cases:
-    // 1) The sign is the sign at the house start cusp -> normal rulership (positive house)
-    // 2) The sign's entire span lies strictly within the house span -> intercepted (negative house)
+    // 1) The sign is the sign at the house start cusp -> normal rulership
+    // (positive house) 2) The sign's entire span lies strictly within the house
+    // span -> intercepted (negative house)
     for (int i = 1; i <= 12; ++i) {
         float houseStart = houses.cusp[i - 1];
-        float houseEnd = houses.cusp[i % 12]; // wraps to cusp[0] for house 12
+        float houseEnd   = houses.cusp[i % 12]; // wraps to cusp[0] for house 12
 
         // Case 1: cusp start sign equals the target sign
         if (getSign(houseStart, zodiac).id == sign) {
@@ -204,8 +226,11 @@ getHouses(ZodiacSignId sign, const Houses &houses, const Zodiac& zodiac)
             continue;
         }
 
-        // Case 2: intercepted sign - sign's start and end both strictly inside the house span
-        if (angleInInterval(sstart, houseStart, houseEnd) && angleInInterval(send, houseStart, houseEnd)) {
+        // Case 2: intercepted sign - sign's start and end both strictly inside
+        // the house span
+        if (angleInInterval(sstart, houseStart, houseEnd)
+            && angleInInterval(send, houseStart, houseEnd))
+        {
             if (!ret.contains(-i)) ret << -i;
         }
     }
@@ -217,53 +242,51 @@ float
 angle(const Star& body1, const Star& body2)
 {
     switch (aspectMode) {
-    case amcGreatCircle:
-    {
+    case amcGreatCircle: {
         float a = angle(body1.eclipticPos.x(), body2.eclipticPos.x());
         float b = angle(body1.eclipticPos.y(), body2.eclipticPos.y());
-        return sqrt(a*a + b*b);
+        return sqrt(a * a + b * b);
     }
     case amcEcliptic:
         return angle(body1.eclipticPos.x(), body2.eclipticPos.x());
     case amcEquatorial:
         return angle(body1.equatorialPos.x(), body2.equatorialPos.x());
-    case amcPrimeVertical:
-        return angle(body1.pvPos, body2.pvPos);
+    case amcPrimeVertical: return angle(body1.pvPos, body2.pvPos);
+
+    case amcUnknown:
+    case amcEND:           break;
     }
     return 0;
 }
 
-float angle(const Star& body, float deg)
+float
+angle(const Star& body, float deg)
 {
     switch (aspectMode) {
     case amcGreatCircle:
-    case amcEcliptic:
-        return angle(body.eclipticPos.x(), deg);
-    case amcEquatorial:
-        return angle(body.equatorialPos.x(), deg);
-    case amcPrimeVertical:
-        return angle(body.pvPos, deg);
+    case amcEcliptic:      return angle(body.eclipticPos.x(), deg);
+    case amcEquatorial:    return angle(body.equatorialPos.x(), deg);
+    case amcPrimeVertical: return angle(body.pvPos, deg);
+
+    case amcUnknown:
+    case amcEND:           break;
     }
     return 0;
 }
 
-float   angle(const Star& body, QPointF coordinate)
+float
+angle(const Star& body, QPointF coordinate)
 {
     switch (aspectMode) {
-    case amcGreatCircle:
-        {
-            float a = angle(body.eclipticPos.x(), coordinate.x());
-            float b = angle(body.eclipticPos.y(), coordinate.y());
-            return sqrt(pow(a, 2) + pow(b, 2));
-        }
-    case amcEcliptic:
-        return angle(body.eclipticPos.x(), coordinate.x());
-    case amcEquatorial:
-        return angle(body.equatorialPos.x(), coordinate.x());
-    case amcPrimeVertical:
-        return angle(body.pvPos, coordinate.x());
-    default:
-        return 0;
+    case amcGreatCircle: {
+        float a = angle(body.eclipticPos.x(), coordinate.x());
+        float b = angle(body.eclipticPos.y(), coordinate.y());
+        return sqrt(pow(a, 2) + pow(b, 2));
+    }
+    case amcEcliptic:      return angle(body.eclipticPos.x(), coordinate.x());
+    case amcEquatorial:    return angle(body.equatorialPos.x(), coordinate.x());
+    case amcPrimeVertical: return angle(body.pvPos, coordinate.x());
+    default:               return 0;
     }
 }
 
@@ -276,8 +299,7 @@ angle(float deg1, float deg2)
 }
 
 AspectId
-aspect(const Star& planet1, const Star& planet2,
-       const AspectsSet& aspectSet)
+aspect(const Star& planet1, const Star& planet2, const AspectsSet& aspectSet)
 {
 #if 0
     if (planet1.isPlanet() && planet2.isPlanet()
@@ -287,35 +309,38 @@ aspect(const Star& planet1, const Star& planet2,
     return aspect(angle(planet1, planet2), aspectSet);
 }
 
-inline
-AspectId
+inline AspectId
 aspect(const Planet* p1, const Planet* p2, const AspectsSet& asps)
-{ return aspect(*p1, *p2, asps); }
+{
+    return aspect(*p1, *p2, asps);
+}
 
-AspectId aspect(const Star& planet1, float degree, const AspectsSet& aspectSet)
+AspectId
+aspect(const Star& planet1, float degree, const AspectsSet& aspectSet)
 {
     return aspect(angle(planet1, degree), aspectSet);
 }
 
-AspectId aspect(const Star& planet, QPointF coordinate, const AspectsSet& aspectSet)
+AspectId
+aspect(const Star& planet, QPointF coordinate, const AspectsSet& aspectSet)
 {
     return aspect(angle(planet, coordinate), aspectSet);
 }
 
-AspectId aspect(float angle, const AspectsSet& aspectSet)
+AspectId
+aspect(float angle, const AspectsSet& aspectSet)
 {
     AspectId closest = Aspect_None;
-    float pct = 1;
+    float    pct     = 1;
     for (const AspectType& aspect : aspectSet.aspects) {
-        auto npct = abs(aspect.angle)/aspect.orb();
-        if (aspect.isEnabled()
-            && aspect.angle - aspect.orb() <= angle
+        auto npct = abs(aspect.angle) / aspect.orb();
+        if (aspect.isEnabled() && aspect.angle - aspect.orb() <= angle
             && aspect.angle + aspect.orb() >= angle
-            && (closest == Aspect_None? true : npct < pct))
+            && (closest == Aspect_None ? true : npct < pct))
         {
             closest = aspect.id;
-            pct = npct;
-            //return aspect.id;
+            pct     = npct;
+            // return aspect.id;
         }
     }
     return closest;
@@ -326,7 +351,7 @@ towardsMovement(const Planet& planet1, const Planet& planet2)
 {
     const Planet *p1 = &planet1, *p2 = &planet2;
 
-    if (!isEarlier(planet1, planet2))       // make first planet earlier than second
+    if (!isEarlier(planet1, planet2)) // make first planet earlier than second
     {
         p1 = &planet2;
         p2 = &planet1;
@@ -337,27 +362,27 @@ towardsMovement(const Planet& planet1, const Planet& planet2)
     case amcEquatorial:
         return (p1->equatorialSpeed.x() > p2->equatorialSpeed.x());
     default:
-    case amcEcliptic:
-        return (p1->eclipticSpeed.x() > p2->eclipticSpeed.x());
+    case amcEcliptic: return (p1->eclipticSpeed.x() > p2->eclipticSpeed.x());
     }
 }
 
-PlanetPosition getPosition(const Planet& planet, ZodiacSignId sign)
+PlanetPosition
+getPosition(const Planet& planet, ZodiacSignId sign)
 {
-    if (planet.homeSigns.contains(sign))       return Position_Dwelling;
+    if (planet.homeSigns.contains(sign)) return Position_Dwelling;
     if (planet.exaltationSigns.contains(sign)) return Position_Exaltation;
-    if (planet.exileSigns.contains(sign))      return Position_Exile;
-    if (planet.downfallSigns.contains(sign))   return Position_Downfall;
+    if (planet.exileSigns.contains(sign)) return Position_Exile;
+    if (planet.downfallSigns.contains(sign)) return Position_Downfall;
     return Position_Normal;
 }
 
-const Planet* almuten(const Horoscope& scope)
+const Planet*
+almuten(const Horoscope& scope)
 {
-    int max = 0;
+    int           max = 0;
     const Planet* ret = 0;
 
-    for (const Planet& p : scope.planets)
-    {
+    for (const Planet& p : scope.planets) {
         int val = p.power.dignity + p.power.deficient;
         if (val > max) {
             max = val;
@@ -368,10 +393,11 @@ const Planet* almuten(const Horoscope& scope)
     return ret;
 }
 
-const Planet* doryphoros(const Horoscope& scope)
+const Planet*
+doryphoros(const Horoscope& scope)
 {
-    int minAngle = 180;
-    const Planet* ret = 0;
+    int           minAngle = 180;
+    const Planet* ret      = 0;
 
     for (const Planet& p : scope.planets) {
         if (p.id == Planet_Sun || !p.isReal) continue;
@@ -380,38 +406,37 @@ const Planet* doryphoros(const Horoscope& scope)
 
         if (val < minAngle && isEarlier(p, scope.sun)) {
             minAngle = val;
-            ret = &p;
+            ret      = &p;
         }
     }
 
     return ret;
 }
 
-const Planet* auriga(const Horoscope& scope)
+const Planet*
+auriga(const Horoscope& scope)
 {
-    int minAngle = 180;
-    const Planet* ret = 0;
+    int           minAngle = 180;
+    const Planet* ret      = 0;
 
-    for (const Planet& p : scope.planets)
-    {
+    for (const Planet& p : scope.planets) {
         if (p.id == Planet_Sun || !p.isReal) continue;
 
         int val = angle(p, scope.sun);
 
-        if (val < minAngle &&
-            !isEarlier(p, scope.sun)) {
+        if (val < minAngle && !isEarlier(p, scope.sun)) {
             minAngle = val;
-            ret = &p;
+            ret      = &p;
         }
     }
 
     return ret;
 }
 
-bool rulerDisposition(int house, int houseAuthority, const Horoscope& scope)
+bool
+rulerDisposition(int house, int houseAuthority, const Horoscope& scope)
 {
-    if (house <= 0 || houseAuthority <= 0)
-        return false;
+    if (house <= 0 || houseAuthority <= 0) return false;
 
     for (const Planet& p : scope.planets)
         if (p.house == house && p.houseRuler.contains(houseAuthority))
@@ -420,46 +445,49 @@ bool rulerDisposition(int house, int houseAuthority, const Horoscope& scope)
     return false;
 }
 
-bool isEarlier(const Planet& planet, const Planet& sun)
+bool
+isEarlier(const Planet& planet, const Planet& sun)
 {
- //float opposite = roundDegree(sun.eclipticPos.x() - 180);
+    // float opposite = roundDegree(sun.eclipticPos.x() - 180);
     switch (aspectMode) {
-    case amcPrimeVertical:
-        return (roundDegree(planet.pvPos - sun.pvPos) > 180);
+    case amcPrimeVertical: return (roundDegree(planet.pvPos - sun.pvPos) > 180);
     case amcEquatorial:
-        return (roundDegree(planet.equatorialPos.x()
-                            - sun.equatorialPos.x()) > 180);
+        return (roundDegree(planet.equatorialPos.x() - sun.equatorialPos.x())
+                > 180);
     default:
     case amcEcliptic:
-        return (roundDegree(planet.eclipticPos.x()
-                            - sun.eclipticPos.x()) > 180);
+        return (roundDegree(planet.eclipticPos.x() - sun.eclipticPos.x())
+                > 180);
     }
 }
 
-const Planet& ruler ( int house, const Horoscope& scope )
- {
-  static Planet emptyPlanet;
-  if (house <= 0 || house > 12) return emptyPlanet;
+const Planet&
+ruler(int house, const Horoscope& scope)
+{
+    static Planet emptyPlanet;
+    if (house <= 0 || house > 12) return emptyPlanet;
 
-  // Iterate using keys() method like elsewhere in the code
-  for (PlanetId id : scope.planets.keys()) {
-    const Planet& p = scope.planets[id];
-    if (p.houseRuler.contains(house))
-      return p;
-  }
+    // Iterate using keys() method like elsewhere in the code
+    for (PlanetId id : scope.planets.keys()) {
+        const Planet& p = scope.planets[id];
+        if (p.houseRuler.contains(house)) return p;
+    }
 
-  return emptyPlanet;
- }
+    return emptyPlanet;
+}
 
-PlanetId receptionWith(const Planet& planet, const Horoscope& scope)
+PlanetId
+receptionWith(const Planet& planet, const Horoscope& scope)
 {
     for (const Planet& p : scope.planets) {
         if (p != planet) {
-            if (getPosition(p, planet.sign->id) == Position_Dwelling &&
-                getPosition(planet, p.sign->id) == Position_Dwelling) return p.id;
+            if (getPosition(p, planet.sign->id) == Position_Dwelling
+                && getPosition(planet, p.sign->id) == Position_Dwelling)
+                return p.id;
 
-            if (getPosition(p, planet.sign->id) == Position_Exaltation &&
-                getPosition(planet, p.sign->id) == Position_Exaltation) return p.id;
+            if (getPosition(p, planet.sign->id) == Position_Exaltation
+                && getPosition(planet, p.sign->id) == Position_Exaltation)
+                return p.id;
         }
     }
 
@@ -467,20 +495,20 @@ PlanetId receptionWith(const Planet& planet, const Horoscope& scope)
 }
 
 Planet
-calculatePlanet(PlanetId planet,
+calculatePlanet(PlanetId         planet,
                 const InputData& input,
-                double jd,
-                double& eps,
-                unsigned int& flags,
-                double& ablong,
-                double RAMC,
-                ZodiacId zid)
+                double           jd,
+                double&          eps,
+                unsigned int&    flags,
+                double&          ablong,
+                double           RAMC,
+                ZodiacId         zid)
 {
     Planet ret = getPlanet(planet);
 
-    uint    invertPositionFlag = 256 * 1024;
-    char    errStr[256] = "";
-    double  xx[6];
+    uint   invertPositionFlag = 256 * 1024;
+    char   errStr[256]        = "";
+    double xx[6];
 
     // turn off true pos
     flags = (SEFLG_SWIEPH | ret.sweFlags) & ~SEFLG_TRUEPOS;
@@ -497,11 +525,12 @@ calculatePlanet(PlanetId planet,
     //         272|invertPositionFlag = 262416
     if (swe_calc_ut(jd, ret.sweNum, flags, xx, errStr) == ERR) {
         qDebug("A: can't calculate position of '%s' at julian day %f: %s",
-               qPrintable(ret.name), jd, errStr);
+               qPrintable(ret.name),
+               jd,
+               errStr);
     }
-    if (!(ret.sweFlags & invertPositionFlag))
-        ret.eclipticPos.setX(xx[0]);
-    else                               // found 'inverted position' flag
+    if (!(ret.sweFlags & invertPositionFlag)) ret.eclipticPos.setX(xx[0]);
+    else // found 'inverted position' flag
         ret.eclipticPos.setX(roundDegree(xx[0] - 180));
 
     ret.eclipticPos.setY(xx[1]);
@@ -519,23 +548,22 @@ calculatePlanet(PlanetId planet,
     double geopos[3];
     geopos[0] = input.location().x();
     geopos[1] = input.location().y();
-    geopos[2] = 199 /*meters*/; //input.location.z();
+    geopos[2] = 199 /*meters*/; // input.location.z();
 
     ablong = xx[0];
 
-    // A hack to calculate prime vertical longitude from the campanus house position
+    // A hack to calculate prime vertical longitude from the campanus house
+    // position
     if (zid <= 1
-        || swe_calc_ut(jd, ret.sweNum, flags & ~SEFLG_SIDEREAL,
-                       xx, errStr) != ERR)
+        || swe_calc_ut(jd, ret.sweNum, flags & ~SEFLG_SIDEREAL, xx, errStr)
+               != ERR)
     {
         ablong = xx[0];
         // We may have had to get tropical position to get the
         // house position -- this API wants tropical longitude.
         // From there we fudge a prime vertical coordinate.
-        double housePos =
-                swe_house_pos(RAMC, geopos[1], eps,
-                'C', xx, errStr);
-        ret.pvPos = (housePos - 1) / 12 * 360;
+        double housePos = swe_house_pos(RAMC, geopos[1], eps, 'C', xx, errStr);
+        ret.pvPos       = (housePos - 1) / 12 * 360;
     }
 
     // calculate horizontal coordinates
@@ -544,9 +572,13 @@ calculatePlanet(PlanetId planet,
     ret.horizontalPos.setX(hor[0]);
     ret.horizontalPos.setY(hor[1]);
 
-    if (swe_calc_ut(jd, ret.sweNum,
+    if (swe_calc_ut(jd,
+                    ret.sweNum,
                     flags | SEFLG_EQUATORIAL | SEFLG_SPEED,
-                    xx, errStr) != ERR) {
+                    xx,
+                    errStr)
+        != ERR)
+    {
         ret.equatorialPos.setX(xx[0]);
         ret.equatorialPos.setY(xx[1]);
         ret.equatorialSpeed.setX(xx[3]);
@@ -556,54 +588,59 @@ calculatePlanet(PlanetId planet,
     return ret;
 }
 
-Planet 
-calculatePlanet(PlanetId planet,
+Planet
+calculatePlanet(PlanetId         planet,
                 const InputData& input,
-                const Houses& houses,
-                const Zodiac& zodiac)
+                const Houses&    houses,
+                const Zodiac&    zodiac)
 {
-    double  jd = getJulianDate(input.GMT());
+    double jd = getJulianDate(input.GMT());
 
-    char    errStr[256] = "";
+    char errStr[256] = "";
 
-    double eps, ablong;
+    double       eps, ablong;
     unsigned int flags;
-    Planet ret = calculatePlanet(planet, input, jd, eps, flags, ablong,
-                                 houses.RAMC, zodiac.id);
+    Planet       ret = calculatePlanet(planet,
+                                 input,
+                                 jd,
+                                 eps,
+                                 flags,
+                                 ablong,
+                                 houses.RAMC,
+                                 zodiac.id);
 
     double geopos[3];
     geopos[0] = input.location().x();
     geopos[1] = input.location().y();
-    geopos[2] = 199 /*meters*/; //input.location.z();
+    geopos[2] = 199 /*meters*/; // input.location.z();
 
-    ret.sign = &getSign(ret.eclipticPos.x(), zodiac);
-    ret.house = getHouse(houses, ret.eclipticPos.x());
+    ret.sign     = &getSign(ret.eclipticPos.x(), zodiac);
+    ret.house    = getHouse(houses, ret.eclipticPos.x());
     ret.position = getPosition(ret, ret.sign->id);
-    int prev = -1;
-    for (auto s: qAsConst(ret.homeSigns)) {
+    int prev     = -1;
+    for (auto s : std::as_const(ret.homeSigns)) {
         if (s == prev) continue;
         ret.houseRuler << getHouses(s, houses, zodiac);
         prev = s;
     }
-    std::sort(ret.houseRuler.begin(),
-              ret.houseRuler.end());
+    std::sort(ret.houseRuler.begin(), ret.houseRuler.end());
     // Remove duplicate house entries (can occur when multiple home signs map
     // to the same house or interception logic produced overlaps)
-    ret.houseRuler.erase(std::unique(ret.houseRuler.begin(), ret.houseRuler.end()),
-                         ret.houseRuler.end());
+    ret.houseRuler.erase(
+        std::unique(ret.houseRuler.begin(), ret.houseRuler.end()),
+        ret.houseRuler.end());
 
     double rettm;
-    int eflg = SEFLG_SWIEPH;
+    int    eflg = SEFLG_SWIEPH;
 
-    int32 deg, min, sec, sgn;
+    int32  deg, min, sec, sgn;
     double frac;
     double st = swe_degnorm(ret.equatorialPos.x());
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
 
     if (primDirMode == prdActive) {
-        for (Star::angleTransitMode m = Star::atAsc; 
-             m < Star::numAngles;
-             m = Star::angleTransitMode(m + 1))
+        for (Star::angleTransitMode m = Star::atAsc; m < Star::numAngles;
+             m                        = Star::angleTransitMode(m + 1))
         {
             if (swe_rise_trans(houses.startSpeculum,
                                ret.sweNum,
@@ -617,12 +654,14 @@ calculatePlanet(PlanetId planet,
                                errStr)
                 >= 0)
             {
-                st = swe_degnorm(swe_sidtime(rettm) * 15
-                                 + input.location().x());
+                st =
+                    swe_degnorm(swe_sidtime(rettm) * 15 + input.location().x());
                 swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
                 qDebug("  ACTUAL TIME %s %3d %02d %02d",
                        qPrintable(angleDesc[m]),
-                       deg, min, sec);
+                       deg,
+                       min,
+                       sec);
                 ret.angleTransit[m] = Planet::timeToDT(rettm);
             }
         }
@@ -644,22 +683,21 @@ calculatePlanet(PlanetId planet,
         at[Star::atDesc] = swe_degnorm(houses.RAMC - (houses.ODDC - OD));
         at[Star::atIC]   = swe_degnorm(RA - 180);
 
-        double jd0 = getJulianDate(input.GMT());
-        double RAMC0 = houses.RAMC; // in degrees
-        double sidereal_day = 0.99726958; // days
+        double jd0          = getJulianDate(input.GMT());
+        double RAMC0        = houses.RAMC; // in degrees
+        double sidereal_day = 0.99726958;  // days
 
-        QString rastr =
-            "Planet Angle Transits in RA of " + ret.name.left(3);
+        QString rastr = "Planet Angle Transits in RA of " + ret.name.left(3);
 
         char delim = ':';
-        for (Star::angleTransitMode m = Star::atAsc;
-             m < Star::numAngles;
-             m = Star::angleTransitMode(m + 1))
+        for (Star::angleTransitMode m = Star::atAsc; m < Star::numAngles;
+             m                        = Star::angleTransitMode(m + 1))
         {
             double RA_target = at[m];
-            double delta_deg = swe_difdeg2n(RA_target, RAMC0); // signed difference
-            double delta_jd = delta_deg / 360.0 * sidereal_day;
-            double jd_target = jd0 + delta_jd;
+            double delta_deg =
+                swe_difdeg2n(RA_target, RAMC0); // signed difference
+            double delta_jd     = delta_deg / 360.0 * sidereal_day;
+            double jd_target    = jd0 + delta_jd;
             ret.angleTransit[m] = dateTimeFromJulian(jd_target);
 
             swe_split_deg(RA_target, 0, &deg, &min, &sec, &frac, &sgn);
@@ -682,9 +720,7 @@ calculatePlanet(PlanetId planet,
 }
 
 qreal
-PlanetLoc::compute(const InputData& ida,
-                   double jd,
-                   int h)
+PlanetLoc::compute(const InputData& ida, double jd, int h)
 {
     qreal pos;
     std::tie(pos, speed) = compute(planet, ida, jd);
@@ -696,17 +732,15 @@ PlanetLoc::compute(const InputData& ida,
     return pos;
 }
 
-std::pair<qreal,qreal>
-PlanetLoc::compute(const ChartPlanetId& planet,
-                   const InputData& ida,
-                   double jd)
+std::pair<qreal, qreal>
+PlanetLoc::compute(const ChartPlanetId& planet, const InputData& ida, double jd)
 {
     constexpr uint invertPositionFlag = 256 * 1024;
-    char errStr[256] = "";
+    char           errStr[256]        = "";
 
     const Planet& p1(getPlanet(planet.planetId()));
-    uint flags = (SEFLG_SWIEPH | p1.sweFlags) & ~SEFLG_TRUEPOS;
-    bool trop = true;
+    uint          flags = (SEFLG_SWIEPH | p1.sweFlags) & ~SEFLG_TRUEPOS;
+    bool          trop  = true;
     if (ida.zodiac() > 1) {
         trop = false;
         flags |= SEFLG_SIDEREAL;
@@ -717,40 +751,44 @@ PlanetLoc::compute(const ChartPlanetId& planet,
     swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
     auto eps = xx[0];
 
-    typedef std::pair<double,double> posSpd;
-    auto getAscMC = [&](unsigned i, bool trop = false)
-            -> posSpd
-    {
+    typedef std::pair<double, double> posSpd;
+    auto getAscMC = [&](unsigned i, bool trop = false) -> posSpd {
         double cusps[14], cuspspd[14], ascmc[11], ascmcspd[11];
-        auto jdut = getUTfromET(jd);
-        uint flags = SEFLG_SWIEPH;
+        auto   jdut  = getUTfromET(jd);
+        uint   flags = SEFLG_SWIEPH;
         if (!trop) flags |= SEFLG_SIDEREAL;
-        swe_houses_ex2(jdut, flags,
-                      ida.location().y(), ida.location().x(),
-                      'C', cusps, ascmc, cuspspd, ascmcspd,
+        swe_houses_ex2(jdut,
+                       flags,
+                       ida.location().y(),
+                       ida.location().x(),
+                       'C',
+                       cusps,
+                       ascmc,
+                       cuspspd,
+                       ascmcspd,
                        errStr);
         return { ascmc[i], ascmcspd[i] };
     };
 
     auto getPos = [&](const Planet& p, qreal& speed) -> qreal {
-        int ret = ERR;
+        int   ret = ERR;
         qreal pos = 0.0;
         switch (aspectMode) {
         case amcEcliptic:
             if (p.id == Planet_Asc || p.id == Planet_Desc) {
-                std::tie(pos,speed) = getAscMC(0, trop);
-                if (p.id==Planet_Desc) pos = swe_degnorm(pos+180.);
+                std::tie(pos, speed) = getAscMC(0, trop);
+                if (p.id == Planet_Desc) pos = swe_degnorm(pos + 180.);
                 ret = OK;
                 // FIXME speed?
             } else if (p.id == Planet_MC || p.id == Planet_IC) {
-                std::tie(pos,speed) = getAscMC(1, trop);
-                if (p.id==Planet_IC) pos = swe_degnorm(pos+180.);
+                std::tie(pos, speed) = getAscMC(1, trop);
+                if (p.id == Planet_IC) pos = swe_degnorm(pos + 180.);
                 ret = OK;
                 // FIXME speed?
             } else {
                 ret = swe_calc_ut(jd, p.sweNum, flags, xx, errStr);
                 pos = xx[0];
-                if (p.id==Planet_SouthNode) pos = swe_degnorm(pos+180.);
+                if (p.id == Planet_SouthNode) pos = swe_degnorm(pos + 180.);
                 speed = xx[3];
             }
             break;
@@ -758,68 +796,79 @@ PlanetLoc::compute(const ChartPlanetId& planet,
         case amcEquatorial:
             if (p.id == Planet_Asc || p.id == Planet_Desc) {
                 double xx[6];
-                std::tie(xx[0],speed) = getAscMC(0, true/*trop*/);
+                std::tie(xx[0], speed) = getAscMC(0, true /*trop*/);
                 xx[1] = 0, xx[2] = 1.0;
                 swe_cotrans(xx, xx, -eps);
                 pos = xx[0];
-                if (p.id==Planet_Desc) pos = swe_degnorm(pos+180.);
+                if (p.id == Planet_Desc) pos = swe_degnorm(pos + 180.);
                 ret = OK;
                 // FIXME speed?
             } else if (p.id == Planet_MC || p.id == Planet_IC) {
                 // XXX do we not use cotrans here, too?
-                std::tie(pos,speed) = getAscMC(2, true/*trop*/);
-                if (p.id==Planet_IC) pos = swe_degnorm(pos+180.);
+                std::tie(pos, speed) = getAscMC(2, true /*trop*/);
+                if (p.id == Planet_IC) pos = swe_degnorm(pos + 180.);
                 ret = OK;
             } else {
-                ret = swe_calc_ut(jd, p.sweNum,
-                                  (flags & ~SEFLG_SIDEREAL)
-                                  | SEFLG_EQUATORIAL | SEFLG_SPEED,
-                                  xx, errStr);
+                ret = swe_calc_ut(jd,
+                                  p.sweNum,
+                                  (flags & ~SEFLG_SIDEREAL) | SEFLG_EQUATORIAL
+                                      | SEFLG_SPEED,
+                                  xx,
+                                  errStr);
                 pos = xx[0];
-                if (p.id==Planet_SouthNode) pos = swe_degnorm(pos+180.);
+                if (p.id == Planet_SouthNode) pos = swe_degnorm(pos + 180.);
                 speed = xx[3];
             }
             break;
 
         default:
-        case amcPrimeVertical:
-        {
+        case amcPrimeVertical: {
             if (p.id == Planet_Asc) {
-                pos = 0; ret = OK; // speed?
+                pos = 0;
+                ret = OK; // speed?
             } else if (p.id == Planet_Desc) {
-                pos = 180; ret = OK;
+                pos = 180;
+                ret = OK;
             } else if (p.id == Planet_MC) {
-                pos = 270; ret = OK; // speed?
+                pos = 270;
+                ret = OK; // speed?
             } else if (p.id == Planet_IC) {
-                pos = 90; ret = OK;
+                pos = 90;
+                ret = OK;
             } else {
-                ret = swe_calc_ut(jd, p.sweNum,
+                ret           = swe_calc_ut(jd,
+                                  p.sweNum,
                                   flags & ~SEFLG_SIDEREAL,
-                                  xx, errStr);
-                auto housePos = swe_house_pos(getAscMC(2,true/*trop*/).first,
-                                              ida.location().y(), eps,
-                                              'C', xx, errStr);
-                pos = (housePos - 1)/12*360;
+                                  xx,
+                                  errStr);
+                auto housePos = swe_house_pos(getAscMC(2, true /*trop*/).first,
+                                              ida.location().y(),
+                                              eps,
+                                              'C',
+                                              xx,
+                                              errStr);
+                pos           = (housePos - 1) / 12 * 360;
             }
             break;
         }
         }
         if (ret != ERR) return pos;
-        qDebug() << "Can't calculate position of " << p1.name
-                 << "at jd" << jd << ":" << errStr;
+        qDebug() << "Can't calculate position of " << p1.name << "at jd" << jd
+                 << ":" << errStr;
         return 0;
     };
 
     qreal speed = 0;
-    auto pos = getPos(p1,speed);
+    auto  pos   = getPos(p1, speed);
     if (planet.isMidpt()) {
         qreal speed2 = 0;
-        auto pos2 = getPos(getPlanet(planet.planetId2()),speed2);
+        auto  pos2   = getPos(getPlanet(planet.planetId2()), speed2);
         if (pos - pos2 >= 180.) pos -= 360.;
-        else if (pos2 - pos >= 180.) pos2 -= 360.;
-        pos = swe_degnorm((pos + pos2)/2.);
+        else if (pos2 - pos >= 180.)
+            pos2 -= 360.;
+        pos = swe_degnorm((pos + pos2) / 2.);
         speed += speed2;
-        if (planet.isOppMidpt()) pos = swe_degnorm(pos+180.);
+        if (planet.isOppMidpt()) pos = swe_degnorm(pos + 180.);
     }
     return { pos, speed };
 }
@@ -841,21 +890,16 @@ PlanetLoc::defaultSpeed() const
             auto p2 = getPlanet(planet.planetId2());
             return std::abs(p1.defaultEclipticSpeed.x()
                             - p2.defaultEclipticSpeed.y());
-
         }
         return getPlanet(planet.planetId()).defaultEclipticSpeed.x();
-    case amcPrimeVertical:
-        return -360;
-    default:
-        return 0;
+    case amcPrimeVertical: return -360;
+    default:               return 0;
     }
 }
 
 /*static*/
 std::pair<qreal, qreal>
-PlanetProfile::computeDelta(const Loc* a,
-                            const Loc* b,
-                            unsigned int h /*=1*/)
+PlanetProfile::computeDelta(const Loc* a, const Loc* b, unsigned int h /*=1*/)
 {
     // It is not obvious what needs to happen here.
     // We certainly want to update the positions of the in-motion
@@ -871,13 +915,14 @@ PlanetProfile::computeDelta(const Loc* a,
     // value, but we only have one degree of freedom (one input variable)
     // to control...
     qreal speed = (a->speed + b->speed);
-    if (h>1) speed *= qreal(h);
+    if (h > 1) speed *= qreal(h);
 
-    qreal apos = h>1? harmonic(h,a->loc) : a->loc;
-    qreal bpos = h>1? harmonic(h,b->loc) : b->loc;
+    qreal apos = h > 1 ? harmonic(h, a->loc) : a->loc;
+    qreal bpos = h > 1 ? harmonic(h, b->loc) : b->loc;
 
     if (bpos - apos > 180) bpos -= 360;
-    else if (apos - bpos > 180) bpos += 360;
+    else if (apos - bpos > 180)
+        bpos += 360;
 
     return { bpos - apos, speed };
 }
@@ -885,43 +930,42 @@ PlanetProfile::computeDelta(const Loc* a,
 /*static*/
 std::pair<qreal, qreal>
 PlanetProfile::computeSpread(std::initializer_list<const Loc*> locs,
-                             unsigned int h /*=1*/)
+                             unsigned int                      h /*=1*/)
 {
     std::vector<qreal> pos(locs.size());
-    qreal spd = 0.0;
-    unsigned i = 0;
-    for (auto loc: locs) {
-        pos[i++] = (h > 1? harmonic(h,loc->loc) : loc->loc);
-        spd += (h > 1? loc->speed*qreal(h) : loc->speed);
+    qreal              spd = 0.0;
+    unsigned           i   = 0;
+    for (auto loc : locs) {
+        pos[i++] = (h > 1 ? harmonic(h, loc->loc) : loc->loc);
+        spd += (h > 1 ? loc->speed * qreal(h) : loc->speed);
     }
-    if (false && locs.size()==2) {
-        return { angle(pos[0],pos[1]), spd };
+    if (false && locs.size() == 2) {
+        return { angle(pos[0], pos[1]), spd };
     }
 
     qreal maxa = 0;
-    for (unsigned i = 0, n = pos.size(); i+1 < n; ++i) {
-        for (unsigned j = i+1; j < n; ++j) {
+    for (unsigned i = 0, n = pos.size(); i + 1 < n; ++i) {
+        for (unsigned j = i + 1; j < n; ++j) {
             auto a = angle(pos[i], pos[j]);
             if (a > maxa) maxa = a;
         }
     }
-    return { maxa, spd };   // XXX
+    return { maxa, spd }; // XXX
 }
 
 qreal
-PlanetProfile::computePos(double jd,
-                          unsigned int h /*=1*/)
+PlanetProfile::computePos(double jd, unsigned int h /*=1*/)
 {
-    Loc::loc = 0;
+    Loc::loc   = 0;
     Loc::speed = 0;
     for (auto loc : *this) {
         (*loc)(jd, 1);
     }
     if (size() == 1) {
-        Loc::loc = h > 1? harmonic(h,front()->loc) : front()->loc;
-        Loc::speed = h > 1? h * front()->speed : front()->speed;
+        Loc::loc   = h > 1 ? harmonic(h, front()->loc) : front()->loc;
+        Loc::speed = h > 1 ? h * front()->speed : front()->speed;
     } else if (size() == 2) {
-        std::tie(Loc::loc, Loc::speed) = computeDelta(front(),back(), h);
+        std::tie(Loc::loc, Loc::speed) = computeDelta(front(), back(), h);
     }
     return Loc::loc;
 }
@@ -929,12 +973,12 @@ PlanetProfile::computePos(double jd,
 PlanetProfile::PlanetProfile(std::initializer_list<QMap<int, Planet>*> pms)
 {
     int fid = 0;
-    for (auto ppm: pms) {
+    for (auto ppm : pms) {
         auto& pm = *ppm;
-        for (const auto& plan: pm) {
-            auto pid = plan.id;
+        for (const auto& plan : pm) {
+            auto  pid  = plan.id;
             qreal ploc = plan.getPrefPos();
-            qreal spd = plan.getPrefSpd();
+            qreal spd  = plan.getPrefSpd();
             emplace_back(new PlanetLoc(fid, pid, ploc, spd));
         }
         ++fid;
@@ -951,33 +995,34 @@ PlanetProfile::computeSpread(double jd)
 qreal
 PlanetProfile::computeSpread()
 {
-    if (size()==2) return angle(at(0)->loc,at(1)->loc);
+    if (size() == 2) return angle(at(0)->loc, at(1)->loc);
 
-    std::sort(begin(), end(),
-              [](const Loc* a, const Loc* b)
-    { return a->loc < b->loc; });
+    std::sort(begin(), end(), [](const Loc* a, const Loc* b) {
+        return a->loc < b->loc;
+    });
 
     qreal maxa = 0;
     for (unsigned i = 0, n = size(); i < n; ++i) {
-        auto a = angle(at(i)->loc, at((i+1) % n)->loc);
+        auto a = angle(at(i)->loc, at((i + 1) % n)->loc);
         if (a > maxa) maxa = a;
     }
 
     return maxa;
 }
 
-Star calculateStar(const QString& name,
-                   const InputData& input,
-                   const Houses& houses,
-                   const Zodiac& zodiac)
+Star
+calculateStar(const QString&   name,
+              const InputData& input,
+              const Houses&    houses,
+              const Zodiac&    zodiac)
 {
     Star ret = getStar(name);
 
-    uint    invertPositionFlag = 256 * 1024;
-    double  jd = getJulianDate(input.GMT());
-    char    errStr[256] = "";
+    uint   invertPositionFlag = 256 * 1024;
+    double jd                 = getJulianDate(input.GMT());
+    char   errStr[256]        = "";
 
-    double  xx[6];
+    double xx[6];
     swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
     double eps = xx[0];
 
@@ -994,18 +1039,19 @@ Star calculateStar(const QString& name,
     if (swe_fixstar_ut(starName, jd, flags | SEFLG_SWIEPH, xx, errStr) != ERR
         && strlen(errStr) != ERR)
     {
-        if (!(ret.sweFlags & invertPositionFlag))
-            ret.eclipticPos.setX(xx[0]);
-        else                               // found 'inverted position' flag
+        if (!(ret.sweFlags & invertPositionFlag)) ret.eclipticPos.setX(xx[0]);
+        else // found 'inverted position' flag
             ret.eclipticPos.setX(roundDegree(xx[0] - 180));
 
         ret.eclipticPos.setY(xx[1]);
         ret.distance = xx[2];
 
-        if (swe_fixstar_ut(starName, jd,
+        if (swe_fixstar_ut(starName,
+                           jd,
                            (flags & ~SEFLG_SIDEREAL) | SEFLG_SWIEPH
                                | SEFLG_EQUATORIAL,
-                           xx, errStr)
+                           xx,
+                           errStr)
                 != ERR
             && strlen(errStr) == 0)
         {
@@ -1013,7 +1059,7 @@ Star calculateStar(const QString& name,
             ret.equatorialPos.setY(xx[1]);
         }
 
-        double geopos[3];                  // calculate horizontal coordinates
+        double geopos[3]; // calculate horizontal coordinates
         double hor[3];
         geopos[0] = input.location().x();
         geopos[1] = input.location().y();
@@ -1026,15 +1072,19 @@ Star calculateStar(const QString& name,
             double rettm;
             int    eflg = SEFLG_SWIEPH;
 
-            for (auto m = Star::atAsc;
-                 m < Star::numAngles;
-                 m = Star::angleTransitMode(m + 1))
+            for (auto m = Star::atAsc; m < Star::numAngles;
+                 m      = Star::angleTransitMode(m + 1))
             {
                 if (swe_rise_trans(houses.startSpeculum,
-                                   -1, starName, eflg,
+                                   -1,
+                                   starName,
+                                   eflg,
                                    Star::angleTransitFlag(m),
-                                   geopos, 1013.25, 10,
-                                   &rettm, errStr)
+                                   geopos,
+                                   1013.25,
+                                   10,
+                                   &rettm,
+                                   errStr)
                     >= 0)
                 {
                     ret.angleTransit[m] = Planet::timeToDT(rettm);
@@ -1058,9 +1108,9 @@ Star calculateStar(const QString& name,
             at[Star::atDesc] = swe_degnorm(houses.RAMC - (houses.ODDC - OD));
             at[Star::atIC]   = swe_degnorm(RA - 180);
 
-            double jd0 = getJulianDate(input.GMT());
-            double RAMC0 = houses.RAMC; // in degrees
-            double sidereal_day = 0.99726958; // days
+            double jd0          = getJulianDate(input.GMT());
+            double RAMC0        = houses.RAMC; // in degrees
+            double sidereal_day = 0.99726958;  // days
 
 #if 0
             QString rastr = "Star Angle Transits in RA of " + ret.name.left(3);
@@ -1068,14 +1118,14 @@ Star calculateStar(const QString& name,
             int32   deg, min, sec, sgn;
             double  frac;
 #endif
-            for (auto m = Star::atAsc;
-                 m < Star::numAngles;
-                 m = Star::angleTransitMode(m + 1))
+            for (auto m = Star::atAsc; m < Star::numAngles;
+                 m      = Star::angleTransitMode(m + 1))
             {
                 double RA_target = at[m];
-                double delta_deg = swe_difdeg2n(RA_target, RAMC0); // signed difference
-                double delta_jd = delta_deg / 360.0 * sidereal_day;
-                double jd_target = jd0 + delta_jd;
+                double delta_deg =
+                    swe_difdeg2n(RA_target, RAMC0); // signed difference
+                double delta_jd     = delta_deg / 360.0 * sidereal_day;
+                double jd_target    = jd0 + delta_jd;
                 ret.angleTransit[m] = dateTimeFromJulian(jd_target);
 #if 0
                 swe_split_deg(RA_target, 0, &deg, &min, &sec, &frac, &sgn);
@@ -1088,11 +1138,13 @@ Star calculateStar(const QString& name,
                 delim = ',';
 #endif
             }
-            //qDebug() << qPrintable(rastr);
+            // qDebug() << qPrintable(rastr);
         }
     } else {
         qDebug("A: can't calculate position of '%s' at julian day %f: %s",
-               qPrintable(ret.name), jd, errStr);
+               qPrintable(ret.name),
+               jd,
+               errStr);
     }
 
     ret.house = getHouse(houses, ret.eclipticPos.x());
@@ -1101,20 +1153,20 @@ Star calculateStar(const QString& name,
 }
 
 Houses
-calculateHouses( const InputData& input )
+calculateHouses(const InputData& input)
 {
     Houses ret;
-    ret.system = &getHouseSystem(input.houseSystem());
+    ret.system         = &getHouseSystem(input.houseSystem());
     unsigned int flags = SEFLG_SWIEPH;
     if (input.zodiac() > 1) {
         flags |= SEFLG_SIDEREAL;
         swe_set_sid_mode(input.zodiac() - 2, 0, 0);
     }
 
-    double julianDay = getJulianDate(input.GMT(), false/*i.e., UT*/);
-    double  jd = getJulianDate(input.GMT(), true/*i.e., ET*/);
-    char    errStr[256] = "";
-    double  xx[6];
+    double julianDay   = getJulianDate(input.GMT(), false /*i.e., UT*/);
+    double jd          = getJulianDate(input.GMT(), true /*i.e., ET*/);
+    char   errStr[256] = "";
+    double xx[6];
 
     swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
     double eps = xx[0];
@@ -1122,81 +1174,99 @@ calculateHouses( const InputData& input )
     double hcusps[14], ascmc[11];
 
     // get the tropical ascendant...
-    swe_houses_ex(julianDay, flags & ~SEFLG_SIDEREAL, 
-                  input.location().y(), input.location().x(),
-                  ret.system->sweCode, hcusps, ascmc);
-    double asc = ascmc[0];   // tropical asc
-    xx[0] = ascmc[0]; xx[1] = 0.0; xx[2] = 1.0;
+    swe_houses_ex(julianDay,
+                  flags & ~SEFLG_SIDEREAL,
+                  input.location().y(),
+                  input.location().x(),
+                  ret.system->sweCode,
+                  hcusps,
+                  ascmc);
+    double asc = ascmc[0]; // tropical asc
+    xx[0]      = ascmc[0];
+    xx[1]      = 0.0;
+    xx[2]      = 1.0;
     swe_cotrans(xx, xx, -eps);
     ret.RAAC = xx[0];
-    xx[0] = swe_degnorm(ascmc[0]+180); xx[1] = 0.0; xx[2] = 1.0;
+    xx[0]    = swe_degnorm(ascmc[0] + 180);
+    xx[1]    = 0.0;
+    xx[2]    = 1.0;
     swe_cotrans(xx, xx, -eps);
     ret.RADC = xx[0];
     // TODO could also get eastpoint and vertex in RA here...
 
     if (flags & SEFLG_SIDEREAL) {
-        swe_houses_ex(julianDay, flags, input.location().y(), input.location().x(),
-                      ret.system->sweCode, hcusps, ascmc);
+        swe_houses_ex(julianDay,
+                      flags,
+                      input.location().y(),
+                      input.location().x(),
+                      ret.system->sweCode,
+                      hcusps,
+                      ascmc);
     }
 
-    for (int i = 0; i < 12; i++)
-        ret.cusp[i] = hcusps[i+1];
+    for (int i = 0; i < 12; i++) ret.cusp[i] = hcusps[i + 1];
 
-    ret.Asc   = ascmc[0];
-    ret.MC    = ascmc[1];
-    ret.RAMC  = ascmc[2];
-    ret.Vx    = ascmc[3];
-    ret.EA    = ascmc[4];
+    ret.Asc  = ascmc[0];
+    ret.MC   = ascmc[1];
+    ret.RAMC = ascmc[2];
+    ret.Vx   = ascmc[3];
+    ret.EA   = ascmc[4];
 
-    double st = swe_degnorm((swe_sidtime(julianDay)) * 15 + input.location().x());
+    double st =
+        swe_degnorm((swe_sidtime(julianDay)) * 15 + input.location().x());
     double frac;
-    int deg, min, sec, sgn;
+    int    deg, min, sec, sgn;
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
-    //qDebug("ST from GMT %3d %02d %02d", deg, min, sec);
+    // qDebug("ST from GMT %3d %02d %02d", deg, min, sec);
     st = swe_degnorm(ret.RAMC);
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
-    //qDebug("ST from RAMC %3d %02d %02d", deg, min, sec);
+    // qDebug("ST from RAMC %3d %02d %02d", deg, min, sec);
 
     st = swe_degnorm(ret.RAAC);
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
-    //qDebug("RAAC %3d %02d %02d", deg, min, sec);
+    // qDebug("RAAC %3d %02d %02d", deg, min, sec);
 
     double DD = asind(sind(eps) * sind(asc));
     double AD = asind(tand(DD) * tand(input.location().y()));
-    ret.OAAC = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
-    DD = asind(sind(eps) * sind(swe_degnorm(asc + 180)));
-    AD = asind(tand(DD) * tand(input.location().y()));
-    ret.ODDC = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
+    ret.OAAC  = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
+    DD        = asind(sind(eps) * sind(swe_degnorm(asc + 180)));
+    AD        = asind(tand(DD) * tand(input.location().y()));
+    ret.ODDC  = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
 
     ret.halfMedium = swe_difdegn(ret.RAAC, ret.RAMC);
-    ret.halfImum = 180 - ret.halfMedium;
-    //ret.swneDelta = swe_degnorm(ret.RAMC - swe_degnorm(ret.RAAC - 180)) / 360.0;
+    ret.halfImum   = 180 - ret.halfMedium;
+    // ret.swneDelta = swe_degnorm(ret.RAMC - swe_degnorm(ret.RAAC - 180)) /
+    // 360.0;
 
     // compute house position of sun so we can see
     // whether it's closer to sunset or sunrise.
 
     // first get tropical position (well, latitude)
-    swe_calc_ut(julianDay,SE_SUN,flags & ~SEFLG_SIDEREAL, xx, errStr);
+    swe_calc_ut(julianDay, SE_SUN, flags & ~SEFLG_SIDEREAL, xx, errStr);
 
-    double geopos[3] = {
-        input.location().x(),
-        input.location().y(),
-        input.location().z()
-    };
+    double geopos[3] = { input.location().x(),
+                         input.location().y(),
+                         input.location().z() };
 
-    double housePos = swe_house_pos(ret.RAMC,geopos[1],eps, 'C',
-                                    xx, errStr);
+    double housePos = swe_house_pos(ret.RAMC, geopos[1], eps, 'C', xx, errStr);
 
     // now get our speculum start
-    int which = (housePos>=4 && housePos<10)? SE_CALC_RISE : SE_CALC_SET;
-    swe_rise_trans(julianDay - 1, SE_SUN, NULL, SEFLG_SWIEPH,
-                   which, geopos, 1013.25, 10,
-                   &ret.startSpeculum, errStr);
+    int which = (housePos >= 4 && housePos < 10) ? SE_CALC_RISE : SE_CALC_SET;
+    swe_rise_trans(julianDay - 1,
+                   SE_SUN,
+                   NULL,
+                   SEFLG_SWIEPH,
+                   which,
+                   geopos,
+                   1013.25,
+                   10,
+                   &ret.startSpeculum,
+                   errStr);
 
     return ret;
 }
 
-PlanetPower 
+PlanetPower
 calculatePlanetPower(const Planet& planet, const Horoscope& scope)
 {
     PlanetPower ret;
@@ -1205,7 +1275,6 @@ calculatePlanetPower(const Planet& planet, const Horoscope& scope)
 
     if (!planet.isReal) return ret;
 
-
     bool peregrine = false;
     switch (planet.position) {
     case Position_Dwelling:
@@ -1213,29 +1282,32 @@ calculatePlanetPower(const Planet& planet, const Horoscope& scope)
     case Position_Exile:      ret.deficient -= 5; break;
     case Position_Downfall:   ret.deficient -= 4; break;
     case Position_Normal:     peregrine = true;
-    default: break;
+    default:                  break;
     }
 
-    if (receptionWith(planet, scope) != Planet_None)
-        ret.dignity += 5;
+    if (receptionWith(planet, scope) != Planet_None) ret.dignity += 5;
     else if (peregrine)
         ret.deficient -= 5;
 
-
     switch (planet.house) {
-    case 1: case 10:         ret.dignity += 5; break;
-    case 4: case 7: case 11: ret.dignity += 4; break;
-    case 2: case 5:          ret.dignity += 3; break;
-    case 9:                  ret.dignity += 2; break;
-    case 3:                  ret.dignity += 1; break;
-    case 12:                 ret.deficient -= 5; break;
-    case 8: case 6:          ret.deficient -= 2; break;
+    case 1:
+    case 10: ret.dignity += 5; break;
+    case 4:
+    case 7:
+    case 11: ret.dignity += 4; break;
+    case 2:
+    case 5:  ret.dignity += 3; break;
+    case 9:  ret.dignity += 2; break;
+    case 3:  ret.dignity += 1; break;
+    case 12: ret.deficient -= 5; break;
+    case 8:
+    case 6:  ret.deficient -= 2; break;
     default: break;
     }
 
-    if (planet.eclipticSpeed.x() > 0
-        && planet.id != Planet_Sun
-        && planet.id != Planet_Moon) {
+    if (planet.eclipticSpeed.x() > 0 && planet.id != Planet_Sun
+        && planet.id != Planet_Moon)
+    {
         ret.dignity += 4;
     }
 
@@ -1250,16 +1322,14 @@ calculatePlanetPower(const Planet& planet, const Horoscope& scope)
     case Planet_Mars:
     case Planet_Jupiter:
     case Planet_Saturn:
-        if (isEarlier(planet, scope.sun))
-            ret.dignity += 2;
+        if (isEarlier(planet, scope.sun)) ret.dignity += 2;
         else
             ret.deficient -= 2;
         break;
     case Planet_Mercury:
     case Planet_Venus:
     case Planet_Moon:
-        if (!isEarlier(planet, scope.sun))
-            ret.dignity += 2;
+        if (!isEarlier(planet, scope.sun)) ret.dignity += 2;
         else
             ret.deficient -= 2;
         break;
@@ -1276,101 +1346,100 @@ calculatePlanetPower(const Planet& planet, const Horoscope& scope)
     }
 
     if (planet.id != Planet_Jupiter)
-    switch (aspect(planet, scope.jupiter, topAspectSet())) {
-    case Aspect_Conjunction: ret.dignity += 5; break;
-    case Aspect_Trine:       ret.dignity += 4; break;
-    case Aspect_Sextile:     ret.dignity += 3; break;
-    default: break;
-    }
+        switch (aspect(planet, scope.jupiter, topAspectSet())) {
+        case Aspect_Conjunction: ret.dignity += 5; break;
+        case Aspect_Trine:       ret.dignity += 4; break;
+        case Aspect_Sextile:     ret.dignity += 3; break;
+        default:                 break;
+        }
 
     if (planet.id != Planet_Venus)
-    switch (aspect(planet, scope.venus, topAspectSet())) {
-    case Aspect_Conjunction: ret.dignity += 5; break;
-    case Aspect_Trine:       ret.dignity += 4; break;
-    case Aspect_Sextile:     ret.dignity += 3; break;
-    default: break;
-    }
+        switch (aspect(planet, scope.venus, topAspectSet())) {
+        case Aspect_Conjunction: ret.dignity += 5; break;
+        case Aspect_Trine:       ret.dignity += 4; break;
+        case Aspect_Sextile:     ret.dignity += 3; break;
+        default:                 break;
+        }
 
     if (planet.id != Planet_NorthNode)
-    switch (aspect(planet, scope.northNode, topAspectSet())) {
-    case Aspect_Conjunction:
-    /*case Aspect_Trine:
-    case Aspect_Sextile:     ret.dignity   += 4; break;
-    case Aspect_Opposition:  ret.deficient -= 4; break;*/
-    default: break;
-    }
+        switch (aspect(planet, scope.northNode, topAspectSet())) {
+        case Aspect_Conjunction:
+        /*case Aspect_Trine:
+        case Aspect_Sextile:     ret.dignity   += 4; break;
+        case Aspect_Opposition:  ret.deficient -= 4; break;*/
+        default: break;
+        }
 
     if (planet.id != Planet_Mars)
-    switch (aspect(planet, scope.mars, topAspectSet())) {
-    case Aspect_Conjunction: ret.deficient -= 5; break;
-    case Aspect_Opposition:  ret.deficient -= 4; break;
-    case Aspect_Quadrature:  ret.deficient -= 3; break;
-    default: break;
-    }
+        switch (aspect(planet, scope.mars, topAspectSet())) {
+        case Aspect_Conjunction: ret.deficient -= 5; break;
+        case Aspect_Opposition:  ret.deficient -= 4; break;
+        case Aspect_Quadrature:  ret.deficient -= 3; break;
+        default:                 break;
+        }
 
     if (planet.id != Planet_Saturn)
-    switch (aspect(planet, scope.saturn, topAspectSet())) {
-    case Aspect_Conjunction: ret.deficient -= 5; break;
-    case Aspect_Opposition:  ret.deficient -= 4; break;
-    case Aspect_Quadrature:  ret.deficient -= 3; break;
-    default: break;
-    }
+        switch (aspect(planet, scope.saturn, topAspectSet())) {
+        case Aspect_Conjunction: ret.deficient -= 5; break;
+        case Aspect_Opposition:  ret.deficient -= 4; break;
+        case Aspect_Quadrature:  ret.deficient -= 3; break;
+        default:                 break;
+        }
 
-    if (aspect(planet, scope.stars["Regulus"], tightConjunction()) == Aspect_Conjunction)
-        ret.dignity += 6;                  // Regulus coordinates at 2000year: 29LEO50, +00.27'
+    if (aspect(planet, scope.stars["Regulus"], tightConjunction())
+        == Aspect_Conjunction)
+        ret.dignity += 6; // Regulus coordinates at 2000year: 29LEO50, +00.27'
 
-    if (aspect(planet, scope.stars["Spica"], tightConjunction()) == Aspect_Conjunction)
-        ret.dignity += 5;                  // Spica coordinates at 2000year: 23LIB50, -02.03'
+    if (aspect(planet, scope.stars["Spica"], tightConjunction())
+        == Aspect_Conjunction)
+        ret.dignity += 5; // Spica coordinates at 2000year: 23LIB50, -02.03'
 
-    if (aspect(planet, scope.stars["Algol"], tightConjunction()) == Aspect_Conjunction)
-        ret.deficient -= 5;                // Algol coordinates at 2000year: 26TAU10, +22.25'
+    if (aspect(planet, scope.stars["Algol"], tightConjunction())
+        == Aspect_Conjunction)
+        ret.deficient -= 5; // Algol coordinates at 2000year: 26TAU10, +22.25'
 
     return ret;
 }
 
 Aspect
-calculateAspect( const AspectsSet& aspectSet,
-                 const Planet& planet1,
-                 const Planet& planet2 )
+calculateAspect(const AspectsSet& aspectSet,
+                const Planet&     planet1,
+                const Planet&     planet2)
 {
     Aspect a;
 
-    a.angle   = angle(planet1, planet2);
-    a.d       = &getAspect(aspect(a.angle, aspectSet), aspectSet);
-    a.orb     = fabs(a.d->angle - a.angle);
-    a.planet1 = &planet1;
-    a.planet2 = &planet2;
-    a.applying  = towardsMovement(planet1, planet2) == (a.angle > a.d->angle);
+    a.angle    = angle(planet1, planet2);
+    a.d        = &getAspect(aspect(a.angle, aspectSet), aspectSet);
+    a.orb      = fabs(a.d->angle - a.angle);
+    a.planet1  = &planet1;
+    a.planet2  = &planet2;
+    a.applying = towardsMovement(planet1, planet2) == (a.angle > a.d->angle);
 
     return a;
 }
 
-inline
-Aspect
-calculateAspect(const AspectsSet& asps,
-                const Planet* p1,
-                const Planet* p2)
-{ return calculateAspect(asps, *p1, *p2); }
+inline Aspect
+calculateAspect(const AspectsSet& asps, const Planet* p1, const Planet* p2)
+{
+    return calculateAspect(asps, *p1, *p2);
+}
 
 Aspect
-calculateAspect(const AspectsSet& aspectSet,
-                 const Loc *p1loc,
-                 const Loc *p2loc )
+calculateAspect(const AspectsSet& aspectSet, const Loc* p1loc, const Loc* p2loc)
 {
     Aspect a;
-    auto l1 = p1loc->loc;
+    auto   l1 = p1loc->loc;
     if (auto pl = dynamic_cast<const PlanetLoc*>(p1loc)) l1 = pl->rasiLoc();
     auto l2 = p2loc->loc;
     if (auto pl = dynamic_cast<const PlanetLoc*>(p2loc)) l2 = pl->rasiLoc();
     a.angle = angle(l1, l2);
-    a.d = &getAspect(aspect(a.angle, aspectSet), aspectSet);
-    a.orb = fabs(a.d->angle - a.angle);
+    a.d     = &getAspect(aspect(a.angle, aspectSet), aspectSet);
+    a.orb   = fabs(a.d->angle - a.angle);
     return a;
 }
 
 AspectList
-calculateAspects( const AspectsSet& aspectSet,
-                  const PlanetMap &planets )
+calculateAspects(const AspectsSet& aspectSet, const PlanetMap& planets)
 {
     AspectList ret;
 
@@ -1381,16 +1450,17 @@ calculateAspects( const AspectsSet& aspectSet,
             || i->id == Planet_Chiron)
         {
 #endif
-            PlanetMap::const_iterator j = std::next(i);
-            while (j != planets.constEnd()) {
-                if (/*((j->id >= Planet_Sun && j->id <= Planet_Pluto)
-                     || j->id == Planet_Chiron)
-                    &&*/ aspect(i.value(), j.value(), aspectSet) != Aspect_None)
-                {
-                    ret << calculateAspect(aspectSet, i.value(), j.value());
-                }
-                ++j;
+        PlanetMap::const_iterator j = std::next(i);
+        while (j != planets.constEnd()) {
+            if (/*((j->id >= Planet_Sun && j->id <= Planet_Pluto)
+                 || j->id == Planet_Chiron)
+                &&*/
+                aspect(i.value(), j.value(), aspectSet) != Aspect_None)
+            {
+                ret << calculateAspect(aspectSet, i.value(), j.value());
             }
+            ++j;
+        }
 #if 0
         }
 #endif
@@ -1401,16 +1471,13 @@ calculateAspects( const AspectsSet& aspectSet,
 }
 
 AspectList
-calculateAspects(const AspectsSet& aspectSet,
-                 const ChartPlanetPtrMap& planets)
+calculateAspects(const AspectsSet& aspectSet, const ChartPlanetPtrMap& planets)
 {
     AspectList ret;
 
     for (auto it = planets.cbegin(); it != planets.cend(); ++it) {
         for (auto jit = std::next(it); jit != planets.cend(); ++jit) {
-            if (aspect(it->second,jit->second,aspectSet)
-                    != Aspect_None)
-            {
+            if (aspect(it->second, jit->second, aspectSet) != Aspect_None) {
                 ret << calculateAspect(aspectSet, it->second, jit->second);
             }
         }
@@ -1421,27 +1488,29 @@ calculateAspects(const AspectsSet& aspectSet,
 
 AspectList
 calculateAspects(const AspectsSet& aspectSet,
-                 const PlanetMap& planets1,
-                 const PlanetMap& planets2)
+                 const PlanetMap&  planets1,
+                 const PlanetMap&  planets2)
 {
     AspectList ret;
     for (auto i = planets1.constBegin(); i != planets1.constEnd(); ++i) {
-        //if ((i->id >= Planet_Sun && i->id <= Planet_Pluto) || i->id == Planet_Chiron) {
-            for (auto j = planets2.constBegin(); j != planets2.constEnd(); ++j) {
-                if (/*((j->id >= Planet_Sun && j->id <= Planet_Pluto)
-                     || j->id == Planet_Chiron)
-                    &&*/ aspect(i.value(), j.value(), aspectSet) != Aspect_None)
-                {
-                    ret << calculateAspect(aspectSet, i.value(), j.value());
-                }
+        // if ((i->id >= Planet_Sun && i->id <= Planet_Pluto) || i->id ==
+        // Planet_Chiron) {
+        for (auto j = planets2.constBegin(); j != planets2.constEnd(); ++j) {
+            if (/*((j->id >= Planet_Sun && j->id <= Planet_Pluto)
+                 || j->id == Planet_Chiron)
+                &&*/
+                aspect(i.value(), j.value(), aspectSet) != Aspect_None)
+            {
+                ret << calculateAspect(aspectSet, i.value(), j.value());
             }
+        }
         //}
     }
 
     return ret;
 }
 
-void 
+void
 findPlanetStarConfigs(const PlanetMap& planets, StarMap& stars)
 {
     modalize<aspectModeType> aspects(aspectMode, amcGreatCircle);
@@ -1473,23 +1542,23 @@ calculateHarmonic(double h, Planet& p)
 }
 
 void
-calculateHarmonic(double        h,
-                  Houses&       houses,
-                  PlanetMap&    planets,
-                  bool          includeAsteroids = true,
-                  bool          includeCentaurs = true)
+calculateHarmonic(double     h,
+                  Houses&    houses,
+                  PlanetMap& planets,
+                  bool       includeAsteroids = true,
+                  bool       includeCentaurs  = true)
 {
     houses.cusp[0] = harmonic(h, houses.cusp[0]);
     for (int i = 1; i < 12; ++i) {
         // use equal house
-        houses.cusp[i] = fmod(houses.cusp[i-1] + 30.0, 360.);
+        houses.cusp[i] = fmod(houses.cusp[i - 1] + 30.0, 360.);
     }
-    houses.Asc = harmonic(h, houses.Asc);
+    houses.Asc  = harmonic(h, houses.Asc);
     houses.RAAC = harmonic(h, houses.RAAC);
-    houses.MC = harmonic(h, houses.MC);
+    houses.MC   = harmonic(h, houses.MC);
     houses.RAMC = harmonic(h, houses.RAMC);
 
-    for (PlanetId id : getPlanets(includeAsteroids,includeCentaurs)) {
+    for (PlanetId id : getPlanets(includeAsteroids, includeCentaurs)) {
         calculateHarmonic(h, planets[id]);
     }
 }
@@ -1497,7 +1566,7 @@ calculateHarmonic(double        h,
 uintMSet
 getPrimeFactors(unsigned n)
 {
-    // Adapted from 
+    // Adapted from
     // http://www.geeksforgeeks.org/print-all-prime-factors-of-a-given-number/
 
     uintMSet ret;
@@ -1521,7 +1590,7 @@ void
 getPrimeFactors(unsigned n, uintSSet& ss)
 {
     ss.clear();
-    for (auto f: getPrimeFactors(n)) ss.emplace(f);
+    for (auto f : getPrimeFactors(n)) ss.emplace(f);
 }
 
 uintMSet
@@ -1532,7 +1601,7 @@ getAllFactors(unsigned h)
     for (unsigned i = 2, m = sqrt(h); i <= m; ++i) {
         if (h % i == 0) {
             fs.insert(i);
-            fs.insert(h/i);
+            fs.insert(h / i);
         }
     }
     return fs;
@@ -1542,7 +1611,7 @@ void
 getAllFactors(unsigned n, uintSSet& ss)
 {
     ss.clear();
-    for (auto f: getAllFactors(n)) ss.emplace(f);
+    for (auto f : getAllFactors(n)) ss.emplace(f);
 }
 
 void
@@ -1552,11 +1621,10 @@ getAllFactorsAlt(unsigned n, uintSSet& ss)
     ss.emplace(n);
 }
 
-
 bool
 hasPlanetGroupInLowerHarmonic(const PlanetHarmonics& harmonics,
-                              unsigned int harmonic,
-                              const PlanetSet& plist)
+                              unsigned int           harmonic,
+                              const PlanetSet&       plist)
 {
     for (unsigned lower : getAllFactors(harmonic)) {
         auto hat = harmonics.find(lower);
@@ -1575,9 +1643,7 @@ hasPlanetGroupInLowerHarmonic(const PlanetHarmonics& harmonics,
             }
         }
 #else
-        if (hat != scope.harmonics.end()
-            && hat->second.count(plist) != 0) 
-        {
+        if (hat != scope.harmonics.end() && hat->second.count(plist) != 0) {
             return true;
         }
 #endif
@@ -1586,16 +1652,16 @@ hasPlanetGroupInLowerHarmonic(const PlanetHarmonics& harmonics,
 }
 
 bool
-meetsQuorum(const PlanetQueue& curr,
+meetsQuorum(const PlanetQueue&   curr,
             const std::set<int>& needs,
-            unsigned int quorum)
+            unsigned int         quorum)
 {
     std::map<int, int> counts;
-    //std::map<int, bool> hasSolo;
+    // std::map<int, bool> hasSolo;
     unsigned q = 0;
-    //for (int need : needs) { counts[need] = 0; hasSolo[need] = false; }
+    // for (int need : needs) { counts[need] = 0; hasSolo[need] = false; }
     for (const PlanetLoc& pl : curr) {
-        //if (pl.planet.notwo()) hasSolo[pl.planet.fileId()] = true;
+        // if (pl.planet.notwo()) hasSolo[pl.planet.fileId()] = true;
         int n = pl.planet.isSolo() ? 1 : 2;
         q += n, counts[pl.planet.fileId()] += n;
         //++q, ++counts[pl.planet.fileId()];
@@ -1607,11 +1673,11 @@ meetsQuorum(const PlanetQueue& curr,
     return true;
 }
 
-bool 
+bool
 outOfOrb(const PlanetLoc& a,
          const PlanetLoc& b,
-         double orb,
-         bool tightenForMidpoints = false)
+         double           orb,
+         bool             tightenForMidpoints = false)
 {
     if (tightenForMidpoints && (!a.planet.isSolo() || !b.planet.isSolo())) {
         orb /= 10.;
@@ -1629,9 +1695,9 @@ cluster(const PlanetRange& in, qreal orb)
         for (auto q : qs) {
             auto h = q.rbegin();
             while (h != q.rend()) {
-                auto t = h; ++t;
-                while (t != q.rend()
-                       && !outOfOrb(*h, *t, orb, false)) {
+                auto t = h;
+                ++t;
+                while (t != q.rend() && !outOfOrb(*h, *t, orb, false)) {
                     ++t;
                 }
                 if (t == q.rend()) break;
@@ -1645,21 +1711,22 @@ cluster(const PlanetRange& in, qreal orb)
 }
 
 typedef std::tuple<unsigned, qreal, bool> quorumOrbCleanup;
-typedef std::vector<quorumOrbCleanup> looper;
+typedef std::vector<quorumOrbCleanup>     looper;
 typedef std::pair<unsigned, PlanetGroups> harmonicResult;
 
 class joiner {
-    PlanetHarmonics& hx;
+    PlanetHarmonics&   hx;
     std::vector<bool>& sieve;
 
     typedef std::list<ChartPlanetBitmap> cpbList;
-    std::map<unsigned, cpbList> seen;
+    std::map<unsigned, cpbList>          seen;
 
-public:
-    joiner(PlanetHarmonics& hxIn,
-           std::vector<bool>& primeSieve) :
-        hx(hxIn), sieve(primeSieve)
-    { }
+  public:
+    joiner(PlanetHarmonics& hxIn, std::vector<bool>& primeSieve) :
+        hx(hxIn),
+        sieve(primeSieve)
+    {
+    }
 
     void operator()(uintMSet& completed, const harmonicResult& res)
     {
@@ -1677,7 +1744,7 @@ public:
         for (auto g : res.second) {
             if (!g.first.containsMidPt()) {
                 ChartPlanetBitmap cpb(g.first);
-                bool found = false;
+                bool              found = false;
                 for (unsigned lh : factors) {
                     for (const auto& lcpb : seen[lh]) {
                         if (lcpb.contains(cpb)) {
@@ -1706,22 +1773,23 @@ public:
 std::vector<bool>
 getPrimeSieve(unsigned top)
 {
-    std::vector<bool> ret(top+1,true);
+    std::vector<bool> ret(top + 1, true);
     ret[0] = false;
     for (unsigned i = 2; i <= top; ++i) {
         if (!ret[i]) continue;
-        for (unsigned j = 2*i; j <= top; j += i) {
+        for (unsigned j = 2 * i; j <= top; j += i) {
             ret[j] = false;
         }
     }
     return ret;
 }
 
-uintMSet getPrimes(unsigned top)
+uintMSet
+getPrimes(unsigned top)
 {
     uintMSet ret;
     unsigned i = 0;
-    for (auto&& p: getPrimeSieve(top)) {
+    for (auto&& p : getPrimeSieve(top)) {
         if (p) ret.insert(i);
         ++i;
     }
@@ -1730,9 +1798,9 @@ uintMSet getPrimes(unsigned top)
 
 void
 findHarmonics(const ChartPlanetMap& cpm,
-              PlanetHarmonics& hx,
-              const looper& loop,
-              bool doMidpoints = false)
+              PlanetHarmonics&      hx,
+              const looper&         loop,
+              bool                  doMidpoints = false)
 {
     std::set<int> needsFiles;
     for (const ChartPlanetId& cpi : cpm.keys()) {
@@ -1740,19 +1808,19 @@ findHarmonics(const ChartPlanetMap& cpm,
     }
 
     const unsigned minQuorum = harmonicsMinQuorum();
-    const unsigned maxH = maxHarmonic();
+    const unsigned maxH      = maxHarmonic();
 
     // Creates a prime sieve and a sequence of numbers which is has primes
     // less than or equal to the primeFactorLimit and non-primes with
     // no factors less than or equal to the primeFactorLimit.
-    static std::vector<bool> primeSieve;
+    static std::vector<bool>  primeSieve;
     static std::set<unsigned> seq;
-    static unsigned lastMaxH = 0;
-    static unsigned lastPFL = 0;
+    static unsigned           lastMaxH = 0;
+    static unsigned           lastPFL  = 0;
     if (maxH > lastMaxH || lastPFL != primeFactorLimit()) {
         std::set<unsigned> primes { 1 }, nonPrimes;
-        primeSieve.assign(maxH+1,true);
-        std::vector<bool> maxFactor(maxH+1,false);
+        primeSieve.assign(maxH + 1, true);
+        std::vector<bool> maxFactor(maxH + 1, false);
         for (unsigned int i = 2; i <= maxH; ++i) {
             if (!primeSieve[i]) {
                 if (!maxFactor[i]) nonPrimes.insert(i);
@@ -1760,97 +1828,95 @@ findHarmonics(const ChartPlanetMap& cpm,
             }
             bool beyond = i > primeFactorLimit();
             if (!beyond) primes.insert(i);
-            for (unsigned int j = i+i; j <= maxH; j += i) {
+            for (unsigned int j = i + i; j <= maxH; j += i) {
                 primeSieve[j] = false;
-                maxFactor[j] = beyond;
+                maxFactor[j]  = beyond;
             }
         }
         seq = primes;
         seq.insert(nonPrimes.cbegin(), nonPrimes.cend());
         lastPFL = primeFactorLimit();
     } else if (maxH < lastMaxH) {
-        auto zap = seq.lower_bound(maxH+1);
+        auto zap = seq.lower_bound(maxH + 1);
         while (zap != seq.end()) {
             seq.erase(zap++);
         }
     }
     lastMaxH = maxH;
 
-    auto computePositions = [&](unsigned h,
-                                PlanetRange& allOfThem,
-                                bool doMidpoints = false)
-    {
-        for (auto cpit = cpm.cbegin(); cpit != cpm.cend(); ++cpit) {
-            Planet p = cpit.value();
-            if (h > 1) calculateHarmonic(h, p);
+    auto computePositions =
+        [&](unsigned h, PlanetRange& allOfThem, bool doMidpoints = false) {
+            for (auto cpit = cpm.cbegin(); cpit != cpm.cend(); ++cpit) {
+                Planet p = cpit.value();
+                if (h > 1) calculateHarmonic(h, p);
 
-            qreal loc;
-            if (aspectMode == amcEcliptic) {
-                loc = p.eclipticPos.x();
-            } else if (aspectMode == amcEquatorial) {
-                loc = p.equatorialPos.x();
-            } else {
-                loc = p.pvPos;
-            }
-            allOfThem.insert(PlanetLoc(cpit.key(), loc));
-
-            if (!doMidpoints) continue;
-
-            for (auto cpot = std::next(cpit);
-                 cpot != cpm.cend()
-                 && cpit.key().fileId() == cpot.key().fileId();
-                 ++cpot)
-            {
-                Planet p2 = cpot.value();
-                if (h > 1) calculateHarmonic(h, p2);
-
-                qreal loc1 = loc;
-                qreal loc2;
+                qreal loc;
                 if (aspectMode == amcEcliptic) {
-                    loc2 = p2.eclipticPos.x();
+                    loc = p.eclipticPos.x();
                 } else if (aspectMode == amcEquatorial) {
-                    loc2 = p2.equatorialPos.x();
+                    loc = p.equatorialPos.x();
                 } else {
-                    loc2 = p2.pvPos;
+                    loc = p.pvPos;
                 }
+                allOfThem.insert(PlanetLoc(cpit.key(), loc));
 
-                if (loc1 > loc2) qSwap(loc1, loc2);
-                if (loc2 - loc1 > 180) loc1 += 360;
-                loc2 = fmod((loc1 + loc2) / 2, 360.);
+                if (!doMidpoints) continue;
 
-                allOfThem.insert(PlanetLoc(cpit.key().fileId(),
-                                           cpit.key().planetId(),
-                                           cpot.key().planetId(), loc2));
-                allOfThem.insert(PlanetLoc(cpit.key().fileId(),
-                                           cpot.key().planetId(),
-                                           cpit.key().planetId(),
-                                           fmod(loc2 + 180, 360.)));
+                for (auto cpot = std::next(cpit);
+                     cpot != cpm.cend()
+                     && cpit.key().fileId() == cpot.key().fileId();
+                     ++cpot)
+                {
+                    Planet p2 = cpot.value();
+                    if (h > 1) calculateHarmonic(h, p2);
+
+                    qreal loc1 = loc;
+                    qreal loc2;
+                    if (aspectMode == amcEcliptic) {
+                        loc2 = p2.eclipticPos.x();
+                    } else if (aspectMode == amcEquatorial) {
+                        loc2 = p2.equatorialPos.x();
+                    } else {
+                        loc2 = p2.pvPos;
+                    }
+
+                    if (loc1 > loc2) qSwap(loc1, loc2);
+                    if (loc2 - loc1 > 180) loc1 += 360;
+                    loc2 = fmod((loc1 + loc2) / 2, 360.);
+
+                    allOfThem.insert(PlanetLoc(cpit.key().fileId(),
+                                               cpit.key().planetId(),
+                                               cpot.key().planetId(),
+                                               loc2));
+                    allOfThem.insert(PlanetLoc(cpit.key().fileId(),
+                                               cpot.key().planetId(),
+                                               cpit.key().planetId(),
+                                               fmod(loc2 + 180, 360.)));
+                }
             }
-        }
-    };
+        };
 
-    auto cluster = [&](PlanetGroups& groups,
+    auto cluster = [&](PlanetGroups&           groups,
                        const quorumOrbCleanup& l,
-                       const PlanetRange& allOfThem)
-    {
+                       const PlanetRange&      allOfThem) {
         unsigned quorum;
-        qreal orb;
-        bool cleanup;
-        std::tie(quorum,orb,cleanup) = l;
+        qreal    orb;
+        bool     cleanup;
+        std::tie(quorum, orb, cleanup) = l;
 
         PlanetSet plist;
 
         // Let's see if anything wraps around...
         ChartPlanetId seen;
-        bool wrapped = false;
-        PlanetQueue current;
-        PlanetLoc last;
-        if (!outOfOrb(*allOfThem.crbegin(), *allOfThem.cbegin(),  orb)) {
+        bool          wrapped = false;
+        PlanetQueue   current;
+        PlanetLoc     last;
+        if (!outOfOrb(*allOfThem.crbegin(), *allOfThem.cbegin(), orb)) {
             auto next = allOfThem.crbegin();
             do {
                 wrapped = true;
-                last = *next;
-                seen = last.planet;
+                last    = *next;
+                seen    = last.planet;
                 current.push_front(last);
             } while (++next != allOfThem.crend()
                      && !outOfOrb(*allOfThem.cbegin(), *next, orb));
@@ -1858,9 +1924,9 @@ findHarmonics(const ChartPlanetMap& cpm,
             last = *allOfThem.cbegin();
         }
         current.push_back(*allOfThem.cbegin());
-        for (auto plit = allOfThem.cbegin(); ++plit != allOfThem.cend(); ) {
+        for (auto plit = allOfThem.cbegin(); ++plit != allOfThem.cend();) {
             const auto& pl = *plit;
-            //const Planet& plan = getPlanet(pl.planet);
+            // const Planet& plan = getPlanet(pl.planet);
             if (/* DISABLES CODE */ (false) && wrapped && pl.planet == seen) {
                 break;
             }
@@ -1883,14 +1949,14 @@ findHarmonics(const ChartPlanetMap& cpm,
             current.push_back(pl);
         }
 
-        if (meetsQuorum(current,needsFiles,quorum)) {
+        if (meetsQuorum(current, needsFiles, quorum)) {
             groups.insert(current, minQuorum);
         }
     };
 
     std::function<harmonicResult(unsigned)> orbLoop = [&](unsigned h) {
         PlanetGroups groups;
-        PlanetRange allOfThem;
+        PlanetRange  allOfThem;
         if (doMidpoints) {
             computePositions(h, allOfThem, true);
             for (auto l : loop) {
@@ -1908,42 +1974,43 @@ findHarmonics(const ChartPlanetMap& cpm,
 
     using namespace QtConcurrent;
 
-    joiner j(hx, primeSieve);
+    joiner            j(hx, primeSieve);
     QFuture<uintMSet> f = /*uintSet foo =*/
         mappedReduced<uintMSet>(seq, orbLoop, j, OrderedReduce);
     f.waitForFinished();
 }
 
 void
-findHarmonics(const ChartPlanetMap& cpm,
-              PlanetHarmonics& hx)
+findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx)
 {
-    bool doMidpoints = includeMidpoints();
-    int d = harmonicsMinQuorum() <= harmonicsMaxQuorum() ? 1 : -1;
-    unsigned num = fabs(harmonicsMaxQuorum() - harmonicsMinQuorum()) + 1;
-    qreal orb = harmonicsMinQOrb()*orbFactor();
-    qreal lorbMin = log2(orb);
-    qreal lorbMax = log2(harmonicsMaxQOrb()*orbFactor());
-    qreal od = num < 2 ? 0 : pow(2, (lorbMax - lorbMin) / (num - 1));
-    unsigned quorum = unsigned(harmonicsMinQuorum());
-    unsigned i = 0;
-    looper loop;
+    bool     doMidpoints = includeMidpoints();
+    int      d       = harmonicsMinQuorum() <= harmonicsMaxQuorum() ? 1 : -1;
+    unsigned num     = fabs(harmonicsMaxQuorum() - harmonicsMinQuorum()) + 1;
+    qreal    orb     = harmonicsMinQOrb() * orbFactor();
+    qreal    lorbMin = log2(orb);
+    qreal    lorbMax = log2(harmonicsMaxQOrb() * orbFactor());
+    qreal    od      = num < 2 ? 0 : pow(2, (lorbMax - lorbMin) / (num - 1));
+    unsigned quorum  = unsigned(harmonicsMinQuorum());
+    unsigned i       = 0;
+    looper   loop;
     while (i < num) {
         bool cleanup = (++i == num) && (num > 1) && filterFew();
-        loop.push_back(quorumOrbCleanup(quorum,orb,cleanup));
+        loop.push_back(quorumOrbCleanup(quorum, orb, cleanup));
         quorum = unsigned(int(quorum) + d);
         orb *= od;
     }
-    findHarmonics(cpm,hx,loop,doMidpoints);
+    findHarmonics(cpm, hx, loop, doMidpoints);
     for (auto it = hx.begin(); it != hx.end();) {
-        if (it->second.empty()) hx.erase(it++); else ++it;
+        if (it->second.empty()) hx.erase(it++);
+        else
+            ++it;
     }
 }
 
 void
 calculateBaseChartHarmonic(Horoscope& scope)
 {
-    scope.houses = scope.housesOrig;
+    scope.houses  = scope.housesOrig;
     scope.planets = scope.planetsOrig;
 
     const InputData& input(scope.inputData);
@@ -1953,16 +2020,16 @@ calculateBaseChartHarmonic(Horoscope& scope)
         findPlanetStarConfigs(scope.planets, scope.stars);
     }
 
-    scope.sun = scope.planets[Planet_Sun];
-    scope.moon = scope.planets[Planet_Moon];
-    scope.mercury = scope.planets[Planet_Mercury];
-    scope.venus = scope.planets[Planet_Venus];
-    scope.mars = scope.planets[Planet_Mars];
-    scope.jupiter = scope.planets[Planet_Jupiter];
-    scope.saturn = scope.planets[Planet_Saturn];
-    scope.uranus = scope.planets[Planet_Uranus];
-    scope.neptune = scope.planets[Planet_Neptune];
-    scope.pluto = scope.planets[Planet_Pluto];
+    scope.sun       = scope.planets[Planet_Sun];
+    scope.moon      = scope.planets[Planet_Moon];
+    scope.mercury   = scope.planets[Planet_Mercury];
+    scope.venus     = scope.planets[Planet_Venus];
+    scope.mars      = scope.planets[Planet_Mars];
+    scope.jupiter   = scope.planets[Planet_Jupiter];
+    scope.saturn    = scope.planets[Planet_Saturn];
+    scope.uranus    = scope.planets[Planet_Uranus];
+    scope.neptune   = scope.planets[Planet_Neptune];
+    scope.pluto     = scope.planets[Planet_Pluto];
     scope.northNode = scope.planets[Planet_NorthNode];
 
     for (PlanetId id : scope.planets.keys()) {
@@ -1976,8 +2043,9 @@ calculateBaseChartHarmonic(Horoscope& scope)
 /*
 An implementation of an improved & simplified Brent's Method.
 Calculates root of a function f(x) in the interval [a,b].
-Zhang, Z. (2011). An Improvement to the Brent’s Method. International Journal of Experimental Algorithms (IJEA), (2), 21–26.
-Retrieved from http://www.cscjournals.org/csc/manuscript/Journals/IJEA/volume2/Issue1/IJEA-7.pdf
+Zhang, Z. (2011). An Improvement to the Brent’s Method. International Journal of
+Experimental Algorithms (IJEA), (2), 21–26. Retrieved from
+http://www.cscjournals.org/csc/manuscript/Journals/IJEA/volume2/Issue1/IJEA-7.pdf
 [This link appears to be invalid, though the article is retrievable by googling
 the title.]
 
@@ -1997,27 +2065,27 @@ Returns bool indicating success or failure
 
 template <typename F>
 bool
-brentZhangStage(F& f,
-                double lo, double hi,
-                double f_lo, double f_hi,
+brentZhangStage(F&      f,
+                double  lo,
+                double  hi,
+                double  f_lo,
+                double  f_hi,
                 double& result,
-                double tol = 1e-9)
+                double  tol = 1e-9)
 {
     // Root not bound by the given guesses?
     if (f_lo * f_hi >= 0) return false;
 
     double s, f_s;
     do {
-        double c = (lo + hi)/2;
+        double c   = (lo + hi) / 2;
         double f_c = f(c);
-        if (fabs(f_lo - f_c) > tol
-            && fabs(f_hi - f_c) > tol)
-        {
+        if (fabs(f_lo - f_c) > tol && fabs(f_hi - f_c) > tol) {
             // f(a)!=f(c) and f(b)!=f(c)
             // Inverse quadratic interpolation
-            s = lo*f_hi * f_c/((f_lo-f_hi)*(f_lo-f_c))
-                + hi*f_lo * f_c/((f_hi-f_lo)*(f_hi-f_c))
-                + c*f_lo * f_hi/((f_c-f_lo)*(f_c-f_hi));
+            s = lo * f_hi * f_c / ((f_lo - f_hi) * (f_lo - f_c))
+                + hi * f_lo * f_c / ((f_hi - f_lo) * (f_hi - f_c))
+                + c * f_lo * f_hi / ((f_c - f_lo) * (f_c - f_hi));
             if (s < lo || s > hi) {
                 // According to Stage, s can go awry in this
                 // calculation (i.e., exceed lo-hi bounds),
@@ -2027,7 +2095,7 @@ brentZhangStage(F& f,
             }
         } else {
             // Secant rule
-            s = hi - f_hi*(hi-lo)/(f_hi-f_lo);
+            s = hi - f_hi * (hi - lo) / (f_hi - f_lo);
         }
         f_s = f(s);
 
@@ -2041,7 +2109,8 @@ brentZhangStage(F& f,
         } else {
             f_lo = f(lo = s);
         }
-    } while (f_hi!=0 && f_lo!=0 && fabs(hi-lo) > tol);	// Convergence conditions
+    } while (f_hi != 0 && f_lo != 0
+             && fabs(hi - lo) > tol); // Convergence conditions
 
     result = hi; // either hi or lo could be returned,
     // as we are now at tolerated convergence.
@@ -2051,14 +2120,11 @@ brentZhangStage(F& f,
 
 template <typename F>
 bool
-brentZhangStage(F& f,
-                double lo, double hi,
-                double& result,
-                double tol = 1e-9)
+brentZhangStage(F& f, double lo, double hi, double& result, double tol = 1e-9)
 {
     if (fabs(hi - lo) <= tol) return false;
 
-    if (lo > hi) qSwap(lo,hi);
+    if (lo > hi) qSwap(lo, hi);
 
     double f_lo = f(lo);
     double f_hi = f(hi);
@@ -2075,42 +2141,60 @@ brentZhangStage(F& f,
 
 template <typename F>
 double
-brentGlobalMin(F f, double lo, double hi, double guess,
-               double m, double err, double tol, double& x)
+brentGlobalMin(F       f,
+               double  lo,
+               double  hi,
+               double  guess,
+               double  m,
+               double  err,
+               double  tol,
+               double& x)
 {
     const auto macheps = std::numeric_limits<double>::epsilon();
-    int k;
-    double a0, a2, a3, d0, d1, d2, h, m2, p, q, qs, r, s,
-            y, y0, y1, y2, y3, yb, z0, z1, z2;
+    int        k;
+    double a0, a2, a3, d0, d1, d2, h, m2, p, q, qs, r, s, y, y0, y1, y2, y3, yb,
+        z0, z1, z2;
 
-    x = a0 = hi; a2 = lo;
+    x = a0 = hi;
+    a2     = lo;
     yb = y0 = f(hi);
     y = y2 = f(lo);
-    if (y0 < y) y = y0; else x = lo;
+    if (y0 < y) y = y0;
+    else
+        x = lo;
 
     if ((m > 0) && (lo < hi)) {
         // nontrivial case
         m2 = 0.5 * (1 + 16 * macheps) * m;
         if ((guess <= lo) || (guess >= hi)) guess = 0.5 * (lo + hi);
-        y1 = f(guess); k = 3; d0 = a2 - guess; h = 9/11;
+        y1 = f(guess);
+        k  = 3;
+        d0 = a2 - guess;
+        h  = 9 / 11;
 
-        if (y1 < y) { x = guess; y = y1; }
+        if (y1 < y) {
+            x = guess;
+            y = y1;
+        }
 
-        // main loop
-        next:
-        d1 = a2 - a0; d2 = guess - a0;
-        z2 = hi - a2; z0 = y2 - y1; z1 = y2 - y0;
+    // main loop
+    next:
+        d1 = a2 - a0;
+        d2 = guess - a0;
+        z2 = hi - a2;
+        z0 = y2 - y1;
+        z1 = y2 - y0;
         p = r = d1 * d1 * z0 - d0 * d0 * z1;
         q = qs = 2 * (d0 * z1 - d1 * z0);
 
         // try to find lower value of f using quadratic interpolation
         if ((k > 100000) && (y < y2)) goto skip;
 
-        retry:
-        if (q * (r * (yb - y2) + z2 * q * ((y2-y)+tol))
-            < z2*m2*r*(z2*q-r))
+    retry:
+        if (q * (r * (yb - y2) + z2 * q * ((y2 - y) + tol))
+            < z2 * m2 * r * (z2 * q - r))
         {
-            a3 = a2 + r/q;
+            a3 = a2 + r / q;
             y3 = f(a3);
             if (y3 < y) x = a3, y = y3;
         }
@@ -2119,47 +2203,60 @@ brentGlobalMin(F f, double lo, double hi, double guess,
         // value of f. Any reasonable random number generator can be
         // used in place of the one here (it need not be very good).
 
-        skip:
-        k = 1611*k;
-        k = k - 1048576*(k/1048576);
-        q = 1; r = (hi-lo)*(k/100000);
+    skip:
+        k = 1611 * k;
+        k = k - 1048576 * (k / 1048576);
+        q = 1;
+        r = (hi - lo) * (k / 100000);
 
-        if (r<z2) goto retry;
+        if (r < z2) goto retry;
 
         // prepare to step as far as possible
-        r = m2*d0*d1*d2; s = sqrt(((y2-y)+tol)/m2);
-        h = 0.5*(1+h);
-        p = h*(p+2*r*s); q = r+0.5*qs;
-        r = -0.5*(d0+(z0+2.01*err)/(d0*m2));
-        r = a2 + ((r<s || d0<0)? s : r);
+        r = m2 * d0 * d1 * d2;
+        s = sqrt(((y2 - y) + tol) / m2);
+        h = 0.5 * (1 + h);
+        p = h * (p + 2 * r * s);
+        q = r + 0.5 * qs;
+        r = -0.5 * (d0 + (z0 + 2.01 * err) / (d0 * m2));
+        r = a2 + ((r < s || d0 < 0) ? s : r);
 
         // it is safe to step to r, but we may try to step further
-        a3 = (p*q>0)? a2+p/q : r;
+        a3 = (p * q > 0) ? a2 + p / q : r;
 
-        inner:
-        if (a3<r) a3 = r;
-        if (a3 > hi) { a3 = hi; y3 = yb; }
-        else y3 = f(a3);
-        if (y3 < y) { x = a3; y = y3; }
+    inner:
+        if (a3 < r) a3 = r;
+        if (a3 > hi) {
+            a3 = hi;
+            y3 = yb;
+        } else
+            y3 = f(a3);
+        if (y3 < y) {
+            x = a3;
+            y = y3;
+        }
         d0 = a3 - a2;
 
         if (a3 > r) {
             // inspect the parabolic lower bound on f in (a2,a3)
-            p = 2*(y2 - y3)/(m*d0);
-            if ((fabs(p) < (1+9*macheps)*d0)
-                && (0.5*m2*(d0*d0+p*p)
-                    > (y2-y)+(y3-y)+2*tol))
+            p = 2 * (y2 - y3) / (m * d0);
+            if ((fabs(p) < (1 + 9 * macheps) * d0)
+                && (0.5 * m2 * (d0 * d0 + p * p)
+                    > (y2 - y) + (y3 - y) + 2 * tol))
             {
                 // halve the step and try again
-                a3 = 0.5*(a2+a3);
-                h = 0.9*h;
+                a3 = 0.5 * (a2 + a3);
+                h  = 0.9 * h;
                 goto inner;
             }
         }
         if (a3 < hi) {
             // prepare for the next step
-            a0 = guess; guess = a2; a2 = a3;
-            y0 = y1; y1 = y2; y2 = y3;
+            a0    = guess;
+            guess = a2;
+            a2    = a3;
+            y0    = y1;
+            y1    = y2;
+            y2    = y3;
             goto next;
         }
     }
@@ -2169,23 +2266,24 @@ brentGlobalMin(F f, double lo, double hi, double guess,
 QDateTime
 dateTimeFromJulian(double jd)
 {
-    int32 y, d, m;
-    int32 hr, min, sec;
+    int32  y, d, m;
+    int32  hr, min, sec;
     double dsec;
     swe_jdut1_to_utc(jd, SE_GREG_CAL, &y, &m, &d, &hr, &min, &dsec);
-    sec = dsec;
+    sec      = dsec;
     int msec = int((dsec - double(sec)) * 1000.0);
-    return QDateTime(QDate(y,m,d), QTime(hr,min,sec,msec), Qt::UTC);
+    return QDateTime(QDate(y, m, d), QTime(hr, min, sec, msec), QTimeZone::UTC);
 }
 
-namespace {
-static bool s_quiet = false;
+namespace
+{
+static bool       s_quiet  = false;
 thread_local bool st_quiet = s_quiet;
-}
+} // namespace
 
 struct calcPos {
     PlanetProfile& poses;
-    uintmax_t _iter = 0;
+    uintmax_t      _iter = 0;
 
     calcPos(PlanetProfile& p) : poses(p) { }
 
@@ -2211,13 +2309,14 @@ struct calcSpd {
     {
         poses.computePos(jd);
         if (!st_quiet) {
-            qDebug() << "calc iter:" << dtToString(dateTimeFromJulian(jd)) << "Ret:" << poses.speed();
+            qDebug() << "calc iter:" << dtToString(dateTimeFromJulian(jd))
+                     << "Ret:" << poses.speed();
         }
         return poses.speed();
     }
 };
 
-typedef std::pair<qreal,qreal> posSpd;
+typedef std::pair<qreal, qreal> posSpd;
 struct calcPosSpd {
     PlanetProfile& poses;
     calcPosSpd(PlanetProfile& p) : poses(p) { }
@@ -2238,7 +2337,7 @@ struct calcPosSpd {
 
 struct calcSpread {
     PlanetProfile& poses;
-    int m = 100;
+    int            m = 100;
 
     calcSpread(PlanetProfile& p) : poses(p) { }
 
@@ -2258,82 +2357,90 @@ struct calcSpread {
 };
 
 struct calcLoop {
-    calcPos cpos;
-    calcSpd cspd;
+    calcPos    cpos;
+    calcSpd    cspd;
     calcPosSpd ncpos;
     calcSpread csprd;
 
     PlanetProfile& poses;
-    double& jd;
+    double&        jd;
 
-    static constexpr double tol = 5e-08;
-    static constexpr int digits = std::numeric_limits<double>::digits;
+    static constexpr double tol    = 5e-08;
+    static constexpr int    digits = std::numeric_limits<double>::digits;
 
-    calcLoop(PlanetProfile& ps,
-             double& jdate) :
-        cpos(ps), cspd(ps), ncpos(ps), csprd(ps), poses(ps), jd(jdate)
-    { }
+    calcLoop(PlanetProfile& ps, double& jdate) :
+        cpos(ps),
+        cspd(ps),
+        ncpos(ps),
+        csprd(ps),
+        poses(ps),
+        jd(jdate)
+    {
+    }
 
 #if 1 // old version
     bool operator()(double& begin,
-                    double end,
-                    double span,
-                    double flo,
-                    double splo,
-                    bool cont)
+                    double  end,
+                    double  span,
+                    double  flo,
+                    double  splo,
+                    bool    cont)
     {
-        qDebug() << "calcLoop: begin" << begin
-                 << "end" << end
-                 << "span" << span
-                 << "flo" << flo
-                 << "splo" << splo;
+        qDebug() << "calcLoop: begin" << begin << "end" << end << "span" << span
+                 << "flo" << flo << "splo" << splo;
 
-        bool done = false;
+        bool   done = false;
         double fhi, sphi;
-        for (double& jdc = begin; !done && (cont || jdc<end);
+        for (double& jdc = begin; !done && (cont || jdc < end);
              splo = sphi, flo = fhi, jdc += span)
         {
-            fhi = cpos(jdc + span);
+            fhi  = cpos(jdc + span);
             sphi = poses.speed();
             if ((done = (fabs(poses.loc) <= tol))) {
                 qDebug() << "  done by span convergence";
-                jd = jdc+span/2;
+                jd = jdc + span / 2;
                 continue;
             }
             if (span <= tol) {
                 qDebug() << "  zeno's paradox";
                 return false;
             }
-            if (sgn(flo)==sgn(fhi)) {
-                qDebug() << "same sign"; continue;
+            if (sgn(flo) == sgn(fhi)) {
+                qDebug() << "same sign";
+                continue;
             }
             if (abs(fhi) >= 170. && abs(flo) >= 170.) {
-                qDebug() << "flo and fhi >= 170"; continue;
+                qDebug() << "flo and fhi >= 170";
+                continue;
             }
-            qDebug() << "sgn(flo)=" << sgn(flo)
-                     << " sgn(splo)=" << sgn(splo)
-                     << " sgn(fhi)=" << sgn(fhi)
-                     << " sgn(sphi)=" << sgn(sphi);
-            if (sgn(flo)!=sgn(splo) || sgn(fhi)!=-sgn(sphi)) {
+            qDebug() << "sgn(flo)=" << sgn(flo) << " sgn(splo)=" << sgn(splo)
+                     << " sgn(fhi)=" << sgn(fhi) << " sgn(sphi)=" << sgn(sphi);
+            if (sgn(flo) != sgn(splo) || sgn(fhi) != -sgn(sphi)) {
 #if 0
                 done = brentZhangStage(cpos, jdc,jdc+span, flo, fhi, jd);
                 if (done) qDebug() << "  done by brent";
 #else
-                double guess = jdc + (fabs(flo)/(fabs(flo)+fabs(fhi)))*span;
+                double guess =
+                    jdc + (fabs(flo) / (fabs(flo) + fabs(fhi))) * span;
                 uintmax_t iter = 20;
                 try {
-                    jd = newton_raphson_iterate(ncpos, guess, jdc, jdc + span,
-                                                digits, iter);
+                    jd   = newton_raphson_iterate(ncpos,
+                                                guess,
+                                                jdc,
+                                                jdc + span,
+                                                digits,
+                                                iter);
                     done = fabs(poses[1]->loc - poses[0]->loc) <= tol
-                            || span < tol;
-                    if (done)
-                        qDebug() << "  done by newton";
-                } catch (...) { }
+                           || span < tol;
+                    if (done) qDebug() << "  done by newton";
+                }
+                catch (...) {
+                }
 #endif
             }
             double b = jdc;
             if (!done) {
-                done = operator()(b, jdc+span, span/4, flo, splo,false);
+                done = operator()(b, jdc + span, span / 4, flo, splo, false);
             }
         }
         if (!done) qDebug() << "  ran out clock";
@@ -2341,58 +2448,55 @@ struct calcLoop {
     }
 #endif
 
-    template <typename T> void calc(double j, T& ret);
+    template <typename T>
+    void calc(double j, T& ret);
 
     bool signsEqual(const posSpd& a, const posSpd& b) const
-    { return sgn(a.first) == sgn(b.first);  }
+    {
+        return sgn(a.first) == sgn(b.first);
+    }
 
-    bool signsEqual(qreal a, qreal b) const
-    { return sgn(a) == sgn(b); }
+    bool signsEqual(qreal a, qreal b) const { return sgn(a) == sgn(b); }
 
     bool speedSignsEqual(const posSpd& a, const posSpd& b) const
-    { return sgn(a.second) == sgn(b.second); }
+    {
+        return sgn(a.second) == sgn(b.second);
+    }
 
     bool speedSignsEqual(qreal, qreal) const { return true; }
 
     bool longDistance(const posSpd& a, const posSpd& b) const
-    { return abs(a.first) >= 170. && abs(b.first) > 170.; }
+    {
+        return abs(a.first) >= 170. && abs(b.first) > 170.;
+    }
 
-    bool longDistance(qreal, qreal)
-    { return false; }
-
-
-    template <typename T> bool doIterativeCalc(double& jd,
-                                               double jlo,
-                                               double jhi,
-                                               T lo,
-                                               T hi);
+    bool longDistance(qreal, qreal) { return false; }
 
     template <typename T>
-    bool operator()(double& begin,
-                    double end,
-                    double span,
-                    T lo,
-                    bool cont)
+    bool doIterativeCalc(double& jd, double jlo, double jhi, T lo, T hi);
+
+    template <typename T>
+    bool operator()(double& begin, double end, double span, T lo, bool cont)
     {
         qDebug() << "calcLoop: begin" << dtToString(dateTimeFromJulian(begin))
-                 << "end" << dtToString(dateTimeFromJulian(end))
-                 << "span" << span;
+                 << "end" << dtToString(dateTimeFromJulian(end)) << "span"
+                 << span;
 
         bool done = false;
-        T hi;
-        for (double& jdc = begin; !done && (cont || jdc<end);
-             lo = hi, jdc += span)
+        T    hi;
+        for (double& jdc = begin; !done && (cont || jdc < end);
+             lo          = hi, jdc += span)
         {
             calc(jdc + span, hi);
             if (poses.needsFindMinimalSpread()) {
-                if (doIterativeCalc(jd, jdc, jdc+span, lo, hi)) {
+                if (doIterativeCalc(jd, jdc, jdc + span, lo, hi)) {
                     modalize<int> precise(csprd.m, 1000);
-                    done = doIterativeCalc(jd, jdc, jdc+span, lo, hi);
+                    done = doIterativeCalc(jd, jdc, jdc + span, lo, hi);
                 }
             } else {
                 if ((done = (fabs(poses.loc) <= tol))) {
                     qDebug() << "  done by span convergence";
-                    jd = jdc+span/2;
+                    jd = jdc + span / 2;
                     continue;
                 }
                 if (span <= tol) {
@@ -2400,17 +2504,19 @@ struct calcLoop {
                     return false;
                 }
                 if (signsEqual(lo, hi)) {
-                    qDebug() << "same sign"; continue;
+                    qDebug() << "same sign";
+                    continue;
                 }
                 if (longDistance(lo, hi)) {
-                    qDebug() << "flo and fhi >= 170"; continue;
+                    qDebug() << "flo and fhi >= 170";
+                    continue;
                 }
-                //if (sgn(flo)!=sgn(splo) || sgn(fhi)!=-sgn(sphi)) {
-                done = doIterativeCalc(jd, jdc, jdc+span, lo, hi);
+                // if (sgn(flo)!=sgn(splo) || sgn(fhi)!=-sgn(sphi)) {
+                done = doIterativeCalc(jd, jdc, jdc + span, lo, hi);
                 //}
                 double b = jdc;
                 if (!done) {
-                    done = operator()(b, jdc+span, span/4, lo, false);
+                    done = operator()(b, jdc + span, span / 4, lo, false);
                 }
             }
         }
@@ -2420,23 +2526,26 @@ struct calcLoop {
 };
 
 template <>
-inline
-void
-calcLoop::calc<posSpd>(double j, posSpd& ret) { ret = ncpos(j); }
+inline void
+calcLoop::calc<posSpd>(double j, posSpd& ret)
+{
+    ret = ncpos(j);
+}
 
 template <>
-inline
-void
-calcLoop::calc<qreal>(double j, qreal& ret) { ret = cspd(j); }
+inline void
+calcLoop::calc<qreal>(double j, qreal& ret)
+{
+    ret = cspd(j);
+}
 
 template <>
-inline
-bool
+inline bool
 calcLoop::doIterativeCalc<qreal>(double& jd,
-                                 double jlo,
-                                 double jhi,
-                                 qreal lo,
-                                 qreal hi)
+                                 double  jlo,
+                                 double  jhi,
+                                 qreal   lo,
+                                 qreal   hi)
 {
     bool done = brentZhangStage(cspd, jlo, jhi, lo, hi, jd);
     if (done) qDebug() << "  done by brent";
@@ -2444,103 +2553,111 @@ calcLoop::doIterativeCalc<qreal>(double& jd,
 }
 
 template <>
-inline
-bool
+inline bool
 calcLoop::doIterativeCalc<posSpd>(double& jd,
-                                  double jlo,
-                                  double jhi,
-                                  posSpd lo,
-                                  posSpd hi)
+                                  double  jlo,
+                                  double  jhi,
+                                  posSpd  lo,
+                                  posSpd  hi)
 {
-    double span = jhi-jlo;
-    double g = jlo + (fabs(lo.first)/(fabs(lo.first)+fabs(hi.first)))*span;
+    double span = jhi - jlo;
+    double g =
+        jlo + (fabs(lo.first) / (fabs(lo.first) + fabs(hi.first))) * span;
 
     uintmax_t iter = 20;
     try {
         bool done = false;
         if (poses.needsFindMinimalSpread()) {
             constexpr auto tol = double(std::numeric_limits<float>::epsilon());
-            brentGlobalMin(csprd, jlo, jhi, jlo/2.+jhi/2.,
-                           csprd.m, .0000001/*err*/, tol, jd);
+            brentGlobalMin(csprd,
+                           jlo,
+                           jhi,
+                           jlo / 2. + jhi / 2.,
+                           csprd.m,
+                           .0000001 /*err*/,
+                           tol,
+                           jd);
             if (csprd.poses.computeSpread(jd) <= harmonicsMinQOrb()) {
                 done = true;
                 qDebug() << "  done by brentGlobalMin";
             }
         } else {
-            jd = newton_raphson_iterate(ncpos, g, jlo, jhi, digits, iter);
-            done = fabs(poses[1]->loc - poses[0]->loc) <= tol
-                    || span < tol;
-            if (done)
-                qDebug() << "  done by newton";
+            jd   = newton_raphson_iterate(ncpos, g, jlo, jhi, digits, iter);
+            done = fabs(poses[1]->loc - poses[0]->loc) <= tol || span < tol;
+            if (done) qDebug() << "  done by newton";
         }
         return done;
-    } catch (...) {
+    }
+    catch (...) {
         return false;
     }
 }
 
 void
 calculateOrbAndSpan(const PlanetProfile& poses,
-                    const InputData& locale,
-                    double harmonic,
-                    double& orb,
-                    double& horb,
-                    double& span)
+                    const InputData&     locale,
+                    double               harmonic,
+                    double&              orb,
+                    double&              horb,
+                    double&              span)
 {
     if (aspectMode == amcPrimeVertical) horb = .5;
     float speed = poses.defaultSpeed();
-    orb = 360 / speed / harmonic;
-    horb = orb / 1.8;
+    orb         = 360 / speed / harmonic;
+    horb        = orb / 1.8;
 
-    //auto plid = poses.back()->planet.planetId();
-    if (true/*plid == Planet_Sun || plid==Planet_Moon*/) span = orb/4;
-    else span = 1/speed;
+    // auto plid = poses.back()->planet.planetId();
+    if (true /*plid == Planet_Sun || plid==Planet_Moon*/) span = orb / 4;
+    else
+        span = 1 / speed;
 
     qDebug() << poses[0]->description() << "half-orbit" << horb << "days";
 }
 
 QDateTime
-calculateClosestTime(PlanetProfile& poses,
+calculateClosestTime(PlanetProfile&   poses,
                      const InputData& locale,
-                     double harmonic)
+                     double           harmonic)
 {
 
     double jdIn = getJulianDate(locale.GMT());
 
-    double jd = jdIn;
+    double   jd = jdIn;
     calcLoop looper(poses, jd);
 
     double orb, horb, span;
     calculateOrbAndSpan(poses, locale, harmonic, orb, horb, span);
 
-    double begin = jdIn-orb/2;
-    double end = begin + horb*2;
+    double begin = jdIn - orb / 2;
+    double end   = begin + horb * 2;
 
     calcPos cpos(poses);
-    double flo = cpos(begin);
-    double splo = poses.speed();
+    double  flo  = cpos(begin);
+    double  splo = poses.speed();
 
-    //if (looper(begin,end,span,flo,true))
-    if (looper(begin, end, span, flo, splo, true/*cont*/))
+    // if (looper(begin,end,span,flo,true))
+    if (looper(begin, end, span, flo, splo, true /*cont*/))
         return dateTimeFromJulian(jd);
 
     return locale.GMT();
 }
 
 QList<QDateTime>
-quotidianSearch(PlanetProfile& poses,
+quotidianSearch(PlanetProfile&   poses,
                 const InputData& locale,
                 const QDateTime& endDT,
-                double span /*= 1.0*/,
-                bool forceMin)
+                double           span /*= 1.0*/,
+                bool             forceMin)
 {
-    modalize<bool> mum(st_quiet,true);
+    modalize<bool> mum(st_quiet, true);
 
     double jd1 = getJulianDate(locale.GMT());
     double jd2 = getJulianDate(endDT);
 
     poses.setForceMinimize(forceMin);
-    if (poses.needsFindMinimalSpread()) span *= 2.; else span /= 4.;
+    if (poses.needsFindMinimalSpread()) span *= 2.;
+    else
+        span /= 4.;
 
 #if 0
     if (poses.needsFindMinimalSpread()) {
@@ -2564,31 +2681,29 @@ quotidianSearch(PlanetProfile& poses,
     }
 #endif
 
-    double jd { };
-    calcLoop looper(poses, jd);
+    double           jd {};
+    calcLoop         looper(poses, jd);
     QList<QDateTime> ret;
-    auto loop = [&](auto lo) {
-        //modalize<int> precise(looper.csprd.m,1000);
+    auto             loop = [&](auto lo) {
+        // modalize<int> precise(looper.csprd.m,1000);
         looper.calc(jd1, lo);
         do {
-            if (looper(jd1,jd2,span,lo,false)) {
+            if (looper(jd1, jd2, span, lo, false)) {
                 auto dt = dateTimeFromJulian(jd);
-                if (poses.needsFindMinimalSpread()
-                        && !ret.isEmpty()
-                        && qAbs(dt.secsTo(ret.back())) < 86400)
+                if (poses.needsFindMinimalSpread() && !ret.isEmpty()
+                    && qAbs(dt.secsTo(ret.back())) < 86400)
                 {
                     auto ugh = qAbs(dt.secsTo(ret.back()));
-                    qDebug() << ugh << "Let's scrunch up"
-                             << dtToString(dt) << "and"
-                             << dtToString(ret.back());
+                    qDebug() << ugh << "Let's scrunch up" << dtToString(dt)
+                             << "and" << dtToString(ret.back());
                     // XXX goofy hack to ignore adjacent values
-                    auto hi = lo;
+                    auto hi  = lo;
                     auto jda = jd - .5;
-                    looper.calc(jda,lo);
+                    looper.calc(jda, lo);
                     auto jdb = jd + .5;
-                    looper.calc(jdb,hi);
-                    modalize<int> precise(looper.csprd.m,1000);
-                    bool found = looper.doIterativeCalc(jd,jda,jdb,lo,hi);
+                    looper.calc(jdb, hi);
+                    modalize<int> precise(looper.csprd.m, 1000);
+                    bool found = looper.doIterativeCalc(jd, jda, jdb, lo, hi);
                     if (found) {
                         ret.pop_back();
                         dt = dateTimeFromJulian(jd);
@@ -2602,11 +2717,11 @@ quotidianSearch(PlanetProfile& poses,
         } while (jd1 < jd2);
     };
 
-    if (poses.size()==1) {
+    if (poses.size() == 1) {
         auto l = *poses.begin();
         // looking for stations...
         if (l->inMotion()) {
-            qreal lo { };
+            qreal lo {};
             loop(lo);
         }
     } else {
@@ -2617,12 +2732,12 @@ quotidianSearch(PlanetProfile& poses,
 }
 
 QDateTime
-calculateReturnTime(PlanetId id,
+calculateReturnTime(PlanetId         id,
                     const InputData& native,
                     const InputData& locale,
-                    double harmonic)
+                    double           harmonic)
 {
-    modalize<bool> mum(st_quiet,true);
+    modalize<bool> mum(st_quiet, true);
 
     PlanetProfile poses;
     poses.push_back(new NatalLoc(id, native));
@@ -2631,56 +2746,53 @@ calculateReturnTime(PlanetId id,
     return calculateClosestTime(poses, locale, harmonic);
 }
 
-
 Horoscope
 calculateAll(const InputData& input)
 {
     Horoscope scope;
     scope.inputData = input;
-    scope.houses = calculateHouses(input);
-    scope.zodiac = getZodiac(input.zodiac());
+    scope.houses    = calculateHouses(input);
+    scope.zodiac    = getZodiac(input.zodiac());
 
-    for (PlanetId id : getPlanets(true,true)) {
+    for (PlanetId id : getPlanets(true, true)) {
         if (id == Planet_Asc) {
             Planet asc = Data::getPlanet(id);
             asc.eclipticPos.setX(scope.houses.Asc);
             asc.equatorialPos.setX(scope.houses.RAAC);
-            asc.pvPos = 0;
+            asc.pvPos         = 0;
             scope.planets[id] = asc;
         } else if (id == Planet_Desc) {
             Planet desc = Data::getPlanet(id);
-            desc.eclipticPos.setX(swe_degnorm(180.+scope.houses.Asc));
-            desc.equatorialPos.setX(swe_degnorm(180.+scope.houses.RAAC));
-            desc.pvPos = 180;
+            desc.eclipticPos.setX(swe_degnorm(180. + scope.houses.Asc));
+            desc.equatorialPos.setX(swe_degnorm(180. + scope.houses.RAAC));
+            desc.pvPos        = 180;
             scope.planets[id] = desc;
         } else if (id == Planet_MC) {
             Planet mc = Data::getPlanet(id);
             mc.eclipticPos.setX(scope.houses.MC);
             mc.equatorialPos.setX(scope.houses.RAMC);
-            mc.pvPos = 270;
+            mc.pvPos          = 270;
             scope.planets[id] = mc;
         } else if (id == Planet_IC) {
             Planet ic = Data::getPlanet(id);
-            ic.eclipticPos.setX(swe_degnorm(180.+scope.houses.MC));
-            ic.equatorialPos.setX(swe_degnorm(180.+scope.houses.RAMC));
-            ic.pvPos = 90;
+            ic.eclipticPos.setX(swe_degnorm(180. + scope.houses.MC));
+            ic.equatorialPos.setX(swe_degnorm(180. + scope.houses.RAMC));
+            ic.pvPos          = 90;
             scope.planets[id] = ic;
         } else if (id > Planet_Asc && id <= House_12) {
             Planet hc = Data::getPlanet(id);
             hc.eclipticPos.setX(scope.houses.cusp[id - Planet_Asc]);
             hc.equatorialPos.setX(scope.houses.cusp[id - Planet_Asc]); // XXX
-            hc.pvPos = 30 * (id - Planet_Asc);
-            hc.house = id - Planet_Asc;
+            hc.pvPos          = 30 * (id - Planet_Asc);
+            hc.house          = id - Planet_Asc;
             scope.planets[id] = hc;
         } else {
             scope.planets[id] =
-                    calculatePlanet(id, input,
-                                    scope.houses,
-                                    scope.zodiac);
+                calculatePlanet(id, input, scope.houses, scope.zodiac);
         }
     }
 
-    for (const QString& name : qAsConst(getStars())) {
+    for (const QString& name : std::as_const(getStars())) {
         scope.stars[name.toStdString()] =
             calculateStar(name, input, scope.houses, scope.zodiac);
     }
@@ -2689,7 +2801,7 @@ calculateAll(const InputData& input)
         qDebug() << "Wha?";
     }
 
-    scope.housesOrig = scope.houses;
+    scope.housesOrig  = scope.houses;
     scope.planetsOrig = scope.planets;
 
     calculateBaseChartHarmonic(scope);
@@ -2796,19 +2908,21 @@ EventOptions::EventOptions(const EventOptions& opts,
         case etcSolarEclipse:           /*todo*/ break;
         case etcLunarEclipse:           /*todo*/ break;
         case etcHeliacalEvents:         /*todo*/ break;
-        case etcTransitAspectPattern:
-            showTransitAspectPatterns = false;
-            break;
+        case etcTransitAspectPattern:   showTransitAspectPatterns = false; break;
         case etcTransitNatalAspectPattern:
             showTransitNatalAspectPatterns = false;
             break;
-        case etcParanatellonta:            /*todo*/ break;
+        case etcParanatellonta: /*todo*/ break;
+
+        default:
+            break;
         }
     }
 }
 
 /*static*/
-const QString& EventOptions::zposPat()
+const QString&
+EventOptions::zposPat()
 {
     static QString s_pat;
     if (s_pat.isEmpty()) {
@@ -2823,16 +2937,17 @@ const QString& EventOptions::zposPat()
 }
 
 /*static*/
-const QRegularExpression& EventOptions::zposRE()
+const QRegularExpression&
+EventOptions::zposRE()
 {
     static QRegularExpression s_re(zposPat(),
                                    QRegularExpression::CaseInsensitiveOption);
     return s_re;
 }
 
-
 /*static*/
-const QString& EventOptions::eventPat()
+const QString&
+EventOptions::eventPat()
 {
     static QString s_pat;
     if (s_pat.isEmpty()) {
@@ -2857,7 +2972,8 @@ const QString& EventOptions::eventPat()
 }
 
 /*static*/
-const QRegularExpression& EventOptions::eventRE()
+const QRegularExpression&
+EventOptions::eventRE()
 {
     static QRegularExpression s_re(eventPat(),
                                    QRegularExpression::CaseInsensitiveOption);
@@ -2930,8 +3046,8 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     // This ugly jumble intends to generate the appropriate planet listings,
     // and then create the T-T T-N P-P P-N pairings. And the ingresses, etc.
     // Better to have some kind of factory scheme, but for now...
-    bool natal = false, trans = false, prog = false;
-    int  natus = -1, locus = -1, progr = -1;
+    bool                          natal = false, trans = false, prog = false;
+    int                           natus = -1, locus = -1, progr = -1;
     QMap<ChartPlanetId, unsigned> index, revIndex;
 
     uintSSet conjSet { 1 };
@@ -3123,7 +3239,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
         }
 
         if (showIngresses) {
-            for (auto i : qAsConst(ppi)) {
+            for (auto i : std::as_const(ppi)) {
                 auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
                 auto pl = tp->planet.planetId();
                 for (PlanetId pid = Ingresses_Start; pid < Ingresses_End; ++pid)
@@ -3158,44 +3274,41 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                 if (tp->planet.planetId() == Planet_Moon) hs = conjOpp;
             }
 #endif
-            for (int j = i+1; j < tpi.size(); ++j) {
+            for (int j = i + 1; j < tpi.size(); ++j) {
                 _staff.emplace_back(i, j, hs, etcProgressedToProgressed);
             }
         }
     }
 
     if (natal) {
-        if (showTransitsToNatalPlanets
-                || showTransitNatalAspectPatterns
-                || showTransitsToHouseCusps
-                || showTransitsToNatalAngles
-                || showReturns)
+        if (showTransitsToNatalPlanets || showTransitNatalAspectPatterns
+            || showTransitsToHouseCusps || showTransitsToNatalAngles
+            || showReturns)
         {
             QList<PlanetId> npl;
             if (showTransitsToNatalPlanets || showTransitNatalAspectPatterns)
                 npl << getPlanets();
 
             QVector<unsigned> ppn;
-            for (auto pid: qAsConst(npl)) {
+            for (auto pid : std::as_const(npl)) {
                 ppn << getNatalPlanet(pid);
             }
 
             if (!showTransitsToNatalPlanets) ppn.clear();
 
-            if (showTransitsToNatalPlanets
-                    || showTransitsToNatalAngles
-                    || showTransitsToHouseCusps)
+            if (showTransitsToNatalPlanets || showTransitsToNatalAngles
+                || showTransitsToHouseCusps)
             {
                 QList<PlanetId> tpl;
                 if (includeOnlyOuterTransitsToNatal) {
                     tpl = getOuterPlanets(includeCentaurs);
                 } else {
-                    tpl = getPlanets(includeAsteroids,includeCentaurs);
+                    tpl = getPlanets(includeAsteroids, includeCentaurs);
                 }
 
-                for (auto pid: qAsConst(tpl)) {
+                for (auto pid : std::as_const(tpl)) {
                     auto i = getTransitPlanet(pid);
-                    for (auto j: qAsConst(ppn)) {
+                    for (auto j : std::as_const(ppn)) {
                         auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
                         auto np = dynamic_cast<NatalPosition*>(_alist[j]);
                         if (tp->planet.planetId() != np->planet.planetId()
@@ -3203,11 +3316,13 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                         {
                             auto hs = allAsp;
                             auto pl = np->planet.planetId();
-                            if (pl == Planet_NorthNode || pl == Planet_SouthNode)
+                            if (pl == Planet_NorthNode
+                                || pl == Planet_SouthNode)
                                 hs = conj;
                             else {
                                 pl = tp->planet.planetId();
-                                if (pl == Planet_NorthNode || pl == Planet_SouthNode)
+                                if (pl == Planet_NorthNode
+                                    || pl == Planet_SouthNode)
                                     hs = conj;
                             }
                             _staff.emplace_back(i, j, hs, etcTransitToNatal);
@@ -3215,15 +3330,22 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                     }
                     if (showTransitsToHouseCusps) {
                         for (int h = Houses_Start; h < Houses_End; ++h) {
-                            // FIXME retrograde to prior house, etc. like sign ingr
-                            _staff.emplace_back(i, getHouseIngress(h,true), conj,
+                            // FIXME retrograde to prior house, etc. like sign
+                            // ingr
+                            _staff.emplace_back(i,
+                                                getHouseIngress(h, true),
+                                                conj,
                                                 etcHouseIngress);
-                            _staff.emplace_back(i, getHouseIngress(h,false), conj,
+                            _staff.emplace_back(i,
+                                                getHouseIngress(h, false),
+                                                conj,
                                                 etcHouseIngress);
                         }
                     } else if (showTransitsToNatalAngles) {
-                        for (auto a: getAngles()) {
-                            _staff.emplace_back(i, getNatalPlanet(a), conj,
+                        for (auto a : getAngles()) {
+                            _staff.emplace_back(i,
+                                                getNatalPlanet(a),
+                                                conj,
                                                 etcTransitToNatal);
                         }
                     }
@@ -3231,12 +3353,12 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
             }
             if (showReturns) {
                 QList<PlanetId> tpl = getPlanets();
-                for (auto pid: qAsConst(tpl)) {
-                    auto i = getTransitPlanet(pid);
-                    auto j = getNatalPlanet(pid);
+                for (auto pid : std::as_const(tpl)) {
+                    auto   i  = getTransitPlanet(pid);
+                    auto   j  = getNatalPlanet(pid);
                     hsetId hs = conjOpp;
-                    auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
-                    auto pl = tp->planet.planetId();
+                    auto   tp = dynamic_cast<TransitPosition*>(_alist[i]);
+                    auto   pl = tp->planet.planetId();
                     if (pl == Planet_NorthNode || pl == Planet_SouthNode) {
                         hs = conj;
                     } else if (pl >= Planet_Jupiter && pl <= Planet_Chiron) {
@@ -3253,16 +3375,17 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
             QList<PlanetId> ppl;
             if (includeOnlyInnerProgressionsToNatal)
                 ppl = getInnerPlanets(includeAsteroids);
-            else ppl = getPlanets(includeAsteroids,includeCentaurs);
+            else
+                ppl = getPlanets(includeAsteroids, includeCentaurs);
 
-            auto npl = getPlanets(includeAsteroids,includeCentaurs);
+            auto npl = getPlanets(includeAsteroids, includeCentaurs);
             npl << getAngles();
 
-            for (auto pid: qAsConst(ppl)) {
+            for (auto pid : std::as_const(ppl)) {
                 auto i = getProgressedPlanet(pid);
-                for (auto npid: qAsConst(npl)) {
+                for (auto npid : std::as_const(npl)) {
                     auto j = getNatalPlanet(npid);
-                    _staff.emplace_back(i, j,allAsp,etcProgressedToNatal);
+                    _staff.emplace_back(i, j, allAsp, etcProgressedToNatal);
                 }
             }
         }
@@ -3301,9 +3424,13 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
 #endif
 }
 
-namespace { static thread_local bool s_inited = false; }
+namespace
+{
+static thread_local bool s_inited = false;
+}
 
-void AspectFinder::prepThread()
+void
+AspectFinder::prepThread()
 {
 #if MSDOS
     char ephePath[] = "swe\\";
@@ -3316,35 +3443,40 @@ void AspectFinder::prepThread()
     }
 }
 
-void AspectFinder::releaseThread()
+void
+AspectFinder::releaseThread()
 {
-//    swe_close();
+    //    swe_close();
 }
 
-
-std::ostream &
+std::ostream&
 operator<<(std::ostream& os, const PlanetClusterMap& pcm)
 {
     os << "(";
     bool any = false;
     for (const auto& pc : pcm) {
         if (any) os << ",\n\t";
-        os << pc.first.names().join("=").toStdString()
-           << " spread " << pc.second;
+        os << pc.first.names().join("=").toStdString() << " spread "
+           << pc.second;
         any = true;
     }
     os << ")";
     return os;
 }
 
-QDebug operator<<(QDebug qd, const PlanetClusterMap& pcm)
-{ std::stringstream ss; ss << pcm; return qd << ss.str().c_str(); }
+QDebug
+operator<<(QDebug qd, const PlanetClusterMap& pcm)
+{
+    std::stringstream ss;
+    ss << pcm;
+    return qd << ss.str().c_str();
+}
 
-std::ostream &
+std::ostream&
 operator<<(std::ostream& os, const PlanetProfile& pp)
 {
     bool any = false;
-    for (auto&& ploc: pp) {
+    for (auto&& ploc : pp) {
         if (any) os << " ";
         any = true;
         os << ploc->description().toStdString();
@@ -3352,8 +3484,13 @@ operator<<(std::ostream& os, const PlanetProfile& pp)
     return os;
 }
 
-QDebug operator<<(QDebug qd, const PlanetProfile& pp)
-{ std::stringstream ss; ss << pp; return qd << ss.str().c_str(); }
+QDebug
+operator<<(QDebug qd, const PlanetProfile& pp)
+{
+    std::stringstream ss;
+    ss << pp;
+    return qd << ss.str().c_str();
+}
 
 class TaskTracker {
     AspectFinder* f;
@@ -3376,10 +3513,10 @@ class PairAspectFinder : public EventFinderTask {
     bool            _beQuiet;
     AspectFinder*   _finder;
     HarmonicEvents& _evs;
-    //HarmonicEvent&  _ev;
-    bool            _useBZS;
-    JDateRange      _useRange;
-    bool            _ran = false;
+    // HarmonicEvent&  _ev;
+    bool       _useBZS;
+    JDateRange _useRange;
+    bool       _ran = false;
 
   public:
     PairAspectFinder(Loc*             a,
@@ -3414,7 +3551,7 @@ class PairAspectFinder : public EventFinderTask {
     //_ev(_evs.safe_emplace_back())
     {
         _useBZS = (a->inMotion() && ispd < .00001)
-        || (b->inMotion() && jspd < .00001);
+                  || (b->inMotion() && jspd < .00001);
     }
 
     ~PairAspectFinder()
@@ -3439,25 +3576,27 @@ class PairAspectFinder : public EventFinderTask {
 
         double    tjd {};
         uintmax_t iter;
-        bool      bzhs = false;
-        bool      done = false;
+        bool      bzhs      = false;
+        bool      done      = false;
         bool      cancelled = false;
         if (!_useBZS) {
             try {
-                auto cps = [this, &poses](double jd) -> std::pair<qreal, qreal> {
-                    if (_finder->_state == AspectFinder::cancelRequestedState) throw int(1);
-                    auto pos = poses.computePos(jd, _h);
-                    std::pair<qreal, qreal> ret{pos, poses.speed()};
+                auto cps = [this,
+                            &poses](double jd) -> std::pair<qreal, qreal> {
+                    if (_finder->_state == AspectFinder::cancelRequestedState)
+                        throw int(1);
+                    auto                    pos = poses.computePos(jd, _h);
+                    std::pair<qreal, qreal> ret { pos, poses.speed() };
                     if (!_beQuiet) {
                         QDateTime dt(dateTimeFromJulian(jd));
                         qDebug() << "nri " << (_which + ":").c_str()
-                                 << dtToString(dt)
-                                 << "ret:" << ret;
+                                 << dtToString(dt) << "ret:" << ret;
                     }
                     return ret;
                 };
                 iter = 50;
-                static constexpr int digits = std::numeric_limits<double>::digits;
+                static constexpr int digits =
+                    std::numeric_limits<double>::digits;
 
                 double guess;
                 if (_a && _a->inMotion() && _b && _b->inMotion()) {
@@ -3466,8 +3605,14 @@ class PairAspectFinder : public EventFinderTask {
                     guess = _pjd + .5;
                 }
                 try {
-                    tjd = newton_raphson_iterate(cps, guess, _pjd, _jd, digits, iter);
-                } catch (int) {
+                    tjd = newton_raphson_iterate(cps,
+                                                 guess,
+                                                 _pjd,
+                                                 _jd,
+                                                 digits,
+                                                 iter);
+                }
+                catch (int) {
                     return;
                 }
 
@@ -3477,38 +3622,40 @@ class PairAspectFinder : public EventFinderTask {
                 } else {
                     done = false;
                 }
-            } catch (...) {
+            }
+            catch (...) {
                 cancelled = false;
             }
             if (!done && !_beQuiet) {
                 qDebug() << QString(cancelled ? "Cancelled" : "Failed")
-                << _d.date().toString() << _which.c_str() << "after"
-                << iter << "iteration(s) newton_raphson";
+                         << _d.date().toString() << _which.c_str() << "after"
+                         << iter << "iteration(s) newton_raphson";
                 qDebug() << "speed" << _ispd << _jspd << "respectively";
             }
         }
         if (!done && !cancelled) {
-            bzhs = true;
+            bzhs           = true;
             unsigned count = 0;
-            auto cp = [this, &poses, &count](double jd) {
-                if (_finder->_state == AspectFinder::cancelRequestedState) throw int(1);
+            auto     cp    = [this, &poses, &count](double jd) {
+                if (_finder->_state == AspectFinder::cancelRequestedState)
+                    throw int(1);
                 ++count;
                 auto pos = poses.computePos(jd, _h);
                 if (!_beQuiet) {
                     QDateTime dt(dateTimeFromJulian(jd));
                     qDebug() << "bzhs " << (_which + ":").c_str()
-                             << dtToString(dt)
-                             << "ret:" << pos;
+                             << dtToString(dt) << "ret:" << pos;
                 }
                 return pos;
             };
             try {
                 done = brentZhangStage(cp, _pjd, _jd, _ad, _bd, tjd);
-            } catch (int) {
+            }
+            catch (int) {
                 return;
             }
 
-            iter = count;
+            iter     = count;
             auto psp = PlanetProfile::computeDelta(poses[0], poses[1], _h);
             if (std::abs(psp.first) <= calcLoop::tol) {
                 done = true;
@@ -3517,21 +3664,18 @@ class PairAspectFinder : public EventFinderTask {
             }
         }
         if (!done /*&& !_beQuiet*/) {
-            qDebug() << "Failed"
-                     << _d.date().toString()
-                     << _which.c_str()
-                     << "after" << iter
-                     << "iteration(s) brentStageZhang";
+            qDebug() << "Failed" << _d.date().toString() << _which.c_str()
+                     << "after" << iter << "iteration(s) brentStageZhang";
         } else {
             // Pack up event
-            auto qdt = dateTimeFromJulian(tjd);
-            auto p1loc = dynamic_cast<PlanetLoc*>(poses[0]);
-            auto p2loc = dynamic_cast<PlanetLoc*>(poses[1]);
-            PlanetRangeBySpeed plr{*p1loc, *p2loc};
+            auto               qdt   = dateTimeFromJulian(tjd);
+            auto               p1loc = dynamic_cast<PlanetLoc*>(poses[0]);
+            auto               p2loc = dynamic_cast<PlanetLoc*>(poses[1]);
+            PlanetRangeBySpeed plr { *p1loc, *p2loc };
 
-            auto ch = static_cast<unsigned char>(_h);
+            auto         ch = static_cast<unsigned char>(_h);
             QMutexLocker ml(_evs.mutex());
-            auto& ev = _evs.emplace_back(qdt, _et, ch, std::move(plr));
+            auto&        ev = _evs.emplace_back(qdt, _et, ch, std::move(plr));
 
             if (_useRange != JDateRange()) {
                 ev.setRange({ dateTimeFromJulian(_useRange.first),
@@ -3540,39 +3684,36 @@ class PairAspectFinder : public EventFinderTask {
 
             if (!_beQuiet)
                 qDebug() << dtToString(qdt).toLocal8Bit().constData()
-                         << _which.c_str()
-                         << "with" << iter
-                         << "iteration(s)"
+                         << _which.c_str() << "with" << iter << "iteration(s)"
                          << (bzhs ? "brentZhangStage" : "newton_raphson");
         }
     }
 };
 
-
 void
 AspectFinder::findStations()
 {
     const auto& start = _range.first;
-    const auto& end = _range.second.addDays(1);
-    auto d = start.startOfDay().toUTC();
-    auto e = end.startOfDay().toUTC();
+    const auto& end   = _range.second.addDays(1);
+    auto        d     = start.startOfDay().toUTC();
+    auto        e     = end.startOfDay().toUTC();
 
     modalize<bool> mum(st_quiet, true);
 
     double jd = getJulianDate(d);
-    for (auto trans: _alist) (*trans)(jd, 1);   // the horror
+    for (auto trans : _alist) (*trans)(jd, 1); // the horror
 
     PlanetProfile b = _alist;
 
-    auto useRate = 15;  // search every 15 days
+    auto useRate = 15; // search every 15 days
     if (!st_quiet) qDebug() << "sta" << dtToString(d);
 
-    double pjd = jd;
-    int ndays = int(useRate);
-    int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
-    auto nd = d.addDays(ndays).addSecs(nsecs);
+    double                pjd   = jd;
+    int                   ndays = int(useRate);
+    int                   nsecs = (useRate - double(ndays)) * 24. * 60. * 60.;
+    auto                  nd    = d.addDays(ndays).addSecs(nsecs);
     std::list<PlanetLoc*> stations;
-    unsigned in = _alist.size();
+    unsigned              in = _alist.size();
     while (d < e) {
         QCoreApplication::processEvents();
 
@@ -3586,21 +3727,22 @@ AspectFinder::findStations()
         if (!st_quiet) qDebug() << "sta" << dtToString(nd);
 
         // compute new positions
-        for (auto pos: b) (*pos)(jd, 1);
+        for (auto pos : b) (*pos)(jd, 1);
 
         std::set<unsigned> stationChecked;
         for (unsigned i = 0; i < in; ++i) {
-            if (stationChecked.count(i)!=0) continue;
+            if (stationChecked.count(i) != 0) continue;
             stationChecked.insert(i);
 
             auto pl = dynamic_cast<TransitPosition*>(_alist[i]);
             if (!pl) continue;
 
             auto pid = pl->planet.planetId();
-            if (pid <= Planet_Moon
-                    || pid == Planet_NorthNode || pid == Planet_SouthNode
-                    || pid >= Planets_End)
-            { continue; }
+            if (pid <= Planet_Moon || pid == Planet_NorthNode
+                || pid == Planet_SouthNode || pid >= Planets_End)
+            {
+                continue;
+            }
 
             auto aspd = _alist[i]->speed;
             auto bspd = b[i]->speed;
@@ -3609,29 +3751,29 @@ AspectFinder::findStations()
             }
             if (sgn(aspd) == sgn(bspd)) continue;
 
-            bool wasRetro = aspd < 0;
-            auto& ev = _evs.safe_emplace_back();
+            bool  wasRetro = aspd < 0;
+            auto& ev       = _evs.safe_emplace_back();
 #if 1
             _tp->start([=, &stations, &ev] {
                 startTask();
                 modalize<bool> mum(st_quiet, true);
 #endif
 
-                auto pj = dynamic_cast<PlanetLoc*>(_alist[i]->clone());
-                pj->desc = QString("S") + (wasRetro? 'D' : 'R');
+                auto pj        = dynamic_cast<PlanetLoc*>(_alist[i]->clone());
+                pj->desc       = QString("S") + (wasRetro ? 'D' : 'R');
                 unsigned iters = 0;
-                auto cspd = [&](double jd) {
-                    (*pj)(jd,1);
+                auto     cspd  = [&](double jd) {
+                    (*pj)(jd, 1);
                     ++iters;
                     return pj->speed;
                 };
 
-                double tjd = jd/2.+pjd/2.;
+                double tjd = jd / 2. + pjd / 2.;
                 if (brentZhangStage(cspd, pjd, jd, aspd, bspd, tjd)) {
-                    auto qdt = dateTimeFromJulian(tjd);
+                    auto qdt  = dateTimeFromJulian(tjd);
                     auto ploc = dynamic_cast<PlanetLoc*>(pj);
 
-                    auto dt = dtToString(qdt);
+                    auto               dt = dtToString(qdt);
                     PlanetRangeBySpeed plr { *ploc };
 
                     ev = HarmonicEvent(qdt, etcStation, 1, std::move(plr));
@@ -3642,16 +3784,17 @@ AspectFinder::findStations()
                     if (includeShadowTransits) {
                         // Add shadow-period transit lookup
                         QMutexLocker mlb(&_ctm);
-                        auto pj = new KnownPosition(ploc, tjd,
-                                                    wasRetro? "IN" : "EX");
+                        auto         pj = new KnownPosition(ploc,
+                                                    tjd,
+                                                    wasRetro ? "IN" : "EX");
                         pj->planet.setFileId(i);
                         pj->allowAspects = PlanetLoc::aspOnlyDirect;
-                        pj->speed = 0;
+                        pj->speed        = 0;
                         stations.emplace_back(pj);
                     }
                 } else {
                     qDebug() << "Couldn't find station for"
-                        << _alist[i]->description() << "!";
+                             << _alist[i]->description() << "!";
                 }
 #if 1
                 endTask();
@@ -3659,9 +3802,9 @@ AspectFinder::findStations()
 #endif
         }
 
-        d = nd;
+        d  = nd;
         nd = d.addDays(ndays).addSecs(nsecs);
-        //nd = d.addDays(_rate);
+        // nd = d.addDays(_rate);
         pjd = jd;
 
         _alist.swap(b);
@@ -3696,8 +3839,8 @@ AspectFinder::findStations()
         auto* kp = dynamic_cast<KnownPosition*>(pj);
         if (!kp) continue;
         auto jd = kp->julianDate();
-        int i = pj->planet.fileId();
-        int j = int(_alist.size());
+        int  i  = pj->planet.fileId();
+        int  j  = int(_alist.size());
         _alist.push_back(pj);
         pj->planet.setFileId(-1); // hides it from clusterer
         _staff.emplace_back(i, j, 0, etcTransitToStation);
@@ -3708,13 +3851,14 @@ AspectFinder::findStations()
     }
 }
 
-void AspectFinder::findAspectsAndPatterns()
+void
+AspectFinder::findAspectsAndPatterns()
 {
     if (_alist.empty()) return;
-    
-    PlanetSet nats, trans;
-    PlanetProfile b = _alist;
-    bool skipAllNatalOnly = false;
+
+    PlanetSet     nats, trans;
+    PlanetProfile b                = _alist;
+    bool          skipAllNatalOnly = false;
     if (!showTransitAspectPatterns && showTransitNatalAspectPatterns) {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<NatalPosition*>(pl);
@@ -3723,8 +3867,7 @@ void AspectFinder::findAspectsAndPatterns()
         }
         skipAllNatalOnly = true;
     } else if (showTransitAspectPatterns
-               && (!showTransitNatalAspectPatterns
-                   || _ids.size()==1))
+               && (!showTransitNatalAspectPatterns || _ids.size() == 1))
     {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<TransitPosition*>(pl);
@@ -3735,22 +3878,25 @@ void AspectFinder::findAspectsAndPatterns()
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<PlanetLoc*>(pl);
             if (!pla) continue;
-            if (pla->inMotion()) { trans.emplace(pla->planet); }
-            else { nats.emplace(pla->planet); }
+            if (pla->inMotion()) {
+                trans.emplace(pla->planet);
+            } else {
+                nats.emplace(pla->planet);
+            }
         }
         skipAllNatalOnly = true;
     }
     bool showPatterns = showTransitAspectPatterns || !nats.empty();
 
     const auto& start = _range.first;
-    auto end = _range.second;
+    auto        end   = _range.second;
     if (start == end) end = end.addDays(1);
     auto d = start.startOfDay().toUTC(), e = end.startOfDay().toUTC();
 
-    double jd = getJulianDate(d);
+    double jd  = getJulianDate(d);
     double bjd = jd;
     double ejd = getJulianDate(e);
-    for (auto tp: _alist) (*tp)(jd, 1);   // the horror
+    for (auto tp : _alist) (*tp)(jd, 1); // the horror
 
     uintSSet hs;
     for (const auto& ij : _staff) {
@@ -3759,7 +3905,7 @@ void AspectFinder::findAspectsAndPatterns()
     }
     if (showTransitAspectPatterns || showTransitNatalAspectPatterns) {
         auto&& hset = _hsets.at(0);
-        hs.insert(hset.begin(),hset.end());
+        hs.insert(hset.begin(), hset.end());
     }
     unsigned maxH = 1;
     if (hs.empty()) {
@@ -3784,23 +3930,23 @@ void AspectFinder::findAspectsAndPatterns()
     // preview aspects for those stations, this could prune the list.
     // (Or maybe it's better to have a loop engine that various
     // disciplines could be applied to.)
-    unsigned int h { };
-    auto keep = [&](unsigned i, bool derived=false) {
+    unsigned int h {};
+    auto         keep = [&](unsigned i, bool derived = false) {
         if (derived) {
             if (auto p = dynamic_cast<PlanetLoc*>(_alist[i])) {
                 if (p->planet.isMidpt()) {
-                    return h < (derived? 4u : 2u);
+                    return h < (derived ? 4u : 2u);
                 }
             }
         }
         return keepLooking(h, i);
     };
 
-    HarmonicPlanetDateRangeMap inOrb;
+    HarmonicPlanetDateRangeMap  inOrb;
     HarmonicPlanetDateRangesMap proximityLog;
-    
+
     HarmonicPlanetClusters starts;
-    auto useRate = 1 / double(maxH); // XXX
+    auto                   useRate = 1 / double(maxH); // XXX
     if (showPatterns) {
         useRate *= patternsSpreadOrb / 16.;
     } else if ((showTransitsToTransits || showTransitsToNatalPlanets)
@@ -3813,65 +3959,77 @@ void AspectFinder::findAspectsAndPatterns()
     } else if (skipByDuration == SkipLessThanWeek) {
         useRate *= 2;
     } else if (skipByDuration == SkipLessThanDay) {
-        //useRate *= 2;
+        // useRate *= 2;
     }
 
     int ndays = int(useRate);
-    int nsecs = (useRate - double(ndays)) * 24.*60.*60.;
+    int nsecs = (useRate - double(ndays)) * 24. * 60. * 60.;
 
     if (showPatterns || includeTransitRange) {
-        HarmonicPlanetClusters work;
-        PlanetProfile* useProf = &_alist;
+        HarmonicPlanetClusters         work;
+        PlanetProfile*                 useProf = &_alist;
         std::unique_ptr<PlanetProfile> doomed;
-        auto stuff = _staff;
+        auto                           stuff = _staff;
         if (!trans.empty() && !skipAllNatalOnly) {
-            doomed = std::unique_ptr<PlanetProfile>(_alist.profile(trans, stuff));
+            doomed =
+                std::unique_ptr<PlanetProfile>(_alist.profile(trans, stuff));
             useProf = doomed.get();
         }
         HarmonicPlanetDateRangeMap tinOrb;
         for (unsigned h = 1; h <= maxH; ++h) {
-            bool unsel = hs.count(h)==0;
+            bool unsel = hs.count(h) == 0;
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
             if (showPatterns) {
-                auto found = findClusters(h, jd, *useProf, _ids,
-                                          patternsQuorum,
-                                          !showTransitNatalAspectPatterns?nats:PlanetSet{},
-                                          patternsRestrictMoon,
-                                          patternsSpreadOrb);
+                auto found = findClusters(
+                    h,
+                    jd,
+                    *useProf,
+                    _ids,
+                    patternsQuorum,
+                    !showTransitNatalAspectPatterns ? nats : PlanetSet {},
+                    patternsRestrictMoon,
+                    patternsSpreadOrb);
                 if (!found.empty()) work[h].swap(found);
             }
-            
+
             if (!includeTransitRange) continue;
 
-            int i, j;
+            int   i, j;
             qreal bd, bsp;
-            for (auto it = stuff.begin(); it != stuff.end(); ) {
+            for (auto it = stuff.begin(); it != stuff.end();) {
                 if (_hsets[it->hsid].count(h) == 0) {
                     ++it;
                     continue;
                 }
-                std::tie(i,j) = it->planetPair;
-                auto bi = dynamic_cast<PlanetLoc*>((*useProf)[i]);
-                auto bj = dynamic_cast<PlanetLoc*>((*useProf)[j]);
+                std::tie(i, j) = it->planetPair;
+                auto bi        = dynamic_cast<PlanetLoc*>((*useProf)[i]);
+                auto bj        = dynamic_cast<PlanetLoc*>((*useProf)[j]);
                 if (!bi || !bj) continue;
-                bool good = bi->aspectable() || bj->aspectable();
-                std::tie(bd, bsp) =
-                        PlanetProfile::computeDelta(bi, bj, h);
+                bool good         = bi->aspectable() || bj->aspectable();
+                std::tie(bd, bsp) = PlanetProfile::computeDelta(bi, bj, h);
                 if (!st_quiet)
-                qDebug() << QString("H%1 %2 at %3 with orb %4")
-                            .arg(h)
-                            .arg(PlanetSet({bi->planet,bj->planet}).names().join('='))
-                            .arg(dtToString(d)).arg(bd)
-                            .toStdString().c_str();
+                    qDebug() << QString("H%1 %2 at %3 with orb %4")
+                                    .arg(h)
+                                    .arg(PlanetSet({ bi->planet, bj->planet })
+                                             .names()
+                                             .join('='))
+                                    .arg(dtToString(d))
+                                    .arg(bd)
+                                    .toStdString()
+                                    .c_str();
                 if (good && std::abs(bd) <= planetPairOrb) {
-                    HarmonicPlanetSet hij { h, { bi->planet, bj->planet }};
-                    tinOrb[hij] = {jd, 0};
-                    //if (!s_quiet)
-                    qDebug() << QString("Found H%1 inital start of %2 at %3 with orb %4")
-                                .arg(h)
-                                .arg(hij.second.names().join("="))
-                                .arg(dtToString(d)).arg(bd)
-                                .toStdString().c_str();
+                    HarmonicPlanetSet hij { h, { bi->planet, bj->planet } };
+                    tinOrb[hij] = { jd, 0 };
+                    // if (!s_quiet)
+                    qDebug()
+                        << QString(
+                               "Found H%1 inital start of %2 at %3 with orb %4")
+                               .arg(h)
+                               .arg(hij.second.names().join("="))
+                               .arg(dtToString(d))
+                               .arg(bd)
+                               .toStdString()
+                               .c_str();
                     stuff.erase(it++);
                     continue;
                 }
@@ -3891,66 +4049,79 @@ void AspectFinder::findAspectsAndPatterns()
 
             nd = nd.addDays(-ndays).addSecs(-nsecs);
             PlanetSet ws;
-            for (const auto& hpso: work) {
-                for (const auto& pso: hpso.second) {
-                    ws.insert(pso.first.begin(),pso.first.end());
+            for (const auto& hpso : work) {
+                for (const auto& pso : hpso.second) {
+                    ws.insert(pso.first.begin(), pso.first.end());
                 }
             }
-            for (const auto& hijr: tinOrb) {
-                ws.insert(hijr.first.second.begin(),
-                          hijr.first.second.end());
+            for (const auto& hijr : tinOrb) {
+                ws.insert(hijr.first.second.begin(), hijr.first.second.end());
             }
 
-            auto wp = _alist.profile(ws);   // subset of planets
+            auto wp  = _alist.profile(ws); // subset of planets
             auto pjd = getJulianDate(nd);
             (*wp)(pjd); // XXX compute once
 
-            for (auto hit = tinOrb.begin(); hit != tinOrb.end(); ) {
+            for (auto hit = tinOrb.begin(); hit != tinOrb.end();) {
                 const auto& hps = hit->first;
-                const auto& ps = hps.second;
-                auto hwp = wp->profile(ps);
-                auto orb = computeSpread(hps.first, *hwp);
+                const auto& ps  = hps.second;
+                auto        hwp = wp->profile(ps);
+                auto        orb = computeSpread(hps.first, *hwp);
                 delete hwp;
                 if (std::abs(orb) > planetPairOrb) {
                     inOrb[hps] = hit->second;
-                    //if (!s_quiet)
-                    qDebug() << QString("Found H%1 start of %2 at %3 with orb %4")
-                                .arg(hps.first)
-                                .arg(ps.names().join("="))
-                                .arg(dtToString(nd))
-                                .arg(orb)
-                                .toStdString().c_str();
+                    // if (!s_quiet)
+                    qDebug()
+                        << QString("Found H%1 start of %2 at %3 with orb %4")
+                               .arg(hps.first)
+                               .arg(ps.names().join("="))
+                               .arg(dtToString(nd))
+                               .arg(orb)
+                               .toStdString()
+                               .c_str();
                     tinOrb.erase(hit++);
                 } else {
                     if (!st_quiet)
-                    qDebug() << QString("Still looking for H%1 start"
-                                        " of %2 at %3 with orb %4")
-                                .arg(hps.first)
-                                .arg(ps.names().join("="))
-                                .arg(dtToString(nd)).arg(orb)
-                                .toStdString().c_str();
-                    hit->second.range.first = pjd;    // update range start
+                        qDebug()
+                            << QString("Still looking for H%1 start" " of %2 "
+                                                                     "at %3 " "with orb %4")
+                                   .arg(hps.first)
+                                   .arg(ps.names().join("="))
+                                   .arg(dtToString(nd))
+                                   .arg(orb)
+                                   .toStdString()
+                                   .c_str();
+                    hit->second.range.first = pjd; // update range start
                     ++hit;
                 }
             }
 
-            for (auto hit = work.begin(); hit != work.end(); ) {
-                auto h = hit->first;
+            for (auto hit = work.begin(); hit != work.end();) {
+                auto  h   = hit->first;
                 auto& pso = hit->second;
-                for (auto spit = pso.begin(); spit != pso.end(); ) {
-                    const auto& ps = spit->first;
-                    auto orbWas = spit->second;
-                    auto hwp = wp->profile(ps);
-                    auto orb = computeSpread(h,*hwp);
+                for (auto spit = pso.begin(); spit != pso.end();) {
+                    const auto& ps     = spit->first;
+                    auto        orbWas = spit->second;
+                    auto        hwp    = wp->profile(ps);
+                    auto        orb    = computeSpread(h, *hwp);
                     delete hwp;
                     if (orb > patternsSpreadOrb) {
-                        starts[h].emplace(ps,ClusterOrbWhen(orb,pjd));
-                        qDebug() << QString("Found H%1 prior start of %2 "
-                                            "with %3 spread at %4")
-                                    .arg(h).arg(ps.names().join("="))
-                                    .arg(orbWas)
-                                    .arg(dtToString(nd))
-                                    .toStdString().c_str();
+                        starts[h].emplace(ps, ClusterOrbWhen(orb, pjd));
+                        qDebug()
+                            << QString(
+                                   "Found H%1 prior start of %2 " "with %3 " "s"
+                                                                             "p"
+                                                                             "r"
+                                                                             "e"
+                                                                             "a"
+                                                                             "d"
+                                                                             " " "at %4")
+                                   .arg(h)
+                                   .arg(ps.names().join("="))
+                                   .arg(orbWas)
+                                   .arg(dtToString(nd))
+                                   .toStdString()
+                                   .c_str();
                         pso.erase(spit++);
                     } else {
                         if (orb < spit->second.orb) {
@@ -3960,7 +4131,8 @@ void AspectFinder::findAspectsAndPatterns()
                     }
                 }
                 if (pso.empty()) work.erase(hit++);
-                else ++hit;
+                else
+                    ++hit;
             }
             delete wp;
         }
@@ -3969,7 +4141,7 @@ void AspectFinder::findAspectsAndPatterns()
 
     double pjd = jd;
     double ljd = jd;
-    auto nd = d.addDays(ndays).addSecs(nsecs);
+    auto   nd  = d.addDays(ndays).addSecs(nsecs);
     while (d < e || !starts.empty() || !inOrb.empty()) {
         QCoreApplication::processEvents();
 
@@ -3989,19 +4161,18 @@ void AspectFinder::findAspectsAndPatterns()
         }
 
         std::unique_ptr<PlanetProfile> useProf;
-        bool collectingStrays = (d >= e);
+        bool                           collectingStrays = (d >= e);
         if (collectingStrays) {
             PlanetSet ws;
-            for (const auto& hpso: starts) {
-                for (const auto& pso: hpso.second) {
-                    ws.insert(pso.first.begin(),pso.first.end());
+            for (const auto& hpso : starts) {
+                for (const auto& pso : hpso.second) {
+                    ws.insert(pso.first.begin(), pso.first.end());
                 }
             }
-            for (const auto& hijr: inOrb) {
-                ws.insert(hijr.first.second.begin(),
-                          hijr.first.second.end());
+            for (const auto& hijr : inOrb) {
+                ws.insert(hijr.first.second.begin(), hijr.first.second.end());
             }
-            if (ws.empty()) break;  // all done
+            if (ws.empty()) break; // all done
             if (ws.size() != b.size()) {
                 qDebug() << "Pruning profile to" << ws.names();
                 auto wp = b.profile(ws);
@@ -4010,7 +4181,7 @@ void AspectFinder::findAspectsAndPatterns()
             }
         }
 
-        for (auto tp: b) (*tp)(jd, 1);
+        for (auto tp : b) (*tp)(jd, 1);
         if (!st_quiet) qDebug() << "stuff" << dtToString(nd);
 
         if (!collectingStrays && !trans.empty() && !skipAllNatalOnly) {
@@ -4019,123 +4190,138 @@ void AspectFinder::findAspectsAndPatterns()
 
         // Do all the things HERE
 
-    if (showPatterns) {
-        // 1. Patterns
-        for (h = maxH; h >= 1; --h) {
-            bool unsel = hs.count(h)==0;
-            if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-            if (collectingStrays) {
-                bool any = false;
-                auto hit = starts.find(h);
-                if (hit != starts.end()) {
-                    if (hit->second.empty()) starts.erase(hit);
-                    else any = true;
-                }
-                if (!any) continue;
-            }
-            PlanetClusterMap hpc;
-            if (!collectingStrays) {
-                PlanetProfile* prof = &b;
-                if (useProf.get()) prof = useProf.get();
-                hpc = findClusters(h, *prof,
-                                   patternsQuorum,
-                                   !showTransitNatalAspectPatterns? nats:PlanetSet{},
-                                   skipAllNatalOnly,
-                                   patternsRestrictMoon,
-                                   patternsSpreadOrb);
-            }
-
-            std::list<PlanetClusterMap::iterator> doomed;
-            for (auto sit = starts[h].begin(); sit != starts[h].end(); ) {
-                const auto& ps = sit->first;
-                auto prof = b.profile(ps);
-                auto hpcit = hpc.find(ps);
-                if (hpcit != hpc.end()) {
-                    delete prof;
-                    hpc.erase(hpcit);   // already have a start time
-                    ++sit;
-                    continue;
-                }
-                auto spread = computeSpread(h,*prof);
-                if (spread <= patternsSpreadOrb) {
-                    if (collectingStrays && !st_quiet) {
-                        qDebug() << QString("H%1 %2 with %3 spread at %4")
-                                    .arg(h).arg(ps.names().join("="))
-                                    .arg(spread)
-                                    .arg(dtToString(dateTimeFromJulian(jd)))
-                                    .toStdString().c_str();
+        if (showPatterns) {
+            // 1. Patterns
+            for (h = maxH; h >= 1; --h) {
+                bool unsel = hs.count(h) == 0;
+                if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
+                if (collectingStrays) {
+                    bool any = false;
+                    auto hit = starts.find(h);
+                    if (hit != starts.end()) {
+                        if (hit->second.empty()) starts.erase(hit);
+                        else
+                            any = true;
                     }
-                    // still good so keep
-                    delete prof;
-                    ++sit;
-                    continue;
+                    if (!any) continue;
+                }
+                PlanetClusterMap hpc;
+                if (!collectingStrays) {
+                    PlanetProfile* prof = &b;
+                    if (useProf.get()) prof = useProf.get();
+                    hpc = findClusters(
+                        h,
+                        *prof,
+                        patternsQuorum,
+                        !showTransitNatalAspectPatterns ? nats : PlanetSet {},
+                        skipAllNatalOnly,
+                        patternsRestrictMoon,
+                        patternsSpreadOrb);
                 }
 
-                double from = sit->second.when;
-                double to = jd;
-
-                bool cancel = (from == 0);
-                if (cancel) {
-                    qDebug() << QString("H%1").arg(h) << ps.names()
-                             << "was previously hijacked, so skipping";
-                } else {
-                    cancel = skippablePeriod({from, to});
-                    qDebug() << QString("H%1").arg(h) << ps.names() << "from"
-                             << dtToString(dateTimeFromJulian(from)) << "to"
-                             << dtToString(nd)
-                             << std::string(cancel ? "** too short **" : "");
-                }
-
-                unsigned useH = h;
-                if (!cancel && h > 1) {
-                    // look for a pending pattern at a lower harmonic
-                    // because it's likely to be the same pattern but
-                    // now we have a tighter bounds. when we find this,
-                    // we set the start time to 0 to indicate that it
-                    // is no longer active.
-                    unsigned prev = 0;
-                    for (unsigned f: getAllFactors(h)) {
-                        if (f == h) break;
-                        if (prev == f) continue;
-                        auto stit = starts.find(f);
-                        if (stit == starts.end()) continue;
-                        auto& startf = stit->second;
-                        auto lwrit = startf.find(ps);
-                        if (lwrit != startf.end()) {
-                            cancel = true;
-                            qDebug() << QString("H%1").arg(f)
-                                     << ps.names()
-                                     << "exists, so skipping"
-                                     << QString("H%1").arg(h);
-                            break;
+                std::list<PlanetClusterMap::iterator> doomed;
+                for (auto sit = starts[h].begin(); sit != starts[h].end();) {
+                    const auto& ps    = sit->first;
+                    auto        prof  = b.profile(ps);
+                    auto        hpcit = hpc.find(ps);
+                    if (hpcit != hpc.end()) {
+                        delete prof;
+                        hpc.erase(hpcit); // already have a start time
+                        ++sit;
+                        continue;
+                    }
+                    auto spread = computeSpread(h, *prof);
+                    if (spread <= patternsSpreadOrb) {
+                        if (collectingStrays && !st_quiet) {
+                            qDebug()
+                                << QString("H%1 %2 with %3 spread at %4")
+                                       .arg(h)
+                                       .arg(ps.names().join("="))
+                                       .arg(spread)
+                                       .arg(dtToString(dateTimeFromJulian(jd)))
+                                       .toStdString()
+                                       .c_str();
                         }
-                        prev = f;
+                        // still good so keep
+                        delete prof;
+                        ++sit;
+                        continue;
                     }
-                }
-                if (cancel) {
-                    delete prof;
-                    starts[h].erase(sit++);
-                    continue;    // skipped!
-                }
 
-                static size_t clearing = 0; clearing++;
-                qDebug() << clearing << QString("Launching H%1 search for %2 "
-                                    "with %3 spread at %4")
-                            .arg(h).arg(ps.names().join("="))
-                            .arg(spread)
-                            .arg(dtToString(dateTimeFromJulian(jd)))
-                            .toStdString().c_str();
-                doomed.emplace_back(sit++);
-                //starts[h].erase(sit++);
+                    double from = sit->second.when;
+                    double to   = jd;
 
-                ADateTimeRange range(dateTimeFromJulian(from),
-                                     dateTimeFromJulian(jd));
-                EventType et = ps.heterogeneous()? etcTransitNatalAspectPattern
-                                                 : etcTransitAspectPattern;
-                auto& ev = _evs.safe_emplace_back(range, et, useH, PlanetSet(ps));
+                    bool cancel = (from == 0);
+                    if (cancel) {
+                        qDebug() << QString("H%1").arg(h) << ps.names()
+                                 << "was previously hijacked, so skipping";
+                    } else {
+                        cancel = skippablePeriod({ from, to });
+                        qDebug()
+                            << QString("H%1").arg(h) << ps.names() << "from"
+                            << dtToString(dateTimeFromJulian(from)) << "to"
+                            << dtToString(nd)
+                            << std::string(cancel ? "** too short **" : "");
+                    }
+
+                    unsigned useH = h;
+                    if (!cancel && h > 1) {
+                        // look for a pending pattern at a lower harmonic
+                        // because it's likely to be the same pattern but
+                        // now we have a tighter bounds. when we find this,
+                        // we set the start time to 0 to indicate that it
+                        // is no longer active.
+                        unsigned prev = 0;
+                        for (unsigned f : getAllFactors(h)) {
+                            if (f == h) break;
+                            if (prev == f) continue;
+                            auto stit = starts.find(f);
+                            if (stit == starts.end()) continue;
+                            auto& startf = stit->second;
+                            auto  lwrit  = startf.find(ps);
+                            if (lwrit != startf.end()) {
+                                cancel = true;
+                                qDebug() << QString("H%1").arg(f) << ps.names()
+                                         << "exists, so skipping"
+                                         << QString("H%1").arg(h);
+                                break;
+                            }
+                            prev = f;
+                        }
+                    }
+                    if (cancel) {
+                        delete prof;
+                        starts[h].erase(sit++);
+                        continue; // skipped!
+                    }
+
+                    static size_t clearing = 0;
+                    clearing++;
+                    qDebug()
+                        << clearing
+                        << QString("Launching H%1 search for %2 " "with %3 "
+                                                                  "spread " "at"
+                                                                            " %"
+                                                                            "4")
+                               .arg(h)
+                               .arg(ps.names().join("="))
+                               .arg(spread)
+                               .arg(dtToString(dateTimeFromJulian(jd)))
+                               .toStdString()
+                               .c_str();
+                    doomed.emplace_back(sit++);
+                    // starts[h].erase(sit++);
+
+                    ADateTimeRange range(dateTimeFromJulian(from),
+                                         dateTimeFromJulian(jd));
+                    EventType      et = ps.heterogeneous()
+                                            ? etcTransitNatalAspectPattern
+                                            : etcTransitAspectPattern;
+                    auto&          ev =
+                        _evs.safe_emplace_back(range, et, useH, PlanetSet(ps));
 #if 1
-                _tp->start([=, &ev] {
-                    startTask();
+                    _tp->start([=, &ev] {
+                        startTask();
 #endif
 #if 0 // FIXME
                     if (prof->size()==2) {
@@ -4179,102 +4365,113 @@ void AspectFinder::findAspectsAndPatterns()
                         }
                     }
 #endif
-                    auto csprd = [prof,h,this](double jd)
-                    {
-                        if (_state == cancelRequestedState) throw int(1);
-                        auto val = computeSpread(h,jd,*prof,_ids);
-                        //qDebug() << dtToString(dateTimeFromJulian(jd)) << ps.names() << val;
-                        return val;
-                    };
-                    constexpr auto tol =
+                        auto csprd = [prof, h, this](double jd) {
+                            if (_state == cancelRequestedState) throw int(1);
+                            auto val = computeSpread(h, jd, *prof, _ids);
+                            // qDebug() << dtToString(dateTimeFromJulian(jd)) <<
+                            // ps.names() << val;
+                            return val;
+                        };
+                        constexpr auto tol =
                             double(std::numeric_limits<float>::epsilon());
 
-                    double jd;
-                    double m = 1000;
-                    double a = from;
-                    double b = to;
-                    double res;
-                    unsigned it = 0;
-                    try {
-                        do {
-                            double mid = a / 2. + b / 2.;
-                            ++it;
-                            res = brentGlobalMin(csprd, a, b, mid, m,
-                                                 .0000001, tol, jd);
-                            if (jd == a || jd == b) {
-                                qDebug()
-                                    << "Dubious result" << res
-                                    << ((jd == b)
-                                            ? "jd == to"
-                                            : ((jd == a) ? "jd == from" : ""))
-                                    << "for" << QString("H%1").arg(h)
-                                    << ps.names()
-                                    << QList<qreal>(
-                                           {csprd(a), csprd(mid), csprd(b)});
-                                if (it > 2)
+                        double   jd;
+                        double   m = 1000;
+                        double   a = from;
+                        double   b = to;
+                        double   res;
+                        unsigned it = 0;
+                        try {
+                            do {
+                                double mid = a / 2. + b / 2.;
+                                ++it;
+                                res = brentGlobalMin(csprd,
+                                                     a,
+                                                     b,
+                                                     mid,
+                                                     m,
+                                                     .0000001,
+                                                     tol,
+                                                     jd);
+                                if (jd == a || jd == b) {
+                                    qDebug() << "Dubious result" << res
+                                             << ((jd == b)
+                                                     ? "jd == to"
+                                                     : ((jd == a) ? "jd == from"
+                                                                  : ""))
+                                             << "for" << QString("H%1").arg(h)
+                                             << ps.names()
+                                             << QList<qreal>({ csprd(a),
+                                                               csprd(mid),
+                                                               csprd(b) });
+                                    if (it > 2) break;
+                                    m *= 10;
+                                    auto q = (mid - a) / 4.;
+                                    if (jd == b) a = b - q, b += q;
+                                    else
+                                        b = a + q, a -= q;
+                                } else
                                     break;
-                                m *= 10;
-                                auto q = (mid - a) / 4.;
-                                if (jd == b)
-                                    a = b - q, b += q;
-                                else
-                                    b = a + q, a -= q;
-                            } else
-                                break;
-                        } while (it < 3);
+                            } while (it < 3);
 
-                        QMutexLocker ml(_evs.mutex());
-                        auto         qdt = dateTimeFromJulian(jd);
-                        ev.reset(qdt, res);
-                    } catch (int) {}
-                    delete prof;
+                            QMutexLocker ml(_evs.mutex());
+                            auto         qdt = dateTimeFromJulian(jd);
+                            ev.reset(qdt, res);
+                        }
+                        catch (int) {
+                        }
+                        delete prof;
 #if 1
-                    endTask();
-                });
+                        endTask();
+                    });
 #endif
-                // TODO keep track of this start and end and then search
+                    // TODO keep track of this start and end and then search
+                }
 
-            }
-
-            // now hpc should only contain entries that are not in starts[h]
-            // and starts[h] will contain entries that *were* initially in hpc,
-            // so we need to add the remainder of hpc to starts[h] with the
-            // new date.
-            for (const auto& cl: hpc) {
-                bool add = true;
-                unsigned prev = 0;
-                const auto& ps(cl.first);
-                for (unsigned f: getAllFactors(h)) {
-                    if (f == h) break;
-                    if (prev == f) continue;
-                    auto stit = starts.find(f);
-                    if (stit == starts.end()) continue;
-                    const auto& startf = stit->second;
-                    auto lwrit = startf.find(ps);
-                    if (lwrit != startf.end()) {
-                        add = false;
-                        break;
+                // now hpc should only contain entries that are not in starts[h]
+                // and starts[h] will contain entries that *were* initially in
+                // hpc, so we need to add the remainder of hpc to starts[h] with
+                // the new date.
+                for (const auto& cl : hpc) {
+                    bool        add  = true;
+                    unsigned    prev = 0;
+                    const auto& ps(cl.first);
+                    for (unsigned f : getAllFactors(h)) {
+                        if (f == h) break;
+                        if (prev == f) continue;
+                        auto stit = starts.find(f);
+                        if (stit == starts.end()) continue;
+                        const auto& startf = stit->second;
+                        auto        lwrit  = startf.find(ps);
+                        if (lwrit != startf.end()) {
+                            add = false;
+                            break;
+                        }
+                    }
+                    if (add) {
+                        qDebug()
+                            << QString(
+                                   "Found H%1 start of %2 " "with %3 " "spread "
+                                                                       "at %4")
+                                   .arg(h)
+                                   .arg(ps.names().join("="))
+                                   .arg(cl.second)
+                                   .arg(dtToString(dateTimeFromJulian(jd)))
+                                   .toStdString()
+                                   .c_str();
+                        starts[h].emplace(ps,
+                                          ClusterOrbWhen(cl.second.orb, pjd));
                     }
                 }
-                if (add) {
-                    qDebug() << QString("Found H%1 start of %2 "
-                                        "with %3 spread at %4")
-                                .arg(h).arg(ps.names().join("="))
-                                .arg(cl.second)
-                                .arg(dtToString(dateTimeFromJulian(jd)))
-                                .toStdString().c_str();
-                    starts[h].emplace(ps, ClusterOrbWhen(cl.second.orb, pjd));
-                }
+                for (const auto& it : doomed) starts[h].erase(it);
             }
-            for (const auto& it: doomed) starts[h].erase(it);
-        }
         } // if includeAspectPatterns
 
         if (collectingStrays && !inOrb.empty()) {
-            for (auto hit = inOrb.begin(); hit != inOrb.end(); ) {
+            for (auto hit = inOrb.begin(); hit != inOrb.end();) {
                 const auto& hps = hit->first;
-                auto hwp = b.profile(hps.second);
-                auto orb = computeSpread(hps.first/*harmonic*/, *hwp);
+                auto        hwp = b.profile(hps.second);
+                auto        orb = computeSpread(hps.first /*harmonic*/, *hwp);
                 delete hwp;
                 if (orb > planetPairOrb) {
                     hit->second.range.second = pjd;
@@ -4306,13 +4503,13 @@ void AspectFinder::findAspectsAndPatterns()
             qreal bd, bsp;
 
             unsigned i, j;
-            QString wha_;
-            auto what = [&]{
+            QString  wha_;
+            auto     what = [&] {
                 if (wha_.isEmpty()) {
                     wha_ = QString("H%1 %2=%3")
-                        .arg(h)
-                        .arg(_alist[i]->description())
-                        .arg(_alist[j]->description());
+                               .arg(h)
+                               .arg(_alist[i]->description())
+                               .arg(_alist[j]->description());
                 }
                 return wha_.toStdString();
             };
@@ -4320,29 +4517,31 @@ void AspectFinder::findAspectsAndPatterns()
             auto stuff = _staff;
             if (includeTransitRange) {
                 for (h = 1; h <= maxH; ++h) {
-                    for (auto it = stuff.begin(); it != stuff.end(); ) {
-                        bool unsel = hs.count(h)==0;
+                    for (auto it = stuff.begin(); it != stuff.end();) {
+                        bool unsel = hs.count(h) == 0;
                         if ((unsel && !filterLowerUnselectedHarmonics)
-                                || (_hsets[it->hsid].count(h) == 0))
+                            || (_hsets[it->hsid].count(h) == 0))
                         {
                             ++it;
                             continue;
                         }
-                        std::tie(i,j) = it->planetPair;
+                        std::tie(i, j) = it->planetPair;
                         std::tie(bd, bsp) =
-                                PlanetProfile::computeDelta(b[i], b[j], h);
+                            PlanetProfile::computeDelta(b[i], b[j], h);
 
                         auto bi = dynamic_cast<PlanetLoc*>(b[i]);
                         auto bj = dynamic_cast<PlanetLoc*>(b[j]);
-                        auto good = bi && bj
-                                && (bi->aspectable() || bj->aspectable());
+                        auto good =
+                            bi && bj && (bi->aspectable() || bj->aspectable());
 
                         bool isInOrb = false;
                         if (good) {
-                            HarmonicPlanetSet hij {h, {bi->planet, bj->planet}};
+                            HarmonicPlanetSet hij { h,
+                                                    { bi->planet,
+                                                      bj->planet } };
 
                             auto hasit = inOrb.find(hij);
-                            isInOrb = std::abs(bd) <= planetPairOrb;
+                            isInOrb    = std::abs(bd) <= planetPairOrb;
 #if 0
                             if (isInOrb)
                             qDebug() << QString("Found H%1 orb %2 of %3 at %4")
@@ -4352,14 +4551,16 @@ void AspectFinder::findAspectsAndPatterns()
                                         .toStdString().c_str();
 #endif
                             if (hasit == inOrb.end() && isInOrb) {
-                                //if (!st_quiet)
-                                qDebug() << QString("Found H%1 start of %2 at %3")
-                                            .arg(h)
-                                            .arg(hij.second.names().join("="))
-                                            .arg(dtToString(d))
-                                            .toStdString().c_str();
-                                inOrb[hij] = {pjd, 0};
-                                isInOrb = true;
+                                // if (!st_quiet)
+                                qDebug()
+                                    << QString("Found H%1 start of %2 at %3")
+                                           .arg(h)
+                                           .arg(hij.second.names().join("="))
+                                           .arg(dtToString(d))
+                                           .toStdString()
+                                           .c_str();
+                                inOrb[hij] = { pjd, 0 };
+                                isInOrb    = true;
                             } else if (hasit != inOrb.end() && !isInOrb) {
                                 hasit->second.range.second = jd;
                                 if (hasit->second.tasks.empty()) {
@@ -4379,24 +4580,23 @@ void AspectFinder::findAspectsAndPatterns()
                                     }
                                     hasit->second.tasks.clear();
                                 }
-                                //if (!st_quiet)
-                                    qDebug() << QString("Found H%1 range of %2 "
-                                                        "at " "%3 to %4")
-                                                    .arg(h)
-                                                    .arg(hij.second.names()
-                                                             .join("="))
-                                                    .arg(dtToString(
-                                                        dateTimeFromJulian(
-                                                            hasit->second.range
-                                                                .first)))
-                                                    .arg(dtToString(d))
-                                                    .toStdString()
-                                                    .c_str();
+                                // if (!st_quiet)
+                                qDebug()
+                                    << QString(
+                                           "Found H%1 range of %2 " "at " "%3 " "to " "%4")
+                                           .arg(h)
+                                           .arg(hij.second.names().join("="))
+                                           .arg(dtToString(dateTimeFromJulian(
+                                               hasit->second.range.first)))
+                                           .arg(dtToString(d))
+                                           .toStdString()
+                                           .c_str();
                                 inOrb.erase(hasit);
                             }
                         }
                         if (isInOrb) stuff.erase(it++);
-                        else ++it;
+                        else
+                            ++it;
                     }
                 }
 
@@ -4404,43 +4604,50 @@ void AspectFinder::findAspectsAndPatterns()
             }
 
             for (h = 1; h <= maxH; ++h) {
-                bool unsel = hs.count(h)==0;
+                bool unsel = hs.count(h) == 0;
                 if (unsel && !filterLowerUnselectedHarmonics) continue;
 
-                for (auto it = stuff.begin(); it != stuff.end(); ) {
+                for (auto it = stuff.begin(); it != stuff.end();) {
                     wha_.clear();
-                    std::tie(i,j) = it->planetPair;
-                    auto et = it->et;
-                    auto hsid = it->hsid;
-                    const auto& hs = _hsets[hsid];
-                    auto ha = hs.lower_bound(h);
+                    std::tie(i, j)   = it->planetPair;
+                    auto        et   = it->et;
+                    auto        hsid = it->hsid;
+                    const auto& hs   = _hsets[hsid];
+                    auto        ha   = hs.lower_bound(h);
                     if (ha == hs.end()) {
-                        //qDebug() << "Snipping" << what().c_str()
-                        //         << "because no further harmonics";
-                        stuff.erase(it++); continue;
+                        // qDebug() << "Snipping" << what().c_str()
+                        //          << "because no further harmonics";
+                        stuff.erase(it++);
+                        continue;
                     } else if (*ha != h) {
-                        //qDebug() << "Skipping" << what().c_str()
-                        //         << "because not selecting h" << h;
-                        ++it; continue;
+                        // qDebug() << "Skipping" << what().c_str()
+                        //          << "because not selecting h" << h;
+                        ++it;
+                        continue;
                     }
 
                     if (auto known = dynamic_cast<KnownPosition*>(_alist[j])) {
-                        if (std::abs(known->julianDate()-jd) > windowOf(known)) {
-                            ++it; continue;
+                        if (std::abs(known->julianDate() - jd)
+                            > windowOf(known))
+                        {
+                            ++it;
+                            continue;
                         }
                     }
-                    qreal ispd = qAbs(_alist[i]->speed/2. + b[i]->speed/2.);
-                    qreal jspd = qAbs(_alist[j]->speed/2. + b[j]->speed/2.);
+                    qreal ispd = qAbs(_alist[i]->speed / 2. + b[i]->speed / 2.);
+                    qreal jspd = qAbs(_alist[j]->speed / 2. + b[j]->speed / 2.);
                     if (ispd > jspd) {
-                        std::swap(i,j);
-                        std::swap(ispd,jspd);
+                        std::swap(i, j);
+                        std::swap(ispd, jspd);
                     }
 
-                    std::tie(ad, asp) = 
-                            PlanetProfile::computeDelta(_alist[i],_alist[j],h);
-                    std::tie(bd, bsp) = 
-                            PlanetProfile::computeDelta(b[i], b[j], h);
-                    if (sgn(ad)==sgn(bd) || (abs(ad)>=90. || abs(bd)>=90.)) {
+                    std::tie(ad, asp) =
+                        PlanetProfile::computeDelta(_alist[i], _alist[j], h);
+                    std::tie(bd, bsp) =
+                        PlanetProfile::computeDelta(b[i], b[j], h);
+                    if (sgn(ad) == sgn(bd)
+                        || (abs(ad) >= 90. || abs(bd) >= 90.))
+                    {
                         if (!keep(i) || !keep(j)) {
                             stuff.erase(it++);
                         } else {
@@ -4452,10 +4659,10 @@ void AspectFinder::findAspectsAndPatterns()
 #if 1
                     auto pi = dynamic_cast<PlanetLoc*>(_alist[i]);
                     if (pi && pi->allowAspects > PlanetLoc::aspOnlyConj) {
-                        qreal spd = _alist[j]->speed/2. + b[j]->speed/2.;
-                        if (pi->allowAspects !=
-                                ((spd<0)? PlanetLoc::aspOnlyRetro
-                                 : PlanetLoc::aspOnlyDirect))
+                        qreal spd = _alist[j]->speed / 2. + b[j]->speed / 2.;
+                        if (pi->allowAspects
+                            != ((spd < 0) ? PlanetLoc::aspOnlyRetro
+                                          : PlanetLoc::aspOnlyDirect))
                         {
                             qDebug() << "skipping wrong-way" << what().c_str();
                             stuff.erase(it++);
@@ -4467,9 +4674,9 @@ void AspectFinder::findAspectsAndPatterns()
                     if (true || !st_quiet) {
                         QDateTime pdt(dateTimeFromJulian(pjd));
                         QDateTime dt(dateTimeFromJulian(jd));
-                        qDebug() << what().c_str()
-                                 << dtToString(pdt) << "delta" << ad << asp << "vs"
-                             << dtToString(dt) << "delta" << bd << bsp;
+                        qDebug() << what().c_str() << dtToString(pdt) << "delta"
+                                 << ad << asp << "vs" << dtToString(dt)
+                                 << "delta" << bd << bsp;
                     }
                     auto which = what();
 
@@ -4480,21 +4687,32 @@ void AspectFinder::findAspectsAndPatterns()
                     // conjunction would show up on any higher harmonic
                     // as an aspect at that harmonic.
                     stuff.erase(it++);
-                    if (unsel) { continue; }
+                    if (unsel) {
+                        continue;
+                    }
 
                     auto pj = dynamic_cast<PlanetLoc*>(_alist[j]);
                     if (includeTransitRange) {
-                        auto hasit = inOrb.find({h, {pi->planet, pj->planet}});
+                        auto hasit =
+                            inOrb.find({ h, { pi->planet, pj->planet } });
                         if (hasit == inOrb.end()) {
-                            hasit = inOrb.find({h, {pj->planet, pi->planet}});
+                            hasit =
+                                inOrb.find({ h, { pj->planet, pi->planet } });
                         }
                         if (hasit != inOrb.end()) {
-                            auto r = new PairAspectFinder(_alist[i], _alist[j],
-                                                          h, pjd, jd,
-                                                          ad, bd,
-                                                          ispd, jspd,
-                                                          d, which,
-                                                          et, mum,
+                            auto r = new PairAspectFinder(_alist[i],
+                                                          _alist[j],
+                                                          h,
+                                                          pjd,
+                                                          jd,
+                                                          ad,
+                                                          bd,
+                                                          ispd,
+                                                          jspd,
+                                                          d,
+                                                          which,
+                                                          et,
+                                                          mum,
                                                           this);
                             hasit->second.addTask(r);
                             continue;
@@ -4503,12 +4721,19 @@ void AspectFinder::findAspectsAndPatterns()
 
                     if (skipByDuration == SkipNone) {
                         // enqueue it now if we know it would not be skipped
-                        auto r = new PairAspectFinder(_alist[i], _alist[j],
-                                                      h, pjd, jd,
-                                                      ad, bd,
-                                                      ispd, jspd,
-                                                      d, which,
-                                                      et, mum,
+                        auto r = new PairAspectFinder(_alist[i],
+                                                      _alist[j],
+                                                      h,
+                                                      pjd,
+                                                      jd,
+                                                      ad,
+                                                      bd,
+                                                      ispd,
+                                                      jspd,
+                                                      d,
+                                                      which,
+                                                      et,
+                                                      mum,
                                                       this);
                         _tp->start(r);
                     }
@@ -4516,9 +4741,9 @@ void AspectFinder::findAspectsAndPatterns()
             }
         } // if includeTransits
 
-        d = nd;
+        d  = nd;
         nd = d.addDays(ndays).addSecs(nsecs);
-        //nd = d.addDays(_rate);
+        // nd = d.addDays(_rate);
         pjd = jd;
         if (!collectingStrays) _alist.swap(b);
     }
@@ -4526,20 +4751,19 @@ void AspectFinder::findAspectsAndPatterns()
     qDebug() << inOrb.size() << "pending pairs";
     qDebug() << proximityLog.size() << "completed range pairs";
 
-    auto frameJob = [&](HarmonicEvent& e, bool prep = true)
-    {
-        if (e.planets().size()!=2) return;
+    auto frameJob = [&](HarmonicEvent& e, bool prep = true) {
+        if (e.planets().size() != 2) return;
         if (e.range().first != QDateTime()) return;
 
         HarmonicPlanetSet hps { e.harmonic(), e.planets() };
-        auto lit = proximityLog.find(hps);
+        auto              lit = proximityLog.find(hps);
         if (lit == proximityLog.end()) return;
 
         if (prep) prepThread();
         auto& ranges = lit->second;
-        auto jd = getJulianDate(e.dateTime());
-        auto it = ranges.upper_bound({jd,jd});
-        auto rit = std::make_reverse_iterator(it);
+        auto  jd     = getJulianDate(e.dateTime());
+        auto  it     = ranges.upper_bound({ jd, jd });
+        auto  rit    = std::make_reverse_iterator(it);
         while (rit != ranges.rend() && rit->first.first <= jd) {
             if (rit->first.second >= jd) {
                 if (e.range() != ADateTimeRange()) {
@@ -4569,7 +4793,7 @@ void AspectFinder::findAspectsAndPatterns()
         for (auto&& [hps, rm] : proximityLog) {
             for (const auto& [r, stat] : rm) {
                 if (stat) continue;
-                auto h = hps.first;
+                auto   h  = hps.first;
                 auto&& ps = hps.second;
                 if (ps.size() != 2) {
                     continue; // Only for pairs
@@ -4581,18 +4805,10 @@ void AspectFinder::findAspectsAndPatterns()
                     double duration  = r.second - r.first;
                     double threshold = 0.0;
                     switch (skipByDuration) {
-                    case SkipLessThanDay:
-                        threshold = 1.0;
-                        break;
-                    case SkipLessThanWeek:
-                        threshold = 7.0;
-                        break;
-                    case SkipLessThanMonth:
-                        threshold = 30.0;
-                        break;
-                    default:
-                        threshold = 0.0;
-                        break;
+                    case SkipLessThanDay:   threshold = 1.0; break;
+                    case SkipLessThanWeek:  threshold = 7.0; break;
+                    case SkipLessThanMonth: threshold = 30.0; break;
+                    default:                threshold = 0.0; break;
                     }
                     if (duration < threshold) {
                         if (!st_quiet) {
@@ -4604,8 +4820,8 @@ void AspectFinder::findAspectsAndPatterns()
                         continue;
                     }
                 }
-                if (ps.begin()->samePlanet({Planet_Moon})
-                    || ps.rbegin()->samePlanet({Planet_Moon}))
+                if (ps.begin()->samePlanet({ Planet_Moon })
+                    || ps.rbegin()->samePlanet({ Planet_Moon }))
                 {
 #if 0
                     qDebug() << "Skipping straggler "
@@ -4629,20 +4845,21 @@ void AspectFinder::findAspectsAndPatterns()
                     return profile->computePos(jd, h);
                 };
 
-                double minJD, minSep;
-                static constexpr int digits
-                    = std::numeric_limits<float>::digits;
+                double               minJD, minSep;
+                static constexpr int digits =
+                    std::numeric_limits<float>::digits;
                 std::tie(minJD, minSep) =
                     brent_find_minima(csprd, r.first, r.second, digits);
-                if (minSep==qreal()) {
-                    qDebug() << "Unable to find closest using brent_find_minima "
-                             << QString("H%1 %2: %3 (%4 iters)")
-                                    .arg(h)
-                                    .arg(ps.names().join("="))
-                                    .arg(desc)
-                                    .arg(iters)
-                                    .toStdString()
-                                    .c_str();
+                if (minSep == qreal()) {
+                    qDebug()
+                        << "Unable to find closest using brent_find_minima "
+                        << QString("H%1 %2: %3 (%4 iters)")
+                               .arg(h)
+                               .arg(ps.names().join("="))
+                               .arg(desc)
+                               .arg(iters)
+                               .toStdString()
+                               .c_str();
                     brentGlobalMin(csprd,
                                    r.first,
                                    r.second,
@@ -4677,8 +4894,8 @@ void AspectFinder::findAspectsAndPatterns()
                 minSep = profile->computePos(minJD, h);
 
                 qDebug()
-                    << QString("Closest approach for H%1 %2 in [%3 - %4]: "
-                               "%5 at %6 (%7 iters)")
+                    << QString(
+                           "Closest approach for H%1 %2 in [%3 - %4]: " "%5 at " "%6 " "(%7 " "iters" ")")
                            .arg(h)
                            .arg(ps.names().join("="))
                            .arg(dtToString(dateTimeFromJulian(r.first)))
@@ -4686,7 +4903,8 @@ void AspectFinder::findAspectsAndPatterns()
                            .arg(minSep)
                            .arg(dtToString(dateTimeFromJulian(minJD)))
                            .arg(iters)
-                           .toStdString().c_str();
+                           .toStdString()
+                           .c_str();
 
                 PlanetRangeBySpeed plr;
                 for (auto loc : *profile) {
@@ -4695,13 +4913,16 @@ void AspectFinder::findAspectsAndPatterns()
                     }
                 }
 
-                ADateTimeRange range{dateTimeFromJulian(r.first),
-                                     dateTimeFromJulian(r.second)};
+                ADateTimeRange range { dateTimeFromJulian(r.first),
+                                       dateTimeFromJulian(r.second) };
 
                 QMutexLocker ml(_evs.mutex());
 
                 auto& ev = _evs.emplace_back(dateTimeFromJulian(minJD),
-                                             et, h, std::move(plr), minSep);
+                                             et,
+                                             h,
+                                             std::move(plr),
+                                             minSep);
                 ev.setRange(range);
                 delete profile;
             }
@@ -4709,8 +4930,7 @@ void AspectFinder::findAspectsAndPatterns()
 
         for (const auto& hpc : starts) {
             for (const auto& pso : hpc.second) {
-                if (pso.second.when == qreal())
-                    continue;
+                if (pso.second.when == qreal()) continue;
                 qDebug() << QString("Pending pattern H%1 %2 started at %3")
                                 .arg(hpc.first)
                                 .arg(pso.first.names().join("="))
@@ -4723,7 +4943,7 @@ void AspectFinder::findAspectsAndPatterns()
     }
 
     bool cleared = false;
-    int active(_numTasks);
+    int  active(_numTasks);
     qDebug() << active << "activity/ies";
     while (!_tp->waitForDone(100)) {
         QCoreApplication::processEvents();
@@ -4767,7 +4987,8 @@ void AspectFinder::run()
 }
 #endif
 
-void AspectFinder::findStuff()
+void
+AspectFinder::findStuff()
 {
     prepThread();
 
@@ -4932,49 +5153,58 @@ NatalTransitFinder::NatalTransitFinder(HarmonicEvents& evs,
 
 EventTypeManager::EventTypeManager()
 {
-    static std::vector<std::tuple<unsigned,unsigned char,const char*,const char*>> init
-    {
-        { etcUnknownEvent,          0, "?",    "unknown" },
-        { etcStation,               1, "S",    "Stations" },
-        { etcTransitToStation,      1, "T=S",  "Transits to Station" },
-        { etcTransitToTransit,      1, "T=T",  "Transits to Transit" },
-        { etcTransitToNatal,        2, "T=N",  "Transits to Natal" },
-        { etcOuterTransitToNatal,   2, "OT=N", "Outer Transits to Natal" },
-        { etcReturn,                2, "R",    "Returns" },
-        { etcSolarReturn, 2, "SR", "Solar Returns" },
-        { etcLunarReturn, 2, "LR", "Lunar Returns" },
-        //{ etcAspectToReturn,        "R=T",  "Aspects to Return" },
-        //{ etcReturnTransitToTransit,"RT=T", "Transits in Return" },
-        //{ etcReturnTransitToNatal,  "RT=N", "Transits to Natal in Return" },
-        { etcProgressedToProgressed,2, "P=P",  "Progressed to Progressed" },
-        { etcProgressedToNatal,     2, "P=N",  "Progressed to Natal" },
-        { etcInnerProgressedToNatal,2, "IP=N", "Inner Progressed to Natal" },
-        { etcTransitToProgressed,	2, "T=P",  "Transits to Progressed" },
-        { etcSolarArcToNatal,       2, "D=N",  "SA Direct to Natal" },
-        { etcSignIngress,           1, "T=I",  "Sign Ingresses" },
-        { etcHouseIngress,          2, "T=H",  "House ingresses" },
-        { etcLunation,              1, "L",    "Lunations" },
-        { etcEclipse,               1, "E",    "Eclipses" },
-        { etcSolarEclipse,          1, "SE",   "Solar Eclipses" },
-        { etcLunarEclipse,          1, "LE",   "Lunar Eclipses" },
-        { etcHeliacalEvents,        1, "HRS",   "Heliacal Risings/Settings" },
-        { etcTransitAspectPattern,  1, "TA",    "Transit Aspect Patterns"},
-        { etcTransitNatalAspectPattern,  2, "TNA", "Transit-Natal Aspect Patterns"},
-        { etcParanatellonta,        2, "Par",   "Paranatellonta" }
-    };
+    static std::vector<
+        std::tuple<unsigned, unsigned char, const char*, const char*>>
+        init {
+            { etcUnknownEvent, 0, "?", "unknown" },
+            { etcStation, 1, "S", "Stations" },
+            { etcTransitToStation, 1, "T=S", "Transits to Station" },
+            { etcTransitToTransit, 1, "T=T", "Transits to Transit" },
+            { etcTransitToNatal, 2, "T=N", "Transits to Natal" },
+            { etcOuterTransitToNatal, 2, "OT=N", "Outer Transits to Natal" },
+            { etcReturn, 2, "R", "Returns" },
+            { etcSolarReturn, 2, "SR", "Solar Returns" },
+            { etcLunarReturn, 2, "LR", "Lunar Returns" },
+            //{ etcAspectToReturn,        "R=T",  "Aspects to Return" },
+            //{ etcReturnTransitToTransit,"RT=T", "Transits in Return" },
+            //{ etcReturnTransitToNatal,  "RT=N", "Transits to Natal in Return"
+            //},
+            { etcProgressedToProgressed, 2, "P=P", "Progressed to Progressed" },
+            { etcProgressedToNatal, 2, "P=N", "Progressed to Natal" },
+            { etcInnerProgressedToNatal,
+              2,
+              "IP=N",
+              "Inner Progressed to Natal" },
+            { etcTransitToProgressed, 2, "T=P", "Transits to Progressed" },
+            { etcSolarArcToNatal, 2, "D=N", "SA Direct to Natal" },
+            { etcSignIngress, 1, "T=I", "Sign Ingresses" },
+            { etcHouseIngress, 2, "T=H", "House ingresses" },
+            { etcLunation, 1, "L", "Lunations" },
+            { etcEclipse, 1, "E", "Eclipses" },
+            { etcSolarEclipse, 1, "SE", "Solar Eclipses" },
+            { etcLunarEclipse, 1, "LE", "Lunar Eclipses" },
+            { etcHeliacalEvents, 1, "HRS", "Heliacal Risings/Settings" },
+            { etcTransitAspectPattern, 1, "TA", "Transit Aspect Patterns" },
+            { etcTransitNatalAspectPattern,
+              2,
+              "TNA",
+              "Transit-Natal Aspect Patterns" },
+            { etcParanatellonta, 2, "Par", "Paranatellonta" }
+        };
 
-    unsigned id;
+    unsigned      id;
     unsigned char chnum;
-    QString abbr, desc;
+    QString       abbr, desc;
     for (const auto& tup : init) {
         std::tie(id, chnum, abbr, desc) = tup;
-        _eventIdToString[id] = {chnum, abbr, desc};
-        _eventStringToId[abbr] = id;
+        _eventIdToString[id]            = { chnum, abbr, desc };
+        _eventStringToId[abbr]          = id;
     }
     _numEvents = ++id;
 }
 
-EventTypeManager& EventTypeManager::singleton()
+EventTypeManager&
+EventTypeManager::singleton()
 {
     static EventTypeManager* _theMgr = new EventTypeManager();
     return *_theMgr;
@@ -4985,89 +5215,83 @@ EventTypeManager::registerEventType(unsigned char  chnum,
                                     const QString& abbr,
                                     const QString& desc)
 {
-    auto& my = singleton();
+    auto& my                           = singleton();
     my._eventIdToString[my._numEvents] = { chnum, abbr, desc };
-    my._eventStringToId[abbr] = my._numEvents;
+    my._eventStringToId[abbr]          = my._numEvents;
     return my._numEvents++;
 }
 
 unsigned
-EventTypeManager::registerEventType(const eventTypeInfo &evtinf)
+EventTypeManager::registerEventType(const eventTypeInfo& evtinf)
 {
     return registerEventType(std::get<0>(evtinf),
                              std::get<1>(evtinf),
                              std::get<2>(evtinf));
 }
 
-namespace {
+namespace
+{
 typedef std::pair<qreal, ChartPlanetId> position;
 struct lessPosit {
     bool operator()(const position& a, const position& b) const
-    { return (a.first != b.first)? a.first < b.first : a.second < b.second; }
+    {
+        return (a.first != b.first) ? a.first < b.first : a.second < b.second;
+    }
 };
-typedef std::set<position,lessPosit> positions;
+typedef std::set<position, lessPosit> positions;
 
-inline
-bool
+inline bool
 containsAny(const positions& pos, const PlanetSet& of)
 {
-    return std::any_of(pos.begin(), pos.end(),
-                       [&](const position& p) {
+    return std::any_of(pos.begin(), pos.end(), [&](const position& p) {
         return of.contains(p.second);
     });
 }
 
-inline
-bool
+inline bool
 containsAnyTrans(const positions& pos)
 {
-    return std::any_of(pos.begin(), pos.end(),
-                       [&](const position& p) {
-        return p.second.fileId() == 1
-                && p.second.planetId() != Planet_Moon;
+    return std::any_of(pos.begin(), pos.end(), [&](const position& p) {
+        return p.second.fileId() == 1 && p.second.planetId() != Planet_Moon;
     });
 }
 
-inline
-PlanetSet
+inline PlanetSet
 getSet(const positions& pos)
 {
     PlanetSet ret;
-    for (const auto& p: pos) {
+    for (const auto& p : pos) {
         ret.emplace(p.second);
     }
     return ret;
 }
 
-inline
-unsigned
-sizeWithoutTransitingMoon(const positions& grp,
-                          bool moonIn1)
+inline unsigned
+sizeWithoutTransitingMoon(const positions& grp, bool moonIn1)
 {
     unsigned ret = 0;
-    for (const auto& p: grp) {
+    for (const auto& p : grp) {
         auto pid = p.second.planetId();
-        if ((pid != Planet_Moon
-             && pid != Planet_NorthNode
+        if ((pid != Planet_Moon && pid != Planet_NorthNode
              && pid != Planet_SouthNode)
-                || (p.second.fileId() != (moonIn1? 1 : 0)))
+            || (p.second.fileId() != (moonIn1 ? 1 : 0)))
             ++ret;
     }
     return ret;
 }
 
-std::ostream &
+std::ostream&
 operator<<(std::ostream& os, const position& pos)
 {
     return os << pos.second.name().toStdString() << " " << pos.first;
 }
 
-std::ostream &
+std::ostream&
 operator<<(std::ostream& os, const positions& posits)
 {
     os << "(";
     std::string next;
-    for (const auto& pos: posits) {
+    for (const auto& pos : posits) {
         os << next << pos;
         if (next.empty()) next = ", ";
     }
@@ -5084,15 +5308,15 @@ toString(const T& t)
     return sstr.str();
 }
 
-}
+} // namespace
 
 PlanetClusterMap
 findClusters(const positions& posits,
-             unsigned quorum,
+             unsigned         quorum,
              const PlanetSet& need /*={}*/,
-             bool skipAllNatalOnly = false,
-             bool restrictMoon = true,
-             qreal maxOrb = 8.)
+             bool             skipAllNatalOnly = false,
+             bool             restrictMoon     = true,
+             qreal            maxOrb           = 8.)
 {
 #if 0
     qDebug() << "quorum" << quorum
@@ -5106,9 +5330,9 @@ findClusters(const positions& posits,
 
     bool moonIn1 = skipAllNatalOnly;
     if (restrictMoon && !skipAllNatalOnly) {
-        for (const auto& pos: posits) {
+        for (const auto& pos : posits) {
             const auto& cpid = pos.second;
-            if (cpid.fileId()==1 && cpid.planetId()==Planet_Moon) {
+            if (cpid.fileId() == 1 && cpid.planetId() == Planet_Moon) {
                 moonIn1 = true;
                 break;
             }
@@ -5117,24 +5341,24 @@ findClusters(const positions& posits,
     PlanetClusterMap ret;
     for (auto it = posits.begin(); it != posits.end(); ++it) {
         positions grp;
-        auto maybeAddGroup = [&] {
+        auto      maybeAddGroup = [&] {
             if (grp.size() < quorum) return;
             if (restrictMoon
-                && sizeWithoutTransitingMoon(grp,moonIn1) < quorum)
+                && sizeWithoutTransitingMoon(grp, moonIn1) < quorum)
             {
                 if (!st_quiet) qDebug() << "  Not actually quorum because moon";
                 return;
             }
 
-            bool needed{}, allNatal{};
-            if ((needed = !need.empty() && !containsAny(grp,need))
-                    || (allNatal = skipAllNatalOnly && !containsAnyTrans(grp)))
+            bool needed {}, allNatal {};
+            if ((needed = !need.empty() && !containsAny(grp, need))
+                || (allNatal = skipAllNatalOnly && !containsAnyTrans(grp)))
             {
                 if (!st_quiet) {
-                    qDebug() << "  Rejected here because missing"
-                             << QString(needed? "needed":"transit")
-                             << getSet(grp).names().join("=").toStdString()
-                                    .c_str();
+                    qDebug()
+                        << "  Rejected here because missing"
+                        << QString(needed ? "needed" : "transit")
+                        << getSet(grp).names().join("=").toStdString().c_str();
                 }
                 return;
             }
@@ -5143,8 +5367,8 @@ findClusters(const positions& posits,
             ret[getSet(grp)] = spread;
         };
 
-        auto e = posits.lower_bound(position(it->first + maxOrb,
-                                             ChartPlanetId()));
+        auto e =
+            posits.lower_bound(position(it->first + maxOrb, ChartPlanetId()));
 
         if (!st_quiet) {
             unsigned n = 0;
@@ -5164,26 +5388,28 @@ findClusters(const positions& posits,
 }
 
 PlanetClusterMap
-findClusters(unsigned h,
+findClusters(unsigned             h,
              const PlanetProfile& plist,
-             unsigned quorum,
-             const PlanetSet& need /*={}*/,
-             bool skipAllNatalOnly /*=false*/,
-             bool restrictMoon /*=true*/,
-             qreal maxOrb /*=8.*/)
+             unsigned             quorum,
+             const PlanetSet&     need /*={}*/,
+             bool                 skipAllNatalOnly /*=false*/,
+             bool                 restrictMoon /*=true*/,
+             qreal                maxOrb /*=8.*/)
 {
     if (!st_quiet) {
 #if 1
-        qDebug() << QString("Finding H%1 ").arg(h).toStdString().c_str() << plist;
+        qDebug() << QString("Finding H%1 ").arg(h).toStdString().c_str()
+                 << plist;
 #else
-        qDebug() <<
-            QString("Finding H%1").arg(h).toStdString().c_str();
-        for (auto p: plist) {
+        qDebug() << QString("Finding H%1").arg(h).toStdString().c_str();
+        for (auto p : plist) {
             auto ploc = dynamic_cast<PlanetLoc*>(p);
             if (!ploc) continue;
-            qDebug() << "  " << (ploc->description() + (ploc->inMotion()? "*" : ""))
-                                    .toStdString().c_str()
-                     << harmonic(h,ploc->rasiLoc());
+            qDebug() << "  "
+                     << (ploc->description() + (ploc->inMotion() ? "*" : ""))
+                            .toStdString()
+                            .c_str()
+                     << harmonic(h, ploc->rasiLoc());
         }
 #endif
     }
@@ -5197,43 +5423,54 @@ findClusters(unsigned h,
 
         auto pid = cpid.planetId();
 
-        if (h>1 && ((pid >= Houses_Start
-                    && pid < Houses_End)
-                    || (pid == Planet_IC
-                         || pid == Planet_Desc)))
-        { continue; }
-        if (h%2==0 && (pid == Planet_SouthNode)) continue;
+        if (h > 1
+            && ((pid >= Houses_Start && pid < Houses_End)
+                || (pid == Planet_IC || pid == Planet_Desc)))
+        {
+            continue;
+        }
+        if (h % 2 == 0 && (pid == Planet_SouthNode)) continue;
 
-        auto hloc = h==1? ploc->rasiLoc() : harmonic(h,ploc->rasiLoc());
-        auto ins = posits.emplace(hloc,ploc->planet);
+        auto hloc = h == 1 ? ploc->rasiLoc() : harmonic(h, ploc->rasiLoc());
+        auto ins  = posits.emplace(hloc, ploc->planet);
         if (ins.first->first > 345) {
-            posits.emplace(ins.first->first-360.,ploc->planet);
+            posits.emplace(ins.first->first - 360., ploc->planet);
         } else if (ins.first->first < 15) {
-            posits.emplace(ins.first->first+360.,ploc->planet);
+            posits.emplace(ins.first->first + 360., ploc->planet);
         }
     }
 
-    auto&& ret = findClusters(posits, quorum, need,
-                        skipAllNatalOnly, restrictMoon, maxOrb);
+    auto&& ret = findClusters(posits,
+                              quorum,
+                              need,
+                              skipAllNatalOnly,
+                              restrictMoon,
+                              maxOrb);
     if (ret.empty() || st_quiet) return ret;
     qDebug() << QString("Found H%1").arg(h) << "cluster map" << ret;
     return ret;
 }
 
 PlanetClusterMap
-findClusters(unsigned h, double jd,
-             const PlanetProfile& plist,
+findClusters(unsigned                h,
+             double                  jd,
+             const PlanetProfile&    plist,
              const QList<InputData>& ids,
-             unsigned quorum,
-             const PlanetSet& need /*={}*/,
-             bool restrictMoon /*=true*/,
-             qreal maxOrb /*=8.*/)
+             unsigned                quorum,
+             const PlanetSet&        need /*={}*/,
+             bool                    restrictMoon /*=true*/,
+             qreal                   maxOrb /*=8.*/)
 {
     if (!st_quiet) {
-        qDebug() << QString("Finding H%1 with %2 ids").arg(h).arg(ids.size()).toStdString().c_str() << plist;
+        qDebug() << QString("Finding H%1 with %2 ids")
+                        .arg(h)
+                        .arg(ids.size())
+                        .toStdString()
+                        .c_str()
+                 << plist;
     }
     std::vector<unsigned> pfid { 0, 0, 0 };
-    positions posits;
+    positions             posits;
     for (auto loc : plist) {
         auto ploc = dynamic_cast<PlanetLoc*>(loc);
         if (!ploc) continue;
@@ -5241,62 +5478,71 @@ findClusters(unsigned h, double jd,
         auto cpid = ploc->planet;
         if (cpid.fileId() < 0 || cpid.fileId() >= int(pfid.size())) continue;
         auto pid = cpid.planetId();
-        if (h>1 && ((pid >= Houses_Start
-                    && pid < Houses_End)
-                    || (pid == Planet_IC
-                         || pid == Planet_Desc)))
-        { continue; }
-        if (h%2==0 && (pid == Planet_SouthNode)) continue;
+        if (h > 1
+            && ((pid >= Houses_Start && pid < Houses_End)
+                || (pid == Planet_IC || pid == Planet_Desc)))
+        {
+            continue;
+        }
+        if (h % 2 == 0 && (pid == Planet_SouthNode)) continue;
 
         ++pfid[cpid.fileId()];
-        const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );
-        qreal pos = (ploc->inMotion())
-                ? PlanetLoc::compute(cpid,ida,jd).first
-                : ploc->_rasiLoc;
-        auto hloc = h==1? pos : harmonic(h,pos);
-        auto ins = posits.emplace(hloc,ploc->planet);
+        const auto& ida = ids.at(qMax(ids.size() - 1, cpid.fileId()));
+        qreal pos = (ploc->inMotion()) ? PlanetLoc::compute(cpid, ida, jd).first
+                                       : ploc->_rasiLoc;
+        auto  hloc = h == 1 ? pos : harmonic(h, pos);
+        auto  ins  = posits.emplace(hloc, ploc->planet);
         if (ins.first->first > 345) {
-            posits.emplace(ins.first->first-360.,ploc->planet);
+            posits.emplace(ins.first->first - 360., ploc->planet);
         } else if (ins.first->first < 15) {
-            posits.emplace(ins.first->first+360.,ploc->planet);
+            posits.emplace(ins.first->first + 360., ploc->planet);
         }
     }
 
-    auto&& ret = findClusters(posits, quorum, need,
-                        pfid[0] && pfid[1], restrictMoon, maxOrb);
+    auto&& ret = findClusters(posits,
+                              quorum,
+                              need,
+                              pfid[0] && pfid[1],
+                              restrictMoon,
+                              maxOrb);
     if (ret.empty() || st_quiet) return ret;
     qDebug() << QString("Found H%1").arg(h) << "cluster map" << ret;
     return ret;
 }
 
 HarmonicPlanetClusters
-findClusters(const uintSSet& hs,
+findClusters(const uintSSet&      hs,
              const PlanetProfile& prof,
-             unsigned quorum,
-             const PlanetSet& need /*={}*/,
-             bool skipAllNatalOnly /*=false*/,
-             bool restrictMoon /*=true*/,
-             qreal maxOrb /*=8.*/)
+             unsigned             quorum,
+             const PlanetSet&     need /*={}*/,
+             bool                 skipAllNatalOnly /*=false*/,
+             bool                 restrictMoon /*=true*/,
+             qreal                maxOrb /*=8.*/)
 {
     HarmonicPlanetClusters ret;
-    for (auto h: hs) {
-        auto pc = findClusters(h, prof, quorum, need,
+    for (auto h : hs) {
+        auto pc = findClusters(h,
+                               prof,
+                               quorum,
+                               need,
                                skipAllNatalOnly,
-                               restrictMoon, maxOrb);
+                               restrictMoon,
+                               maxOrb);
         if (pc.empty()) continue;
 
         uintSSet fac { 1 };
-        getAllFactors(h,fac);
-        for (unsigned oh: fac) {
+        getAllFactors(h, fac);
+        for (unsigned oh : fac) {
             auto rit = ret.find(oh);
             if (rit == ret.end()) continue;
 
             const auto& retoh = rit->second;
             // clean up patterns already in lower harmonics
-            for (auto pit = pc.begin(); pit != pc.end(); ) {
+            for (auto pit = pc.begin(); pit != pc.end();) {
                 auto retpit = retoh.find(pit->first);
                 if (retpit == retoh.end()) ++pit;
-                else pc.erase(pit++);
+                else
+                    pc.erase(pit++);
             }
         }
         if (!pc.empty()) ret.emplace(h, pc);
@@ -5305,59 +5551,58 @@ findClusters(const uintSSet& hs,
 }
 
 qreal
-computeSpread(unsigned h,
-              double jd,
-              const PlanetProfile& prof,
+computeSpread(unsigned                h,
+              double                  jd,
+              const PlanetProfile&    prof,
               const QList<InputData>& ids)
 {
-    std::vector<qreal> sums(2, 0);
-    std::vector<qreal> locs;
+    std::vector<qreal>    sums(2, 0);
+    std::vector<qreal>    locs;
     std::vector<unsigned> c(2, 0);
-    for (auto loc: prof) {
+    for (auto loc : prof) {
         auto ploc = dynamic_cast<PlanetLoc*>(loc);
         if (!ploc) continue;
 
         auto cpid = ploc->planet;
-        if (cpid.fileId() < 0 && prof.size()>2) continue;
+        if (cpid.fileId() < 0 && prof.size() > 2) continue;
 
-        qreal pos;
+        qreal    pos;
         unsigned vroom(ploc->inMotion());
         if (vroom && !ids.isEmpty()) {
-            const auto& ida = ids.at( qMax(ids.size()-1,cpid.fileId()) );
-            pos = PlanetLoc::compute(cpid,ida,jd).first;
+            auto&& ida = ids.at(qMax(ids.size() - 1, cpid.fileId()));
+            pos        = PlanetLoc::compute(cpid, ida, jd).first;
         } else {
             pos = ploc->_rasiLoc;
         }
-        if (h > 1) pos = harmonic(h,pos);
+        if (h > 1) pos = harmonic(h, pos);
         /*if (vroom)*/ locs.emplace_back(pos);
         sums[vroom] += pos;
         ++c[vroom];
     }
 
-    if (c[1] == 0 /*&& !ids.empty()*/) return 0;    // this is an error
+    if (c[1] == 0 /*&& !ids.empty()*/) return 0; // this is an error
 #if 1
     if (c[0] != 0 /*&& !ids.empty()*/) {
 #if 1
         // try to minimize distance to center of natal configuration
-        locs.emplace_back(sums[0]/c[0]);
+        locs.emplace_back(sums[0] / c[0]);
 #else
         // try to minimize distance between center of moving
         // and center of natal configuration
-        auto fixed = sums[0]/c[0];
-        auto movie = sums[1]/c[1];
-        return angle(fixed,movie);
+        auto fixed = sums[0] / c[0];
+        auto movie = sums[1] / c[1];
+        return angle(fixed, movie);
 #endif
     }
 #endif
     qreal maxa = 0;
-    for (unsigned i = 0, n = locs.size(); i+1 < n; ++i) {
-        for (unsigned j = i+1; j < n; ++j) {
+    for (unsigned i = 0, n = locs.size(); i + 1 < n; ++i) {
+        for (unsigned j = i + 1; j < n; ++j) {
             auto a = angle(locs[i], locs[j]);
             if (a > maxa) maxa = a;
         }
     }
     return maxa;
-
 }
 
 } // namespace A

@@ -1,12 +1,13 @@
 #ifndef TRANSITS_H
 #define TRANSITS_H
 
+#include <QButtonGroup>
 #include <QDateEdit>
 #include <QLineEdit>
 #include <QModelIndex>
-#include <QButtonGroup>
-#include <QTreeView>
 #include <QPointer>
+#include <QTreeView>
+
 
 #include <Astroprocessor/Gui>
 
@@ -20,11 +21,13 @@ class AChangeSignalFrame;
 class ASignalBlocker {
     QSet<QObject*> _unblock;
 
-public:
+  public:
     ASignalBlocker(QObject* obj) { maybeBlock(obj); }
 
     ASignalBlocker(std::initializer_list<QObject*> objs)
-    { for (auto obj : objs) maybeBlock(obj); }
+    {
+        for (auto obj : objs) maybeBlock(obj);
+    }
 
     void maybeBlock(QObject* obj)
     {
@@ -35,21 +38,25 @@ public:
     }
 
     ~ASignalBlocker()
-    { for (auto obj : qAsConst(_unblock)) obj->blockSignals(false); }
+    {
+        for (auto obj : std::as_const(_unblock)) obj->blockSignals(false);
+    }
 };
 
 class TransitTreeView : public QTreeView {
     Q_OBJECT;
 
-public:
+  public:
     using QTreeView::QTreeView;
 
-signals:
+  signals:
     void currently(const QModelIndex&);
 
-protected:
+  protected:
     void currentChanged(const QModelIndex& now, const QModelIndex&) override
-    { emit currently(now); }
+    {
+        emit currently(now);
+    }
 };
 
 class Transits : public AstroFileHandler {

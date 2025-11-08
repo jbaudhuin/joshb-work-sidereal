@@ -1,12 +1,13 @@
-﻿#include <memory>
-#include <QApplication>
-#include <QFile>
-#include <QDir>
-#include <QSettings>
-#include <QTextCodec>
+﻿#include <QApplication>
 #include <QDebug>
-#include <QStandardPaths>
+#include <QDir>
+#include <QFile>
 #include <QMetaType>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QTextCodec>
+#include <memory>
+
 
 #include "astro-calc.h"
 #include "astro-gui.h"
@@ -22,9 +23,9 @@ AstroFile::AstroFile(QObject* parent) : QObject(parent)
         setName(tr("Untitled %1").arg(++counter));
     } while (fileInfo().exists());
 
-    type = TypeOther;
-    _unsavedChanges = false;
-    _holdUpdate = false;
+    type               = TypeOther;
+    _unsavedChanges    = false;
+    _holdUpdate        = false;
     _holdUpdateMembers = None;
     qDebug() << "Created file" << getName();
 }
@@ -39,16 +40,16 @@ QString
 AstroFile::typeToString(unsigned ft)
 {
     switch (ft) {
-    case TypeSearch: return "Search";
-    case TypeDerivedSA: return "SA";
-    case TypeDerivedProg: return "Prog";
-    case TypeDerivedPD: return "PD";
+    case TypeSearch:        return "Search";
+    case TypeDerivedSA:     return "SA";
+    case TypeDerivedProg:   return "Prog";
+    case TypeDerivedPD:     return "PD";
     case TypeDerivedSearch: return "Der";
-    case TypeMale: return "Male";
-    case TypeFemale: return "Female";
-    case TypeEvent: return "Event";
-    case TypeOther: return "Other";
-    default: break;
+    case TypeMale:          return "Male";
+    case TypeFemale:        return "Female";
+    case TypeEvent:         return "Event";
+    case TypeOther:         return "Other";
+    default:                break;
     }
     return "";
 }
@@ -56,7 +57,7 @@ AstroFile::typeToString(unsigned ft)
 FileType
 AstroFile::typeFromString(const QString& str)
 {
-    if (str == "Male")   return TypeMale;
+    if (str == "Male") return TypeMale;
     if (str == "Female") return TypeFemale;
     if (str == "Der") return TypeDerivedSearch;
     if (str == "PD") return TypeDerivedPD;
@@ -87,24 +88,23 @@ AstroFile::diff(AstroFile* other) const
     if (getEventList() != other->getEventList()) flags |= EventList;
     if (hasUnsavedChanges() != other->hasUnsavedChanges())
         flags |= ChangedState;
-    //lastChangedMembers = flags;
+    // lastChangedMembers = flags;
     return flags;
 }
 
 /*static*/
-QMap<QString,QString> &
+QMap<QString, QString>&
 AstroFile::_fixedChartDirMap()
 {
-    static QMap<QString,QString> s_map;
+    static QMap<QString, QString> s_map;
     if (s_map.empty()) {
         constexpr auto loc = QStandardPaths::DocumentsLocation;
-        QString dir = QStandardPaths::writableLocation(loc)
-                      + "/zodiac-charts";
+        QString dir = QStandardPaths::writableLocation(loc) + "/zodiac-charts";
 
         QDir d(dir);
         if (!d.exists()) QDir().mkpath(d.absolutePath());
 
-        s_map["User Charts"] = dir;
+        s_map["User Charts"]   = dir;
         s_map["Sample Charts"] = "user/";
         _fixedChartDirMapKeys() << "User Charts" << "Sample Charts";
     }
@@ -112,7 +112,7 @@ AstroFile::_fixedChartDirMap()
 }
 
 /*static*/
-QStringList &
+QStringList&
 AstroFile::_fixedChartDirMapKeys()
 {
     static QStringList s_keys;
@@ -120,16 +120,14 @@ AstroFile::_fixedChartDirMapKeys()
     return s_keys;
 }
 
-
 void
 AstroFile::save()
 {
     if (fileInfo().path() == ".") {
-        _fileInfo.setFile(QDir(fixedChartDir()),
-                          _fileInfo.fileName());
+        _fileInfo.setFile(QDir(fixedChartDir()), _fileInfo.fileName());
     }
     QSettings file(fileName(), QSettings::IniFormat);
-#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
+#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
 #endif
 
@@ -143,13 +141,13 @@ AstroFile::save()
     file.setValue("placeTag", getLocationName());
     file.setValue("comment", getComment());
 
-    //if (getType()==TypeEvents) {
+    // if (getType()==TypeEvents) {
     file.setValue("dateRange", getDateRange().operator QVariant());
     if (_eventList.empty()) {
         file.setValue("eventList", QVariant());
     } else {
         QVariantList vl;
-        for (const auto& dt: qAsConst(_eventList)) {
+        for (const auto& dt : std::as_const(_eventList)) {
             vl << dt;
         }
         file.setValue("eventList", vl);
@@ -162,7 +160,7 @@ AstroFile::save()
 }
 
 void
-AstroFile::load(const AFileInfo& fi/*, bool recalculate*/)
+AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
 {
     QString name = fi.baseName();
     if (name.isEmpty()) return;
@@ -173,7 +171,7 @@ AstroFile::load(const AFileInfo& fi/*, bool recalculate*/)
     _fileInfo = fi;
 
     QSettings file(fileName(), QSettings::IniFormat);
-#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
+#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
     file.setIniCodec(QTextCodec::codecForName("UTF-8"));
 #endif
 
@@ -194,11 +192,11 @@ AstroFile::load(const AFileInfo& fi/*, bool recalculate*/)
     setLocationName(file.value("placeTag").toString());
     setComment(file.value("comment").toString());
 
-    //if (getType()==TypeEvents) {
+    // if (getType()==TypeEvents) {
     QList<QDateTime> dl;
     if (file.contains("eventList")) {
         auto vl = file.value("eventList").toList();
-        for (const auto& v: qAsConst(vl)) {
+        for (const auto& v : std::as_const(vl)) {
             dl << v.toDateTime();
         }
         _eventList.swap(dl);
@@ -211,8 +209,11 @@ AstroFile::load(const AFileInfo& fi/*, bool recalculate*/)
     //}
 
     clearUnsavedState();
-    if (/*!recalculate*/!isEmpty()) resumeUpdate()/*holdUpdateMembers = None*/;  // if empty file is just loaded, it will not be recalculated
-    //resumeUpdate();
+    if (/*!recalculate*/ !isEmpty())
+        resumeUpdate() /*holdUpdateMembers = None*/; // if empty file is just
+                                                     // loaded, it will not be
+                                                     // recalculated
+    // resumeUpdate();
 }
 
 void
@@ -222,7 +223,7 @@ AstroFile::loadComposite(const AFileInfoList& names)
     setFileInfo(names.first());
 
     auto file = std::make_unique<QSettings>(fileName(), QSettings::IniFormat);
-#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
+#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
     file->setIniCodec(QTextCodec::codecForName("UTF-8"));
 #endif
 
@@ -241,8 +242,7 @@ AstroFile::resumeUpdate()
 }
 
 void
-AstroFile::change(AstroFile::Members members,
-                  bool affectChangedState)
+AstroFile::change(AstroFile::Members members, bool affectChangedState)
 {
     if (members == None) return;
 
@@ -251,7 +251,8 @@ AstroFile::change(AstroFile::Members members,
     if (unsavedBefore != _unsavedChanges) members |= ChangedState;
 
     if (!_holdUpdate) {
-        if (members & (GMT | Location | HouseSystem | Zodiac | AspectSet | AspectMode))
+        if (members
+            & (GMT | Location | HouseSystem | Zodiac | AspectSet | AspectMode))
             recalculate();
         else if (members & Harmonic) {
             recalculateBaseChart();
@@ -268,15 +269,14 @@ AstroFile::clearUnsavedState()
 {
     if (hasUnsavedChanges()) {
         _unsavedChanges = false;
-        if (!_holdUpdate)
-            change(ChangedState);
+        if (!_holdUpdate) change(ChangedState);
         else if (_holdUpdateMembers & ChangedState)
             _holdUpdateMembers ^= ChangedState;
     }
 }
 
 void
-AstroFile::setName(const QString&   name)
+AstroFile::setName(const QString& name)
 {
     if (getName() != name) {
         qDebug() << "Renamed file" << getName() << "->" << name;
@@ -286,7 +286,7 @@ AstroFile::setName(const QString&   name)
 }
 
 void
-AstroFile::setType(const FileType   type)
+AstroFile::setType(const FileType type)
 {
     if (this->type != type) {
         this->type = type;
@@ -322,7 +322,7 @@ AstroFile::setLocation(const QVector3D location)
 }
 
 void
-AstroFile::setLocationName(const QString &location)
+AstroFile::setLocationName(const QString& location)
 {
     if (this->locationName != location) {
         this->locationName = location;
@@ -403,7 +403,8 @@ AstroFile::recalculate()
 void
 AstroFile::recalculateBaseChart()
 {
-    qDebug() << "Calculating base harmonic chart for file" << getName() << "...";
+    qDebug() << "Calculating base harmonic chart for file" << getName()
+             << "...";
     A::calculateBaseChartHarmonic(scope);
 }
 
@@ -411,17 +412,17 @@ void
 AstroFile::recalculateHarmonics()
 {
     qDebug() << "Calculating harmonics for file" << getName() << "...";
-    //A::findHarmonics(scope);
+    // A::findHarmonics(scope);
 }
 
 void
 AstroFile::destroy()
 {
-    if (getName().section(" ", -1).toInt() == counter)   // latest file
-        --counter;                                         // decrement file counter
+    if (getName().section(" ", -1).toInt() == counter) // latest file
+        --counter;                                     // decrement file counter
 
     qDebug() << "Deleted file" << getName();
-    //deleteLater();
+    // deleteLater();
     emit destroyRequested();
 }
 
@@ -433,12 +434,12 @@ AstroFile::destroy()
   qDebug() << "Deleted file" << getName();
  }*/
 
+/* =========================== ABSTRACT FILE HANDLER
+ * ================================ */
 
-
- /* =========================== ABSTRACT FILE HANDLER ================================ */
-
-AstroFileHandler::AstroFileHandler(QWidget *parent) :
-    QWidget(parent), Customizable()
+AstroFileHandler::AstroFileHandler(QWidget* parent) :
+    QWidget(parent),
+    Customizable()
 {
     delayUpdate = false;
 }
@@ -447,23 +448,28 @@ void
 AstroFileHandler::setFiles(const AstroFileList& files)
 {
     MembersList flags;
-    int i = 0;
+    int         i = 0;
 
-    for (AstroFile* file: files) {
+    for (AstroFile* file : files) {
         AstroFile* old = (f.count() >= i + 1) ? f[i] : nullptr;
         if (file == old) {
             flags.clear();
         } else {
             if (old) {
-                old->disconnect(this, SLOT(fileUpdatedSlot(AstroFile::Members)));
+                old->disconnect(this,
+                                SLOT(fileUpdatedSlot(AstroFile::Members)));
                 old->disconnect(this, SLOT(fileDestroyedSlot()));
             }
 
             if (file) {
-                connect(file, SIGNAL(changed(AstroFile::Members)),
-                        this, SLOT(fileUpdatedSlot(AstroFile::Members)));
-                connect(file, SIGNAL(destroyRequested()),
-                        this, SLOT(fileDestroyedSlot()));
+                connect(file,
+                        SIGNAL(changed(AstroFile::Members)),
+                        this,
+                        SLOT(fileUpdatedSlot(AstroFile::Members)));
+                connect(file,
+                        SIGNAL(destroyRequested()),
+                        this,
+                        SLOT(fileDestroyedSlot()));
                 flags << file->diff(old);
             } else {
                 flags.clear();
@@ -480,55 +486,54 @@ AstroFileHandler::setFiles(const AstroFileList& files)
         filesUpdated(flags);
     } else {
         delayMembers = flags;
-        delayUpdate = true;
+        delayUpdate  = true;
     }
-
 }
 
 A::AspectList
 AstroFileHandler::calculateAspects()
 {
-    auto& scope = file(0)->horoscope();
+    auto&       scope = file(0)->horoscope();
     const auto& input = scope.inputData;
 
     A::setOrbFactor(1);
-    auto fp = file(0)->focalPlanets();
+    auto fp       = file(0)->focalPlanets();
     bool useFocal = !fp.empty();
-    for (const auto &p: fp) {
+    for (const auto& p : fp) {
         if (files().count() <= p.fileId()) {
             useFocal = false;
             break;
         }
     }
     if (!useFocal) {
-        scope.aspects =
-                A::calculateAspects(A::getAspectSet(input.aspectSet()),
-                                    scope.planets);
+        scope.aspects = A::calculateAspects(A::getAspectSet(input.aspectSet()),
+                                            scope.planets);
         return scope.aspects;
     }
 
     A::AspectSetId aspset = -1;
-    const auto& curr(A::EventOptions::current());
+    const auto&    curr(A::EventOptions::current());
     if (fp.size() < curr.patternsQuorum) {
-        bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
-        A::uintSSet hs = A::dynAspState();
+        bool        skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
+        A::uintSSet hs   = A::dynAspState();
 
-        auto hpc = A::findClusters(hs, {&file(0)->horoscope().planetsOrig},
-                                   qMax(size_t(2),fp.size()),
-                                   skip? A::PlanetSet() : fp,
+        auto hpc = A::findClusters(hs,
+                                   { &file(0)->horoscope().planetsOrig },
+                                   qMax(size_t(2), fp.size()),
+                                   skip ? A::PlanetSet() : fp,
                                    false,
                                    false /*curr.patternsRestrictMoon*/,
                                    curr.expandShowOrb);
 
-        for (const auto& h_pc: hpc) {
+        for (const auto& h_pc : hpc) {
             const auto& pc = h_pc.second;
-            for (const auto& p_c: pc) {
+            for (const auto& p_c : pc) {
                 const auto& pl = p_c.first;
                 qDebug() << QString("H%1 %2 %3")
-                            .arg(h_pc.first)
-                            .arg(p_c.second)
-                            .arg(pl.names().join('='));
-                fp.insert(pl.begin(),pl.end());
+                                .arg(h_pc.first)
+                                .arg(p_c.second)
+                                .arg(pl.names().join('='));
+                fp.insert(pl.begin(), pl.end());
             }
         }
         A::setOrbFactor(curr.expandShowOrb / A::harmonicsMaxQOrb());
@@ -536,9 +541,10 @@ AstroFileHandler::calculateAspects()
         aspset = MainWindow::theAstroWidget()->overrideAspectSet();
     }
 
-    const auto& asps = A::getAspectSet(aspset == -1? input.aspectSet() : aspset);
+    const auto& asps =
+        A::getAspectSet(aspset == -1 ? input.aspectSet() : aspset);
     A::ChartPlanetPtrMap planets;
-    //A::setOrbFactor(curr.patternsSpreadOrb / A::harmonicsMaxQOrb());
+    // A::setOrbFactor(curr.patternsSpreadOrb / A::harmonicsMaxQOrb());
     for (const auto& cpid : fp) {
         auto fid = cpid.fileId();
         if (fid < 0) continue;
@@ -555,7 +561,7 @@ AstroFileHandler::calculateSynastryAspects()
 {
     qDebug() << "Calculate synatry apects" << file(0)->getAspectSet().id;
     auto useFocal = !file(1)->focalPlanets().empty();
-    for (const auto& p: file(1)->focalPlanets()) {
+    for (const auto& p : file(1)->focalPlanets()) {
         if (files().count() <= p.fileId()) {
             useFocal = false;
             break;
@@ -568,15 +574,15 @@ AstroFileHandler::calculateSynastryAspects()
                                    file(1)->horoscope().planets);
     }
 
-    bool alt = (QApplication::keyboardModifiers() & Qt::AltModifier);
+    bool           alt = (QApplication::keyboardModifiers() & Qt::AltModifier);
     A::AspectSetId aspset = -1;
-    auto fp = file(1)->focalPlanets();
+    auto           fp     = file(1)->focalPlanets();
     if (fp.empty()) fp = file(1)->focalPlanets();
     const auto& curr(A::EventOptions::current());
     if (fp.size() < curr.patternsQuorum) {
         bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End)
-                || (fp.size() == 2
-                    && fp.begin()->planetId() == fp.rbegin()->planetId());
+                    || (fp.size() == 2
+                        && fp.begin()->planetId() == fp.rbegin()->planetId());
         A::uintSSet hs;
 #if 0
         uint h;
@@ -588,31 +594,30 @@ AstroFileHandler::calculateSynastryAspects()
             hs.insert(h);
         } else
 #endif
-            hs = A::dynAspState();
+        hs = A::dynAspState();
 
-        A::PlanetProfile pf {
-            &file(0)->horoscope().planetsOrig,
-            &file(1)->horoscope().planetsOrig
-        };
+        A::PlanetProfile pf { &file(0)->horoscope().planetsOrig,
+                              &file(1)->horoscope().planetsOrig };
         A::setOrbFactor(curr.expandShowOrb / A::harmonicsMaxQOrb());
         QList<A::Aspect> alist;
-        auto hpc = A::findClusters(hs, pf,
-                                   qMax(size_t(2),fp.size()),
-                                   skip && alt? A::PlanetSet() : fp,
+        auto             hpc = A::findClusters(hs,
+                                   pf,
+                                   qMax(size_t(2), fp.size()),
+                                   skip && alt ? A::PlanetSet() : fp,
                                    true /*skipAllNatalOnly*/,
                                    false /*curr.patternsRestrictMoon*/,
                                    curr.expandShowOrb);
-        for (const auto& h_pc: hpc) {
-            auto h = h_pc.first;
-            const auto& pc = h_pc.second;
+        for (const auto& h_pc : hpc) {
+            auto         h  = h_pc.first;
+            const auto&  pc = h_pc.second;
             A::PlanetSet ps;
-            for (const auto& p_c: pc) {
+            for (const auto& p_c : pc) {
                 const auto& pl = p_c.first;
                 qDebug() << QString("H%1 %2 %3")
-                            .arg(h_pc.first)
-                            .arg(p_c.second)
-                            .arg(pl.names().join('='));
-                ps.insert(pl.begin(),pl.end());
+                                .arg(h_pc.first)
+                                .arg(p_c.second)
+                                .arg(pl.names().join('='));
+                ps.insert(pl.begin(), pl.end());
             }
             A::ChartPlanetPtrMap planets;
             for (const auto& cpid : ps) {
@@ -631,10 +636,10 @@ AstroFileHandler::calculateSynastryAspects()
         A::setOrbFactor(1);
     }
 
-    const auto& asps = A::getAspectSet(aspset == -1
-                                       ? file(0)->horoscope().inputData.aspectSet()
-                                       : aspset);
-    //const auto& asps = aspset != -1? A::getAspectSet(aspset) : file(0)->getAspectSet();
+    const auto& asps = A::getAspectSet(
+        aspset == -1 ? file(0)->horoscope().inputData.aspectSet() : aspset);
+    // const auto& asps = aspset != -1? A::getAspectSet(aspset) :
+    // file(0)->getAspectSet();
     A::ChartPlanetPtrMap planets;
     for (const auto& cpid : fp) {
         auto fid = cpid.fileId();
@@ -651,42 +656,42 @@ MembersList
 AstroFileHandler::blankMembers()
 {
     MembersList ret;
-    for (int i = 0; i < f.count(); i++)
-        ret << AstroFile::Members();
+    for (int i = 0; i < f.count(); i++) ret << AstroFile::Members();
     return ret;
 }
 
 bool
 AstroFileHandler::isAnyFileSuspended()
 {
-    for (auto  file: qAsConst(f)) if (file->isSuspendedUpdate()) return true;
+    for (auto file : std::as_const(f))
+        if (file->isSuspendedUpdate()) return true;
     return false;
 }
 
 void
 AstroFileHandler::fileUpdatedSlot(AstroFile::Members m)
 {
-    int i = f.indexOf((AstroFile*)sender());
-    if (i==-1) return; // file is not in set (yet?)
+    int i = f.indexOf((AstroFile*) sender());
+    if (i == -1) return; // file is not in set (yet?)
 
     if (isVisible() && !isAnyFileSuspended()) {
         MembersList mList;
         if (delayUpdate) {
-            mList = delayMembers;
+            mList        = delayMembers;
             delayMembers = blankMembers();
-            delayUpdate = false;
+            delayUpdate  = false;
         } else {
             mList = blankMembers();
         }
 
-        while (mList.count()<=i) {
+        while (mList.count() <= i) {
             mList.append(AstroFile::Members());
         }
         mList[i] |= m;
         filesUpdated(mList);
     } else {
         delayUpdate = true;
-        while (delayMembers.count()<=i) {
+        while (delayMembers.count() <= i) {
             delayMembers.append(AstroFile::Members());
         }
         delayMembers[i] |= m;
@@ -696,12 +701,14 @@ AstroFileHandler::fileUpdatedSlot(AstroFile::Members m)
 void
 AstroFileHandler::fileDestroyedSlot()
 {
-    int i = f.indexOf((AstroFile*)sender());
-    if (i == -1) return;                  // ignore if destroying file not in list (e.g. in other tab)
+    int i = f.indexOf((AstroFile*) sender());
+    if (i == -1)
+        return; // ignore if destroying file not in list (e.g. in other tab)
 
     MembersList mList = blankMembers();
     if (i < f.count() - 1)
-        mList[i] = f[i + 1]->diff(f[i]);      // write difference with next file in list
+        mList[i] =
+            f[i + 1]->diff(f[i]); // write difference with next file in list
     f.removeAt(i);
     mList.removeLast();
     filesUpdated(mList);
@@ -713,13 +720,12 @@ AstroFileHandler::resumeUpdate()
     if (delayUpdate) {
         filesUpdated(delayMembers);
         delayMembers = blankMembers();
-        delayUpdate = false;
+        delayUpdate  = false;
     }
 }
 
-
-
-/* =========================== ASTRO TREE VIEW ====================================== */
+/* =========================== ASTRO TREE VIEW
+ * ====================================== */
 
 /*AstroTreeView :: AstroTreeView (QWidget *parent) : QTreeWidget(parent)
  {
@@ -835,8 +841,8 @@ AstroTreeView :: addPersonalLifeItems()
                A::aspect(h.venus, h.saturn) == A::Aspect_Conjunction ||
                A::aspect(h.venus, h.saturn) == A::Aspect_Trine ||
                A::aspect(h.venus, h.saturn) == A::Aspect_Sextile);
-  addChildItem(tr("Saturn is harmoniously aspected and is disposited in V house"),
-               h.saturn.house == 5 && hasHarmonicAspects(h.saturn, h));
+  addChildItem(tr("Saturn is harmoniously aspected and is disposited in V
+house"), h.saturn.house == 5 && hasHarmonicAspects(h.saturn, h));
 
 
   addTopLevelItem("Love affair with a foreigner");
@@ -861,10 +867,10 @@ AstroTreeView :: addPersonalLifeItems()
 
   if (file->getType() == AstroFile::TypeMale)
    {
-    addChildItem(tr("Moon has aspect with Uranus - love affair with married woman"),
-                 A::aspect(h.moon, h.uranus) != A::Aspect_None);
-    addChildItem(tr("Venus has aspect with Uranus - free relationships"),
-                 A::aspect(h.venus, h.uranus) != A::Aspect_None);
+    addChildItem(tr("Moon has aspect with Uranus - love affair with married
+woman"), A::aspect(h.moon, h.uranus) != A::Aspect_None); addChildItem(tr("Venus
+has aspect with Uranus - free relationships"), A::aspect(h.venus, h.uranus) !=
+A::Aspect_None);
    }
 
   addChildItem(tr("Venus is in quadrature or opposition with Neptune"),
@@ -883,8 +889,8 @@ AstroTreeView :: addMarriageItems()
   addTopLevelItem(tr("Early marriage"));
   A::Planet ms = getMarriageSignificator(file);
 
-  addChildItem(tr("Marriage significator (%1) is wealth and strong").arg(ms.name),
-               !hasDamage(ms, h) && hasHarmonicAspects(ms, h));
+  addChildItem(tr("Marriage significator (%1) is wealth and
+strong").arg(ms.name), !hasDamage(ms, h) && hasHarmonicAspects(ms, h));
   addChildItem(tr("Sun is disposited in V or VII house"),
                h.sun.house == 5 || h.sun.house == 7);
   addChildItem(tr("Moon is disposited in V or VII house"),
@@ -896,8 +902,8 @@ AstroTreeView :: addMarriageItems()
   addChildItem(tr("Saturn is disposited in VII house"),
                h.saturn.house == 7);
 
-  addChildItem(tr("Marriage significator (%1) is damaged by Saturn").arg(ms.name),
-               A::aspect(ms, h.saturn) == A::Aspect_Quadrature ||
+  addChildItem(tr("Marriage significator (%1) is damaged by
+Saturn").arg(ms.name), A::aspect(ms, h.saturn) == A::Aspect_Quadrature ||
                A::aspect(ms, h.saturn) == A::Aspect_Opposition);
 
   addChildItem(tr("Ruler of VII house is damaged by Saturn"),
@@ -907,23 +913,21 @@ AstroTreeView :: addMarriageItems()
   addChildItem(tr("Uranus is disposited in VII house (excessive independence)"),
                h.uranus.house == 7);
 
-  addChildItem(tr("Venus is located in major aspect with Neptune (excessive idealism)"),
-               A::aspect(h.venus, h.neptune) != A::Aspect_None);
+  addChildItem(tr("Venus is located in major aspect with Neptune (excessive
+idealism)"), A::aspect(h.venus, h.neptune) != A::Aspect_None);
 
 
   addTopLevelItem(tr("Plural marriage"));
 
   addChildItem(tr("Asc-Dsc axis lays in mutable cross"),
-               A::getSignNumber(h.houses.cusp[0]) % 3 == 0); // mutable signs are: 3, 6, 9, 12
+               A::getSignNumber(h.houses.cusp[0]) % 3 == 0); // mutable signs
+are: 3, 6, 9, 12
 
   addChildItem(tr("Uranus or Pluto is disposited in VII house"),
                h.uranus.house == 7 || h.pluto.house == 7);
 
-  addChildItem(tr("Marriage significator (%1) is located in Gemini, Saggitarius or Pisces")
-                                                                  .arg(ms.name),
-               ms.sign == 3 ||
-               ms.sign == 9 ||
-               ms.sign == 12);
+  addChildItem(tr("Marriage significator (%1) is located in Gemini, Saggitarius
+or Pisces") .arg(ms.name), ms.sign == 3 || ms.sign == 9 || ms.sign == 12);
 
   addChildItem(tr("Jupiter is disposited in VII house and is located in "
                   "Gemini, Saggitarius, Aquarius or Pisces"),
@@ -932,8 +936,8 @@ AstroTreeView :: addMarriageItems()
                                         h.jupiter.sign == 11 ||
                                         h.jupiter.sign == 12));
 
-  addChildItem(tr("Ruler of VII house is located in major aspect with Uranus, Mercury or Moon"),
-               A::aspect(A::ruler(7, h), h.uranus)  != A::Aspect_None ||
+  addChildItem(tr("Ruler of VII house is located in major aspect with Uranus,
+Mercury or Moon"), A::aspect(A::ruler(7, h), h.uranus)  != A::Aspect_None ||
                A::aspect(A::ruler(7, h), h.mercury) != A::Aspect_None ||
                A::aspect(A::ruler(7, h), h.moon)    != A::Aspect_None);
 
@@ -995,23 +999,20 @@ AstroTreeView :: addMarriageItems()
   addChildItem(tr("Ruler of VII house is disposited in II house"),
                A::ruler(7, h).house == 2);
 
-  addChildItem(tr("Ruler of VII house is located in major aspect with ruler of II house"),
-               A::aspect(A::ruler(7,h),
-                                 A::ruler(2,h)) != A::Aspect_None);
+  addChildItem(tr("Ruler of VII house is located in major aspect with ruler of
+II house"), A::aspect(A::ruler(7,h), A::ruler(2,h)) != A::Aspect_None);
 
   addChildItem(tr("Ruler of VII house is disposited in IV house"),
                A::ruler(7, h).house == 4);
 
-  addChildItem(tr("Ruler of VII house is located in major aspect with ruler of IV house"),
-               A::aspect(A::ruler(7,h),
-                                 A::ruler(4,h)) != A::Aspect_None);
+  addChildItem(tr("Ruler of VII house is located in major aspect with ruler of
+IV house"), A::aspect(A::ruler(7,h), A::ruler(4,h)) != A::Aspect_None);
 
   addChildItem(tr("Ruler of VII house is disposited in X house"),
                A::ruler(7, h).house == 10);
 
-  addChildItem(tr("Marriage significator (%1) is located in tense aspect with Neptune")
-                  .arg(ms.name),
-               A::aspect(ms, h.neptune) == A::Aspect_Quadrature ||
+  addChildItem(tr("Marriage significator (%1) is located in tense aspect with
+Neptune") .arg(ms.name), A::aspect(ms, h.neptune) == A::Aspect_Quadrature ||
                A::aspect(ms, h.neptune) == A::Aspect_Opposition);
 
   addChildItem(tr("Sun or Moon is located in tense aspect with Neptune"),
@@ -1020,9 +1021,8 @@ AstroTreeView :: addMarriageItems()
                A::aspect(h.moon, h.neptune) == A::Aspect_Quadrature ||
                A::aspect(h.moon, h.neptune) == A::Aspect_Opposition);
 
-  addChildItem(tr("Ruler of VII house is located in major aspect with ruler of X house"),
-               A::aspect(A::ruler(7, h),
-                                 A::ruler(10,h)) != A::Aspect_None);
+  addChildItem(tr("Ruler of VII house is located in major aspect with ruler of X
+house"), A::aspect(A::ruler(7, h), A::ruler(10,h)) != A::Aspect_None);
 
 
   addTopLevelItem(tr("Childlessness"));
@@ -1034,9 +1034,9 @@ AstroTreeView :: addMarriageItems()
                A::aspect(A::ruler(5, h), h.saturn) == A::Aspect_Quadrature ||
                A::aspect(A::ruler(5, h), h.saturn) == A::Aspect_Opposition);
 
-  addChildItem(tr("Moon is disposited in V house and is located in tense aspect with Saturn"),
-               h.moon.house == 5 && (A::aspect(h.moon, h.saturn) == A::Aspect_Quadrature ||
-                                        A::aspect(h.moon, h.saturn) == A::Aspect_Opposition));
+  addChildItem(tr("Moon is disposited in V house and is located in tense aspect
+with Saturn"), h.moon.house == 5 && (A::aspect(h.moon, h.saturn) ==
+A::Aspect_Quadrature || A::aspect(h.moon, h.saturn) == A::Aspect_Opposition));
 
 
 
@@ -1062,9 +1062,8 @@ AstroTreeView :: addMarriageItems()
                  h.moon.house == 5);
 
   if (file->getType() == AstroFile::TypeFemale)
-    addChildItem(tr("Sun is located in Taurus (or water sign) and is disposited in V house"),
-                 h.sun.house == 5 && (h.sun.sign == 2 ||
-                                      h.sun.sign == 4 ||
+    addChildItem(tr("Sun is located in Taurus (or water sign) and is disposited
+in V house"), h.sun.house == 5 && (h.sun.sign == 2 || h.sun.sign == 4 ||
                                       h.sun.sign == 8 ||
                                       h.sun.sign == 12));
 
@@ -1088,8 +1087,8 @@ AstroTreeView :: addMarriageItems()
                  aspect3 == A::Aspect_Quadrature ||
                  aspect4 == A::Aspect_Quadrature);
 
-    addChildItem(tr("Mars, Uranus or Pluto is damaged by other planet and is disposited in V house"),
-                 (h.mars.house   == 5 && hasDamage(h.mars,   h)) ||
+    addChildItem(tr("Mars, Uranus or Pluto is damaged by other planet and is
+disposited in V house"), (h.mars.house   == 5 && hasDamage(h.mars,   h)) ||
                  (h.uranus.house == 5 && hasDamage(h.uranus, h)) ||
                  (h.pluto.house  == 5 && hasDamage(h.pluto,  h)));
    }
@@ -1098,8 +1097,8 @@ AstroTreeView :: addMarriageItems()
 
   addTopLevelItem(tr("Children in foster care"));
 
-  addChildItem(tr("Ruler of V house is wealth and is diposited in III house, or vice-versa"),
-               (A::rulerDisposition(5, 3, h) && !hasDamage(A::ruler(3,h), h)) ||
+  addChildItem(tr("Ruler of V house is wealth and is diposited in III house, or
+vice-versa"), (A::rulerDisposition(5, 3, h) && !hasDamage(A::ruler(3,h), h)) ||
                (A::rulerDisposition(3, 5, h) && !hasDamage(A::ruler(5,h), h)));
 
 
@@ -1110,9 +1109,9 @@ AstroTreeView :: addMarriageItems()
   addChildItem(tr("Neptune is wealth and is disposited in V house"),
                h.neptune.house == 5 && !hasDamage(h.neptune, h));
 
-  addChildItem(tr("Ruler of V house is wealth and is diposited in XII house, or vice-versa"),
-               (A::rulerDisposition(5, 12, h) && !hasDamage(A::ruler(12,h), h)) ||
-               (A::rulerDisposition(12, 5, h) && !hasDamage(A::ruler(5,h), h)));
+  addChildItem(tr("Ruler of V house is wealth and is diposited in XII house, or
+vice-versa"), (A::rulerDisposition(5, 12, h) && !hasDamage(A::ruler(12,h), h))
+|| (A::rulerDisposition(12, 5, h) && !hasDamage(A::ruler(5,h), h)));
 
 
 
@@ -1121,8 +1120,8 @@ AstroTreeView :: addMarriageItems()
   addChildItem(tr("Neptune is damaged and is disposited in V house"),
                h.neptune.house == 5 && hasDamage(h.neptune, h));
 
-  addChildItem(tr("Ruler of V house is damaged and is diposited in XII house, or vice-versa"),
-               (A::rulerDisposition(5, 12, h) && hasDamage(A::ruler(12,h), h)) ||
+  addChildItem(tr("Ruler of V house is damaged and is diposited in XII house, or
+vice-versa"), (A::rulerDisposition(5, 12, h) && hasDamage(A::ruler(12,h), h)) ||
                (A::rulerDisposition(12, 5, h) && hasDamage(A::ruler(5,h), h)));
 
 
@@ -1135,11 +1134,11 @@ AstroTreeView :: addMarriageItems()
   bool b = false;
   foreach (const A::Planet& p, h.planets)
     if (p.house == 8 && (A::aspect(p, A::ruler(5,h)) == A::Aspect_Opposition ||
-                            A::aspect(p, A::ruler(5,h)) == A::Aspect_Quadrature))
-      b = true;
+                            A::aspect(p, A::ruler(5,h)) ==
+A::Aspect_Quadrature)) b = true;
 
-  addChildItem(tr("Ruler of V house is in quadrature or opposition to element of VIII house"),
-               b);
+  addChildItem(tr("Ruler of V house is in quadrature or opposition to element of
+VIII house"), b);
 
   addChildItem(tr("Ruler of V house is diposited in VIII house, or vice-versa"),
                A::rulerDisposition(5, 8, h) ||
@@ -1164,7 +1163,8 @@ AstroTreeView :: addFinancialItems()
 
 const A::Planet& AstroTreeView :: getMarriageSignificator ( AstroFile* file )
  {
-  bool sunAbove = file->horoscope().sun.horizontalPos.y() > 0;  // sun is above the horizon
+  bool sunAbove = file->horoscope().sun.horizontalPos.y() > 0;  // sun is above
+the horizon
 
   if (file->getType() == AstroFile::TypeMale)
    {
@@ -1184,7 +1184,8 @@ const A::Planet& AstroTreeView :: getMarriageSignificator ( AstroFile* file )
   return A::Planet();
  }
 
-bool AstroTreeView :: hasDamage (const A::Planet& planet, const A::Horoscope &scope)
+bool AstroTreeView :: hasDamage (const A::Planet& planet, const A::Horoscope
+&scope)
  {
   foreach (const A::Planet& p, scope.planets)
    {
@@ -1197,7 +1198,8 @@ bool AstroTreeView :: hasDamage (const A::Planet& planet, const A::Horoscope &sc
   return false;
  }
 
-bool AstroTreeView :: hasHarmonicAspects (const A::Planet& planet, const A::Horoscope &scope)
+bool AstroTreeView :: hasHarmonicAspects (const A::Planet& planet, const
+A::Horoscope &scope)
  {
   foreach (const A::Planet& p, scope.planets)
    {
@@ -1211,9 +1213,11 @@ bool AstroTreeView :: hasHarmonicAspects (const A::Planet& planet, const A::Horo
  }
 */
 
-/* =========================== ASTRO TOPICS SHOW ==================================== */
+/* =========================== ASTRO TOPICS SHOW
+ * ==================================== */
 
-/*AstrotTopicsShow :: AstrotTopicsShow(QWidget *parent) : AstroFileHandler(parent)
+/*AstrotTopicsShow :: AstrotTopicsShow(QWidget *parent) :
+AstroFileHandler(parent)
  {
   QLabel* label1 = new QLabel(tr("Natal horoscope analysis"));
   tabs = new QTabWidget;

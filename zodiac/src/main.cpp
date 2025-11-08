@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include <QApplication>
+#include <QMessageBox>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -8,7 +9,6 @@
 #include <QThreadPool>
 #include <QTranslator>
 #include <memory>
-
 
 #include <QSslSocket>
 #include <qlogging.h>
@@ -43,23 +43,20 @@ emptyOutput(QtMsgType                 type,
 
 namespace
 {
+
 void
 zodOutputHandler(QtMsgType                 type,
                  const QMessageLogContext& cxt,
                  const QString&            msg)
 {
-  Q_UNUSED(cxt);
-  switch (type) {
-  case QtWarningMsg:
-  case QtCriticalMsg:
-  case QtFatalMsg:
-    fprintf(stderr, "%s\n", msg.toLatin1().constData());
-    break;
-  case QtInfoMsg:
-  case QtDebugMsg:
-    printf("%s\n", msg.toLatin1().constData());
-    break;
-  }
+    Q_UNUSED(cxt);
+    switch (type) {
+    case QtWarningMsg:
+    case QtCriticalMsg:
+    case QtFatalMsg:    fprintf(stderr, "%s\n", msg.toLatin1().constData()); break;
+    case QtInfoMsg:
+    case QtDebugMsg:    printf("%s\n", msg.toLatin1().constData()); break;
+    }
 }
 
 void
@@ -79,8 +76,6 @@ main(int argc, char* argv[])
     QApplication a(argc, argv);
     a.setApplicationName("Zodiac");
     a.setApplicationVersion("v0.8.1 (build 2019-02-08)");
-
-    auto foo = qInstallMessageHandler(nullptr);
 
     // Debug: Show current working directory and application path
     auto cwd        = QDir::currentPath();
@@ -108,7 +103,7 @@ main(int argc, char* argv[])
     setbuf(stdout, nullptr);
     setbuf(stderr, nullptr);
 #elif defined(NDEBUG)
-    qInstallMessageHandler(emptyOutput);
+    //qInstallMessageHandler(emptyOutput);
 #endif
 
     qDebug() << "SSL version use for build: "
@@ -137,8 +132,14 @@ main(int argc, char* argv[])
     MainWindow&                 w = *mw;
 
     QFile cssfile("style/style.css");
-    cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
-    w.setStyleSheet(cssfile.readAll());
+    if (cssfile.open(QIODeviceBase::ReadOnly | QIODeviceBase::Text)) {
+        w.setStyleSheet(cssfile.readAll());
+    } else {
+        // Show message box and exit with failure
+        QMessageBox::critical(nullptr, "Error", "Could not open style file: " + cssfile.fileName());
+        qDebug() << "Could not open style file:" << cssfile.fileName();
+        return 1;
+    }
 
     w.show();
     return a.exec();

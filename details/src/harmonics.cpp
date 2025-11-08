@@ -1,62 +1,66 @@
 
-#include <QApplication>
-#include <QClipboard>
-#include <QItemSelectionModel>
-#include <QMimeData>
-#include <QAction>
-#include <QFile>
-#include <QComboBox>
-#include <QLabel>
-#include <QListWidget>
-#include <QTreeView>
-#include <QTreeWidgetItem>
-#include <QStandardItemModel>
-#include <QStandardItem>
-#include <QHeaderView>
-#include <QTimer>
-#include <QVBoxLayout>
-#include <QCheckBox>
-#include <QDoubleSpinBox>
-#include <QSpinBox>
-#include <QDebug>
-#include <QStyledItemDelegate>
-#include <QTextDocument>
-#include <QAbstractTextDocumentLayout>
-#include <QPainter>
-#include <Astroprocessor/Calc>
-#include <Astroprocessor/Output>
+#include "harmonics.h"
 #include "../../astroprocessor/src/astro-data.h"
 #include "../../zodiac/src/mainwindow.h"
-#include "harmonics.h"
+#include <Astroprocessor/Calc>
+#include <Astroprocessor/Output>
+#include <QAbstractTextDocumentLayout>
+#include <QAction>
+#include <QApplication>
+#include <QCheckBox>
+#include <QClipboard>
+#include <QComboBox>
+#include <QDebug>
+#include <QDoubleSpinBox>
+#include <QFile>
+#include <QHeaderView>
+#include <QItemSelectionModel>
+#include <QLabel>
+#include <QListWidget>
+#include <QMimeData>
+#include <QPainter>
+#include <QSpinBox>
+#include <QStandardItem>
+#include <QStandardItemModel>
+#include <QStyledItemDelegate>
+#include <QTextDocument>
+#include <QTimer>
+#include <QTreeView>
+#include <QTreeWidgetItem>
+#include <QVBoxLayout>
 #include <math.h>
 
-static A::HarmonicSort s_harmonicsOrder = A::hscByHarmonic;
-static bool s_showDegreeSpread = true;
 
-namespace {
+static A::HarmonicSort s_harmonicsOrder   = A::hscByHarmonic;
+static bool            s_showDegreeSpread = true;
+
+namespace
+{
 
 typedef QList<QStandardItem*> itemListBase;
 
 /// comprise columns for a row in the tree view
 class itemList : public itemListBase {
-public:
+  public:
     using itemListBase::itemListBase;
 
     itemList() : itemListBase() { }
 
     itemList(std::initializer_list<QString> its)
-    { for (const auto& s: its) append(mksit(s)); }
+    {
+        for (const auto& s : its) append(mksit(s));
+    }
 
     itemList(const QStringList& sl)
-    { for (const auto& s: sl) append(mksit(s)); }
+    {
+        for (const auto& s : sl) append(mksit(s));
+    }
 
-    itemList(const QString& a) :
-        itemList( { a } )
-    { }
+    itemList(const QString& a) : itemList({ a }) { }
 
     operator bool() const { return !isEmpty(); }
 
-protected:
+  protected:
     static QStandardItem* mksit(const QString& s)
     {
         auto sit = new QStandardItem(s);
@@ -66,11 +70,27 @@ protected:
 };
 
 bool _includeOvertones = true;
-bool includeOvertones() { return _includeOvertones; }
-void setIncludeOvertones(bool b = true) { _includeOvertones = b; }
+bool
+includeOvertones()
+{
+    return _includeOvertones;
+}
+void
+setIncludeOvertones(bool b = true)
+{
+    _includeOvertones = b;
+}
 unsigned _overtoneLimit = 16;
-unsigned overtoneLimit() { return _overtoneLimit; }
-void setOvertoneLimit(unsigned ol) { _overtoneLimit = ol; }
+unsigned
+overtoneLimit()
+{
+    return _overtoneLimit;
+}
+void
+setOvertoneLimit(unsigned ol)
+{
+    _overtoneLimit = ol;
+}
 
 QVariant
 getFactors(int h)
@@ -82,9 +102,9 @@ getFactors(int h)
     return sl.join("×");
 }
 
-} // anonymous-namespace
+} // namespace
 
-Harmonics::Harmonics(QWidget* parent) : 
+Harmonics::Harmonics(QWidget* parent) :
     AstroFileHandler(parent),
     _planet(A::Planet_None),
     _fileIndex(0),
@@ -100,7 +120,7 @@ Harmonics::Harmonics(QWidget* parent) :
     _hview->addAction(act);
 
     QVBoxLayout* l2 = new QVBoxLayout(this);
-    l2->setContentsMargins(QMargins(0,0,0,0));
+    l2->setContentsMargins(QMargins(0, 0, 0, 0));
     l2->addWidget(_hview, 5);
 
     QFile cssfile("Details/style.css");
@@ -108,22 +128,32 @@ Harmonics::Harmonics(QWidget* parent) :
     setStyleSheet(cssfile.readAll());
 
     QTimer::singleShot(0, [this]() {
-        connect(this, SIGNAL(updateHarmonics(double)),
-                MainWindow::theAstroWidget(), SLOT(setHarmonic(double)));
+        connect(this,
+                SIGNAL(updateHarmonics(double)),
+                MainWindow::theAstroWidget(),
+                SLOT(setHarmonic(double)));
     });
 
-    connect(_hview, SIGNAL(clicked(const QModelIndex&)),
-            this, SLOT(clickedCell(const QModelIndex&)));
-    connect(_hview, SIGNAL(doubleClicked(const QModelIndex&)),
-            this, SLOT(doubleClickedCell(const QModelIndex&)));
-    connect(_hview->header(), SIGNAL(sectionDoubleClicked(int)),
-            this, SLOT(headerDoubleClicked(int)));
+    connect(_hview,
+            SIGNAL(clicked(const QModelIndex&)),
+            this,
+            SLOT(clickedCell(const QModelIndex&)));
+    connect(_hview,
+            SIGNAL(doubleClicked(const QModelIndex&)),
+            this,
+            SLOT(doubleClickedCell(const QModelIndex&)));
+    connect(_hview->header(),
+            SIGNAL(sectionDoubleClicked(int)),
+            this,
+            SLOT(headerDoubleClicked(int)));
 
-    connect(this, SIGNAL(needToFindIt(const QString&)), 
-            this, SLOT(findIt(const QString&)));
+    connect(this,
+            SIGNAL(needToFindIt(const QString&)),
+            this,
+            SLOT(findIt(const QString&)));
 }
 
-void 
+void
 Harmonics::describePlanet()
 {
     _fileIndex = qBound(0, _fileIndex, filesCount() - 1);
@@ -135,7 +165,7 @@ Harmonics::updateHarmonics()
 {
     qDebug() << "filesCount()" << filesCount();
     QStringList expo;
-    auto sim = tvm();
+    auto        sim = tvm();
     if (sim) {
         for (int i = 0, n = sim->rowCount(); i < n; ++i) {
             auto it = sim->item(i);
@@ -148,21 +178,20 @@ Harmonics::updateHarmonics()
         sim = new QStandardItemModel(this);
         _hview->setModel(sim);
     }
-    
+
     if (!file(_fileIndex)) return;
 
-    QFont astroFont("Almagest", 11);
+    QFont             astroFont("Almagest", 11);
     A::ChartPlanetMap cpm;
     for (int i = 0; i < filesCount(); ++i) {
-        const A::Horoscope& scope(file(i)->horoscope());
+        const A::Horoscope&     scope(file(i)->horoscope());
         const A::ChartPlanetMap apm(scope.getOrigChartPlanets(i));
         for (auto it = apm.cbegin(); it != apm.cend(); ++it) {
             // Filter planet list...
             A::PlanetId pid = it.key().planetId();
             if ((pid >= A::Planet_Sun && pid <= A::Planet_Pluto)
                 || ((pid == A::Planet_MC || pid == A::Planet_Asc)
-                    && A::includeAscMC()
-                    && A::aspectMode == A::amcEcliptic)
+                    && A::includeAscMC() && A::aspectMode == A::amcEcliptic)
                 || (pid == A::Planet_Chiron && A::includeChiron())
                 || ((pid == A::Planet_SouthNode || pid == A::Planet_NorthNode)
                     && A::includeNodes()))
@@ -175,20 +204,18 @@ Harmonics::updateHarmonics()
     A::findHarmonics(cpm, hx);
 
     switch (s_harmonicsOrder) {
-    case A::hscByHarmonic:
-    {
+    case A::hscByHarmonic: {
         sim->setColumnCount(2);
-        sim->setHorizontalHeaderLabels({tr("Harmonic/Spread"),tr("Planets")});
+        sim->setHorizontalHeaderLabels(
+            { tr("Harmonic/Spread"), tr("Planets") });
 
-        QMap<int, itemList> harm, over;
+        QMap<int, itemList>   harm, over;
         typedef std::set<int> intSet;
-        auto getDivs = [](int h, intSet& ret) {
+        auto                  getDivs = [](int h, intSet& ret) {
             intSet is;
-            for (int i = 2, n = int(sqrt(h));
-                 i <= n; ++i)
-            {
-                if (h%i == 0) {
-                    if (h/i <= overtoneLimit()) is.insert(i);
+            for (int i = 2, n = int(sqrt(h)); i <= n; ++i) {
+                if (h % i == 0) {
+                    if (h / i <= overtoneLimit()) is.insert(i);
                     if (i <= overtoneLimit()) is.insert(h / i);
                 }
             }
@@ -196,24 +223,22 @@ Harmonics::updateHarmonics()
         };
 
         std::multimap<A::ChartPlanetBitmap, itemList> firstHxItems;
-        typedef std::pair<int, A::ChartPlanetBitmap> harmInst;
-        QHash<QStandardItem*, harmInst> prev;
+        typedef std::pair<int, A::ChartPlanetBitmap>  harmInst;
+        QHash<QStandardItem*, harmInst>               prev;
         for (const auto& ph : hx) {
-            intSet divs;
+            intSet          divs;
             QList<itemList> hits;
-            auto factors = getFactors(ph.first);
+            auto            factors = getFactors(ph.first);
             for (const auto& hp : ph.second) {
-                if (_planet != A::Planet_None
-                    && !hp.first.contains(_planet))
-                {
+                if (_planet != A::Planet_None && !hp.first.contains(_planet)) {
                     continue;
                 }
 
                 qreal spread = getSpread(hp.second)
                     /*/ qreal(ph.first)*/;
                 QString num = s_showDegreeSpread
-                    ? A::degreeToString(spread, A::HighPrecision)
-                    : QString::number(spread);
+                                  ? A::degreeToString(spread, A::HighPrecision)
+                                  : QString::number(spread);
 
                 itemList ip = { num, hp.first.glyphs() };
                 ip[1]->setData(hp.first.names().join("-"), Qt::ToolTipRole);
@@ -226,15 +251,14 @@ Harmonics::updateHarmonics()
                     A::PlanetSet planets, midpoints;
                     for (const auto& p : hp.first) {
                         if (p.isMidpt()) midpoints.insert(p);
-                        else planets.insert(p);
+                        else
+                            planets.insert(p);
                     }
                     for (const auto& p : planets) {
                         for (const auto& mp : midpoints) {
-                            A::PlanetSet trio { 
-                                p,
-                                mp.chartPlanetId1(),
-                                mp.chartPlanetId2()
-                            };
+                            A::PlanetSet trio { p,
+                                                mp.chartPlanetId1(),
+                                                mp.chartPlanetId2() };
                             firstHxItems.insert(std::make_pair(trio, ip));
                         }
                     }
@@ -246,10 +270,9 @@ Harmonics::updateHarmonics()
                 QString normNum = A::degreeToString(spread, A::LowPrecision);
 
                 auto createOvertone = [&](int sh, const auto& tip) {
-                    itemList ip = {
-                        "H" + QString::number(ph.first / sh) + ": " + normNum,
-                        hp.first.glyphs()
-                    };
+                    itemList ip = { "H" + QString::number(ph.first / sh) + ": "
+                                        + normNum,
+                                    hp.first.glyphs() };
                     ip[0]->setData(tip, Qt::ToolTipRole);
                     ip[0]->setData(ph.first, Qt::UserRole + 1);
                     ip[1]->setData(hp.first.names().join("-"), Qt::ToolTipRole);
@@ -263,10 +286,11 @@ Harmonics::updateHarmonics()
                         if ((!prev.contains(item.second[0])
                              || prev[item.second[0]].first != ph.first
                              || prev[item.second[0]].second != bmp)
-                            && item.first.isContainedIn(bmp)) 
+                            && item.first.isContainedIn(bmp))
                         {
                             prev[item.second[0]] = harmInst(ph.first, bmp);
-                            item.second[0]->appendRow(createOvertone(1, factors));
+                            item.second[0]->appendRow(
+                                createOvertone(1, factors));
                         }
                     }
                 }
@@ -278,11 +302,11 @@ Harmonics::updateHarmonics()
 
                 for (auto sh : divs) {
                     if (!harm.contains(sh)) {
-                        itemList hit
-                        { "H" + QString::number(sh), "Overtone(s)" };
+                        itemList hit { "H" + QString::number(sh),
+                                       "Overtone(s)" };
 
                         ip[0]->setData(sh, Qt::UserRole + 1);
-                        //harmonicsList->addTopLevelItem(hit);
+                        // harmonicsList->addTopLevelItem(hit);
                         over[sh] = harm[sh] = hit;
                     }
                     if (!over.contains(sh)) {
@@ -297,28 +321,29 @@ Harmonics::updateHarmonics()
 
             QStringList sl;
             sl << "H" + QString::number(ph.first);
-            sl << QString("%1 item%2").arg(hits.size())
-                .arg(hits.size() != 1 ? "s" : "");
+            sl << QString("%1 item%2")
+                      .arg(hits.size())
+                      .arg(hits.size() != 1 ? "s" : "");
             itemList hit = sl;
             hit[0]->setData(ph.first, Qt::UserRole + 1);
             hit[0]->setData(factors, Qt::ToolTipRole);
-            for (const auto& h: hits) hit[0]->appendRow(h);
+            for (const auto& h : hits) hit[0]->appendRow(h);
 
-            harm[ph.first] = hit;  // for adding overtones
+            harm[ph.first] = hit; // for adding overtones
         }
-        for (auto& item : harm.values()) { 
+        for (auto& item : harm.values()) {
             sim->appendRow(item);
         }
         break;
     }
-    case A::hscByPlanets:
-    {
+    case A::hscByPlanets: {
         sim->setColumnCount(2);
-        sim->setHorizontalHeaderLabels({tr("Planets/Spread"), tr("Harmonic")});
+        sim->setHorizontalHeaderLabels(
+            { tr("Planets/Spread"), tr("Harmonic") });
 
-        QList<itemList> items;
+        QList<itemList>         items;
         QMap<A::PlanetSet, int> dir;
-        int n = 0;
+        int                     n = 0;
         for (const auto& ph : hx) {
             for (const auto& hp : ph.second) {
                 if (_planet != A::Planet_None && !hp.first.contains(_planet))
@@ -329,41 +354,41 @@ Harmonics::updateHarmonics()
                     it = hp.first.glyphs();
                     it[0]->setData(hp.first.names().join("-"), Qt::ToolTipRole);
                     it[0]->setData(astroFont, Qt::FontRole);
-                    //it->setFirstColumnSpanned(true);
-                    //it->setFlags(Qt::ItemIsSelectable);
+                    // it->setFirstColumnSpanned(true);
+                    // it->setFlags(Qt::ItemIsSelectable);
                     items << it;
                     dir[hp.first] = n++;
                 } else {
                     it = items.at(dir.value(hp.first, 0));
                 }
-                if (!it) continue;  //silently fail
+                if (!it) continue; // silently fail
 
                 qreal spread = getSpread(hp.second)
                     /*/ qreal(ph.first)*/;
                 QString num = s_showDegreeSpread
-                    ? A::degreeToString(spread, A::HighPrecision)
-                    : QString::number(spread);
+                                  ? A::degreeToString(spread, A::HighPrecision)
+                                  : QString::number(spread);
 
                 itemList kid = { num, "H" + QString::number(ph.first) };
                 kid[1]->setData(ph.first, Qt::UserRole + 1);
                 kid[1]->setData(getFactors(ph.first), Qt::ToolTipRole);
-                //kid->setFlags(Qt::ItemIsSelectable);
+                // kid->setFlags(Qt::ItemIsSelectable);
                 it[0]->appendRow(kid);
             }
         }
         int r = 0;
         for (auto pl = dir.cbegin(); pl != dir.cend(); ++pl) {
             auto it = items.at(pl.value());
-            r = sim->rowCount();
+            r       = sim->rowCount();
             sim->appendRow(it);
             _hview->setFirstColumnSpanned(r, QModelIndex(), true);
         }
         break;
     }
-    case A::hscByOrb:
-    {
+    case A::hscByOrb: {
         sim->setColumnCount(3);
-        sim->setHorizontalHeaderLabels({tr("Spread"), tr("Harmonic"), tr("Planets")});
+        sim->setHorizontalHeaderLabels(
+            { tr("Spread"), tr("Harmonic"), tr("Planets") });
 
         QMultiMap<qreal, itemList> om;
         for (const auto& ph : hx) {
@@ -373,9 +398,9 @@ Harmonics::updateHarmonics()
 
                 qreal spread = getSpread(hp.second)
                     /*/ qreal(ph.first)*/;
-                QString num = s_showDegreeSpread
-                    ? A::degreeToString(spread, A::HighPrecision)
-                    : QString::number(spread);
+                QString  num = s_showDegreeSpread
+                                   ? A::degreeToString(spread, A::HighPrecision)
+                                   : QString::number(spread);
                 itemList kid = { num,
                                  "H" + QString::number(ph.first),
                                  hp.first.glyphs() };
@@ -393,7 +418,7 @@ Harmonics::updateHarmonics()
     }
     }
 
-    for (const QString& str: qAsConst(expo)) {
+    for (const QString& str : std::as_const(expo)) {
         for (auto sit : sim->findItems(str, Qt::MatchExactly)) {
             htv()->setExpanded(sit->index(), true);
             break;
@@ -401,11 +426,11 @@ Harmonics::updateHarmonics()
     }
 }
 
-void 
+void
 Harmonics::setCurrentPlanet(A::PlanetId p, int file)
 {
     if (_planet == p && _fileIndex == file) return;
-    _planet = p;
+    _planet    = p;
     _fileIndex = file;
     describePlanet();
 }
@@ -418,7 +443,7 @@ Harmonics::findIt(const QString& val)
 
     for (auto item : sim->findItems(val, Qt::MatchExactly)) {
         htv()->scrollTo(item->index());
-        //htv()->setCurrentItem(item,0,QItemSelectionModel::ClearAndSelect);
+        // htv()->setCurrentItem(item,0,QItemSelectionModel::ClearAndSelect);
         if (item->rowCount() > 0) {
             htv()->setExpanded(item->index(), true);
         }
@@ -429,15 +454,14 @@ Harmonics::findIt(const QString& val)
 void
 Harmonics::clickedCell(const QModelIndex& inx)
 {
-    QString val;
-    QVariant v = inx.data(Qt::UserRole + 1);
-    auto getHarmonic = [&] {
+    QString  val;
+    QVariant v           = inx.data(Qt::UserRole + 1);
+    auto     getHarmonic = [&] {
         val = inx.data(Qt::DisplayRole).toString();
         double d(0);
-        bool ok;
+        bool   ok;
         val = val.split(":").first();
-        if (val.startsWith("H")
-                && (d = val.mid(1).toDouble(&ok), ok)) {
+        if (val.startsWith("H") && (d = val.mid(1).toDouble(&ok), ok)) {
             v = d;
             return true;
         }
@@ -453,15 +477,14 @@ Harmonics::clickedCell(const QModelIndex& inx)
         } else if (inx.parent().isValid()) {
             if (QApplication::keyboardModifiers() & Qt::AltModifier) {
                 val = "H" + v.toString();
-            } else if (!getHarmonic()) return;
+            } else if (!getHarmonic())
+                return;
         }
         if (v.isValid() || getHarmonic()) {
             emit updateHarmonics(v.toDouble());
         }
         if (val.startsWith("H")) {
-            QTimer::singleShot(250, [this, val]() {
-                emit needToFindIt(val);
-            });
+            QTimer::singleShot(250, [this, val]() { emit needToFindIt(val); });
         }
         return;
     }
@@ -469,10 +492,9 @@ Harmonics::clickedCell(const QModelIndex& inx)
     auto row = inx.row();
     auto col = inx.column();
     switch (s_harmonicsOrder) {
-    case A::hscByHarmonic:
-    {
+    case A::hscByHarmonic: {
         // col0 harmonic or spread, col1 planets
-        bool isSub = inx.parent().isValid();
+        bool isSub      = inx.parent().isValid();
         bool isOvertone = isSub && inx.parent().parent().isValid();
         break;
     }
@@ -481,12 +503,11 @@ Harmonics::clickedCell(const QModelIndex& inx)
         // col0 planets or spread, col1 harmonic
         break;
 
-    case A::hscByOrb:
-        break;
+    case A::hscByOrb: break;
     }
 }
 
-void 
+void
 Harmonics::doubleClickedCell(const QModelIndex& inx)
 {
     if (!inx.parent().isValid() && inx.column() == 0) return;
@@ -498,7 +519,7 @@ Harmonics::doubleClickedCell(const QModelIndex& inx)
     if (hit->hasChildren()) {
         // Ignore if it's the 'overtones' [or some other future] parent.
         // Don't need to expand/contract because that's the default behavior
-        //htv()->setExpanded(inx,!htv()->isExpanded(inx));
+        // htv()->setExpanded(inx,!htv()->isExpanded(inx));
         return;
     }
 
@@ -507,21 +528,19 @@ Harmonics::doubleClickedCell(const QModelIndex& inx)
         // Double-click an entry leads to opening it up in another sort.
         headerDoubleClicked(inx.column());
         QString val(var.toString());
-        QTimer::singleShot(250, [this, val]() {
-            emit needToFindIt(val);
-        });
+        QTimer::singleShot(250, [this, val]() { emit needToFindIt(val); });
     }
 }
 
-void 
+void
 Harmonics::headerDoubleClicked(int col)
 {
     auto sim = tvm();
     if (!sim) return;
 
     auto hit = sim->horizontalHeaderItem(col);
-    //qDebug() << /*item <<*/ col << h->text(col);
-    QString itemText = hit->text().split("/").last();
+    // qDebug() << /*item <<*/ col << h->text(col);
+    QString         itemText = hit->text().split("/").last();
     A::HarmonicSort newOrder = s_harmonicsOrder;
     if (itemText == "Spread") {
         newOrder = A::hscByOrb;
@@ -550,27 +569,27 @@ Harmonics::copySelection()
             qDebug() << md->html();
         }
     }
-    QItemSelectionModel* sm = _hview->selectionModel();
-    QModelIndexList qmil = sm->selectedIndexes();
+    QItemSelectionModel* sm   = _hview->selectionModel();
+    QModelIndexList      qmil = sm->selectedIndexes();
     qDebug() << qmil;
     QMimeData* md = sim->mimeData(qmil);
     qDebug() << md->formats();
     cb->setMimeData(sim->mimeData(qmil));
 }
 
-void 
+void
 Harmonics::clear()
 {
     _planet = A::Planet_None;
 }
 
-QStandardItemModel *
+QStandardItemModel*
 Harmonics::tvm() const
 {
     return qobject_cast<QStandardItemModel*>(_hview->model());
 }
 
-void 
+void
 Harmonics::filesUpdated(MembersList m)
 {
     if (!filesCount()) {
@@ -579,18 +598,18 @@ Harmonics::filesUpdated(MembersList m)
     }
 
     // XXX need a better division of in-process update and final update
-    //if (QApplication::mouseButtons() & Qt::LeftButton) return;
+    // if (QApplication::mouseButtons() & Qt::LeftButton) return;
 
     bool any = false;
-    for (auto ml: m) {
-        any |= !!(ml & ~(AstroFile::Harmonic
-                       | AstroFile::AspectSet
-                       | AstroFile::HouseSystem));
+    for (auto ml : m) {
+        any |= !!(ml
+                  & ~(AstroFile::Harmonic | AstroFile::AspectSet
+                      | AstroFile::HouseSystem));
     }
     if (any) describePlanet();
 }
 
-AppSettings 
+AppSettings
 Harmonics::defaultSettings()
 {
     AppSettings s;
@@ -612,7 +631,8 @@ Harmonics::defaultSettings()
     return s;
 }
 
-AppSettings Harmonics::currentSettings()
+AppSettings
+Harmonics::currentSettings()
 {
     AppSettings s;
     s.setValue("Harmonics/order", s_harmonicsOrder);
@@ -633,40 +653,35 @@ AppSettings Harmonics::currentSettings()
     return s;
 }
 
-void Harmonics::applySettings(const AppSettings& s)
+void
+Harmonics::applySettings(const AppSettings& s)
 {
     A::HarmonicSort oldOrder = s_harmonicsOrder;
     s_harmonicsOrder = A::HarmonicSort(s.value("Harmonics/order").toUInt());
 
-    bool ff = s.value("Harmonics/filterFew").toBool();
-    bool ascMC = s.value("Harmonics/includeAscMC").toBool();
-    bool chiron = s.value("Harmonics/includeChiron").toBool();
-    bool nodes = s.value("Harmonics/includeNodes").toBool();
-    bool over = s.value("Harmonics/includeOvertones").toBool();
-    unsigned ol = s.value("Harmonics/overtoneLimit").toUInt();
-    bool mp = s.value("Harmonics/includeMidpoints").toBool();
-    bool amp = s.value("Harmonics/requireMidpointAnchor").toBool();
-    unsigned pfl = s.value("Harmonics/primeFactorLimit").toUInt();
-    int max = s.value("Harmonics/max").toInt();
-    int minq = s.value("Harmonics/minQuorum").toInt();
-    int maxq = s.value("Harmonics/maxQuorum").toInt();
-    double minqo = s.value("Harmonics/minQOrb").toDouble();
-    double maxqo = s.value("Harmonics/maxQOrb").toDouble();
+    bool     ff     = s.value("Harmonics/filterFew").toBool();
+    bool     ascMC  = s.value("Harmonics/includeAscMC").toBool();
+    bool     chiron = s.value("Harmonics/includeChiron").toBool();
+    bool     nodes  = s.value("Harmonics/includeNodes").toBool();
+    bool     over   = s.value("Harmonics/includeOvertones").toBool();
+    unsigned ol     = s.value("Harmonics/overtoneLimit").toUInt();
+    bool     mp     = s.value("Harmonics/includeMidpoints").toBool();
+    bool     amp    = s.value("Harmonics/requireMidpointAnchor").toBool();
+    unsigned pfl    = s.value("Harmonics/primeFactorLimit").toUInt();
+    int      max    = s.value("Harmonics/max").toInt();
+    int      minq   = s.value("Harmonics/minQuorum").toInt();
+    int      maxq   = s.value("Harmonics/maxQuorum").toInt();
+    double   minqo  = s.value("Harmonics/minQOrb").toDouble();
+    double   maxqo  = s.value("Harmonics/maxQOrb").toDouble();
 
-    bool changed = A::filterFew() != ff
-        || A::includeAscMC() != ascMC
-        || A::includeChiron() != chiron
-        || A::includeNodes() != nodes
-        || includeOvertones() != over
-        || overtoneLimit() != ol
-        || A::includeMidpoints() != mp
-        || A::requireAnchor() != amp
-        || A::primeFactorLimit() != pfl
-        || A::maxHarmonic() != max
-        || A::harmonicsMinQuorum() != minq
-        || A::harmonicsMinQOrb() != minqo
-        || A::harmonicsMaxQuorum() != maxq
-        || A::harmonicsMaxQOrb() != maxqo;
+    bool changed =
+        A::filterFew() != ff || A::includeAscMC() != ascMC
+        || A::includeChiron() != chiron || A::includeNodes() != nodes
+        || includeOvertones() != over || overtoneLimit() != ol
+        || A::includeMidpoints() != mp || A::requireAnchor() != amp
+        || A::primeFactorLimit() != pfl || A::maxHarmonic() != max
+        || A::harmonicsMinQuorum() != minq || A::harmonicsMinQOrb() != minqo
+        || A::harmonicsMaxQuorum() != maxq || A::harmonicsMaxQOrb() != maxqo;
 
     A::setIncludeAscMC(ascMC);
     A::setIncludeChiron(chiron);
@@ -684,7 +699,6 @@ void Harmonics::applySettings(const AppSettings& s)
     A::setHarmonicsMaxQOrb(maxqo);
 
     if (changed) {
-
     }
     if (changed || s_harmonicsOrder != oldOrder) {
         updateHarmonics();
@@ -698,56 +712,69 @@ Harmonics::setupSettingsEditor(AppSettingsEditor* ed)
 
     QMap<QString, QVariant> values;
     values[tr("Harmonic")] = A::hscByHarmonic;
-    values[tr("Planets")] = A::hscByPlanets;
-    values[tr("Orb")] = A::hscByOrb;
+    values[tr("Planets")]  = A::hscByPlanets;
+    values[tr("Orb")]      = A::hscByOrb;
 
     ed->addComboBox("Harmonics/order", tr("Sort by"), values);
     ed->addCheckBox("Harmonics/includeAscMC", tr("Include Asc & MC"));
     ed->addCheckBox("Harmonics/includeChiron", tr("Include Chiron"));
     ed->addCheckBox("Harmonics/includeNodes", tr("Include Nodes"));
 
-    auto io = ed->addCheckBox("Harmonics/includeOvertones",
-                    tr("Include Overtones"));
+    auto io =
+        ed->addCheckBox("Harmonics/includeOvertones", tr("Include Overtones"));
     auto ol = ed->addSpinBox("Harmonics/overtoneLimit",
                              tr("Overtone harmonic limit"),
-                             2, 60);
-    connect(io, &QAbstractButton::toggled,
-            [ol](bool b) { ol->setEnabled(b); });
+                             2,
+                             60);
+    connect(io, &QAbstractButton::toggled, [ol](bool b) { ol->setEnabled(b); });
 
-    ed->addCheckBox("Harmonics/filterFew", 
+    ed->addCheckBox("Harmonics/filterFew",
                     tr("Filter planet subsets [abc w/o ab]"));
 
-    ed->addSpinBox("Harmonics/primeFactorLimit", tr("Maximum harmonic factor"), 
-                   1, 102400);
-    ed->addSpinBox("Harmonics/max", tr("Maximum harmonics to calculate"), 
-                   1, 102400);
+    ed->addSpinBox("Harmonics/primeFactorLimit",
+                   tr("Maximum harmonic factor"),
+                   1,
+                   102400);
+    ed->addSpinBox("Harmonics/max",
+                   tr("Maximum harmonics to calculate"),
+                   1,
+                   102400);
 
-    auto minq = ed->addSpinBox("Harmonics/minQuorum", 
-                               tr("Minimal-orb quorum"), 2, 8);
-    auto maxq = ed->addSpinBox("Harmonics/maxQuorum", 
-                               tr("Maximal-orb quorum"), 2, 8);
-    connect(minq, QOverload<int>::of(&QSpinBox::valueChanged),
-            [maxq](int min) { maxq->setMinimum(min); });
-    connect(maxq, QOverload<int>::of(&QSpinBox::valueChanged),
-            [minq](int max) { minq->setMaximum(max); });
+    auto minq =
+        ed->addSpinBox("Harmonics/minQuorum", tr("Minimal-orb quorum"), 2, 8);
+    auto maxq =
+        ed->addSpinBox("Harmonics/maxQuorum", tr("Maximal-orb quorum"), 2, 8);
+    connect(minq, QOverload<int>::of(&QSpinBox::valueChanged), [maxq](int min) {
+        maxq->setMinimum(min);
+    });
+    connect(maxq, QOverload<int>::of(&QSpinBox::valueChanged), [minq](int max) {
+        minq->setMaximum(max);
+    });
 
-    auto minQOrb = 
-        ed->addDoubleSpinBox("Harmonics/minQOrb", tr("Minimal orb"), 
-                             0.0, 24.0, 1);
-    auto maxQOrb =
-        ed->addDoubleSpinBox("Harmonics/maxQOrb", tr("Maximum orb"), 
-                             0.0, 24.0, 1);
-    connect(minQOrb, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+    auto minQOrb = ed->addDoubleSpinBox("Harmonics/minQOrb",
+                                        tr("Minimal orb"),
+                                        0.0,
+                                        24.0,
+                                        1);
+    auto maxQOrb = ed->addDoubleSpinBox("Harmonics/maxQOrb",
+                                        tr("Maximum orb"),
+                                        0.0,
+                                        24.0,
+                                        1);
+    connect(minQOrb,
+            QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             [maxQOrb](double min) { maxQOrb->setMinimum(min); });
-    connect(maxQOrb, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+    connect(maxQOrb,
+            QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             [minQOrb](double max) { minQOrb->setMaximum(max); });
 
     ed->addTab(tr("Midpoints"));
 
-    auto mpt = ed->addCheckBox("Harmonics/includeMidpoints",
-                               tr("Include Midpoints"));
+    auto mpt =
+        ed->addCheckBox("Harmonics/includeMidpoints", tr("Include Midpoints"));
     auto anchor = ed->addCheckBox("Harmonics/requireMidpointAnchor",
                                   tr("Require midpoint anchor"));
-    connect(mpt, &QAbstractButton::toggled,
-            [anchor](bool b) { anchor->setEnabled(b); });
+    connect(mpt, &QAbstractButton::toggled, [anchor](bool b) {
+        anchor->setEnabled(b);
+    });
 }

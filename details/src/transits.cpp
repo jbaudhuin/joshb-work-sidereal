@@ -1,49 +1,51 @@
 
-#include <QApplication>
-#include <QClipboard>
-#include <QItemSelectionModel>
-#include <QMimeData>
-#include <QAction>
-#include <QFile>
-#include <QComboBox>
-#include <QCloseEvent>
-#include <QLabel>
-#include <QStandardItemModel>
-#include <QStandardItem>
-#include <QStringListModel>
-#include <QHeaderView>
-#include <QMouseEvent>
-#include <QTimer>
-#include <QGridLayout>
-#include <QHBoxLayout>
-#include <QVBoxLayout>
-#include <QFormLayout>
-#include <QLineEdit>
-#include <QCheckBox>
-#include <QJsonDocument>
-#include <QJsonValue>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QRadioButton>
-#include <QPushButton>
-#include <QScrollBar>
-#include <QDebug>
-#include <QDateEdit>
-#include <QTimeZone>
-#include <QLineEdit>
-#include <QThreadPool>
-#include <Astroprocessor/Calc>
-#include <Astroprocessor/Output>
+#include "transits.h"
 #include "../../astroprocessor/src/astro-data.h"
 #include "../../zodiac/src/mainwindow.h"
-#include "transits.h"
 #include "geosearch.h"
+#include <Astroprocessor/Calc>
+#include <Astroprocessor/Output>
+#include <QAction>
+#include <QApplication>
+#include <QCheckBox>
+#include <QClipboard>
+#include <QCloseEvent>
+#include <QComboBox>
+#include <QDateEdit>
+#include <QDebug>
+#include <QFile>
+#include <QFormLayout>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QItemSelectionModel>
+#include <QJsonDocument>
+#include <QJsonValue>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMimeData>
+#include <QMouseEvent>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QPushButton>
+#include <QRadioButton>
+#include <QScrollBar>
+#include <QStandardItem>
+#include <QStandardItemModel>
+#include <QStringListModel>
+#include <QThreadPool>
+#include <QTimeZone>
+#include <QTimer>
+#include <QVBoxLayout>
+#include <algorithm>
 #include <math.h>
 #include <vector>
 
+
 using namespace std::chrono;
 
-namespace {
+namespace
+{
 #if 0
 typedef QList<QStandardItem*> itemListBase;
 
@@ -117,11 +119,12 @@ getFactors(int h)
 }
 #endif
 
-} // anonymous-namespace
+} // namespace
 
 class AChangeSignalFrame {
     EventsTableModel* _evm;
-public:
+
+  public:
     AChangeSignalFrame(EventsTableModel* evm);
     AChangeSignalFrame(AChangeSignalFrame&& from);
     ~AChangeSignalFrame();
@@ -130,14 +133,18 @@ public:
 // Custom header view that intercepts Ctrl+click to prevent sorting
 class TransitHeaderView : public QHeaderView {
     Q_OBJECT
-public:
-    TransitHeaderView(Qt::Orientation orientation, QWidget* parent = nullptr)
-        : QHeaderView(orientation, parent) {}
+  public:
+    TransitHeaderView(Qt::Orientation orientation, QWidget* parent = nullptr) :
+        QHeaderView(orientation, parent)
+    {
+    }
 
-protected:
-    void mousePressEvent(QMouseEvent* event) override {
-        if (event->button() == Qt::LeftButton && 
-            (event->modifiers() & Qt::ControlModifier)) {
+  protected:
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton
+            && (event->modifiers() & Qt::ControlModifier))
+        {
             // For Ctrl+click, emit our custom signal but don't call parent
             int section = logicalIndexAt(event->pos());
             if (section >= 0) {
@@ -149,55 +156,53 @@ protected:
         QHeaderView::mousePressEvent(event);
     }
 
-signals:
+  signals:
     void ctrlSectionClicked(int logicalIndex);
 };
 
 class EventsTableModel : public QAbstractItemModel {
     Q_OBJECT
 
-public:
+  public:
     enum {
-        eventTypeCol        = 0,
+        eventTypeCol = 0,
         dateCol,
-        orbCol              = dateCol,
+        orbCol = dateCol,
         harmonicCol,
         transitBodyCol,
         natalTransitBodyCol,
         numCols
     };
 
-    enum roles {
-        SummaryRole = Qt::UserRole,
-        RawRole
-    };
+    enum roles { SummaryRole = Qt::UserRole, RawRole };
 
     typedef A::EventOptions::DisplayMode DisplayMode;
 
-    EventsTableModel(QObject* parent = nullptr) :
-        QAbstractItemModel(parent)
-    { }
+    EventsTableModel(QObject* parent = nullptr) : QAbstractItemModel(parent) { }
 
-    EventsTableModel(A::AspectSetId asps,
+    EventsTableModel(A::AspectSetId     asps,
                      const QStringList& suff,
-                     QObject* parent = nullptr) :
+                     QObject*           parent = nullptr) :
         QAbstractItemModel(parent),
         _aspects(asps),
         _suffixes(suff)
-    { }
+    {
+    }
 
-    QModelIndex index(int row, int column,
+    QModelIndex index(int                row,
+                      int                column,
                       const QModelIndex& parent = QModelIndex()) const override
     {
-        return createIndex(row, column,
-                           parent.isValid()? quintptr(parent.row())
-                                           : quintptr(-1));
+        return createIndex(row,
+                           column,
+                           parent.isValid() ? quintptr(parent.row())
+                                            : quintptr(-1));
     }
 
     QModelIndex parent(const QModelIndex& inx) const override
     {
         if (inx.isValid() && inx.internalId() != quintptr(-1)) {
-            return createIndex(int(inx.internalId()),0,quintptr(-1));
+            return createIndex(int(inx.internalId()), 0, quintptr(-1));
         }
         return QModelIndex();
     }
@@ -214,11 +219,15 @@ public:
         return int(_evs.size());
     }
 
-    int columnCount(const QModelIndex& =QModelIndex()) const override
-    { return numCols; }
+    int columnCount(const QModelIndex& = QModelIndex()) const override
+    {
+        return numCols;
+    }
 
     int topLevelRow(const QModelIndex& inx) const
-    { return (inx.parent().isValid()) ? inx.parent().row() : inx.row(); }
+    {
+        return (inx.parent().isValid()) ? inx.parent().row() : inx.row();
+    }
 
     QDateTime rowDate(int row) const { return _evs[row]->dateTime(); }
 
@@ -235,15 +244,18 @@ public:
         auto par = inx.parent();
         if (par.isValid()) return *_evs[par.row()];
         return *_evs[inx.row()];
-
     }
 
-    int rowForData(const A::HarmonicEvent& haeda, bool& matches,
-                   int sortCol, bool isMore) const
+    int rowForData(const A::HarmonicEvent& haeda,
+                   bool&                   matches,
+                   int                     sortCol,
+                   bool                    isMore) const
     {
-        matches = false;
-        auto lwrit = std::lower_bound(_evs.begin(),_evs.end(),
-                                      &haeda,hevLess(sortCol,isMore));
+        matches    = false;
+        auto lwrit = std::lower_bound(_evs.begin(),
+                                      _evs.end(),
+                                      &haeda,
+                                      hevLess(sortCol, isMore));
         if (lwrit == _evs.end()) return -1;
         matches = (*(*lwrit) == haeda);
         return std::distance(_evs.begin(), lwrit);
@@ -251,14 +263,14 @@ public:
 
     QString rowDesc(int row) const
     {
-        auto h = index(row,harmonicCol).data(SummaryRole).toString();
-        auto t = index(row,transitBodyCol).data(SummaryRole).toString();
-        auto n = index(row,natalTransitBodyCol).data(SummaryRole).toString();
+        auto h = index(row, harmonicCol).data(SummaryRole).toString();
+        auto t = index(row, transitBodyCol).data(SummaryRole).toString();
+        auto n = index(row, natalTransitBodyCol).data(SummaryRole).toString();
         if (!n.isEmpty()) {
-            return QString("%1 %2=%3").arg(h,t,n);
+            return QString("%1 %2=%3").arg(h, t, n);
         }
         return QString("%1 %2 %3")
-                .arg(h,rowDate(row).toLocalTime().toString("yyyy MMMM"), t);
+            .arg(h, rowDate(row).toLocalTime().toString("yyyy MMMM"), t);
     }
 
     QVariant headerData(int col,
@@ -270,10 +282,10 @@ public:
         }
         if (role != Qt::DisplayRole) return QVariant();
         switch (col) {
-        case eventTypeCol: return tr("ET");
-        case dateCol: return tr("Date");
-        case harmonicCol: return tr("Asp");
-        case transitBodyCol: return tr("Trans");
+        case eventTypeCol:        return tr("ET");
+        case dateCol:             return tr("Date");
+        case harmonicCol:         return tr("Asp");
+        case transitBodyCol:      return tr("Trans");
         case natalTransitBodyCol: return tr("T/N");
         }
         return QVariant();
@@ -286,52 +298,57 @@ public:
     QString getPos(float deg) const
     {
         const auto& sign = A::getSign(deg, _zodiac);
-        QString glyph(QChar(sign.userData["fontChar"].toInt()));
-        int ang = floor(deg) - sign.startAngle;
+        QString     glyph(QChar(sign.userData["fontChar"].toInt()));
+        int         ang = floor(deg) - sign.startAngle;
         if (ang < 0) ang += 360;
 
-        int m = (int)(60.0*(deg - (int)deg));
-        return QString("%1%2%3%4").arg(ang).arg(glyph)
-                .arg(m >= 10 ? "" : "0").arg(m);
+        int m = (int) (60.0 * (deg - (int) deg));
+        return QString("%1%2%3%4")
+            .arg(ang)
+            .arg(glyph)
+            .arg(m >= 10 ? "" : "0")
+            .arg(m);
     };
 
     static int fid(const A::ChartPlanetId& cpid) { return cpid.fileId(); }
     static int fid(const A::PlanetLoc& ploc) { return ploc.planet.fileId(); }
     static int fid(const A::Loc& loc) { return -1; }
 
-    QString display(const A::ChartPlanetId& cpid) const
-    {
-        return cpid.name();
-    }
+    QString display(const A::ChartPlanetId& cpid) const { return cpid.name(); }
 
     QString display(const A::PlanetLoc& s) const
     {
-        return QString(s.planet.fileId()==1
-                       ? "<i>%1</i>" : "%1").arg(s.description())
-                + " " + A::zodiacPosition(s.rasiLoc(), _zodiac,
-                                          A::HighPrecision,
-                                          s.speed < 0);
+        return QString(s.planet.fileId() == 1 ? "<i>%1</i>" : "%1")
+                   .arg(s.description())
+               + " "
+               + A::zodiacPosition(s.rasiLoc(),
+                                   _zodiac,
+                                   A::HighPrecision,
+                                   s.speed < 0);
     }
 
-    QString glyph(const A::ChartPlanetId& cpid) const
-    { return cpid.glyph(); }
+    QString glyph(const A::ChartPlanetId& cpid) const { return cpid.glyph(); }
 
     QString glyph(const A::PlanetLoc& s) const
     {
         const A::ChartPlanetId& cpid = s.planet;
-        auto g = cpid.glyph();
-        auto pid = cpid.planetId();
+        auto                    g    = cpid.glyph();
+        auto                    pid  = cpid.planetId();
         if ((pid >= A::Ingresses_Start && pid < A::Ingresses_End)
-                || (pid >= A::Regresses_Start && pid < A::Regresses_End)
-                || (pid >= A::Houses_Start && pid < A::Houses_End))
-        { return g; }
+            || (pid >= A::Regresses_Start && pid < A::Regresses_End)
+            || (pid >= A::Houses_Start && pid < A::Houses_End))
+        {
+            return g;
+        }
 
-        if (cpid.isMidpt()) g = g.mid(1);   // skip conj/opp
+        if (cpid.isMidpt()) g = g.mid(1); // skip conj/opp
         auto desc = s.desc;
         if (!desc.isEmpty()) {
-            if (desc=="SD") desc = "%&";
-            else if (desc=="SR") desc = "%#";
-            else if (desc=="n" || desc=="r") desc = "";
+            if (desc == "SD") desc = "%&";
+            else if (desc == "SR")
+                desc = "%#";
+            else if (desc == "n" || desc == "r")
+                desc = "";
         }
         if (s.speed < 0 && !s.desc.startsWith("S")) {
             desc = "#" + desc; // retrograde
@@ -358,19 +375,21 @@ public:
     template <typename T>
     bool singleColumn(const T& locs) const
     {
-        return locs.size()==1
-                || (locs.size()>2
-                    && fid(*locs.begin()) == fid(*locs.rbegin()));
+        return locs.size() == 1
+               || (locs.size() > 2
+                   && fid(*locs.begin()) == fid(*locs.rbegin()));
     }
 
     template <typename T>
     bool mixedMode(const T& locs) const
-    { return locs.size()>=2 && fid(*locs.begin()) != fid(*locs.rbegin()); }
+    {
+        return locs.size() >= 2 && fid(*locs.begin()) != fid(*locs.rbegin());
+    }
 
     template <typename Iter>
     QVariant glyphic(int role, Iter its) const
     {
-        if (role==Qt::FontRole) {
+        if (role == Qt::FontRole) {
             static QFont f("Almagest", 11);
             return f;
         }
@@ -389,26 +408,36 @@ public:
 
         QString joint = ",";
         if (role == Qt::ToolTipRole) joint = "-";
-        else if (role == SummaryRole) joint = "=";
+        else if (role == SummaryRole)
+            joint = "=";
         return sl.join(joint);
     }
 
     // Helper method to get ChartPlanetId from different types
-    const A::ChartPlanetId& extractChartPlanetId(const A::ChartPlanetId& cpid) const {
+    const A::ChartPlanetId& extractChartPlanetId(
+        const A::ChartPlanetId& cpid) const
+    {
         return cpid;
     }
-    
-    const A::ChartPlanetId& extractChartPlanetId(const A::PlanetLoc& ploc) const {
+
+    const A::ChartPlanetId& extractChartPlanetId(const A::PlanetLoc& ploc) const
+    {
         return ploc.planet;
     }
-    
+
     // Helper to get the correct house rulership string depending on input type
-    QString getCorrectHouseRulershipWithNatalHouseString(const A::PlanetLoc& ploc) const {
-        return getHouseRulershipWithNatalHouseString(ploc); // Use the position-aware version
+    QString getCorrectHouseRulershipWithNatalHouseString(
+        const A::PlanetLoc& ploc) const
+    {
+        return getHouseRulershipWithNatalHouseString(
+            ploc); // Use the position-aware version
     }
-    
-    QString getCorrectHouseRulershipWithNatalHouseString(const A::ChartPlanetId& cpid) const {
-        return getHouseRulershipWithNatalHouseString(cpid); // Use the legacy version for aspect patterns
+
+    QString getCorrectHouseRulershipWithNatalHouseString(
+        const A::ChartPlanetId& cpid) const
+    {
+        return getHouseRulershipWithNatalHouseString(
+            cpid); // Use the legacy version for aspect patterns
     }
 
     template <typename Iter>
@@ -417,13 +446,13 @@ public:
         if (mode == A::EventOptions::DisplayGlyphs) {
             return glyphic(role, its);
         }
-        
+
         if (role == Qt::FontRole) {
             // Check if any planet has rulership info
             for (auto it = its.first; it != its.second; ++it) {
-                const auto& s = *it;
+                const auto&             s    = *it;
                 const A::ChartPlanetId& cpid = extractChartPlanetId(s);
-                QString rulershipText = getHouseRulershipString(cpid);
+                QString rulershipText        = getHouseRulershipString(cpid);
                 if (!rulershipText.isEmpty()) {
                     return QFont(); // Use default font for text modes
                 }
@@ -438,13 +467,16 @@ public:
             const auto& s = *it;
             if (role == Qt::DisplayRole || role == Qt::EditRole) {
                 const A::ChartPlanetId& cpid = extractChartPlanetId(s);
-                QString rulershipText;
+                QString                 rulershipText;
                 if (mode == A::EventOptions::DisplayRulership) {
                     rulershipText = getHouseRulershipString(cpid);
-                } else if (mode == A::EventOptions::DisplayRulershipWithNatalHouse) {
-                    rulershipText = getCorrectHouseRulershipWithNatalHouseString(s);
+                } else if (mode
+                           == A::EventOptions::DisplayRulershipWithNatalHouse)
+                {
+                    rulershipText =
+                        getCorrectHouseRulershipWithNatalHouseString(s);
                 }
-                
+
                 if (!rulershipText.isEmpty()) {
                     sl << rulershipText;
                 } else {
@@ -460,7 +492,8 @@ public:
 
         QString joint = ",";
         if (role == Qt::ToolTipRole) joint = "-";
-        else if (role == SummaryRole) joint = "=";
+        else if (role == SummaryRole)
+            joint = "=";
         return sl.join(joint);
     }
 
@@ -468,17 +501,17 @@ public:
     auto getNTColIters(const T& locs) const
     {
         if (singleColumn(locs)) {
-            return std::make_pair(locs.rend(),locs.rend());
+            return std::make_pair(locs.rend(), locs.rend());
         }
         if (mixedMode(locs)) {
-            auto it = locs.rbegin();
-            auto f = fid(*it);
+            auto it  = locs.rbegin();
+            auto f   = fid(*it);
             auto end = it;
-            while (end != locs.rend() && f==fid(*end)) ++end;
+            while (end != locs.rend() && f == fid(*end)) ++end;
             return std::make_pair(it, end);
         }
         auto it = locs.rbegin();
-        if (it == locs.rend()) return std::make_pair(it,it);
+        if (it == locs.rend()) return std::make_pair(it, it);
         return std::make_pair(it, std::next(it));
     }
 
@@ -486,13 +519,13 @@ public:
     auto getTColIters(const T& locs) const
     {
         if (singleColumn(locs)) {
-            return std::make_pair(locs.begin(),locs.end());
+            return std::make_pair(locs.begin(), locs.end());
         }
         if (mixedMode(locs)) {
-            auto it = locs.begin();
-            auto f = fid(*it);
+            auto it  = locs.begin();
+            auto f   = fid(*it);
             auto end = it;
-            while (end != locs.end() && f==fid(*end)) ++end;
+            while (end != locs.end() && f == fid(*end)) ++end;
             return std::make_pair(it, end);
         }
         auto it = locs.begin();
@@ -502,28 +535,27 @@ public:
 
     typedef std::pair<const A::Loc*, const A::Loc*> locPair;
 
-    bool getPlanetPair(const A::PlanetRangeBySpeed& locs,
-                       locPair& pp) const
+    bool getPlanetPair(const A::PlanetRangeBySpeed& locs, locPair& pp) const
     {
         if (singleColumn(locs)) return false;
-        pp.first = &(*locs.begin());
+        pp.first  = &(*locs.begin());
         pp.second = &(*locs.rbegin());
         return true;
     }
 
     QVariant data(const QModelIndex& index,
-                  int role = Qt::DisplayRole) const override
+                  int                role = Qt::DisplayRole) const override
     {
-        int row = index.row();
+        int row  = index.row();
         int prow = int(index.internalId());
 
-        auto evr = prow==-1? _evs[row] : _evs[prow];
+        auto         evr = prow == -1 ? _evs[row] : _evs[prow];
         QMutexLocker ml(getEvents(evr)->mutex());
 
         int col = index.column();
 
-        const auto& asp(prow==-1 ? (*_evs[row])
-                                 : _evs[prow]->coincidence(row));
+        const auto& asp(prow == -1 ? (*_evs[row])
+                                   : _evs[prow]->coincidence(row));
 
         if (role == Qt::TextAlignmentRole) {
             if (col == harmonicCol || col == eventTypeCol) {
@@ -552,8 +584,7 @@ public:
 
         switch (col) {
         case eventTypeCol:
-            if (role == Qt::FontRole)
-                return QFont();
+            if (role == Qt::FontRole) return QFont();
             if (prow == -1) {
                 auto type = _evs[row]->eventType();
                 if (role == Qt::ToolTipRole) {
@@ -585,21 +616,21 @@ public:
                     return f;
                 }
 
-                constexpr const char fmt[] = "yyyy/MM/dd";
-                constexpr const char sfmt[] = "MM/dd hh:mm";
+                constexpr const char fmt[]   = "yyyy/MM/dd";
+                constexpr const char sfmt[]  = "MM/dd hh:mm";
                 constexpr const char ssfmt[] = "hh:mm";
                 if (role != Qt::ToolTipRole) return dt.toString(fmt);
 
                 QString res = dt.toString("ddd hh:mm:ss.zzz");
                 if (r != A::ADateTimeRange()) {
-                    auto dtfrom = r.first.toLocalTime();
-                    auto fmtFrom = dtfrom.date()==dt.date()? ssfmt : sfmt;
-                    auto dtto = r.second.toLocalTime();
-                    auto fmtTo = dtto.date()==dt.date()? ssfmt : sfmt;
-                    res = QString("%1 ->\n %2\n  -> %3")
-                            .arg(r.first.toLocalTime().toString(fmtFrom),
-                                 res,
-                                 r.second.toLocalTime().toString(fmtTo));
+                    auto dtfrom  = r.first.toLocalTime();
+                    auto fmtFrom = dtfrom.date() == dt.date() ? ssfmt : sfmt;
+                    auto dtto    = r.second.toLocalTime();
+                    auto fmtTo   = dtto.date() == dt.date() ? ssfmt : sfmt;
+                    res          = QString("%1 ->\n %2\n  -> %3")
+                              .arg(r.first.toLocalTime().toString(fmtFrom),
+                                   res,
+                                   r.second.toLocalTime().toString(fmtTo));
                 }
                 return res;
             }
@@ -615,14 +646,14 @@ public:
             if (role == Qt::ToolTipRole) {
                 if (singleColumn(asp.locations())) return "station";
                 if (asp.orb() != qreal() /*asp.locations().empty()*/) {
-                    return QString("H%1 %2").arg(asp.harmonic())
-                            .arg(A::degreeToString(asp.orb(),A::HighPrecision));
+                    return QString("H%1 %2")
+                        .arg(asp.harmonic())
+                        .arg(A::degreeToString(asp.orb(), A::HighPrecision));
                 } else {
                     locPair pp;
                     if (getPlanetPair(asp.locations(), pp)) {
-                        auto a = A::calculateAspect(aspects(),
-                                                    pp.first,
-                                                    pp.second);
+                        auto a =
+                            A::calculateAspect(aspects(), pp.first, pp.second);
                         return a.d->name;
                     }
                 }
@@ -631,7 +662,7 @@ public:
             if (role == Qt::FontRole) {
                 QFont f;
 #if 1
-                if (asp.orb()==qreal()) {
+                if (asp.orb() == qreal()) {
                     f.setItalic(true);
                     f.setBold(true);
                 } else if (asp.orb() <= 0.5) {
@@ -659,11 +690,17 @@ public:
                 // goofiness due to different sorts for planets
                 // and locations
                 if (singleColumn(asp.planets())) {
-                    return glyphicWithMode(role, getTColIters(asp.planets()), _transitBodyColMode);
+                    return glyphicWithMode(role,
+                                           getTColIters(asp.planets()),
+                                           _transitBodyColMode);
                 }
-                return glyphicWithMode(role, getNTColIters(asp.planets()), _transitBodyColMode);
+                return glyphicWithMode(role,
+                                       getNTColIters(asp.planets()),
+                                       _transitBodyColMode);
             }
-            return glyphicWithMode(role, getTColIters(asp.locations()), _transitBodyColMode);
+            return glyphicWithMode(role,
+                                   getTColIters(asp.locations()),
+                                   _transitBodyColMode);
 
         case natalTransitBodyCol:
             if (role == Qt::ForegroundRole) {
@@ -671,93 +708,96 @@ public:
                 // else falls through to default return
                 break;
             }
-            
+
             if (asp.locations().empty()) {
                 // goofiness due to different sorts for planets
                 // and locations
                 if (!singleColumn(asp.planets())) {
-                    return glyphicWithMode(role, getTColIters(asp.planets()), _natalTransitBodyColMode);
+                    return glyphicWithMode(role,
+                                           getTColIters(asp.planets()),
+                                           _natalTransitBodyColMode);
                 }
                 break;
             }
-            return glyphicWithMode(role, getNTColIters(asp.locations()), _natalTransitBodyColMode);
+            return glyphicWithMode(role,
+                                   getNTColIters(asp.locations()),
+                                   _natalTransitBodyColMode);
 
-        default:
-            break;
+        default: break;
         }
         return QVariant();
     }
 
     struct hevLess {
-        int _col;
+        int  _col;
         bool _isMore;
 
         hevLess(int column = dateCol, bool isMore = false) :
             _col(column),
             _isMore(isMore)
-        { }
+        {
+        }
 
         bool operator()(const A::HarmonicEvent* a,
                         const A::HarmonicEvent* b) const
         {
-            if (_isMore) std::swap(a,b);
+            if (_isMore) std::swap(a, b);
             switch (_col) {
             case dateCol:
                 if (a->dateTime() < b->dateTime()) return true; // date-time
                 if (a->dateTime() > b->dateTime()) return false;
-                if (a->orb() < b->orb()) return true;   // orb
+                if (a->orb() < b->orb()) return true; // orb
                 if (a->orb() > b->orb()) return false;
                 if (a->harmonic() < b->harmonic()) return true; // harmonic
                 if (a->harmonic() > b->harmonic()) return false;
-                if (a->locations().size() < b->locations().size())  // planetSet
+                if (a->locations().size() < b->locations().size()) // planetSet
                     return true;
-                if (a->locations().size() > b->locations().size())
-                    return false;
-                return (a->locations() < b->locations());       // planetRange
+                if (a->locations().size() > b->locations().size()) return false;
+                return (a->locations() < b->locations()); // planetRange
 
             case harmonicCol:
                 if (a->harmonic() < b->harmonic()) return true; // harmonic
                 if (a->harmonic() > b->harmonic()) return false;
                 if (a->dateTime() < b->dateTime()) return true; // date-time
                 if (a->dateTime() > b->dateTime()) return false;
-                if (a->orb() < b->orb()) return true;   // orb
+                if (a->orb() < b->orb()) return true; // orb
                 if (a->orb() > b->orb()) return false;
-                if (a->locations().size() < b->locations().size())  // planetSet
+                if (a->locations().size() < b->locations().size()) // planetSet
                     return true;
-                if (a->locations().size() > b->locations().size())
-                    return false;
-                return (a->locations() < b->locations());       // planetRange
+                if (a->locations().size() > b->locations().size()) return false;
+                return (a->locations() < b->locations()); // planetRange
 
-            case transitBodyCol:
-            {
-                A::PlanetClusterLess prless(true/*fast*/);
-                if (true || (a->locations().empty() && b->locations().empty())) {
-                    if (prless(a->planets(),b->planets())) return true;
-                    if (prless(b->planets(),a->planets())) return false;
+            case transitBodyCol: {
+                A::PlanetClusterLess prless(true /*fast*/);
+                if (true || (a->locations().empty() && b->locations().empty()))
+                {
+                    if (prless(a->planets(), b->planets())) return true;
+                    if (prless(b->planets(), a->planets())) return false;
                 } else {
-                    if (prless(a->locations(),b->locations())) return true;
-                    if (prless(b->locations(),a->locations())) return false;
+                    if (prless(a->locations(), b->locations())) return true;
+                    if (prless(b->locations(), a->locations())) return false;
                 }
-                if (a->dateTime() < b->dateTime()) return true;     // date-time
+                if (a->dateTime() < b->dateTime()) return true; // date-time
                 if (a->dateTime() > b->dateTime()) return false;
-                if (a->orb() < b->orb()) return true;   // orb
+                if (a->orb() < b->orb()) return true; // orb
                 if (a->orb() > b->orb()) return false;
                 return (a->harmonic() < b->harmonic()); // harmonic
             }
 
-            case natalTransitBodyCol:   // XXX
+            case natalTransitBodyCol: // XXX
             {
-                A::PlanetClusterLess prless(false/*not fast*/);
-                if (true || (a->locations().empty() && b->locations().empty())) {
-                    if (prless(a->planets(),b->planets())) return true;
-                    if (prless(b->planets(),a->planets())) return false;
+                A::PlanetClusterLess prless(false /*not fast*/);
+                if (true || (a->locations().empty() && b->locations().empty()))
+                {
+                    if (prless(a->planets(), b->planets())) return true;
+                    if (prless(b->planets(), a->planets())) return false;
                 } else {
-                    if (prless(a->locations(),b->locations())) return true;
-                    if (prless(b->locations(),a->locations())) return false;
+                    if (prless(a->locations(), b->locations())) return true;
+                    if (prless(b->locations(), a->locations())) return false;
                 }
-                if (a->dateTime() < b->dateTime()) return true;     // date-time
+                if (a->dateTime() < b->dateTime()) return true; // date-time
                 if (a->dateTime() > b->dateTime()) return false;
-                if (a->orb() < b->orb()) return true;   // orb
+                if (a->orb() < b->orb()) return true; // orb
                 if (a->orb() > b->orb()) return false;
                 return (a->harmonic() < b->harmonic()); // harmonic
             }
@@ -771,16 +811,16 @@ public:
         _sortPending = false;
 
         typedef const A::HarmonicEvent* HEv;
-        std::function<bool(HEv, HEv)> less =
-                hevLess(column, order==Qt::DescendingOrder);
+        std::function<bool(HEv, HEv)>   less =
+            hevLess(column, order == Qt::DescendingOrder);
 
         beginResetModel();
 #if 1
         _evs.clear();
-        for (auto lievs: _evls) {
+        for (auto lievs : _evls) {
             A::modalize<eventListIndex> cev(evp::curr(), lievs.first);
             QMutexLocker ml(const_cast<QMutex*>(lievs.second->mutex()));
-            for (auto& ev: *lievs.second) {
+            for (auto& ev : *lievs.second) {
                 if (ev.dateTime().isValid()) _evs.emplace_back(ev);
             }
         }
@@ -788,20 +828,21 @@ public:
         std::sort(_evs.begin(), _evs.end(), less);
         endResetModel();
 
-        delete _chs; _chs = nullptr;
+        delete _chs;
+        _chs = nullptr;
     }
 
     void addEvents(A::HarmonicEvents& evs)
     {
-        auto li = currentEvents()++;
-        auto ins = _evls.emplace(li,&evs);
+        auto li  = currentEvents()++;
+        auto ins = _evls.emplace(li, &evs);
         if (!ins.second) return;
 
         AChangeSignalFrame chs(this);
 
         A::modalize<eventListIndex> cli(evp::curr(), li);
         beginResetModel();
-        _evs.insert(_evs.end(),evs.cbegin(),evs.cend());
+        _evs.insert(_evs.end(), evs.cbegin(), evs.cend());
         sort();
         endResetModel();
     }
@@ -835,10 +876,9 @@ public:
 
     void setAspectSet(A::AspectSetId asps) { _aspects = asps; }
 
-    const A::AspectsSet& aspects() const
-    { return A::getAspectSet(_aspects); }
+    const A::AspectsSet& aspects() const { return A::getAspectSet(_aspects); }
 
-    int sortColumn() const { return _sortBy; }
+    int           sortColumn() const { return _sortBy; }
     Qt::SortOrder sortOrder() const { return _sortOrder; }
 
     // Display mode methods for cycling column content
@@ -918,8 +958,13 @@ public:
 
         // Format as "R" + house numbers joined by "+"
         // Negative house numbers (intercepted signs) are shown in parentheses
+        // Sort by absolute value to get proper numerical order
+        QList<int> sortedHouses = planet.houseRuler;
+        std::sort(sortedHouses.begin(), sortedHouses.end(), 
+                  [](int a, int b) { return qAbs(a) < qAbs(b); });
+
         QStringList houses;
-        for (int house : planet.houseRuler) {
+        for (int house : sortedHouses) {
             if (house < 0) {
                 // Intercepted sign: show as (house number)
                 houses << QString("(%1)").arg(-house);
@@ -965,8 +1010,9 @@ public:
         return rulership;
     }
 
-    // Calculate house rulership string for aspect patterns (ChartPlanetId version)
-    // For aspect patterns, we only show rulership without natal house since we don't have position data
+    // Calculate house rulership string for aspect patterns (ChartPlanetId
+    // version) For aspect patterns, we only show rulership without natal house
+    // since we don't have position data
     QString getHouseRulershipWithNatalHouseString(
         const A::ChartPlanetId& cpid) const
     {
@@ -974,13 +1020,12 @@ public:
         return getHouseRulershipString(cpid);
     }
 
-public slots:
+  public slots:
     void rebuild()
     {
         _evs.clear();
         for (const auto& liev : _evls) {
-            _evs.insert(_evs.end(),
-                        liev.second->begin(), liev.second->end());
+            _evs.insert(_evs.end(), liev.second->begin(), liev.second->end());
         }
         sort();
     }
@@ -989,7 +1034,7 @@ public slots:
     {
         if (!_sortPending) {
             _sortPending = true;
-            QTimer::singleShot(0,this,SLOT(sort()));
+            QTimer::singleShot(0, this, SLOT(sort()));
         }
     }
 
@@ -997,7 +1042,7 @@ public slots:
     {
         if (col != _sortBy || _sortOrder != order) {
             if (!_chs) _chs = new AChangeSignalFrame(this);
-            _sortBy = col;
+            _sortBy    = col;
             _sortOrder = order;
             triggerSort();
         }
@@ -1005,18 +1050,21 @@ public slots:
 
     void sort() { sort(_sortBy, _sortOrder); }
 
-signals:
+  signals:
     void aboutToChange();
     void changeDone();
 
-private:
+  private:
     typedef unsigned short int eventListIndex;
 
     struct evp : public std::pair<eventListIndex, const A::HarmonicEvent*> {
         using Base = std::pair<eventListIndex, const A::HarmonicEvent*>;
 
         static unsigned short int& curr()
-        { static thread_local unsigned short int s_curr = 0; return s_curr; }
+        {
+            static thread_local unsigned short int s_curr = 0;
+            return s_curr;
+        }
 
         using Base::Base;
 
@@ -1025,7 +1073,11 @@ private:
         using Base::operator=;
 
         evp& operator=(const A::HarmonicEvent* ev)
-        { first = curr(); second = ev; return *this; }
+        {
+            first  = curr();
+            second = ev;
+            return *this;
+        }
 
         eventListIndex listIndex() const { return first; }
 
@@ -1037,9 +1089,12 @@ private:
     };
 
     static eventListIndex& currentEvents()
-    { static eventListIndex s_curr = 0; return s_curr; }
+    {
+        static eventListIndex s_curr = 0;
+        return s_curr;
+    }
 
-    std::vector<evp> _evs;
+    std::vector<evp>                             _evs;
     std::map<eventListIndex, A::HarmonicEvents*> _evls;
 
     A::HarmonicEvents* getEvents(eventListIndex li) const
@@ -1049,11 +1104,11 @@ private:
         return evlit->second;
     }
 
-    bool _sortPending           = false;
-    int _sortBy                 = dateCol;
-    Qt::SortOrder _sortOrder    = Qt::AscendingOrder;
+    bool          _sortPending = false;
+    int           _sortBy      = dateCol;
+    Qt::SortOrder _sortOrder   = Qt::AscendingOrder;
 
-    A::Zodiac _zodiac;
+    A::Zodiac      _zodiac;
     A::AspectSetId _aspects = 0;
 
     QStringList _suffixes;
@@ -1062,8 +1117,7 @@ private:
 
     AChangeSignalFrame* _chs = nullptr;
 
-    DisplayMode& _transitBodyColMode =
-        A::EventOptions::s_transitBodyColMode;
+    DisplayMode& _transitBodyColMode = A::EventOptions::s_transitBodyColMode;
     DisplayMode& _natalTransitBodyColMode =
         A::EventOptions::s_natalTransitBodyColMode;
 
@@ -1072,17 +1126,21 @@ private:
 
 #include "transits.moc"
 
-AChangeSignalFrame::AChangeSignalFrame(EventsTableModel* evm) :
-    _evm(evm)
-{ if (evm && !evm->_changeRef++) emit evm->aboutToChange(); }
+AChangeSignalFrame::AChangeSignalFrame(EventsTableModel* evm) : _evm(evm)
+{
+    if (evm && !evm->_changeRef++) emit evm->aboutToChange();
+}
 
 AChangeSignalFrame::AChangeSignalFrame(AChangeSignalFrame&& from) :
     _evm(from._evm)
-{ from._evm = nullptr; }
+{
+    from._evm = nullptr;
+}
 
 AChangeSignalFrame::~AChangeSignalFrame()
-{ if (_evm && !--_evm->_changeRef) emit _evm->changeDone(); }
-
+{
+    if (_evm && !--_evm->_changeRef) emit _evm->changeDone();
+}
 
 ADateDelta::ADateDelta(const QString& str)
 {
@@ -1092,34 +1150,36 @@ ADateDelta::ADateDelta(const QString& str)
     auto mit = re.globalMatch(str);
     while (mit.hasNext()) {
         auto match = mit.next();
-        auto val = match.captured(1).toInt();
-        auto unit = match.captured(2).toLower();
+        auto val   = match.captured(1).toInt();
+        auto unit  = match.captured(2).toLower();
         if (unit.startsWith("y")) numYears = val;
-        else if (unit.startsWith("m")) numMonths = val;
-        else if (unit.startsWith("d")) numDays = val;
+        else if (unit.startsWith("m"))
+            numMonths = val;
+        else if (unit.startsWith("d"))
+            numDays = val;
     }
 }
 
 ADateDelta::ADateDelta(QDate from, QDate to)
 {
     if (from > to) qSwap(from, to);
-    auto dd = from.daysTo(to);
+    auto dd  = from.daysTo(to);
     numYears = dd / 365;
     dd %= 365;
     numMonths = dd / 30;
     dd %= 30;
     auto num = to.day() - from.day();
-    numDays = (numDays >= 0)? num : dd;
+    numDays  = (numDays >= 0) ? num : dd;
 }
 
 QDate
-ADateDelta::addTo(const QDate &d)
+ADateDelta::addTo(const QDate& d)
 {
     return d.addYears(numYears).addMonths(numMonths).addDays(numDays);
 }
 
 QDate
-ADateDelta::subtractFrom(const QDate &d)
+ADateDelta::subtractFrom(const QDate& d)
 {
     return d.addYears(-numYears).addMonths(-numMonths).addDays(-numDays);
 }
@@ -1139,7 +1199,7 @@ Transits::Transits(QWidget* parent) :
 {
     // Enable tooltips even when parent window doesn't have focus
     this->setAttribute(Qt::WA_AlwaysShowToolTips, true);
-    
+
     _tview = new TransitTreeView;
     _tview->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _tview->expandAll();
@@ -1150,11 +1210,15 @@ Transits::Transits(QWidget* parent) :
     // Create and set custom header
     auto hdr = new TransitHeaderView(Qt::Horizontal, _tview);
     _tview->setHeader(hdr);
-    
-    connect(hdr, &QHeaderView::sortIndicatorChanged,
-            _evm, &EventsTableModel::onSortChange);
-    connect(hdr, &TransitHeaderView::ctrlSectionClicked,
-            this, &Transits::headerClicked);
+
+    connect(hdr,
+            &QHeaderView::sortIndicatorChanged,
+            _evm,
+            &EventsTableModel::onSortChange);
+    connect(hdr,
+            &TransitHeaderView::ctrlSectionClicked,
+            this,
+            &Transits::headerClicked);
     hdr->setSectionsClickable(true);
     hdr->setSortIndicatorShown(true);
     hdr->setSortIndicator(_evm->sortColumn(), _evm->sortOrder());
@@ -1165,7 +1229,7 @@ Transits::Transits(QWidget* parent) :
     connect(act, SIGNAL(triggered()), this, SLOT(copySelection()));
     _tview->addAction(act);
 
-    _start = new QDateEdit;
+    _start  = new QDateEdit;
     _duraRB = new QRadioButton(tr("for"));
     _duraRB->setFocusPolicy(Qt::NoFocus);
     _duration = new QLineEdit;
@@ -1180,40 +1244,38 @@ Transits::Transits(QWidget* parent) :
     _forth->setMaximumWidth(20);
 
     _grp = new QButtonGroup(this);
-    _grp->addButton(_duraRB,0);
-    _grp->addButton(_endRB,1);
+    _grp->addButton(_duraRB, 0);
+    _grp->addButton(_endRB, 1);
     _duraRB->setChecked(true);
 
     auto l1 = new QHBoxLayout;
     l1->addWidget(_back);
     l1->addWidget(_forth);
-    //l1->addWidget(new QLabel(tr("from")));
+    // l1->addWidget(new QLabel(tr("from")));
     l1->addWidget(_start);
     l1->addWidget(_duraRB);
     l1->addWidget(_duration);
     l1->addWidget(_endRB);
     l1->addWidget(_end);
     l1->setSpacing(4);
-    
+
     _input = new QLineEdit;
 
     auto l2 = new QVBoxLayout;
     l2->addItem(l1);
-    l2->addWidget(_input,0);
-    l2->setContentsMargins(QMargins(4,4,4,4));
+    l2->addWidget(_input, 0);
+    l2->setContentsMargins(QMargins(4, 4, 4, 4));
 
     QVBoxLayout* l3 = new QVBoxLayout;
-    l3->setContentsMargins(QMargins(0,0,0,0));
+    l3->setContentsMargins(QMargins(0, 0, 0, 0));
     int i1 = l3->count();
     l3->addItem(l2);
     l3->setStretch(i1, 0);
     l3->addWidget(_tview, 5);
 
-    _location = new GeoSearchWidget(false/*hbox*/);
+    _location = new GeoSearchWidget(false /*hbox*/);
 #if 1
-    connect(_location, &GeoSearchWidget::locationChanged,
-            [this] {
-
+    connect(_location, &GeoSearchWidget::locationChanged, [this] {
         if (!_pendingLocationChange) {
             _pendingLocationChange = true;
             QTimer::singleShot(0, this, SLOT(onLocationChange()));
@@ -1235,7 +1297,8 @@ Transits::Transits(QWidget* parent) :
             s.value("Scope/defaultLocationName").toString());
         _pendingLocationChange = false;
     });
-    //connect(_location, SIGNAL(coordinateUpdated()), this, SLOT(onLocationChange()));
+    // connect(_location, SIGNAL(coordinateUpdated()), this,
+    // SLOT(onLocationChange()));
 
     setLayout(l3);
 
@@ -1251,21 +1314,28 @@ Transits::Transits(QWidget* parent) :
     });
 #endif
 
-
-    connect(_tview, SIGNAL(doubleClicked(const QModelIndex&)),
-            this, SLOT(doubleClickedCell(const QModelIndex&)));
+    connect(_tview,
+            SIGNAL(doubleClicked(const QModelIndex&)),
+            this,
+            SLOT(doubleClickedCell(const QModelIndex&)));
 #if 0
     connect(_tview, SIGNAL(pressed(const QModelIndex&)),
             this, SLOT(clickedCell(const QModelIndex&)));
 #endif
-    connect(hdr, SIGNAL(sectionDoubleClicked(int)),
-            this, SLOT(headerDoubleClicked(int)));
-    connect(_tview, SIGNAL(currently(const QModelIndex&)),
-            this, SLOT(clickedCell(const QModelIndex&)));
+    connect(hdr,
+            SIGNAL(sectionDoubleClicked(int)),
+            this,
+            SLOT(headerDoubleClicked(int)));
+    connect(_tview,
+            SIGNAL(currently(const QModelIndex&)),
+            this,
+            SLOT(clickedCell(const QModelIndex&)));
 
-    connect(this, SIGNAL(needToFindIt(const QString&)), 
-            this, SLOT(findIt(const QString&)));
-    
+    connect(this,
+            SIGNAL(needToFindIt(const QString&)),
+            this,
+            SLOT(findIt(const QString&)));
+
     _start->setCalendarPopup(true);
     _end->setCalendarPopup(true);
 
@@ -1280,46 +1350,62 @@ Transits::Transits(QWidget* parent) :
         auto dd = _start->date().daysTo(ed) / 2;
         if (dd) _end->setDate(ed.addDays(dd));
     });
-    
+
     connect(_start, SIGNAL(editingFinished()), this, SLOT(onStartChanged()));
-    connect(_start, SIGNAL(dateChanged(const QDate&)),
-            this, SLOT(onStartChanged(const QDate&)));
+    connect(_start,
+            SIGNAL(dateChanged(const QDate&)),
+            this,
+            SLOT(onStartChanged(const QDate&)));
 
     connect(_end, SIGNAL(editingFinished()), this, SLOT(onEndChanged()));
-    connect(_end, SIGNAL(dateChanged(const QDate&)),
-            this, SLOT(onEndChanged(const QDate&)));
+    connect(_end,
+            SIGNAL(dateChanged(const QDate&)),
+            this,
+            SLOT(onEndChanged(const QDate&)));
 
-    connect(_duration, SIGNAL(editingFinished()),
-            this, SLOT(onDurationChanged()));
-    connect(_duration, SIGNAL(textChanged(const QString&)),
-            this, SLOT(onDurationChanged(const QString&)));
+    connect(_duration,
+            SIGNAL(editingFinished()),
+            this,
+            SLOT(onDurationChanged()));
+    connect(_duration,
+            SIGNAL(textChanged(const QString&)),
+            this,
+            SLOT(onDurationChanged(const QString&)));
 
-    auto today = QDate::currentDate();
-    auto startOfMonth = QDate(today.year(),today.month(),1);
+    auto today        = QDate::currentDate();
+    auto startOfMonth = QDate(today.year(), today.month(), 1);
     _start->setDate(startOfMonth);
 
-    connect(_evm, &EventsTableModel::aboutToChange,
-            [this] { if (!_active) saveScrollPos(); });
+    connect(_evm, &EventsTableModel::aboutToChange, [this] {
+        if (!_active) saveScrollPos();
+    });
     connect(_evm, SIGNAL(changeDone()), this, SLOT(restoreScrollPos()));
 
-    connect(ttv()->verticalScrollBar(), &QScrollBar::valueChanged,
-            [this](int){if (_active) saveScrollPos();});
-    connect(ttv()->verticalScrollBar(), SIGNAL(rangeChanged(int,int)),
-            this, SLOT(restoreScrollPos()));
+    connect(ttv()->verticalScrollBar(), &QScrollBar::valueChanged, [this](int) {
+        if (_active) saveScrollPos();
+    });
+    connect(ttv()->verticalScrollBar(),
+            SIGNAL(rangeChanged(int, int)),
+            this,
+            SLOT(restoreScrollPos()));
 
     QTimer::singleShot(0, [this]() {
-        connect(this, SIGNAL(updateHarmonics(double)),
-                MainWindow::theAstroWidget(), SLOT(setHarmonic(double)));
+        connect(this,
+                SIGNAL(updateHarmonics(double)),
+                MainWindow::theAstroWidget(),
+                SLOT(setHarmonic(double)));
     });
 }
 
 Transits::~Transits() { stopThreads(); }
 
-QTreeView *
+QTreeView*
 Transits::ttv() const
-{ return _tview; }
+{
+    return _tview;
+}
 
-void 
+void
 Transits::describePlanet()
 {
 #if 0
@@ -1344,21 +1430,18 @@ bool
 Transits::transitsOnly() const
 {
     auto ftype = file()->getType();
-    return (ftype != TypeMale
-            && ftype != TypeFemale
-            && ftype != TypeEvent);
+    return (ftype != TypeMale && ftype != TypeFemale && ftype != TypeEvent);
 }
 
-AstroFile *
+AstroFile*
 Transits::transitsAF()
 {
     // TODO should this be the second file? If so, the omnibus transit
     // setup has to handle multiple natal files... And the chart would
     // as well...
 
-    //if (files().count() > 1) return files()[1];
-    if (transitsOnly())
-        return file();
+    // if (files().count() > 1) return files()[1];
+    if (transitsOnly()) return file();
     if (!_trans) {
         _trans = new AstroFile(this);
         MainWindow::theAstroWidget()->setupFile(_trans);
@@ -1372,25 +1455,23 @@ Transits::updateTimezone()
     QVector3D vec(_location->location());
 
     auto nm = new QNetworkAccessManager(this);
-    connect(nm, &QNetworkAccessManager::finished,
-            [this](QNetworkReply* reply)
-    {
+    connect(nm, &QNetworkAccessManager::finished, [this](QNetworkReply* reply) {
         reply->deleteLater();
         if (auto nm = sender()) {
             nm->deleteLater();
         }
         if (reply->error() != QNetworkReply::NoError) return;
 
-        QJsonDocument response =
-                QJsonDocument::fromJson(reply->readAll());
-        if (response["status"].toString()!="OK") {
+        QJsonDocument response = QJsonDocument::fromJson(reply->readAll());
+        if (response["status"].toString() != "OK") {
             qDebug() << "Timezone request failed:"
                      << response["status"].toString()
                      << response["errorMessage"].toString();
             return;
         }
         qreal tz = (response["rawOffset"].toInt()
-                /*+ response["dstOffset"].toInt()*/)/3600;
+                    /*+ response["dstOffset"].toInt()*/)
+                   / 3600;
         transitsAF()->suspendUpdate();
         transitsAF()->setLocation(_location->location());
         transitsAF()->setLocationName(_location->locationName());
@@ -1398,27 +1479,29 @@ Transits::updateTimezone()
         transitsAF()->resumeUpdate();
 
         qDebug() << "Timezone for location is"
-                 << response["rawOffset"].toInt()/60 /*minsPerSec*/
-                 << "with dstOffset"
-                 << response["dstOffset"].toInt()/60
+                 << response["rawOffset"].toInt() / 60 /*minsPerSec*/
+                 << "with dstOffset" << response["dstOffset"].toInt() / 60
                  << "in" << response["timeZoneName"].toString();
 
         if (transitsOnly()) emit updateFirst(file());
-        else emit updateSecond(transitsAF());
+        else
+            emit updateSecond(transitsAF());
     });
 
     QString url =
-        QString(A::googMapURL + "/timezone/json?"
-                                "location=%1,%2"
-                                "&timestamp=%4"
-                                "&key=%3"
-                                "&language=en")
-            .arg(vec.y()).arg(vec.x())
+        QString(
+            A::googMapURL
+            + "/timezone/json?" "location=%1,%2" "&timestamp=%4" "&key=%3" "&la"
+                                                                           "ngu"
+                                                                           "age"
+                                                                           "=e"
+                                                                           "n")
+            .arg(vec.y())
+            .arg(vec.x())
             .arg(MainWindow::instance()->APIKey().c_str())
             .arg(transitsAF()->getGMT().toSecsSinceEpoch());
     qDebug() << "Issuing TZ URL:" << url;
     nm->get(QNetworkRequest(url));
-
 }
 
 void
@@ -1431,7 +1514,7 @@ Transits::updateTransits()
     if (!_active) {
         saveScrollPos();
     } else {
-        disconnect(_active,SIGNAL(finished()),this,SLOT(onCompleted()));
+        disconnect(_active, SIGNAL(finished()), this, SLOT(onCompleted()));
         emit cancelActive();
         if (_active) {
             qDebug() << "waiting for thread" << _active;
@@ -1444,7 +1527,7 @@ Transits::updateTransits()
 
     qDebug() << "filesCount()" << filesCount();
 
-    auto hs = A::dynAspState();
+    auto       hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
 
     _evm->removeEvents(_evs);
@@ -1463,9 +1546,9 @@ Transits::updateTransits()
     if (filesCount() >= 1) {
         auto type = file(0)->getType();
         if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
-            af = new A::OmnibusFinder(_evs,r,hs,{file(0), transitsAF()});
+            af = new A::OmnibusFinder(_evs, r, hs, { file(0), transitsAF() });
         }
-        if (filesCount() > 1) _evm->setSuffixes({"r"});
+        if (filesCount() > 1) _evm->setSuffixes({ "r" });
     }
     if (!af && filesCount() >= 1) {
         af = new A::OmnibusFinder(_evs, r, hs, files());
@@ -1474,7 +1557,7 @@ Transits::updateTransits()
     if (filesCount() == 1) {
         auto type = file(0)->getType();
         if (type == TypeMale || type == TypeFemale) {
-            af = new A::OmnibusFinder(_evs,r,hs,{file(0), transitsAF()});
+            af = new A::OmnibusFinder(_evs, r, hs, { file(0), transitsAF() });
         }
     }
     if (!af && filesCount() >= 1) {
@@ -1484,8 +1567,8 @@ Transits::updateTransits()
     if (!af) return;
 
     const A::Horoscope& scope(file()->horoscope());
-    const auto& ida(transitsOnly()? file()->horoscope().inputData
-                             : transitsAF()->horoscope().inputData);
+    const auto&         ida(transitsOnly() ? file()->horoscope().inputData
+                                   : transitsAF()->horoscope().inputData);
     _evm->setZodiac(scope.zodiac);
     _evm->addEvents(_evs);
 
@@ -1493,12 +1576,12 @@ Transits::updateTransits()
     thread->setObjectName("omnibus finder");
     af->moveToThread(thread);
 
-    connect(this,SIGNAL(cancelActive()),af,SLOT(cancel()));
-    connect(thread,SIGNAL(started()),af,SLOT(findStuff()));
-    connect(af,SIGNAL(progress(double)),this,SLOT(onProgress(double)));
-    connect(thread,SIGNAL(finished()),this,SLOT(onCompleted()));
-    connect(thread,SIGNAL(finished()),thread,SLOT(deleteLater()));
-    connect(thread,SIGNAL(finished()),af,SLOT(deleteLater()));
+    connect(this, SIGNAL(cancelActive()), af, SLOT(cancel()));
+    connect(thread, SIGNAL(started()), af, SLOT(findStuff()));
+    connect(af, SIGNAL(progress(double)), this, SLOT(onProgress(double)));
+    connect(thread, SIGNAL(finished()), this, SLOT(onCompleted()));
+    connect(thread, SIGNAL(finished()), thread, SLOT(deleteLater()));
+    connect(thread, SIGNAL(finished()), af, SLOT(deleteLater()));
     thread->start();
     _active = thread;
     qDebug() << "started thread" << thread;
@@ -1507,7 +1590,7 @@ Transits::updateTransits()
 void
 Transits::onProgress(double prog)
 {
-    //if (_chs) saveScrollPos();
+    // if (_chs) saveScrollPos();
     _evm->sort();
     if (_chs) restoreScrollPos();
 }
@@ -1520,27 +1603,28 @@ Transits::onCompleted()
     _active = nullptr;
 #else
     const A::Horoscope& scope(file()->horoscope());
-    const auto& ida(transitsOnly()? file()->horoscope().inputData
-                             : transitsAF()->horoscope().inputData);
+    const auto&         ida(transitsOnly() ? file()->horoscope().inputData
+                                   : transitsAF()->horoscope().inputData);
     _evm->setZodiac(scope.zodiac);
     _evm->addEvents(_evs);
-    //QTimer::singleShot(0,[this]{ _tview->expandAll(); });
+    // QTimer::singleShot(0,[this]{ _tview->expandAll(); });
 
 #endif
     delete _chs;
     _chs = nullptr;
 }
 
-void 
+void
 Transits::setCurrentPlanet(A::PlanetId p, int file)
 {
     if (_planet == p && _fileIndex == file) return;
-    _planet = p;
+    _planet    = p;
     _fileIndex = file;
     describePlanet();
 }
 
-void Transits::onLocationChange()
+void
+Transits::onLocationChange()
 {
     _pendingLocationChange = false;
     if (!transitsAF()) return;
@@ -1553,9 +1637,11 @@ Transits::findIt(const QString& val)
     auto sim = tvm();
     if (!sim) return;
 
-    for (const auto& item :
-         _evm->match(_evm->index(0,0), Qt::DisplayRole,
-                     val, 1, Qt::MatchExactly))
+    for (const auto& item : _evm->match(_evm->index(0, 0),
+                                        Qt::DisplayRole,
+                                        val,
+                                        1,
+                                        Qt::MatchExactly))
     {
         ttv()->scrollTo(item);
         ttv()->setExpanded(item, true);
@@ -1571,15 +1657,15 @@ Transits::saveScrollPos()
     auto sender = this->sender();
     if (!sender) return;
 
-    if (_evm->rowCount()==0) {
+    if (_evm->rowCount() == 0) {
         return;
     }
 
     _anchorTop.clear();
     _anchorCur.clear();
 
-    _anchorSort = _evm->sortColumn();
-    _anchorOrder = _evm->sortOrder();
+    _anchorSort       = _evm->sortColumn();
+    _anchorOrder      = _evm->sortOrder();
     _anchorVisibleRow = -1;
 
     QModelIndex top = ttv()->indexAt(ttv()->rect().topLeft());
@@ -1590,9 +1676,7 @@ Transits::saveScrollPos()
     auto cur = ttv()->currentIndex();
     if (cur.isValid()) {
         _anchorCur = _evm->rowData(cur);
-        if (top.isValid()
-                && ttv()->visualRect(cur).isValid())
-        {
+        if (top.isValid() && ttv()->visualRect(cur).isValid()) {
             _anchorVisibleRow = cur.row() - top.row();
         }
     }
@@ -1601,52 +1685,55 @@ Transits::saveScrollPos()
 void
 Transits::restoreScrollPos()
 {
-    if (_anchorCur == A::HarmonicEvent()
-            && _anchorTop == A::HarmonicEvent())
-    {
+    if (_anchorCur == A::HarmonicEvent() && _anchorTop == A::HarmonicEvent()) {
         return;
     }
 
     if (_inRestoreScrollPos) return;
 
     A::modalize<bool> irsp(_inRestoreScrollPos);
-    int col = _evm->sortColumn();
-    auto order = _evm->sortOrder();
-    bool ident = false;
-    if (col != _anchorSort
-            || (!_anchorCur.isNull() && _anchorVisibleRow>=0))
+    int               col   = _evm->sortColumn();
+    auto              order = _evm->sortOrder();
+    bool              ident = false;
+    if (col != _anchorSort || (!_anchorCur.isNull() && _anchorVisibleRow >= 0))
     {
         if (_anchorCur == A::HarmonicEvent()) return;
-        auto drow = _evm->rowForData(_anchorCur, ident, col,
-                                     _evm->sortOrder()==Qt::DescendingOrder);
+        auto drow = _evm->rowForData(_anchorCur,
+                                     ident,
+                                     col,
+                                     _evm->sortOrder() == Qt::DescendingOrder);
         if (drow != -1) {
             if (_anchorVisibleRow != -1) {
-                int useRow = std::max(0, drow-_anchorVisibleRow);
-                ttv()->scrollTo(_evm->index(useRow,0),
+                int useRow = std::max(0, drow - _anchorVisibleRow);
+                ttv()->scrollTo(_evm->index(useRow, 0),
                                 QAbstractItemView::PositionAtTop);
             } else {
-                ttv()->scrollTo(_evm->index(drow,0));
+                ttv()->scrollTo(_evm->index(drow, 0));
             }
             if (ident) {
-                ttv()->setCurrentIndex(_evm->index(drow,col));
+                ttv()->setCurrentIndex(_evm->index(drow, col));
             }
             return;
         }
     }
 
-    auto drow = _evm->rowForData(_anchorTop, ident, col,
-                                 _evm->sortOrder()==Qt::DescendingOrder);
+    auto drow = _evm->rowForData(_anchorTop,
+                                 ident,
+                                 col,
+                                 _evm->sortOrder() == Qt::DescendingOrder);
     if (drow != -1) {
-        auto pos = (order == _anchorOrder
-                    ? QAbstractItemView::PositionAtTop
-                    : QAbstractItemView::PositionAtBottom);
-        ttv()->scrollTo(_evm->index(drow,col), pos);
+        auto pos =
+            (order == _anchorOrder ? QAbstractItemView::PositionAtTop
+                                   : QAbstractItemView::PositionAtBottom);
+        ttv()->scrollTo(_evm->index(drow, col), pos);
     }
     if (_anchorCur == A::HarmonicEvent()) return;
-    auto crow = _evm->rowForData(_anchorCur, ident, col,
-                                 _evm->sortOrder()==Qt::DescendingOrder);
+    auto crow = _evm->rowForData(_anchorCur,
+                                 ident,
+                                 col,
+                                 _evm->sortOrder() == Qt::DescendingOrder);
     if (crow == -1 || !ident) return;
-    auto ci = tvm()->index(crow,col);
+    auto ci = tvm()->index(crow, col);
     ttv()->setCurrentIndex(ci);
     auto rect = ttv()->visualRect(ci);
     if (!rect.isValid()) {
@@ -1663,21 +1750,22 @@ Transits::clickedCell(QModelIndex inx)
     bool ctrl = (QApplication::keyboardModifiers() & Qt::ControlModifier);
     if (lbtn && ctrl) lbtn = false, mbtn = true;
 
-    A::modalize<A::AspectSetId>
-            aset(MainWindow::theAstroWidget()->overrideAspectSet(), -1);
+    A::modalize<A::AspectSetId> aset(
+        MainWindow::theAstroWidget()->overrideAspectSet(),
+        -1);
     A::PlanetSet focal;
-    if (inx.column()==EventsTableModel::harmonicCol)  {
+    if (inx.column() == EventsTableModel::harmonicCol) {
         auto v = inx.data(EventsTableModel::RawRole);
         qDebug() << v;
         if (v.canConvert<unsigned>()) {
             double h = v.toUInt();
-            emit updateHarmonics(h);
+            emit   updateHarmonics(h);
         }
-    } else if (inx.column()==EventsTableModel::dateCol) {
+    } else if (inx.column() == EventsTableModel::dateCol) {
         emit updateHarmonics(1);
     } else if (inx.column() >= EventsTableModel::transitBodyCol) {
-        auto v = inx.sibling(inx.row(),EventsTableModel::harmonicCol)
-                .data(EventsTableModel::RawRole);
+        auto v = inx.sibling(inx.row(), EventsTableModel::harmonicCol)
+                     .data(EventsTableModel::RawRole);
         focal = inx.data(EventsTableModel::RawRole).value<A::PlanetSet>();
         if (focal.size() > 1) {
             aset = A::topAspectSet().id + v.toUInt();
@@ -1690,12 +1778,13 @@ Transits::clickedCell(QModelIndex inx)
         doubleClickedCell(inx);
         return;
     }
-    auto dt = _evm->rowDate(inx.row());
+    auto    dt = _evm->rowDate(inx.row());
     QString desc;
     if (focal.empty()) desc = _evm->rowDesc(inx.row());
     else {
-        desc = inx.siblingAtColumn(EventsTableModel::harmonicCol).data().toString()
-                + " " + focal.describe();
+        desc =
+            inx.siblingAtColumn(EventsTableModel::harmonicCol).data().toString()
+            + " " + focal.describe();
     }
     A::modalize<bool> noup(_inhibitUpdate);
     if (transitsOnly()) {
@@ -1708,7 +1797,8 @@ Transits::clickedCell(QModelIndex inx)
         A::PlanetSet shift;
         for (auto cpid : focal) {
             if (cpid.fileId() == 0) {
-                cpid.setFileId(1); shift.emplace(cpid);
+                cpid.setFileId(1);
+                shift.emplace(cpid);
             }
         }
         if (shift.size() == focal.size()) focal.swap(shift);
@@ -1723,21 +1813,21 @@ Transits::clickedCell(QModelIndex inx)
     if (_chs) saveScrollPos();
 }
 
-void 
+void
 Transits::doubleClickedCell(QModelIndex inx)
 {
     auto par = inx.parent();
     if (par.isValid()) inx = par;
-    auto dt = _evm->rowDate(inx.row());
-    auto desc = _evm->rowDesc(inx.row());
+    auto              dt   = _evm->rowDate(inx.row());
+    auto              desc = _evm->rowDesc(inx.row());
     A::modalize<bool> noup(_inhibitUpdate);
-    AstroFile* af = new AstroFile;
+    AstroFile*        af = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(af);
     af->setLocation(_location->location());
     af->setLocationName(_location->locationName());
     af->setName(desc);
     af->setGMT(dt);
-    //bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
+    // bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
     if (transitsOnly() /*|| !shift*/) {
         emit addChart(af);
     } else {
@@ -1746,7 +1836,7 @@ Transits::doubleClickedCell(QModelIndex inx)
     }
 }
 
-void 
+void
 Transits::headerDoubleClicked(int col)
 {
     // nothing doing now...
@@ -1755,7 +1845,8 @@ Transits::headerDoubleClicked(int col)
 void
 Transits::headerClicked(int col)
 {
-    // This method is now called only for Ctrl+click events from our custom header
+    // This method is now called only for Ctrl+click events from our custom
+    // header
     if (col == EventsTableModel::transitBodyCol) {
         _evm->cycleTransitBodyColMode();
         // Force immediate visual update
@@ -1779,8 +1870,8 @@ Transits::copySelection()
                 qDebug() << md->html();
             }
         }
-        QItemSelectionModel* sm = _tview->selectionModel();
-        QModelIndexList qmil = sm->selectedIndexes();
+        QItemSelectionModel* sm   = _tview->selectionModel();
+        QModelIndexList      qmil = sm->selectedIndexes();
         qDebug() << qmil;
         QMimeData* md = sim->mimeData(qmil);
         qDebug() << md->formats();
@@ -1788,7 +1879,7 @@ Transits::copySelection()
     }
 }
 
-void 
+void
 Transits::clear()
 {
     _planet = A::Planet_None;
@@ -1830,7 +1921,7 @@ void
 Transits::onStartChanged()
 {
     auto sd = _start->date();
-    if (_grp->checkedId()==0) {
+    if (_grp->checkedId() == 0) {
         auto newDate = _ddelta.addTo(sd);
         if (_end->date() != newDate) {
             /*block*/ {
@@ -1869,7 +1960,7 @@ Transits::onDurationChanged()
     if (!delta) delta = QString("1 mo"); // revert to default
 
     if (delta != _ddelta) {
-        _ddelta = delta;
+        _ddelta  = delta;
         auto str = _ddelta.toString();
         if (str != _duration->text()) {
             /*block*/ {
@@ -1882,7 +1973,7 @@ Transits::onDurationChanged()
     }
 }
 
-void 
+void
 Transits::filesUpdated(MembersList m)
 {
     if (!isVisible()) return;
@@ -1900,18 +1991,18 @@ Transits::filesUpdated(MembersList m)
     while (m.size() < filesCount()) m.append(AstroFile::Member());
 
     bool any = false;
-    int f = 0;
-    for (auto ml: m) {
+    int  f   = 0;
+    for (auto ml : m) {
         FileType type = file(f++)->getType();
         if (type >= TypeSearch) continue;
 
-        if (type == TypeMale || type == TypeFemale || type == TypeEvent)
-        { any |= (ml & AstroFile::GMT); }
+        if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
+            any |= (ml & AstroFile::GMT);
+        }
 
-        any |= (ml & (AstroFile::Timezone
-                      | AstroFile::Zodiac
-                      | AstroFile::AspectSet
-                      | AstroFile::AspectMode));
+        any |= (ml
+                & (AstroFile::Timezone | AstroFile::Zodiac
+                   | AstroFile::AspectSet | AstroFile::AspectMode));
     }
     if (any) {
 #if OLDMODEL
@@ -1928,7 +2019,7 @@ Transits::filesUpdated(MembersList m)
     }
 }
 
-AppSettings 
+AppSettings
 Transits::defaultSettings()
 {
     return A::EventOptions().toMap();
@@ -1945,72 +2036,70 @@ Transits::applySettings(const AppSettings& s)
 {
     A::EventOptions& curr(A::EventOptions::current());
 
-    bool changed
-        = (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
-           || s.value("Events/patternsSpreadOrb").toDouble()
-                  != curr.patternsSpreadOrb
-           || s.value("Events/planetPairOrb").toDouble() != curr.expandShowOrb
-           || s.value("Events/patternsRestrictMoon").toBool()
-                  != curr.patternsRestrictMoon
-           || s.value("Events/includeMidpoints").toBool()
-                  != curr.includeMidpoints
-           || s.value("Events/showStations").toBool() != curr.showStations
-           || s.value("Events/includeShadowTransits").toBool()
-                  != curr.includeShadowTransits
-           || s.value("Events/showTransitsToTransits").toBool()
-                  != curr.showTransitsToTransits
-           || s.value("Events/includeOnlyOuterTransitsToNatal").toBool()
-                  != curr.includeOnlyOuterTransitsToNatal
-           || s.value("Events/limitLunarTransits").toBool()
-                  != curr.limitLunarTransits
-           || A::EventOptions::skipper(s.value("Events/skipByDuration").toUInt())
-                  != curr.skipByDuration
-           || s.value("Events/showTransitsToNatalPlanets").toBool()
-                  != curr.showTransitsToNatalPlanets
-           || s.value("Events/showTransitsToNatalAngles").toBool()
-                  != curr.showTransitsToNatalAngles
-           || s.value("Events/includeAsteroids").toBool()
-                  != curr.includeAsteroids
-           || s.value("Events/includeCentaurs").toBool() != curr.includeCentaurs
-           || s.value("Events/showTransitsToHouseCusps").toBool()
-                  != curr.showTransitsToHouseCusps
-           || s.value("Events/showReturns").toBool() != curr.showReturns
-           || s.value("Events/showProgressionsToProgressions").toBool()
-                  != curr.showProgressionsToProgressions
-           || s.value("Events/showProgressionsToNatal").toBool()
-                  != curr.showProgressionsToNatal
-           || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
-                  != curr.includeOnlyInnerProgressionsToNatal
-           || s.value("Events/showTransitAspectPatterns").toBool()
-                  != curr.showTransitAspectPatterns
-           || s.value("Events/showTransitNatalAspectPatterns").toBool()
-                  != curr.showTransitNatalAspectPatterns
-           || s.value("Events/showIngresses").toBool() != curr.showIngresses
-           || s.value("Events/showLunations").toBool() != curr.showLunations
-           || s.value("Events/showHeliacalEvents").toBool()
-                  != curr.showHeliacalEvents
-           || s.value("Events/showPrimaryDirections").toBool()
-                  != curr.showPrimaryDirections
-           || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents);
-    bool changedExpanded
-        = (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
-           || s.value("Events/expandShowAspectPatterns").toBool()
-                  != curr.expandShowAspectPatterns
-           || s.value("Events/expandShowHousePlacementsOfTransits").toBool()
-                  != curr.expandShowHousePlacementsOfTransits
-           || s.value("Events/expandShowRulershipTips").toBool()
-                  != curr.expandShowRulershipTips
-           || s.value("Events/expandShowStationAspectsToTransits").toBool()
-                  != curr.expandShowStationAspectsToTransits
-           || s.value("Events/expandShowStationAspectsToNatal").toBool()
-                  != curr.expandShowStationAspectsToNatal
-           || s.value("Events/expandShowReturnAspects").toBool()
-                  != curr.expandShowReturnAspects
-           || s.value("Events/expandShowTransitAspectsToReturnPlanet").toBool()
-                  != curr.expandShowTransitAspectsToReturnPlanet);
+    bool changed =
+        (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
+         || s.value("Events/patternsSpreadOrb").toDouble()
+                != curr.patternsSpreadOrb
+         || s.value("Events/planetPairOrb").toDouble() != curr.expandShowOrb
+         || s.value("Events/patternsRestrictMoon").toBool()
+                != curr.patternsRestrictMoon
+         || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
+         || s.value("Events/showStations").toBool() != curr.showStations
+         || s.value("Events/includeShadowTransits").toBool()
+                != curr.includeShadowTransits
+         || s.value("Events/showTransitsToTransits").toBool()
+                != curr.showTransitsToTransits
+         || s.value("Events/includeOnlyOuterTransitsToNatal").toBool()
+                != curr.includeOnlyOuterTransitsToNatal
+         || s.value("Events/limitLunarTransits").toBool()
+                != curr.limitLunarTransits
+         || A::EventOptions::skipper(s.value("Events/skipByDuration").toUInt())
+                != curr.skipByDuration
+         || s.value("Events/showTransitsToNatalPlanets").toBool()
+                != curr.showTransitsToNatalPlanets
+         || s.value("Events/showTransitsToNatalAngles").toBool()
+                != curr.showTransitsToNatalAngles
+         || s.value("Events/includeAsteroids").toBool() != curr.includeAsteroids
+         || s.value("Events/includeCentaurs").toBool() != curr.includeCentaurs
+         || s.value("Events/showTransitsToHouseCusps").toBool()
+                != curr.showTransitsToHouseCusps
+         || s.value("Events/showReturns").toBool() != curr.showReturns
+         || s.value("Events/showProgressionsToProgressions").toBool()
+                != curr.showProgressionsToProgressions
+         || s.value("Events/showProgressionsToNatal").toBool()
+                != curr.showProgressionsToNatal
+         || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
+                != curr.includeOnlyInnerProgressionsToNatal
+         || s.value("Events/showTransitAspectPatterns").toBool()
+                != curr.showTransitAspectPatterns
+         || s.value("Events/showTransitNatalAspectPatterns").toBool()
+                != curr.showTransitNatalAspectPatterns
+         || s.value("Events/showIngresses").toBool() != curr.showIngresses
+         || s.value("Events/showLunations").toBool() != curr.showLunations
+         || s.value("Events/showHeliacalEvents").toBool()
+                != curr.showHeliacalEvents
+         || s.value("Events/showPrimaryDirections").toBool()
+                != curr.showPrimaryDirections
+         || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents);
+    bool changedExpanded =
+        (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
+         || s.value("Events/expandShowAspectPatterns").toBool()
+                != curr.expandShowAspectPatterns
+         || s.value("Events/expandShowHousePlacementsOfTransits").toBool()
+                != curr.expandShowHousePlacementsOfTransits
+         || s.value("Events/expandShowRulershipTips").toBool()
+                != curr.expandShowRulershipTips
+         || s.value("Events/expandShowStationAspectsToTransits").toBool()
+                != curr.expandShowStationAspectsToTransits
+         || s.value("Events/expandShowStationAspectsToNatal").toBool()
+                != curr.expandShowStationAspectsToNatal
+         || s.value("Events/expandShowReturnAspects").toBool()
+                != curr.expandShowReturnAspects
+         || s.value("Events/expandShowTransitAspectsToReturnPlanet").toBool()
+                != curr.expandShowTransitAspectsToReturnPlanet);
 
     auto tsp = s.value("Events/defaultTimespan").toString();
-    if (filesCount()==0) {
+    if (filesCount() == 0) {
         _duration->setText(tsp);
         _ddelta = ADateDelta::fromString(tsp);
     }

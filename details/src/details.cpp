@@ -1,14 +1,15 @@
-#include <QFile>
+#include "details.h"
+#include "expandwidget.h"
+#include <Astroprocessor/Calc>
+#include <Astroprocessor/Output>
 #include <QComboBox>
+#include <QDebug>
+#include <QFile>
 #include <QLabel>
 #include <QListWidget>
 #include <QTreeWidget>
 #include <QVBoxLayout>
-#include <QDebug>
-#include <Astroprocessor/Calc>
-#include <Astroprocessor/Output>
-#include "expandwidget.h"
-#include "details.h"
+
 
 Details::Details(QWidget* parent) :
     AstroFileHandler(parent),
@@ -16,29 +17,31 @@ Details::Details(QWidget* parent) :
     _inClear(false)
 {
     expandedAspects = false;
-    planet = A::Planet_None;
-    fileIndex = 0;
+    planet          = A::Planet_None;
+    fileIndex       = 0;
 
     planetSelector = new QComboBox;
-    position = new ExpandWidget(tr("Astronomic data"));
-    aspects = new ExpandWidget(tr("Aspects"));
-    power = new ExpandWidget(tr("Aphetic"));
+    position       = new ExpandWidget(tr("Astronomic data"));
+    aspects        = new ExpandWidget(tr("Aspects"));
+    power          = new ExpandWidget(tr("Aphetic"));
 
     positionLabel = new QLabel;
-    aspectsList = new QListWidget;
-    powerLabel = new QLabel;
-    spacer = new QSpacerItem(1, 1, QSizePolicy::Preferred,
-                             QSizePolicy::Expanding);
+    aspectsList   = new QListWidget;
+    powerLabel    = new QLabel;
+    spacer =
+        new QSpacerItem(1, 1, QSizePolicy::Preferred, QSizePolicy::Expanding);
 
     planetSelector->setIconSize(QSize(24, 24));
     planetSelector->setToolTip(tr("Select a planet"));
     planetSelector->addItem(tr("Select a planet"));
-    positionLabel->setTextInteractionFlags(Qt::TextSelectableByKeyboard | Qt::TextSelectableByMouse);
-    powerLabel->setTextInteractionFlags(Qt::TextSelectableByKeyboard | Qt::TextSelectableByMouse);
+    positionLabel->setTextInteractionFlags(Qt::TextSelectableByKeyboard
+                                           | Qt::TextSelectableByMouse);
+    powerLabel->setTextInteractionFlags(Qt::TextSelectableByKeyboard
+                                        | Qt::TextSelectableByMouse);
     aspectsList->setIconSize(QSize(20, 20));
     aspectsList->setAlternatingRowColors(true);
     aspectsList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    aspectsList->setMouseTracking(true);         // for help tips work
+    aspectsList->setMouseTracking(true); // for help tips work
     positionLabel->setWordWrap(true);
     powerLabel->setWordWrap(true);
     position->setWidget(positionLabel);
@@ -46,23 +49,33 @@ Details::Details(QWidget* parent) :
     power->setWidget(powerLabel);
 
     QVBoxLayout* l2 = new QVBoxLayout(this);
-    l2->setContentsMargins(QMargins(0,0,0,0));
+    l2->setContentsMargins(QMargins(0, 0, 0, 0));
     l2->addWidget(planetSelector, 0, Qt::AlignTop);
     l2->addWidget(position, 0, Qt::AlignTop);
     l2->addWidget(aspects, 0, Qt::AlignTop);
     l2->addWidget(power, 0, Qt::AlignTop);
     l2->addSpacerItem(spacer);
 
-    connect(aspectsList, SIGNAL(clicked(QModelIndex)), this, SLOT(aspectClicked(QModelIndex)));
-    connect(planetSelector, SIGNAL(currentIndexChanged(int)), this, SIGNAL(planetSelected(int)));
-    connect(this, SIGNAL(planetSelected(int)), this, SLOT(onPlanetSelected(int)));
+    connect(aspectsList,
+            SIGNAL(clicked(QModelIndex)),
+            this,
+            SLOT(aspectClicked(QModelIndex)));
+    connect(planetSelector,
+            SIGNAL(currentIndexChanged(int)),
+            this,
+            SIGNAL(planetSelected(int)));
+    connect(this,
+            SIGNAL(planetSelected(int)),
+            this,
+            SLOT(onPlanetSelected(int)));
 
     QFile cssfile("details/style.css");
     cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
     setStyleSheet(cssfile.readAll());
 }
 
-void Details::describePlanet()
+void
+Details::describePlanet()
 {
     fileIndex = qBound(0, fileIndex, filesCount() - 1);
 
@@ -75,20 +88,24 @@ void Details::describePlanet()
 
     QString powerText = A::describePowerInHtml(p, file(fileIndex)->horoscope());
     if (!powerText.isEmpty())
-        powerText = "<p align='center'><b><i>" +
-        QString("<font color='#71aeec' size='+2'>+%1</font> | "
-                "<font color='#dfb096' size='+2'>%2</font>")
-        .arg(p.power.dignity)
-        .arg(p.power.deficient) +
-        "</i></b></p>" + powerText;
+        powerText =
+            "<p align='center'><b><i>"
+            + QString(
+                  "<font color='#71aeec' size='+2'>+%1</font> | " "<font "
+                                                                  "color='#"
+                                                                  "dfb096' "
+                                                                  "size='+2'>%"
+                                                                  "2</font>")
+                  .arg(p.power.dignity)
+                  .arg(p.power.deficient)
+            + "</i></b></p>" + powerText;
 
     positionLabel->setText(A::describePlanetCoordInHtml(p));
     powerLabel->setText(powerText);
 
-
     aspectsList->clear();
     A::AspectList list;
-    QString tag1, tag2;
+    QString       tag1, tag2;
 
     if (filesCount() == 1) {
         list = file()->horoscope().aspects;
@@ -100,17 +117,17 @@ void Details::describePlanet()
         tag2 = "#2";
     }
 
-    foreach(const A::Aspect& asp, list)
-    {
+    foreach (const A::Aspect& asp, list) {
         if (*asp.planet1 != p && *asp.planet2 != p) continue;
 
         QListWidgetItem* item = new QListWidgetItem;
         item->setIcon(QIcon(asp.d->userData["icon"].toString()));
         item->setText(A::describeAspect(asp));
         item->setToolTip(A::describeAspectFull(asp, tag1, tag2));
-        item->setStatusTip(QString("%1+%2+%3").arg(asp.d->name)
-                           .arg(asp.planet1->name)
-                           .arg(asp.planet2->name));
+        item->setStatusTip(QString("%1+%2+%3")
+                               .arg(asp.d->name)
+                               .arg(asp.planet1->name)
+                               .arg(asp.planet2->name));
         aspectsList->addItem(item);
     }
 
@@ -120,18 +137,16 @@ void Details::describePlanet()
     item->setTextAlignment(Qt::AlignCenter);
     aspectsList->addItem(item);
 
-    if (expandedAspects)
-        expandAspects();
+    if (expandedAspects) expandAspects();
     else
         updateListHeight(aspectsList);
 }
 
-void Details::aspectClicked(QModelIndex)
+void
+Details::aspectClicked(QModelIndex)
 {
-    if (aspectsList->currentItem()->whatsThis() == "more")
-    {
-        if (!expandedAspects)
-            expandAspects();
+    if (aspectsList->currentItem()->whatsThis() == "more") {
+        if (!expandedAspects) expandAspects();
         else
             collapseAspects();
 
@@ -139,19 +154,21 @@ void Details::aspectClicked(QModelIndex)
     }
 }
 
-void Details::onPlanetSelected(int index)
+void
+Details::onPlanetSelected(int index)
 {
     if (_inClear) return;
-    //if (index <= 0) return;
+    // if (index <= 0) return;
     A::PlanetId planetNum = planetSelector->itemData(index).toInt();
     setCurrentPlanet(planetNum, fileIndex);
     emit planetSelected(planetNum, fileIndex);
 }
 
-void Details::setCurrentPlanet(A::PlanetId p, int file)
+void
+Details::setCurrentPlanet(A::PlanetId p, int file)
 {
     if (planet == p && fileIndex == file) return;
-    planet = p;
+    planet    = p;
     fileIndex = file;
     describePlanet();
 
@@ -162,16 +179,16 @@ void Details::setCurrentPlanet(A::PlanetId p, int file)
         }
 }
 
-void Details::expandAspects()
+void
+Details::expandAspects()
 {
     expandedAspects = true;
     aspectsList->item(aspectsList->count() - 1)->setText("^^^");
 
-    const A::Planet& pl = file(fileIndex)->horoscope().planets[planet];
+    const A::Planet&     pl  = file(fileIndex)->horoscope().planets[planet];
     const A::AspectsSet& set = file(fileIndex)->getAspectSet();
 
-    foreach(const A::Planet& p, file(fileIndex)->horoscope().planets)
-    {
+    foreach (const A::Planet& p, file(fileIndex)->horoscope().planets) {
         if (p == pl || A::aspect(p, pl, set) != A::Aspect_None) continue;
 
         A::Aspect asp = A::calculateAspect(set, pl, p);
@@ -185,14 +202,14 @@ void Details::expandAspects()
     updateListHeight(aspectsList);
 }
 
-void Details::collapseAspects()
+void
+Details::collapseAspects()
 {
     expandedAspects = false;
     aspectsList->item(aspectsList->count() - 1)->setText("...");
 
     int i = 0;
-    while (i < aspectsList->count())
-    {
+    while (i < aspectsList->count()) {
         if (aspectsList->item(i)->toolTip().isEmpty())
             delete aspectsList->takeItem(i);
         else
@@ -202,12 +219,14 @@ void Details::collapseAspects()
     updateListHeight(aspectsList);
 }
 
-void Details::updateListHeight(QListWidget* w)
+void
+Details::updateListHeight(QListWidget* w)
 {
     w->setFixedHeight(w->sizeHintForRow(0) * w->count());
 }
 
-void Details::clear()
+void
+Details::clear()
 {
     A::modalize<bool> clearing(_inClear, true);
     planet = A::Planet_None;
@@ -215,7 +234,8 @@ void Details::clear()
     planetSelector->hide();
 }
 
-void Details::filesUpdated(MembersList m)
+void
+Details::filesUpdated(MembersList m)
 {
     if (!filesCount()) {
         clear();
@@ -224,9 +244,11 @@ void Details::filesUpdated(MembersList m)
 
     planetSelector->setItemData(0, A::Planet_None, Qt::UserRole);
     if (planetSelector->count() == 1) {
-        for (const A::Planet& p: qAsConst(file(fileIndex)->horoscope().planets)) {
-            QString imgSrc = p.userData["icon"].toString();
-            std::string nom = imgSrc.toStdString();
+        for (const A::Planet& p :
+             std::as_const(file(fileIndex)->horoscope().planets))
+        {
+            QString     imgSrc = p.userData["icon"].toString();
+            std::string nom    = imgSrc.toStdString();
             planetSelector->addItem(QIcon(imgSrc), p.name, p.id);
         }
     }
@@ -234,7 +256,8 @@ void Details::filesUpdated(MembersList m)
     if (!m.isEmpty() && m[0]) describePlanet();
 }
 
-AppSettings Details::defaultSettings()
+AppSettings
+Details::defaultSettings()
 {
     AppSettings s;
     s.setValue("Details/ShowPosition", true);
@@ -243,7 +266,8 @@ AppSettings Details::defaultSettings()
     return s;
 }
 
-AppSettings Details::currentSettings()
+AppSettings
+Details::currentSettings()
 {
     AppSettings s;
     s.setValue("Details/ShowPosition", position->isExpanded());
@@ -252,7 +276,8 @@ AppSettings Details::currentSettings()
     return s;
 }
 
-void Details::applySettings(const AppSettings& s)
+void
+Details::applySettings(const AppSettings& s)
 {
     position->setExpanded(s.value("Details/ShowPosition").toBool());
     aspects->setExpanded(s.value("Details/ShowAspects").toBool());

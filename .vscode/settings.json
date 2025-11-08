@@ -14,7 +14,8 @@
         "--log=info",
         "--compile-commands-dir=${workspaceFolder}/build",
         "--clang-tidy",
-        "--completion-style=detailed"
+        "--completion-style=detailed",
+        "--clang-format-style=file"
     ],
     // Disable the C/C++ extension's IntelliSense to avoid conflicts
     "C_Cpp.intelliSenseEngine": "disabled",
