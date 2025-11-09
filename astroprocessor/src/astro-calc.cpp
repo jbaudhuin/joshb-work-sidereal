@@ -663,6 +663,20 @@ calculatePlanet(PlanetId         planet,
                        min,
                        sec);
                 ret.angleTransit[m] = Planet::timeToDT(rettm);
+
+                // Calculate RA at this transit time for prdActive mode
+                double xx[6];
+                char   serr[AS_MAXCH];
+                int    iflgret = swe_calc_ut(rettm,
+                                          ret.sweNum,
+                                          SEFLG_EQUATORIAL | SEFLG_SPEED,
+                                          xx,
+                                          serr);
+                if (iflgret >= 0) {
+                    ret.angleTransitRA[m] = xx[0]; // RA in degrees
+                } else {
+                    ret.angleTransitRA[m] = 0.0;
+                }
             }
         }
     } else {
@@ -700,6 +714,9 @@ calculatePlanet(PlanetId         planet,
             double jd_target    = jd0 + delta_jd;
             ret.angleTransit[m] = dateTimeFromJulian(jd_target);
 
+            // Store the RA value for this transit
+            ret.angleTransitRA[m] = RA_target;
+
             swe_split_deg(RA_target, 0, &deg, &min, &sec, &frac, &sgn);
             rastr += QString("%1 %2 %3 %4'%5\"")
                          .arg(delim)
@@ -714,6 +731,9 @@ calculatePlanet(PlanetId         planet,
     if (ret.id == Planet_SouthNode) {
         qSwap(ret.angleTransit[Star::atAsc], ret.angleTransit[Star::atDesc]);
         qSwap(ret.angleTransit[Star::atMC], ret.angleTransit[Star::atIC]);
+        qSwap(ret.angleTransitRA[Star::atAsc],
+              ret.angleTransitRA[Star::atDesc]);
+        qSwap(ret.angleTransitRA[Star::atMC], ret.angleTransitRA[Star::atIC]);
     }
 
     return ret;
@@ -1088,6 +1108,20 @@ calculateStar(const QString&   name,
                     >= 0)
                 {
                     ret.angleTransit[m] = Planet::timeToDT(rettm);
+
+                    // Calculate RA at this transit time for prdActive mode
+                    double xx[6];
+                    char   serr[AS_MAXCH];
+                    int    iflgret = swe_fixstar_ut(starName,
+                                                 rettm,
+                                                 SEFLG_EQUATORIAL | SEFLG_SPEED,
+                                                 xx,
+                                                 serr);
+                    if (iflgret >= 0) {
+                        ret.angleTransitRA[m] = xx[0]; // RA in degrees
+                    } else {
+                        ret.angleTransitRA[m] = 0.0;
+                    }
                 }
             }
         } else {
@@ -1127,6 +1161,9 @@ calculateStar(const QString&   name,
                 double delta_jd     = delta_deg / 360.0 * sidereal_day;
                 double jd_target    = jd0 + delta_jd;
                 ret.angleTransit[m] = dateTimeFromJulian(jd_target);
+
+                // Store the RA value for this transit
+                ret.angleTransitRA[m] = RA_target;
 #if 0
                 swe_split_deg(RA_target, 0, &deg, &min, &sec, &frac, &sgn);
                 rastr += QString(A_DECODE("%1 %2 %3 %4'%5\""))
@@ -2914,8 +2951,7 @@ EventOptions::EventOptions(const EventOptions& opts,
             break;
         case etcParanatellonta: /*todo*/ break;
 
-        default:
-            break;
+        default:                break;
         }
     }
 }
@@ -2965,7 +3001,7 @@ EventOptions::eventPat()
         QString asprestr  = "(?<aspect>" + plmpeqre + ")";
         QString stationre = "((?<station>(" + AstroFileEditor::planets.join("|")
                             + ")) station)";
-        s_pat = "(" + stationre + "|" + "(H(?<harmonic>\\d+(\\.\\d+)?) )?" "("
+        s_pat = "(" + stationre + "|" + "(H(?<harmonic>\\d+(\\.\\d+)?) )?("
                 + plmpzposre + "|" + asprestr + ")" + ")";
     }
     return s_pat;
@@ -4083,8 +4119,8 @@ AspectFinder::findAspectsAndPatterns()
                 } else {
                     if (!st_quiet)
                         qDebug()
-                            << QString("Still looking for H%1 start" " of %2 "
-                                                                     "at %3 " "with orb %4")
+                            << QString(
+                                   "Still looking for H%1 start" " of %2 " "at " "%3 " "with orb %4")
                                    .arg(hps.first)
                                    .arg(ps.names().join("="))
                                    .arg(dtToString(nd))
@@ -4110,11 +4146,6 @@ AspectFinder::findAspectsAndPatterns()
                         qDebug()
                             << QString(
                                    "Found H%1 prior start of %2 " "with %3 " "s"
-                                                                             "p"
-                                                                             "r"
-                                                                             "e"
-                                                                             "a"
-                                                                             "d"
                                                                              " " "at %4")
                                    .arg(h)
                                    .arg(ps.names().join("="))
@@ -4299,10 +4330,8 @@ AspectFinder::findAspectsAndPatterns()
                     clearing++;
                     qDebug()
                         << clearing
-                        << QString("Launching H%1 search for %2 " "with %3 "
-                                                                  "spread " "at"
-                                                                            " %"
-                                                                            "4")
+                        << QString(
+                               "Launching H%1 search for %2 " "with %3 " "sprea" "d " "at" " %4")
                                .arg(h)
                                .arg(ps.names().join("="))
                                .arg(spread)
@@ -4451,8 +4480,7 @@ AspectFinder::findAspectsAndPatterns()
                     if (add) {
                         qDebug()
                             << QString(
-                                   "Found H%1 start of %2 " "with %3 " "spread "
-                                                                       "at %4")
+                                   "Found H%1 start of %2 " "with %3 " "spre" "ad" " " "at %4")
                                    .arg(h)
                                    .arg(ps.names().join("="))
                                    .arg(cl.second)
@@ -4895,7 +4923,7 @@ AspectFinder::findAspectsAndPatterns()
 
                 qDebug()
                     << QString(
-                           "Closest approach for H%1 %2 in [%3 - %4]: " "%5 at " "%6 " "(%7 " "iters" ")")
+                           "Closest approach for H%1 %2 in [%3 - %4]: " "%5 at " "%6 " "(%7 " "iters)")
                            .arg(h)
                            .arg(ps.names().join("="))
                            .arg(dtToString(dateTimeFromJulian(r.first)))

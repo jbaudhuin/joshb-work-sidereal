@@ -3,7 +3,6 @@
 
 #include <QColor>
 #include <QDateTime>
-#include <QTimeZone>
 #include <QDebug>
 #include <QMetaType>
 #include <QMutex>
@@ -11,18 +10,17 @@
 #include <QRunnable>
 #include <QSet>
 #include <QString>
+#include <QTimeZone>
 #include <QVariant>
 #include <QVector2D>
 #include <QVector3D>
 #include <QVector>
 #include <QtGlobal>
 
-
 #include <algorithm>
 #include <deque>
 #include <fstream>
 #include <set>
-
 
 #include <math.h>
 
@@ -187,6 +185,12 @@ enum TransitSort {
     tscByTransitPlanet,
     tscByNatalPlanet,
     tscByHarmonic
+};
+
+enum SpeculumDisplayMode {
+    DisplayLocalTime,     // Show local time (QDateTime format with day)
+    DisplaySiderealTime,  // Show sidereal time (HH:MM:SS format)
+    DisplayRightAscension // Show Right Ascension (degrees/minutes/seconds)
 };
 
 typedef int ZodiacSignId;
@@ -431,7 +435,9 @@ struct Star {
 
     enum angleTransitMode { atAsc, atDesc, atMC, atIC, numAngles };
     static int         angleTransitFlag(unsigned int mode) { return 1 << mode; }
-    QVector<QDateTime> angleTransit;
+    QVector<QDateTime> angleTransit; // Local times for Rise/MC/Set/IC
+    double angleTransitRA[4]; // Right Ascension values (degrees 0-360) for
+                              // Rise/MC/Set/IC
 
     static QDateTime timeToDT(double t, bool greg = true);
 
@@ -465,6 +471,11 @@ struct Star {
         pvPos                = 0;
         distance             = 0;
         house                = 0;
+
+        // Initialize RA array
+        for (int i = 0; i < 4; i++) {
+            angleTransitRA[i] = 0.0;
+        }
     }
 
     virtual ~Star() { }

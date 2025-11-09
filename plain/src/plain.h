@@ -5,7 +5,6 @@
 #include <Astroprocessor/Gui>
 #include <Astroprocessor/Output>
 
-
 class QCheckBox;
 class QTextBrowser;
 class QToolBar;
@@ -34,6 +33,11 @@ class Plain : public AstroFileHandler {
     QRadioButton* showChart1;
     QRadioButton* showChart2;
     QRadioButton* showBothCharts;
+    QWidget*      displayModeWidget; // Container for display mode controls
+    QButtonGroup* displayModeSelector;
+    QRadioButton* showLocalTime;
+    QRadioButton* showSiderealTime;
+    QRadioButton* showRightAscension;
     QTextBrowser* view;
 
     bool               showAllDiurnalEvents;

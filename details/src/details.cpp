@@ -10,7 +10,6 @@
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
-
 Details::Details(QWidget* parent) :
     AstroFileHandler(parent),
     _inSelect(false),
@@ -88,17 +87,12 @@ Details::describePlanet()
 
     QString powerText = A::describePowerInHtml(p, file(fileIndex)->horoscope());
     if (!powerText.isEmpty())
-        powerText =
-            "<p align='center'><b><i>"
-            + QString(
-                  "<font color='#71aeec' size='+2'>+%1</font> | " "<font "
-                                                                  "color='#"
-                                                                  "dfb096' "
-                                                                  "size='+2'>%"
-                                                                  "2</font>")
-                  .arg(p.power.dignity)
-                  .arg(p.power.deficient)
-            + "</i></b></p>" + powerText;
+        powerText = "<p align='center'><b><i>"
+                    + QString("<font color='#71aeec' size='+2'>+%1</font> |  "
+                              "<font color='#dfb096' size='+2'>%2</font>")
+                          .arg(p.power.dignity)
+                          .arg(p.power.deficient)
+                    + "</i></b></p>" + powerText;
 
     positionLabel->setText(A::describePlanetCoordInHtml(p));
     powerLabel->setText(powerText);

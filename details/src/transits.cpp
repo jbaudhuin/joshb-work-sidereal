@@ -41,7 +41,6 @@
 #include <math.h>
 #include <vector>
 
-
 using namespace std::chrono;
 
 namespace
@@ -1491,11 +1490,7 @@ Transits::updateTimezone()
     QString url =
         QString(
             A::googMapURL
-            + "/timezone/json?" "location=%1,%2" "&timestamp=%4" "&key=%3" "&la"
-                                                                           "ngu"
-                                                                           "age"
-                                                                           "=e"
-                                                                           "n")
+            + "/timezone/json?2&timestamp=%43&language=en")
             .arg(vec.y())
             .arg(vec.x())
             .arg(MainWindow::instance()->APIKey().c_str())

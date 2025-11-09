@@ -5,7 +5,6 @@
 #include <QDateTime>
 #include <QModelIndex>
 
-
 class QTableWidget;
 class QTableWidgetItem;
 class QLabel;
@@ -41,6 +40,7 @@ class Speculum : public AstroFileHandler {
     void onFilterOrbChanged();
     void onClearFilter();
     void onRadixButtonClicked(bool checked);
+    void onChartButtonClicked(int chartIndex);
     void refreshSpeculum();
 
   public slots:
@@ -63,6 +63,8 @@ class Speculum : public AstroFileHandler {
     QSpinBox*     _orbSpinBox;
     QPushButton*  _clearFilterBtn;
     QPushButton*  _radixBtn;
+    QPushButton*  _chart1Btn;
+    QPushButton*  _chart2Btn;
 
     // Filter state
     bool      _filterActive;
@@ -77,6 +79,9 @@ class Speculum : public AstroFileHandler {
     short       m_timezone;
     A::PlanetId _selectedPlanet;
     int         _fileIndex;
+    int         _selectedChartIndex; // Which chart to display (0 or 1)
+    A::SpeculumDisplayMode
+        _displayMode; // Display mode: Local Time, Sidereal Time, or RA
 };
 
 #endif // SPECULUM_H

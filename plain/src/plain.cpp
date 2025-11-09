@@ -86,6 +86,33 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     // Initially hide the chart selector
     chartSelectorWidget->setVisible(false);
 
+    toolbar->addSeparator();
+
+    // Create display mode selector widget
+    displayModeWidget              = new QWidget();
+    QHBoxLayout* displayModeLayout = new QHBoxLayout(displayModeWidget);
+    displayModeLayout->setContentsMargins(5, 0, 5, 0);
+    displayModeLayout->addWidget(new QLabel(tr("Display:")));
+
+    displayModeSelector = new QButtonGroup(this);
+    showLocalTime       = new QRadioButton(tr("Local Time"));
+    showSiderealTime    = new QRadioButton(tr("Sidereal Time"));
+    showRightAscension  = new QRadioButton(tr("Right Ascension"));
+
+    displayModeSelector->addButton(showLocalTime, A::DisplayLocalTime);
+    displayModeSelector->addButton(showSiderealTime, A::DisplaySiderealTime);
+    displayModeSelector->addButton(showRightAscension,
+                                   A::DisplayRightAscension);
+    showLocalTime->setChecked(true); // Default to Local Time mode
+
+    displayModeLayout->addWidget(showLocalTime);
+    displayModeLayout->addWidget(showSiderealTime);
+    displayModeLayout->addWidget(showRightAscension);
+
+    QWidgetAction* displayModeAction = new QWidgetAction(this);
+    displayModeAction->setDefaultWidget(displayModeWidget);
+    toolbar->addAction(displayModeAction);
+
     view = new QTextBrowser();
 
     showAllDiurnalEvents = false;
@@ -109,6 +136,9 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     connect(describeParans, &QAction::triggered, this, &Plain::refresh);
     connect(describeSpeculum, &QAction::triggered, this, &Plain::refresh);
     connect(chartSelector, &QButtonGroup::idClicked, this, [this](int) {
+        refresh();
+    });
+    connect(displayModeSelector, &QButtonGroup::idClicked, this, [this](int) {
         refresh();
     });
 
@@ -169,6 +199,11 @@ Plain::refresh()
         showSecond = false; // Only one chart available
     }
 
+    // Get display mode directly from button group ID (which matches enum
+    // values)
+    A::SpeculumDisplayMode displayMode =
+        A::SpeculumDisplayMode(displayModeSelector->checkedId());
+
     // Always calculate aspects to ensure they're available
     calculateAspects();
 
@@ -186,65 +221,21 @@ Plain::refresh()
     QString html = "<!DOCTYPE html><html><head>";
     html += "<meta charset='utf-8'>";
     html += "<style>";
-    html +=
-        "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu " "San"
-                                                                           "s "
-                                                                           "Mon"
-                                                                           "o',"
-                                                                           " '"
-                                                                           "Luc"
-                                                                           "ida"
-                                                                           " Co"
-                                                                           "nso"
-                                                                           "le'"
-                                                                           "; "
-                                                                           "mar"
-                                                                           "gin"
-                                                                           ": "
-                                                                           "10p"
-                                                                           "x; "
-                                                                           "col"
-                                                                           "or:"
-                                                                           " #"
-                                                                           "b5b"
-                                                                           "fdf"
-                                                                           "; " "background-color: transparent; }";
+    html += "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu "
+            "Sans Mono','Lucida Console'; margin: 10px; color: #b5bfdf; "
+            "background-color: transparent; }";
     html +=
         "h1, h2, h3 { color: #e9e9e4; margin-top: 20px; margin-bottom: 10px; }";
     html += "h1 { font-size: 1.4em; }";
     html += "h2 { font-size: 1.2em; }";
     html += "h3 { font-size: 1.1em; }";
     html +=
-        "h4 { color: #e9e9e4; font-size: 1.0em; margin-top: 12px; " "margin-"
-                                                                    "bottom: "
-                                                                    "4px; }";
+        "h4 { color: #e9e9e4; font-size: 1.0em; margin-top: 12px; margin-bottom: 4px; }";
     html +=
-        "table { margin: 10px 0; border-collapse: collapse; " "background-"
-                                                              "color: "
-                                                              "transparent; }";
+        "table { margin: 10px 0; border-collapse: collapse; background-color: transparent; }";
     html += "tr { background-color: transparent; }";
     html +=
-        "th { background-color: rgba(255,255,255,0.1); font-weight: bold; " "co"
-                                                                            "lo"
-                                                                            "r:"
-                                                                            " #"
-                                                                            "e9"
-                                                                            "e9"
-                                                                            "e4"
-                                                                            "; "
-                                                                            "bo"
-                                                                            "rd"
-                                                                            "er"
-                                                                            ": "
-                                                                            "1p"
-                                                                            "x "
-                                                                            "so"
-                                                                            "li"
-                                                                            "d "
-                                                                            "#5"
-                                                                            "55"
-                                                                            "; "
-                                                                            "}";
+        "th { background-color: rgba(255,255,255,0.1); font-weight: bold; color: #e9e9e4; border: 1px solid #555; }";
     html += "li { margin: 1px 0; line-height: 1.2; }";
     html += "strong { color: #e9e9e4; }";
     html += ".dignity-list { margin: 4px 0; }";
@@ -283,11 +274,7 @@ Plain::refresh()
         if (filesCount() == 1 && scope.planets.count()) {
             html += "<h2>" + QObject::tr("Planets") + "</h2>";
             html +=
-                "<table class='planets-table' style='border-collapse: " "collap"
-                                                                        "se; "
-                                                                        "width:"
-                                                                        " 100%;"
-                                                                        "'>";
+                "<table class='planets-table' style='border-collapse: collapse; width: 100%;'>";
             html += "<tr style='background-color: rgba(255,255,255,0.1);'>";
             html += "<th style='padding: 4px 8px; text-align: left;'>"
                     + QObject::tr("Planet") + "</th>";
@@ -319,9 +306,7 @@ Plain::refresh()
                                   .arg(file(0)->getName())
                             + "</h2>";
                     html +=
-                        "<table class='planets-table' " "style='border-"
-                                                        "collapse: collapse; "
-                                                        "width: 100%;'>";
+                        "<table class='planets-table' style='border-collapse: collapse; width: 100%;'>";
                     html +=
                         "<tr style='background-color: rgba(255,255,255,0.1);'>";
                     html += "<th style='padding: 4px 8px; text-align: left;'>"
@@ -356,9 +341,7 @@ Plain::refresh()
                                   .arg(file(1)->getName())
                             + "</h2>";
                     html +=
-                        "<table class='planets-table' " "style='border-"
-                                                        "collapse: collapse; "
-                                                        "width: 100%;'>";
+                        "<table class='planets-table' style='border-collapse: collapse; width: 100%;'>";
                     html +=
                         "<tr style='background-color: rgba(255,255,255,0.1);'>";
                     html += "<th style='padding: 4px 8px; text-align: left;'>"
@@ -524,7 +507,8 @@ Plain::refresh()
             html += A::describeParans(files(),
                                       bool(articles & A::Article_DiurnalEvents),
                                       bool(articles & A::Article_FixedStars),
-                                      paranOrb);
+                                      paranOrb,
+                                      displayMode);
         } else if (filesCount() > 1) {
             // Chart #1 Parans
             if (showFirst && file(0) && file(0)->horoscope().planets.count()) {
@@ -538,7 +522,8 @@ Plain::refresh()
                     A::describeParans(file1List,
                                       bool(articles & A::Article_DiurnalEvents),
                                       bool(articles & A::Article_FixedStars),
-                                      paranOrb);
+                                      paranOrb,
+                                      displayMode);
             }
 
             // Chart #2 Parans
@@ -553,7 +538,8 @@ Plain::refresh()
                     A::describeParans(file2List,
                                       bool(articles & A::Article_DiurnalEvents),
                                       bool(articles & A::Article_FixedStars),
-                                      paranOrb);
+                                      paranOrb,
+                                      displayMode);
             }
         }
     }
@@ -562,7 +548,8 @@ Plain::refresh()
     if (articles & A::Article_Speculum) {
         if (filesCount() == 1 && scope.planets.count()) {
             html += A::describeSpeculum(scope,
-                                        bool(articles & A::Article_FixedStars));
+                                        bool(articles & A::Article_FixedStars),
+                                        displayMode);
         } else if (filesCount() > 1) {
             // Chart #1 Speculum
             if (showFirst) {
@@ -574,7 +561,8 @@ Plain::refresh()
                         + "</h3>";
                     html += A::describeSpeculum(
                         scope1,
-                        bool(articles & A::Article_FixedStars));
+                        bool(articles & A::Article_FixedStars),
+                        displayMode);
                 }
             }
 
@@ -588,7 +576,8 @@ Plain::refresh()
                         + "</h3>";
                     html += A::describeSpeculum(
                         scope2,
-                        bool(articles & A::Article_FixedStars));
+                        bool(articles & A::Article_FixedStars),
+                        displayMode);
                 }
             }
         }
@@ -609,6 +598,7 @@ Plain::defaultSettings()
     s.setValue("Text/describePower", false);
     s.setValue("Text/describeParans", true);
     s.setValue("Text/describeSpeculum", false);
+    s.setValue("Text/displayMode", unsigned(A::DisplayLocalTime));
     s.setValue("Text/primDirMode", unsigned(A::prdMundane));
     s.setValue("Text/showAllDiurnalEvents", false);
     s.setValue("Text/paranOrb", 1.0);
@@ -628,6 +618,7 @@ Plain::currentSettings()
     s.setValue("Text/describePower", describePower->isChecked());
     s.setValue("Text/describeParans", describeParans->isChecked());
     s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
+    s.setValue("Text/displayMode", unsigned(displayModeSelector->checkedId()));
     s.setValue("Text/primDirMode", unsigned(A::primDirMode));
     s.setValue("Text/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Text/paranOrb", paranOrb);
@@ -646,6 +637,19 @@ Plain::applySettings(const AppSettings& s)
     describePower->setChecked(s.value("Text/describePower").toBool());
     describeParans->setChecked(s.value("Text/describeParans").toBool());
     describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
+
+    A::SpeculumDisplayMode loadedMode =
+        A::SpeculumDisplayMode(s.value("Text/displayMode").toUInt());
+
+    // Set the appropriate radio button based on loaded mode
+    if (loadedMode == A::DisplaySiderealTime) {
+        showSiderealTime->setChecked(true);
+    } else if (loadedMode == A::DisplayRightAscension) {
+        showRightAscension->setChecked(true);
+    } else {
+        showLocalTime->setChecked(true);
+    }
+
     A::primDirMode       = A::PrimDirMode(s.value("Text/primDirMode").toUInt());
     showAllDiurnalEvents = s.value("Text/showAllDiurnalEvents").toBool();
     paranOrb             = s.value("Text/paranOrb").toDouble();
@@ -665,6 +669,11 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                     { { "Mundane", A::prdMundane },
                       { "Zodiacal", A::prdZodiacal },
                       { "Active", A::prdActive } });
+    ed->addComboBox("Text/displayMode",
+                    tr("Display mode"),
+                    { { "Local Time", A::DisplayLocalTime },
+                      { "Sidereal Time", A::DisplaySiderealTime },
+                      { "Right Ascension", A::DisplayRightAscension } });
     ed->addCheckBox("Text/showAllDiurnalEvents",
                     tr("Show all planetary diurnal events"));
     ed->addDoubleSpinBox("Text/paranOrb",

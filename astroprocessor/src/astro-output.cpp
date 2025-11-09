@@ -94,6 +94,61 @@ degreeToString(float deg, AnglePrecision precision)
 }
 
 QString
+raToString(double raDegrees, AnglePrecision precision)
+{
+    // Convert RA from degrees (0-360) to degrees/minutes/seconds format
+    // Normalize to 0-360 range
+    while (raDegrees < 0) raDegrees += 360.0;
+    while (raDegrees >= 360.0) raDegrees -= 360.0;
+
+    int    deg       = (int) raDegrees;
+    double remainder = (raDegrees - deg) * 60.0;
+    int    arcmin    = (int) remainder;
+    int    arcsec    = (int) ((remainder - arcmin) * 60.0);
+
+    QString ret;
+    if (precision == HighPrecision) {
+        ret = QString("%1° %2' %3\"")
+                  .arg(deg, 3, 10, QChar(' '))
+                  .arg(arcmin, 2, 10, QChar('0'))
+                  .arg(arcsec, 2, 10, QChar('0'));
+    } else {
+        ret = QString("%1° %2'")
+                  .arg(deg, 3, 10, QChar(' '))
+                  .arg(arcmin, 2, 10, QChar('0'));
+    }
+    return ret;
+}
+
+QString
+siderealTimeToString(double raDegrees, AnglePrecision precision)
+{
+    // Convert RA from degrees (0-360) to sidereal time HH:MM:SS format
+    double raHours = raDegrees / 15.0;
+
+    int h = (int) raHours;
+    int m = (int) ((raHours - h) * 60.0);
+    int s = (int) (((raHours - h) * 60.0 - m) * 60.0);
+
+    // Handle wrap-around
+    if (h >= 24) h -= 24;
+    if (h < 0) h += 24;
+
+    QString ret;
+    if (precision == HighPrecision) {
+        ret = QString("%1h %2m %3s")
+                  .arg(h, 2, 10, QChar('0'))
+                  .arg(m, 2, 10, QChar('0'))
+                  .arg(s, 2, 10, QChar('0'));
+    } else {
+        ret = QString("%1h %2m")
+                  .arg(h, 2, 10, QChar('0'))
+                  .arg(m, 2, 10, QChar('0'));
+    }
+    return ret;
+}
+
+QString
 zodiacPosition(float          deg,
                const Zodiac&  zodiac,
                AnglePrecision precision /*=Normal*/,
@@ -215,7 +270,7 @@ describeHouses(const Houses&    houses,
 
     QString ret;
     ret +=
-        "<h3>" + QObject::tr("Houses (%1)").arg(houses.system->name) + "</h3>";
+        "<h2>" + QObject::tr("Houses (%1)").arg(houses.system->name) + "</h2>";
     ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
 
     // Table header
@@ -347,7 +402,7 @@ describeAspectsTable(const AspectList& aspects, AspectSortOrder sortOrder)
     // CONFIGURABLE: Cell padding for aspects table
     const QString cellPadding = "0px";
 
-    QString ret = "<h3>" + QObject::tr("Aspects") + "</h3>";
+    QString ret = "<h2>" + QObject::tr("Aspects") + "</h2>";
     ret += "<table style='border-collapse: collapse; font-family: monospace; "
            "width: 100%;'>";
 
@@ -826,6 +881,7 @@ struct event {
 
     static int       _maxWidth;
     static QDateTime _radix;
+    static double    _radixRA; // Radix Local Sidereal Time in RA degrees
 
     event() : _star(NULL), _pivot(0) { }
 
@@ -863,9 +919,10 @@ struct event {
         return (_pivot < other._pivot);
     }
 
-    QString fmt(short          tz,
-                const QString& padding        = "1px",
-                bool           isFirstInGroup = false) const
+    QString fmt(short               tz,
+                const QString&      padding        = "1px",
+                bool                isFirstInGroup = false,
+                SpeculumDisplayMode displayMode    = DisplayLocalTime) const
     {
         static QStringList AT { QObject::tr("Rise"),
                                 QObject::tr("Set"),
@@ -878,34 +935,86 @@ struct event {
 
         QString borderStyle =
             isFirstInGroup ? " border-top: 1px solid #777;" : "";
-        QString fontWeight = planet ? " font-weight: bold;" : "";
-        QString ret        = "<tr>";
+        QString backgroundColor =
+            planet ? " background-color: rgba(255,255,255,0.03);" : "";
+        QString ret = "<tr>";
 
-        // All cells get the same styling for planets vs fixed stars
-        QString cellStyle =
-            "padding: " + padding + " 8px;" + borderStyle + fontWeight;
+        // Planet name cell gets bold styling, other cells do not
+        QString nameCellStyle =
+            "padding: " + padding + " 8px;" + borderStyle + backgroundColor;
+        if (planet) {
+            nameCellStyle += " font-weight: bold;";
+        }
+
+        // Data cells don't get bold, just border and background
+        QString dataCellStyle =
+            "padding: " + padding + " 8px;" + borderStyle + backgroundColor;
 
         // Planet name with color emphasis for planets
         if (planet) {
-            ret += "<td style='" + cellStyle + " color: #e9e9e4;'>" + planetName
-                   + "</td>";
+            ret += "<td style='" + nameCellStyle + " color: #e9e9e4;'>"
+                   + planetName + "</td>";
         } else {
-            ret += "<td style='" + cellStyle + "'>" + planetName + "</td>";
+            ret += "<td style='" + nameCellStyle + "'>" + planetName + "</td>";
         }
 
-        ret += "<td style='" + cellStyle + " text-align: center;'>"
+        ret += "<td style='" + dataCellStyle + " text-align: center;'>"
                + AT.at(_pivot) + "</td>";
-        ret += "<td style='" + cellStyle + " text-align: right;'>"
-               + _formatTime(_dt, tz) + "</td>";
 
-        if (_star) { // i.e., not radix
+        // Display time/RA based on mode
+        if (displayMode == DisplaySiderealTime) {
+            // Sidereal Time mode: show HH:MM:SS format
+            if (_star) {
+                if (!_dt.isValid()) {
+                    ret += "<td style='" + dataCellStyle
+                           + " text-align: right;'>    --    </td>";
+                } else {
+                    ret += "<td style='" + dataCellStyle
+                           + " text-align: right;'>"
+                           + siderealTimeToString(_star->angleTransitRA[_pivot],
+                                                  HighPrecision)
+                           + "</td>";
+                }
+            } else {
+                // Radix: show radix sidereal time
+                ret += "<td style='" + dataCellStyle + " text-align: right;'>"
+                       + siderealTimeToString(_radixRA, HighPrecision)
+                       + "</td>";
+            }
+        } else if (displayMode == DisplayRightAscension) {
+            // RA mode: show degrees/minutes/seconds
+            if (_star) {
+                if (!_dt.isValid()) {
+                    ret += "<td style='" + dataCellStyle
+                           + " text-align: right;'>    --    </td>";
+                } else {
+                    ret += "<td style='" + dataCellStyle
+                           + " text-align: right;'>"
+                           + raToString(_star->angleTransitRA[_pivot],
+                                        HighPrecision)
+                           + "</td>";
+                }
+            } else {
+                // Radix: show radix RA in degrees
+                ret += "<td style='" + dataCellStyle + " text-align: right;'>"
+                       + raToString(_radixRA, HighPrecision) + "</td>";
+            }
+        } else {
+            // Local time mode: show formatted local time
+            ret += "<td style='" + dataCellStyle + " text-align: right;'>"
+                   + _formatTime(_dt, tz) + "</td>";
+        }
+
+        // Primary direction calculation - skip in sidereal/RA modes
+        if (_star && displayMode == DisplayLocalTime) {
+            // i.e., not radix, and local time mode
             double    dist    = qAbs(_radix.secsTo(_dt));
             int       dayDiff = dist * (365.25 / 240.0);
             QDateTime newDate = _radix.addDays(dayDiff);
-            ret += "<td style='" + cellStyle + "'> --&gt; "
+            ret += "<td style='" + dataCellStyle + "'> --&gt; "
                    + newDate.toString("yyyy/MM/dd") + "</td>";
         } else {
-            ret += "<td style='" + cellStyle + "'></td>";
+            ret += "<td style='" + dataCellStyle + "'></td>";
         }
 
         ret += "</tr>";
@@ -915,13 +1024,15 @@ struct event {
 
 int       event::_maxWidth = 0;
 QDateTime event::_radix;
+double    event::_radixRA = 0.0;
 } // namespace
 
 QString
 describeParans(const AstroFileList& scopes,
                bool                 showAll,
                bool                 showFixedStars,
-               double               paranOrb)
+               double               paranOrb,
+               SpeculumDisplayMode  displayMode)
 {
     // CONFIGURABLE: Cell padding for parans table - change this to adjust row
     // spacing Suggested values: "0px" (tight), "1px" (normal), "2px" (loose)
@@ -939,10 +1050,17 @@ describeParans(const AstroFileList& scopes,
 
     event::_radix = scope.inputData.GMT();
 
+    // Get Local Sidereal Time (RAMC) from houses - already calculated
+    event::_radixRA = scope.houses.RAMC;
+
     for (const Planet& p : std::as_const(scope.planets)) {
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         unsigned u = 0;
         for (const QDateTime& dt : p.angleTransit) {
+            if (!dt.isValid()) {
+                u++;
+                continue;
+            }
             if (p.name.length() > maxWidth) {
                 maxWidth = p.name.length();
             }
@@ -954,7 +1072,10 @@ describeParans(const AstroFileList& scopes,
         for (const Star& s : std::as_const(scope.stars)) {
             unsigned u = 0;
             for (const QDateTime& dt : s.angleTransit) {
-                if (!dt.isValid()) continue;
+                if (!dt.isValid()) {
+                    u++;
+                    continue;
+                }
                 if (s.name.length() > maxWidth) {
                     maxWidth = s.name.length();
                 }
@@ -965,15 +1086,22 @@ describeParans(const AstroFileList& scopes,
 
     std::sort(events.begin(), events.end());
 
-    QString ret = "<h3>" + QObject::tr("Parans") + "</h3>";
+    QString ret = "<h2>" + QObject::tr("Parans") + "</h2>";
     ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
     ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
     ret += "<th style='padding: 4px 8px; text-align: left;'>"
            + QObject::tr("Planet") + "</th>";
     ret += "<th style='padding: 4px 8px; text-align: center;'>"
            + QObject::tr("Event") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: right;'>"
-           + QObject::tr("LT") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: right;'>";
+    if (displayMode == DisplaySiderealTime) {
+        ret += QObject::tr("Sidereal Time");
+    } else if (displayMode == DisplayRightAscension) {
+        ret += QObject::tr("RA");
+    } else {
+        ret += QObject::tr("LT");
+    }
+    ret += "</th>";
     ret += "<th style='padding: 4px 8px;'></th>";
     ret += "</tr>";
 
@@ -985,7 +1113,7 @@ describeParans(const AstroFileList& scopes,
          it != events.constEnd();) // Note: no ++it here, we manage it manually
     {
         if (showAll) {
-            ret += it->fmt(tz, cellPadding, false);
+            ret += it->fmt(tz, cellPadding, false, displayMode);
             ++it;
             continue;
         }
@@ -1027,7 +1155,7 @@ describeParans(const AstroFileList& scopes,
                 // Add border to first row of group if there was a previous
                 // group
                 bool addBorder = (isFirstInThisGroup && anyPrinted);
-                ret += bit->fmt(tz, cellPadding, addBorder);
+                ret += bit->fmt(tz, cellPadding, addBorder, displayMode);
                 lastPrinted = bit;
                 ++bit;
                 anyPrinted         = true;
@@ -1045,7 +1173,9 @@ describeParans(const AstroFileList& scopes,
 }
 
 QString
-describeSpeculum(const Horoscope& scope, bool showFixedStars)
+describeSpeculum(const Horoscope&    scope,
+                 bool                showFixedStars,
+                 SpeculumDisplayMode displayMode)
 {
     short tz = scope.inputData.tz();
     int&  maxWidth(event::_maxWidth);
@@ -1064,7 +1194,7 @@ describeSpeculum(const Horoscope& scope, bool showFixedStars)
         }
     }
 
-    QString ret = "<h3>" + QObject::tr("Speculum") + "</h3>";
+    QString ret = "<h2>" + QObject::tr("Speculum") + "</h2>";
     ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
     ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
     ret += "<th style='padding: 4px 8px; text-align: left;'>"
@@ -1086,9 +1216,20 @@ describeSpeculum(const Horoscope& scope, bool showFixedStars)
             "<td style='padding: 0px 8px; font-weight: bold; color: #e9e9e4;'>"
             + p.name + "</td>";
         for (int i : QList<int>({ 0, 2, 1, 3 })) {
-            QString timeStr = _formatTime(p.angleTransit.at(i), tz);
-            ret += "<td style='padding: 0px 8px; text-align: center;'>"
-                   + timeStr + "</td>";
+            QString timeStr;
+            // Check if transit time is valid
+            if (!p.angleTransit.at(i).isValid()) {
+                timeStr = "    --    ";
+            } else if (displayMode == DisplaySiderealTime) {
+                timeStr =
+                    siderealTimeToString(p.angleTransitRA[i], HighPrecision);
+            } else if (displayMode == DisplayRightAscension) {
+                timeStr = raToString(p.angleTransitRA[i], HighPrecision);
+            } else {
+                timeStr = _formatTime(p.angleTransit.at(i), tz);
+            }
+            ret += "<td style='padding: 0px 8px; text-align: left;'>" + timeStr
+                   + "</td>";
         }
         ret += "</tr>";
     }
@@ -1098,8 +1239,19 @@ describeSpeculum(const Horoscope& scope, bool showFixedStars)
             ret += "<tr>";
             ret += "<td style='padding: 0px 8px;'>" + s.name + "</td>";
             for (int i : QList<int>({ 0, 2, 1, 3 })) {
-                QString timeStr = _formatTime(s.angleTransit.at(i), tz);
-                ret += "<td style='padding: 0px 8px; text-align: center;'>"
+                QString timeStr;
+                // Check if transit time is valid
+                if (!s.angleTransit.at(i).isValid()) {
+                    timeStr = "    --    ";
+                } else if (displayMode == DisplaySiderealTime) {
+                    timeStr = siderealTimeToString(s.angleTransitRA[i],
+                                                   HighPrecision);
+                } else if (displayMode == DisplayRightAscension) {
+                    timeStr = raToString(s.angleTransitRA[i], HighPrecision);
+                } else {
+                    timeStr = _formatTime(s.angleTransit.at(i), tz);
+                }
+                ret += "<td style='padding: 0px 8px; text-align: left;'>"
                        + timeStr + "</td>";
             }
             ret += "</tr>";
@@ -1149,7 +1301,7 @@ describe(AstroFileList&& scopes,
 
     auto scope = scopes.first()->horoscope();
 
-    ret += "<h1>" + QObject::tr("%1 sign").arg(scope.zodiac.name) + "</h1>";
+    ret += "<h2>" + QObject::tr("%1 sign").arg(scope.zodiac.name) + "</h2>";
 
     if (article & Article_Input) {
         ret += describeInput(scope.inputData);
@@ -1157,8 +1309,8 @@ describe(AstroFileList&& scopes,
 
     if ((article & Article_Planet) && scope.planets.count()) {
         ret += "<h2>" + QObject::tr("Planets") + "</h2>";
-        ret += "<table class='planets-table' style='border-collapse: collapse; "
-               "width: 100%;'>";
+        ret +=
+            "<table class='planets-table' style='border-collapse: collapse; >";
         ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
         ret += "<th style='padding: 4px 8px; text-align: left;'>"
                + QObject::tr("Planet") + "</th>";

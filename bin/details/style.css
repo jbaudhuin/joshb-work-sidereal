@@ -201,28 +201,28 @@ QHeaderView::section {
 
 /* Radix filter button - styled like table cells */
 QPushButton[radixButton="true"] {
-        background-color: #202020;
-        color: #b5bfdf;
-        font: 8pt 'DejaVu Sans', Verdana;
-        border: 1px solid #585F6A;
-        border-radius: 3px;
-        padding: 4px 8px;
-        min-width: 60px;
-        text-align: center;
+	background-color: #202020;
+	color: #b5bfdf;
+	font: 8pt 'DejaVu Sans', Verdana;
+	border: 1px solid #585F6A;
+	border-radius: 3px;
+	padding: 4px 8px;
+	min-width: 60px;
+	text-align: center;
 }
 
 QPushButton[radixButton="true"]:hover {
-        background-color: rgba(181, 191, 223, 120);
-        color: #EEEEEE;
+	background-color: rgba(181, 191, 223, 120);
+	color: #EEEEEE;
 }
 
 QPushButton[radixButton="true"]:checked {
-        background-color: rgba(255, 215, 0, 200);
-        color: #000000;
-        font-weight: bold;
+	background-color: rgba(255, 215, 0, 200);
+	color: #000000;
+	font-weight: bold;
 }
 
 QPushButton[radixButton="true"]:pressed {
-        background-color: rgba(255, 215, 0, 220);
-        color: #000000;
+	background-color: rgba(255, 215, 0, 220);
+	color: #000000;
 }

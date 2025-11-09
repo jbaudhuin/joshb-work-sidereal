@@ -22,12 +22,14 @@ Speculum::Speculum(QWidget* parent) :
     AstroFileHandler(parent),
     _selectedPlanet(A::Planet_None),
     _fileIndex(0),
+    _selectedChartIndex(0),
     _filterActive(false),
     _filterOrbMinutes(4.0), // Default 4 minutes
     _showFixedStars(true),
     m_timezone(0),
     _clickedRow(-1),
-    _clickedCol(-1)
+    _clickedCol(-1),
+    _displayMode(A::DisplayLocalTime) // Default to Local Time
 {
     // Create main table
     _table = new QTableWidget();
@@ -64,12 +66,34 @@ Speculum::Speculum(QWidget* parent) :
     _radixBtn->setToolTip(tr("Filter by birth time"));
     _radixBtn->setProperty("radixButton", true); // For CSS styling
 
+    // Create chart selector buttons
+    _chart1Btn = new QPushButton("1");
+    _chart1Btn->setCheckable(true);
+    _chart1Btn->setChecked(true); // Default to chart 1
+    _chart1Btn->setToolTip(tr("Show Chart #1"));
+    _chart1Btn->setMaximumWidth(30);
+    _chart1Btn->setProperty("chartButton", true);
+
+    _chart2Btn = new QPushButton("2");
+    _chart2Btn->setCheckable(true);
+    _chart2Btn->setChecked(false);
+    _chart2Btn->setToolTip(tr("Show Chart #2"));
+    _chart2Btn->setMaximumWidth(30);
+    _chart2Btn->setProperty("chartButton", true);
+    _chart2Btn->setVisible(false); // Initially hidden until 2nd chart loaded
+
     // Create labels
     QLabel* radixLabel = new QLabel(tr("Radix:"));
     QLabel* orbLabel   = new QLabel(tr("Orb:"));
 
     // Layout for filter controls
     QHBoxLayout* filterLayout = new QHBoxLayout();
+    // Add chart selector buttons at the beginning
+    filterLayout->addWidget(_chart1Btn);
+    filterLayout->setAlignment(_chart1Btn, Qt::AlignBaseline);
+    filterLayout->addWidget(_chart2Btn);
+    filterLayout->setAlignment(_chart2Btn, Qt::AlignBaseline);
+    filterLayout->addSpacing(10); // Add some space after chart buttons
     filterLayout->addWidget(radixLabel);
     filterLayout->setAlignment(radixLabel, Qt::AlignBaseline);
     filterLayout->addWidget(_radixBtn);
@@ -106,6 +130,12 @@ Speculum::Speculum(QWidget* parent) :
             SIGNAL(clicked(bool)),
             this,
             SLOT(onRadixButtonClicked(bool)));
+    connect(_chart1Btn, &QPushButton::clicked, this, [this]() {
+        onChartButtonClicked(0);
+    });
+    connect(_chart2Btn, &QPushButton::clicked, this, [this]() {
+        onChartButtonClicked(1);
+    });
 
     // Setup table headers
     setupTableHeaders();
@@ -143,11 +173,22 @@ Speculum::filesUpdated(MembersList m)
 {
     if (!file()) {
         clear();
+        _chart2Btn->setVisible(false);
         return;
     }
 
     while (m.size() < filesCount()) m.append(AstroFile::Member());
     if (m[0] == 0) return;
+
+    // Show/hide chart 2 button based on file count
+    _chart2Btn->setVisible(filesCount() > 1);
+
+    // If chart 2 button is hidden and was selected, switch to chart 1
+    if (!_chart2Btn->isVisible() && _selectedChartIndex == 1) {
+        _selectedChartIndex = 0;
+        _chart1Btn->setChecked(true);
+        _chart2Btn->setChecked(false);
+    }
 
     updateSpeculumDisplay();
 }
@@ -157,7 +198,12 @@ Speculum::updateSpeculumDisplay()
 {
     if (!file()) return;
 
-    auto scope = file()->horoscope();
+    // Get the selected chart (file index)
+    AstroFile* selectedFile =
+        (_selectedChartIndex == 1 && filesCount() > 1) ? file(1) : file(0);
+    if (!selectedFile) return;
+
+    auto scope = selectedFile->horoscope();
     m_timezone = scope.inputData.tz();
 
     // Store radix (birth) time and update button display
@@ -181,7 +227,7 @@ Speculum::populateSpeculumTable()
 {
     if (!file()) return;
 
-    auto scope = file()->horoscope();
+    auto scope = file(_selectedChartIndex)->horoscope();
 
     // Count planets (excluding MC and Asc)
     int planetCount = 0;
@@ -217,10 +263,13 @@ Speculum::populateSpeculumTable()
 void
 Speculum::addPlanetRow(const A::Planet& planet, int row)
 {
-    // Planet name
+    // Planet name with bold font
     QTableWidgetItem* nameItem = new QTableWidgetItem(planet.name);
     nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
     nameItem->setData(Qt::UserRole, static_cast<int>(planet.id));
+    QFont nameFont;
+    nameFont.setBold(true);
+    nameItem->setFont(nameFont);
     _table->setItem(row, 0, nameItem);
 
     // Add time columns in order: Rise, MC, Set, IC (indices 0, 2, 1, 3)
@@ -228,11 +277,31 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
     for (int col = 1; col <= 4; col++) {
         int       timeIndex   = timeIndices[col - 1];
         QDateTime transitTime = planet.angleTransit.at(timeIndex);
-        QString   timeStr     = A::_formatTime(transitTime, m_timezone);
+        QString   timeStr;
+
+        // Check if transit time is valid (some stars never rise/set)
+        if (!transitTime.isValid()) {
+            timeStr = "    --    ";
+        } else if (_displayMode == A::DisplayLocalTime) {
+            timeStr = A::_formatTime(transitTime, m_timezone);
+        } else {
+            // Use RA values for Sidereal Time or Right Ascension modes
+            double raValue = planet.angleTransitRA[timeIndex];
+            if (_displayMode == A::DisplaySiderealTime) {
+                timeStr = A::siderealTimeToString(raValue, A::HighPrecision);
+            } else { // DisplayRightAscension
+                timeStr = A::raToString(raValue, A::HighPrecision);
+            }
+        }
 
         QTableWidgetItem* timeItem = new QTableWidgetItem(timeStr);
         timeItem->setFlags(timeItem->flags() & ~Qt::ItemIsEditable);
-        timeItem->setTextAlignment(Qt::AlignCenter);
+        timeItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+        // Set monospace font for data columns
+        QFont monoFont;
+        monoFont.setStyleHint(QFont::Monospace);
+        timeItem->setFont(monoFont);
 
         // Store the actual QDateTime for filtering
         timeItem->setData(Qt::UserRole, transitTime);
@@ -268,11 +337,31 @@ Speculum::addStarRow(const A::Star& star, int row)
     for (int col = 1; col <= 4; col++) {
         int       timeIndex   = timeIndices[col - 1];
         QDateTime transitTime = star.angleTransit.at(timeIndex);
-        QString   timeStr     = A::_formatTime(transitTime, m_timezone);
+        QString   timeStr;
+
+        // Check if transit time is valid (some stars never rise/set)
+        if (!transitTime.isValid()) {
+            timeStr = "    --    ";
+        } else if (_displayMode == A::DisplayLocalTime) {
+            timeStr = A::_formatTime(transitTime, m_timezone);
+        } else {
+            // Use RA values for Sidereal Time or Right Ascension modes
+            double raValue = star.angleTransitRA[timeIndex];
+            if (_displayMode == A::DisplaySiderealTime) {
+                timeStr = A::siderealTimeToString(raValue, A::HighPrecision);
+            } else { // DisplayRightAscension
+                timeStr = A::raToString(raValue, A::HighPrecision);
+            }
+        }
 
         QTableWidgetItem* timeItem = new QTableWidgetItem(timeStr);
         timeItem->setFlags(timeItem->flags() & ~Qt::ItemIsEditable);
-        timeItem->setTextAlignment(Qt::AlignCenter);
+        timeItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+        // Set monospace font for data columns
+        QFont monoFont;
+        monoFont.setStyleHint(QFont::Monospace);
+        timeItem->setFont(monoFont);
 
         // Store the actual QDateTime for filtering
         timeItem->setData(Qt::UserRole, transitTime);
@@ -482,6 +571,18 @@ Speculum::onClearFilter()
 }
 
 void
+Speculum::onChartButtonClicked(int chartIndex)
+{
+    // Update button states - mutually exclusive
+    _chart1Btn->setChecked(chartIndex == 0);
+    _chart2Btn->setChecked(chartIndex == 1);
+
+    // Store selected chart and refresh display
+    _selectedChartIndex = chartIndex;
+    updateSpeculumDisplay();
+}
+
+void
 Speculum::onRadixButtonClicked(bool checked)
 {
     if (checked && _radixTime.isValid()) {
@@ -542,6 +643,10 @@ Speculum::applySettings(const AppSettings& s)
 {
     _showFixedStars   = s.value("Speculum/showFixedStars", true).toBool();
     _filterOrbMinutes = s.value("Speculum/filterOrb", 4.0).toDouble();
+
+    // Read display mode from shared Plain widget setting
+    _displayMode = A::SpeculumDisplayMode(
+        s.value("Text/displayMode", unsigned(A::DisplayLocalTime)).toUInt());
 
     _orbSpinBox->setValue(static_cast<int>(_filterOrbMinutes));
 
