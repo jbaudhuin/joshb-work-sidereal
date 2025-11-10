@@ -768,7 +768,7 @@ Harmonics::setupSettingsEditor(AppSettingsEditor* ed)
             QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             [minQOrb](double max) { minQOrb->setMaximum(max); });
 
-    ed->addTab(tr("Midpoints"));
+    //ed->addTab(tr("Midpoints"));
 
     auto mpt =
         ed->addCheckBox("Harmonics/includeMidpoints", tr("Include Midpoints"));

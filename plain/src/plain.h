@@ -45,8 +45,19 @@ class Plain : public AstroFileHandler {
     double             paranOrb;
     A::AspectSortOrder aspectSortOrder;
 
+    // Cached aspects to avoid recalculating on every refresh
+    A::AspectList cachedChart1Aspects;
+    A::AspectList cachedChart2Aspects;
+    A::AspectList cachedSynastryAspects;
+    bool          aspectsCached = false;
+
+    void updateAspectsCache();
+
   private slots:
     void refresh();
+
+  public slots:
+    void setParanOrb(double orb);
 
   protected: // AstroFileHandler implementations
     void filesUpdated(MembersList m);

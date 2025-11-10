@@ -7,6 +7,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QRadioButton>
+#include <QScrollBar>
 #include <QTextBrowser>
 #include <QToolBar>
 #include <QWidgetAction>
@@ -16,7 +17,8 @@
 
 Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
 {
-    chartsCount = 0;
+    chartsCount   = 0;
+    aspectsCached = false;
 
     // Create toolbar with toggle actions
     toolbar = new QToolBar(tr("Display Options"), this);
@@ -53,7 +55,7 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     describeParans->setCheckable(true);
     describeParans->setChecked(true);
 
-    describeSpeculum = toolbar->addAction(tr("Speculum"));
+    describeSpeculum = toolbar->addAction(tr("Mundane"));
     describeSpeculum->setCheckable(true);
     describeSpeculum->setChecked(true);
 
@@ -148,11 +150,53 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
 }
 
 void
+Plain::setParanOrb(double orb)
+{
+    paranOrb = orb;
+    refresh();
+}
+
+void
+Plain::updateAspectsCache()
+{
+    if (aspectsCached) {
+        return; // Already cached
+    }
+
+    cachedChart1Aspects.clear();
+    cachedChart2Aspects.clear();
+    cachedSynastryAspects.clear();
+
+    if (!file()) {
+        aspectsCached = true;
+        return;
+    }
+
+    // Calculate aspects for chart 1
+    if (filesCount() >= 1) {
+        cachedChart1Aspects = calculateAspects();
+    }
+
+    // Calculate aspects for chart 2 and synastry if we have 2 charts
+    if (filesCount() > 1) {
+        // Get chart 2 aspects from its horoscope
+        auto scope2         = file(1)->horoscope();
+        cachedChart2Aspects = scope2.aspects;
+
+        // Calculate synastry aspects
+        cachedSynastryAspects = calculateSynastryAspects();
+    }
+
+    aspectsCached = true;
+}
+
+void
 Plain::filesUpdated(MembersList m)
 {
     if (!file()) {
         view->clear();
-        chartsCount = 0;
+        chartsCount   = 0;
+        aspectsCached = false;
         // Hide chart selector when no files
         if (chartSelectorWidget) {
             chartSelectorWidget->setVisible(false);
@@ -171,6 +215,24 @@ Plain::filesUpdated(MembersList m)
         chartSelectorWidget->setVisible(filesCount() > 1);
     }
 
+    // Check if aspects need to be recalculated
+    // Invalidate cache if chart data, zodiac, or aspect settings changed
+    bool needsAspectUpdate = false;
+    for (const auto& members : m) {
+        if (members
+            & (AstroFile::GMT | AstroFile::Location | AstroFile::HouseSystem
+               | AstroFile::Zodiac | AstroFile::AspectSet
+               | AstroFile::AspectMode))
+        {
+            needsAspectUpdate = true;
+            break;
+        }
+    }
+
+    if (chartsCountChanged || needsAspectUpdate) {
+        aspectsCached = false;
+    }
+
     // If charts count changed or first member has changes, refresh
     if (chartsCountChanged || (m[0] != 0)) {
         refresh();
@@ -180,10 +242,13 @@ Plain::filesUpdated(MembersList m)
 void
 Plain::refresh()
 {
-    qDebug() << "Plain::refresh";
     if (!file()) {
         return;
     }
+
+    // Save scroll position
+    QScrollBar* vScrollBar = view->verticalScrollBar();
+    int         scrollPos  = vScrollBar->value();
 
     // Determine which charts to display
     bool showFirst  = true;
@@ -204,8 +269,10 @@ Plain::refresh()
     A::SpeculumDisplayMode displayMode =
         A::SpeculumDisplayMode(displayModeSelector->checkedId());
 
-    // Always calculate aspects to ensure they're available
-    calculateAspects();
+    // Update aspects cache if needed (only when aspects will be displayed)
+    if (describeAspects->isChecked()) {
+        updateAspectsCache();
+    }
 
     int articles = (A::Article_Input * describeInput->isChecked())
                    | (A::Article_Planet * describePlanets->isChecked())
@@ -221,21 +288,26 @@ Plain::refresh()
     QString html = "<!DOCTYPE html><html><head>";
     html += "<meta charset='utf-8'>";
     html += "<style>";
-    html += "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu "
-            "Sans Mono','Lucida Console'; margin: 10px; color: #b5bfdf; "
-            "background-color: transparent; }";
+    html +=
+        "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu " "San" "s " "Mon" "o'," "'Lu" "cid" "a " "Con" "sol" "e';" " ma" "rgi" "n: " "10p" "x; " "col" "or:" " #" "b5b" "fdf" "; " "background-color: transparent; }";
     html +=
         "h1, h2, h3 { color: #e9e9e4; margin-top: 20px; margin-bottom: 10px; }";
     html += "h1 { font-size: 1.4em; }";
     html += "h2 { font-size: 1.2em; }";
     html += "h3 { font-size: 1.1em; }";
+    html += "h4 { color: #e9e9e4; font-size: 1.0em; margin-top: 12px; " "margin"
+                                                                        "-" "bo"
+                                                                            "tt"
+                                                                            "om"
+                                                                            ": " "4px; }";
     html +=
-        "h4 { color: #e9e9e4; font-size: 1.0em; margin-top: 12px; margin-bottom: 4px; }";
-    html +=
-        "table { margin: 10px 0; border-collapse: collapse; background-color: transparent; }";
+        "table { margin: 10px 0; border-collapse: collapse; " "background-" "co"
+                                                                            "lo"
+                                                                            "r:"
+                                                                            " " "transparent; }";
     html += "tr { background-color: transparent; }";
     html +=
-        "th { background-color: rgba(255,255,255,0.1); font-weight: bold; color: #e9e9e4; border: 1px solid #555; }";
+        "th { background-color: rgba(255,255,255,0.1); font-weight: bold; " "co" "lo" "r:" " #" "e9" "e9" "e4" "; " "bo" "rd" "er" ": " "1p" "x " "so" "li" "d " "#5" "55" "; " "}";
     html += "li { margin: 1px 0; line-height: 1.2; }";
     html += "strong { color: #e9e9e4; }";
     html += ".dignity-list { margin: 4px 0; }";
@@ -274,7 +346,7 @@ Plain::refresh()
         if (filesCount() == 1 && scope.planets.count()) {
             html += "<h2>" + QObject::tr("Planets") + "</h2>";
             html +=
-                "<table class='planets-table' style='border-collapse: collapse; width: 100%;'>";
+                "<table class='planets-table' style='border-collapse: " "collap" "se; " "width:" " 100%;" "'>";
             html += "<tr style='background-color: rgba(255,255,255,0.1);'>";
             html += "<th style='padding: 4px 8px; text-align: left;'>"
                     + QObject::tr("Planet") + "</th>";
@@ -306,7 +378,10 @@ Plain::refresh()
                                   .arg(file(0)->getName())
                             + "</h2>";
                     html +=
-                        "<table class='planets-table' style='border-collapse: collapse; width: 100%;'>";
+                        "<table class='planets-table' " "style='border-" "colla"
+                                                                         "pse: "
+                                                                         "colla"
+                                                                         "pse; " "width: 100%;'>";
                     html +=
                         "<tr style='background-color: rgba(255,255,255,0.1);'>";
                     html += "<th style='padding: 4px 8px; text-align: left;'>"
@@ -341,7 +416,10 @@ Plain::refresh()
                                   .arg(file(1)->getName())
                             + "</h2>";
                     html +=
-                        "<table class='planets-table' style='border-collapse: collapse; width: 100%;'>";
+                        "<table class='planets-table' " "style='border-" "colla"
+                                                                         "pse: "
+                                                                         "colla"
+                                                                         "pse; " "width: 100%;'>";
                     html +=
                         "<tr style='background-color: rgba(255,255,255,0.1);'>";
                     html += "<th style='padding: 4px 8px; text-align: left;'>"
@@ -407,42 +485,40 @@ Plain::refresh()
 
     // Display aspects
     if (articles & A::Article_Aspects) {
-        if (filesCount() == 1 && scope.aspects.count()) {
-            html += A::describeAspectsTable(scope.aspects, aspectSortOrder);
+        if (filesCount() == 1 && cachedChart1Aspects.count()) {
+            html +=
+                A::describeAspectsTable(cachedChart1Aspects, aspectSortOrder);
         } else if (filesCount() > 1 && showFirst && showSecond) {
             // Display synastry aspects only when both charts are shown
-            auto synastryAspects = calculateSynastryAspects();
-            if (synastryAspects.count()) {
+            if (cachedSynastryAspects.count()) {
                 html += "<h2>" + QObject::tr("Synastry Aspects") + "</h2>";
                 html += "<p>"
                         + QObject::tr("Between Chart #1 (%1) and Chart #2 (%2)")
                               .arg(file(0)->getName())
                               .arg(file(1)->getName())
                         + "</p>";
-                html +=
-                    A::describeAspectsTable(synastryAspects, aspectSortOrder);
+                html += A::describeAspectsTable(cachedSynastryAspects,
+                                                aspectSortOrder);
             }
         } else if (filesCount() > 1) {
             // Show individual chart aspects when only one chart is selected
             if (showFirst) {
-                auto scope1 = file(0)->horoscope();
-                if (scope1.aspects.count()) {
+                if (cachedChart1Aspects.count()) {
                     html += "<h2>"
                             + QObject::tr("Aspects - Chart #1: %1")
                                   .arg(file(0)->getName())
                             + "</h2>";
-                    html += A::describeAspectsTable(scope1.aspects,
+                    html += A::describeAspectsTable(cachedChart1Aspects,
                                                     aspectSortOrder);
                 }
             }
             if (showSecond) {
-                auto scope2 = file(1)->horoscope();
-                if (scope2.aspects.count()) {
+                if (cachedChart2Aspects.count()) {
                     html += "<h2>"
                             + QObject::tr("Aspects - Chart #2: %1")
                                   .arg(file(1)->getName())
                             + "</h2>";
-                    html += A::describeAspectsTable(scope2.aspects,
+                    html += A::describeAspectsTable(cachedChart2Aspects,
                                                     aspectSortOrder);
                 }
             }
@@ -585,6 +661,9 @@ Plain::refresh()
 
     html += "</body></html>";
     view->setHtml(html);
+
+    // Restore scroll position
+    vScrollBar->setValue(scrollPos);
 }
 
 AppSettings
@@ -598,11 +677,11 @@ Plain::defaultSettings()
     s.setValue("Text/describePower", false);
     s.setValue("Text/describeParans", true);
     s.setValue("Text/describeSpeculum", false);
-    s.setValue("Text/displayMode", unsigned(A::DisplayLocalTime));
-    s.setValue("Text/primDirMode", unsigned(A::prdMundane));
-    s.setValue("Text/showAllDiurnalEvents", false);
-    s.setValue("Text/paranOrb", 1.0);
-    s.setValue("Text/includeFixedStars", true);
+    s.setValue("Mundane/displayMode", unsigned(A::DisplayLocalTime));
+    s.setValue("Mundane/primDirMode", unsigned(A::prdMundane));
+    s.setValue("Mundane/showAllDiurnalEvents", false);
+    s.setValue("Mundane/paranOrb", 1.0);
+    s.setValue("Mundane/includeFixedStars", true);
     s.setValue("Text/aspectSortOrder", unsigned(A::SortByPlanets));
     return s;
 }
@@ -618,11 +697,12 @@ Plain::currentSettings()
     s.setValue("Text/describePower", describePower->isChecked());
     s.setValue("Text/describeParans", describeParans->isChecked());
     s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
-    s.setValue("Text/displayMode", unsigned(displayModeSelector->checkedId()));
-    s.setValue("Text/primDirMode", unsigned(A::primDirMode));
-    s.setValue("Text/showAllDiurnalEvents", showAllDiurnalEvents);
-    s.setValue("Text/paranOrb", paranOrb);
-    s.setValue("Text/includeFixedStars", includeFixedStars);
+    s.setValue("Mundane/displayMode",
+               unsigned(displayModeSelector->checkedId()));
+    s.setValue("Mundane/primDirMode", unsigned(A::primDirMode));
+    s.setValue("Mundane/showAllDiurnalEvents", showAllDiurnalEvents);
+    s.setValue("Mundane/paranOrb", paranOrb);
+    s.setValue("Mundane/includeFixedStars", includeFixedStars);
     s.setValue("Text/aspectSortOrder", unsigned(aspectSortOrder));
     return s;
 }
@@ -639,7 +719,7 @@ Plain::applySettings(const AppSettings& s)
     describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
 
     A::SpeculumDisplayMode loadedMode =
-        A::SpeculumDisplayMode(s.value("Text/displayMode").toUInt());
+        A::SpeculumDisplayMode(s.value("Mundane/displayMode").toUInt());
 
     // Set the appropriate radio button based on loaded mode
     if (loadedMode == A::DisplaySiderealTime) {
@@ -650,10 +730,10 @@ Plain::applySettings(const AppSettings& s)
         showLocalTime->setChecked(true);
     }
 
-    A::primDirMode       = A::PrimDirMode(s.value("Text/primDirMode").toUInt());
-    showAllDiurnalEvents = s.value("Text/showAllDiurnalEvents").toBool();
-    paranOrb             = s.value("Text/paranOrb").toDouble();
-    includeFixedStars    = s.value("Text/includeFixedStars").toBool();
+    A::primDirMode = A::PrimDirMode(s.value("Mundane/primDirMode").toUInt());
+    showAllDiurnalEvents = s.value("Mundane/showAllDiurnalEvents").toBool();
+    paranOrb             = s.value("Mundane/paranOrb").toDouble();
+    includeFixedStars    = s.value("Mundane/includeFixedStars").toBool();
     aspectSortOrder =
         A::AspectSortOrder(s.value("Text/aspectSortOrder").toUInt());
 
@@ -663,24 +743,24 @@ Plain::applySettings(const AppSettings& s)
 void
 Plain::setupSettingsEditor(AppSettingsEditor* ed)
 {
-    ed->addTab(tr("Parans and Speculum"));
-    ed->addComboBox("Text/primDirMode",
+    ed->addTab(tr("Mundane"));
+    ed->addComboBox("Mundane/primDirMode",
                     tr("Speculum type"),
                     { { "Mundane", A::prdMundane },
                       { "Zodiacal", A::prdZodiacal },
                       { "Active", A::prdActive } });
-    ed->addComboBox("Text/displayMode",
+    ed->addComboBox("Mundane/displayMode",
                     tr("Display mode"),
                     { { "Local Time", A::DisplayLocalTime },
                       { "Sidereal Time", A::DisplaySiderealTime },
                       { "Right Ascension", A::DisplayRightAscension } });
-    ed->addCheckBox("Text/showAllDiurnalEvents",
+    ed->addCheckBox("Mundane/showAllDiurnalEvents",
                     tr("Show all planetary diurnal events"));
-    ed->addDoubleSpinBox("Text/paranOrb",
+    ed->addDoubleSpinBox("Mundane/paranOrb",
                          tr("Orb for paranatellontas"),
                          1. / 60. /*1 minute*/,
                          5.0 /*5 degrees*/);
-    ed->addCheckBox("Text/includeFixedStars", tr("Include fixed stars"));
+    ed->addCheckBox("Mundane/includeFixedStars", tr("Include fixed stars"));
 
     ed->addTab(tr("Aspects Table"));
     ed->addComboBox("Text/aspectSortOrder",

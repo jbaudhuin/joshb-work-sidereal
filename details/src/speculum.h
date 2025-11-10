@@ -8,7 +8,7 @@
 class QTableWidget;
 class QTableWidgetItem;
 class QLabel;
-class QSpinBox;
+class QDoubleSpinBox;
 class QPushButton;
 
 class Speculum : public AstroFileHandler {
@@ -26,7 +26,6 @@ class Speculum : public AstroFileHandler {
     AppSettings defaultSettings();
     AppSettings currentSettings();
     void        applySettings(const AppSettings&);
-    void        setupSettingsEditor(AppSettingsEditor*);
 
     void updateSpeculumDisplay();
     void clear();
@@ -34,6 +33,7 @@ class Speculum : public AstroFileHandler {
   signals:
     void planetSelected(A::PlanetId, int);
     void timeSelected(const QDateTime& time);
+    void orbSettingChanged(double orbDegrees);
 
   protected slots:
     void onCellClicked(int row, int column);
@@ -58,13 +58,13 @@ class Speculum : public AstroFileHandler {
     void highlightFilteredRows();
     void clearClickHighlights();
 
-    QTableWidget* _table;
-    QLabel*       _filterLabel;
-    QSpinBox*     _orbSpinBox;
-    QPushButton*  _clearFilterBtn;
-    QPushButton*  _radixBtn;
-    QPushButton*  _chart1Btn;
-    QPushButton*  _chart2Btn;
+    QTableWidget*   _table;
+    QLabel*         _filterLabel;
+    QDoubleSpinBox* _orbSpinBox;
+    QPushButton*    _clearFilterBtn;
+    QPushButton*    _radixBtn;
+    QPushButton*    _chart1Btn;
+    QPushButton*    _chart2Btn;
 
     // Filter state
     bool      _filterActive;

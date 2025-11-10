@@ -8,14 +8,16 @@
 #include <QClipboard>
 #include <QDateTime>
 #include <QDebug>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
-#include <QSpinBox>
+#include <QSettings>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 #include <QVBoxLayout>
 
 Speculum::Speculum(QWidget* parent) :
@@ -50,11 +52,17 @@ Speculum::Speculum(QWidget* parent) :
 
     // Create filter controls
     _filterLabel = new QLabel(tr("Filter inactive"));
-    _orbSpinBox  = new QSpinBox();
-    _orbSpinBox->setRange(1, 60); // 1 to 60 minutes
-    _orbSpinBox->setValue(4);
+    _orbSpinBox  = new QDoubleSpinBox();
+    _orbSpinBox->setRange(1.0, 60.0); // 1 to 60 minutes (or 0.25 to 15 degrees)
+    _orbSpinBox->setValue(4.0);
     _orbSpinBox->setSuffix(tr(" min"));
-    _orbSpinBox->setToolTip(tr("Time orb for filtering (minutes)"));
+    _orbSpinBox->setDecimals(1);
+    _orbSpinBox->setSingleStep(1.0); // Increment by 1.0 per click
+    _orbSpinBox->setKeyboardTracking(
+        false); // Only emit valueChanged when editing is finished
+    _orbSpinBox->setButtonSymbols(QAbstractSpinBox::UpDownArrows);
+    _orbSpinBox->setStepType(QAbstractSpinBox::DefaultStepType);
+    _orbSpinBox->setToolTip(tr("Time orb for filtering"));
 
     _clearFilterBtn = new QPushButton(tr("Clear Filter"));
     _clearFilterBtn->setEnabled(false);
@@ -121,10 +129,21 @@ Speculum::Speculum(QWidget* parent) :
             SIGNAL(cellClicked(int, int)),
             this,
             SLOT(onCellClicked(int, int)));
+
+    // Use a single-shot timer to debounce spinbox changes
+    // This prevents double-firing on some platforms
+    QTimer* orbChangeTimer = new QTimer(this);
+    orbChangeTimer->setSingleShot(true);
+    orbChangeTimer->setInterval(100); // 100ms debounce
     connect(_orbSpinBox,
-            SIGNAL(valueChanged(int)),
+            SIGNAL(valueChanged(double)),
+            orbChangeTimer,
+            SLOT(start()));
+    connect(orbChangeTimer,
+            SIGNAL(timeout()),
             this,
             SLOT(onFilterOrbChanged()));
+
     connect(_clearFilterBtn, SIGNAL(clicked()), this, SLOT(onClearFilter()));
     connect(_radixBtn,
             SIGNAL(clicked(bool)),
@@ -537,6 +556,13 @@ void
 Speculum::onFilterOrbChanged()
 {
     _filterOrbMinutes = _orbSpinBox->value();
+
+    // Convert to degrees and emit signal to notify other widgets
+    double orbDegrees = (_displayMode == A::DisplayRightAscension)
+                            ? _filterOrbMinutes
+                            : _filterOrbMinutes / 4.0;
+    emit   orbSettingChanged(orbDegrees);
+
     if (_filterActive) {
         filterByTime(_filterCenterTime, _filterOrbMinutes);
     }
@@ -624,8 +650,8 @@ AppSettings
 Speculum::defaultSettings()
 {
     AppSettings s;
-    s.setValue("Speculum/showFixedStars", true);
-    s.setValue("Speculum/filterOrb", 4.0);
+    s.setValue("Mundane/includeFixedStars", true);
+    s.setValue("Mundane/paranOrb", 1.0);
     return s;
 }
 
@@ -633,38 +659,37 @@ AppSettings
 Speculum::currentSettings()
 {
     AppSettings s;
-    s.setValue("Speculum/showFixedStars", _showFixedStars);
-    s.setValue("Speculum/filterOrb", _filterOrbMinutes);
+    s.setValue("Mundane/includeFixedStars", _showFixedStars);
+    s.setValue("Mundane/paranOrb",
+               _filterOrbMinutes / 4.0); // Convert minutes to degrees
     return s;
 }
 
 void
 Speculum::applySettings(const AppSettings& s)
 {
-    _showFixedStars   = s.value("Speculum/showFixedStars", true).toBool();
-    _filterOrbMinutes = s.value("Speculum/filterOrb", 4.0).toDouble();
+    _showFixedStars = s.value("Mundane/includeFixedStars", true).toBool();
+
+    // Read orb in degrees and convert based on display mode
+    double orbDegrees = s.value("Mundane/paranOrb", 1.0).toDouble();
 
     // Read display mode from shared Plain widget setting
     _displayMode = A::SpeculumDisplayMode(
-        s.value("Text/displayMode", unsigned(A::DisplayLocalTime)).toUInt());
+        s.value("Mundane/displayMode", unsigned(A::DisplayLocalTime)).toUInt());
 
-    _orbSpinBox->setValue(static_cast<int>(_filterOrbMinutes));
+    // Convert degrees to appropriate units for current display mode
+    if (_displayMode == A::DisplayRightAscension) {
+        _filterOrbMinutes = orbDegrees; // Display as degrees
+        _orbSpinBox->setSuffix(tr(" deg"));
+        _orbSpinBox->setRange(0.25, 15.0); // 0.25 to 15 degrees
+    } else {
+        _filterOrbMinutes =
+            orbDegrees * 4.0; // Convert to minutes (1° = 4 minutes)
+        _orbSpinBox->setSuffix(tr(" min"));
+        _orbSpinBox->setRange(1.0, 60.0); // 1 to 60 minutes
+    }
+
+    _orbSpinBox->setValue(_filterOrbMinutes);
 
     updateSpeculumDisplay();
-}
-
-void
-Speculum::setupSettingsEditor(AppSettingsEditor* ed)
-{
-    ed->addTab(tr("Speculum"));
-    ed->addCheckBox("Speculum/showFixedStars", tr("Include fixed stars"));
-    QDoubleSpinBox* orbSpinBox =
-        ed->addDoubleSpinBox("Speculum/filterOrb",
-                             tr("Default filter orb (minutes)"),
-                             1.0,
-                             60.0);
-    // Override the default "deg" suffix with "min" for time filtering
-    if (orbSpinBox) {
-        orbSpinBox->setSuffix(tr(" min"));
-    }
 }

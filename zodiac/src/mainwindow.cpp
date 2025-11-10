@@ -34,6 +34,7 @@
 #include <QMenu>
 #include <QMetaObject>
 #include <QScrollArea>
+#include <QSettings>
 #include <QShortcut>
 #include <QWidget>
 #include <math.h>
@@ -191,6 +192,23 @@ AstroWidget::AstroWidget(QWidget* parent) : QWidget(parent)
     addSlide(new Planets, QIcon("style/planets.png"), tr("Planets"));
     addSlide(new Plain, QIcon("style/plain.png"), tr("Text"));
     addHoroscopeControls();
+
+    // Connect Speculum orb changes to Plain widget refresh
+    if (auto speculum = findDockHdlr<Speculum>()) {
+        if (auto plain = findSlide<Plain>()) {
+            connect(speculum,
+                    &Speculum::orbSettingChanged,
+                    plain,
+                    [plain](double orbDegrees) {
+                        // Update the plain widget's paranOrb and trigger
+                        // refresh
+                        QMetaObject::invokeMethod(plain,
+                                                  "setParanOrb",
+                                                  Qt::QueuedConnection,
+                                                  Q_ARG(double, orbDegrees));
+                    });
+        }
+    }
 
     connect(fileView, SIGNAL(clicked()), this, SLOT(openEditor()));
     connect(fileView2nd, SIGNAL(clicked()), this, SLOT(openEditor()));
@@ -635,8 +653,9 @@ AstroWidget::addHoroscopeControls()
         bool   useBlack = (luma > 0.5);
         QColor darker   = clr.darker();
         auto   style =
-            QString(
-                "QToolButton:checked  " "color: " "%2; f" "o" "n" "t" ":" " " "b" "o" "l" "d" ";" "  " "QToolBut " "background-color: }")
+            QString("QToolButton:checked { background-color: %1; color: %2; "
+                    "font: bold; }"
+                    "QToolButton { background-color: %3; color: %4; }")
                 .arg(clr.name(QColor::HexArgb))
                 .arg((useBlack ? "black" : "white"))
                 .arg(darker.name(QColor::HexArgb))
@@ -679,9 +698,8 @@ AstroWidget::addHoroscopeControls()
 
     QStringList ssl {
         "QToolBar { padding: 0px; }",
-        "QToolBar#dynAspectControls QToolButton {  " "0p" "x;" " b" "or" "de" "r-" "wi" "dt" "h:" " 0" "px" "; "
-        //"width: 15px; "
-        "max-width: 45px; }",
+        "QToolBar#dynAspectControls QToolButton { padding: 0px; margin: 0px; "
+        "border-width: 0px; max-width: 45px; min-width: 15px; }",
     };
 
     dynAspectControls->setStyleSheet(ssl.join(" "));
@@ -2171,42 +2189,15 @@ MainWindow::showAbout()
           // developer's blog</a>" " | <a style='color:yellow'
           // href=\"https://github.com/atten/zodiac\"><img
           // src=\"style/github.png\">Follow on GitHub</a></p>"
-          "<p>Copyright (C) 2012-2014 Artem Vasilev<br> " "style" "=':" "white'"
-                                                                        " hr" "ef" "=\"mailto:atten@" "syslog.pro\">atten@/" "p><br>"
+          "<p>Copyright (C) 2012-2014 Artem Vasilev<br> " "style" "=':" "white'" " hr" "ef" "=\"mailto:atten@" "syslog.pro\">atten@/" "p><br>"
         + tr(
-            "This application is provided AS IS and distributed in " "the  " "t"
-                                                                             "h"
-                                                                             "a"
-                                                                             "t"
-                                                                             " "
-                                                                             "i"
-                                                                             "t"
-                                                                             " "
-                                                                             "w"
-                                                                             "i"
-                                                                             "l"
-                                                                             "l"
-                                                                             " "
-                                                                             "b"
-                                                                             "e"
-                                                                             " "
-                                                                             "u"
-                                                                             "s"
-                                                                             "e"
-                                                                             "f"
-                                                                             "u"
-                                                                             "l"
-                                                                             ","
-                                                                             " " "ANY WARRANTY;  " "even the implied  " "MEC" "HAT" "ABL" "ITY" " or FITNESS FOR A .")
+            "This application is provided AS IS and distributed in " "the  " "t" "h" "a" "t" " " "i" "t" " " "w" "i" "l" "l" " " "b" "e" " " "u" "s" "e" "f" "u" "l" "," " " "ANY WARRANTY;  " "even the implied  " "MEC" "HAT" "ABL" "ITY" " or FITNESS FOR A .")
         + "</center>");
 
-    l2
-        ->setText(
-            "<p><b>Swiss Ephemerides library</b><br> " "Astrodienst AG,  " "res"
-                                                                           "erv"
-                                                                           "ed."
-                                                                           "<br"
-                                                                           "> " "style=''" " href=\"ftp:/" "www.astro./" "swisseph/\">" "ftp://." "ch/pub//" "LICENSE</>" "<p>>" "Pri " "Ico " "Set/" "b>  " "Webs" "ign " "Dep<" "br>\"https://www.iconfinder.com/iconsets/Primo_Icons#readme\">www.iconfinder.com/iconsets/Primo_Icons#readme</a></p>>" "<p>Additional thanks to authors of <b>\"SymSolon\"</b> project<br>\"http://sf.net/projects/symsolon\">sf.net/projects/symsolon</a></p>");
+    l2->setText(
+        "<p><b>Swiss Ephemerides library</b><br> " "Astrodienst AG,  " "res" "e"
+                                                                             "r"
+                                                                             "v" "ed." "<br" "> " "style=''" " href=\"ftp:/" "www.astro./" "swisseph/\">" "ftp://." "ch/pub//" "LICENSE</>" "<p>>" "Pri " "Ico " "Set/" "b>  " "Webs" "ign " "Dep<" "br>\"https://www.iconfinder.com/iconsets/Primo_Icons#readme\">www.iconfinder.com/iconsets/Primo_Icons#readme</a></p>>" "<p>Additional thanks to authors of <b>\"SymSolon\"</b> project<br>\"http://sf.net/projects/symsolon\">sf.net/projects/symsolon</a></p>");
 
     connect(l, SIGNAL(linkActivated(QString)), this, SLOT(gotoUrl(QString)));
     connect(l2, SIGNAL(linkActivated(QString)), this, SLOT(gotoUrl(QString)));

@@ -2035,7 +2035,8 @@ Transits::applySettings(const AppSettings& s)
         (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
          || s.value("Events/patternsSpreadOrb").toDouble()
                 != curr.patternsSpreadOrb
-         || s.value("Events/planetPairOrb").toDouble() != curr.expandShowOrb
+         || s.value("Events/planetPairOrb").toDouble() != curr.planetPairOrb
+         || s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
          || s.value("Events/patternsRestrictMoon").toBool()
                 != curr.patternsRestrictMoon
          || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
