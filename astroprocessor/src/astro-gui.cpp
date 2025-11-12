@@ -141,6 +141,13 @@ AstroFile::save()
     file.setValue("placeTag", getLocationName());
     file.setValue("comment", getComment());
 
+    // Base chart support for progressed charts
+    if (hasBaseChart()) {
+        file.setValue("baseChartGMT", getBaseChartGMT().toString(Qt::ISODate));
+    } else {
+        file.remove("baseChartGMT");
+    }
+
     // if (getType()==TypeEvents) {
     file.setValue("dateRange", getDateRange().operator QVariant());
     if (_eventList.empty()) {
@@ -191,6 +198,15 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
                           file.value("z").toFloat()));
     setLocationName(file.value("placeTag").toString());
     setComment(file.value("comment").toString());
+
+    // Load base chart if present (for progressed charts)
+    if (file.contains("baseChartGMT")) {
+        auto baseDts = file.value("baseChartGMT").toString();
+        if (!baseDts.endsWith('Z')) baseDts += 'Z';
+        setBaseChart(QDateTime::fromString(baseDts, Qt::ISODate));
+    } else {
+        clearBaseChart();
+    }
 
     // if (getType()==TypeEvents) {
     QList<QDateTime> dl;
@@ -354,6 +370,25 @@ AstroFile::setZodiac(A::ZodiacId zod)
     if (getZodiac() != zod) {
         scope.inputData.setZodiac(zod);
         change(Zodiac);
+    }
+}
+
+void
+AstroFile::setBaseChart(const QDateTime& baseGmt)
+{
+    if (!scope.inputData.hasBaseChart() || 
+        scope.inputData.baseGMT() != baseGmt) {
+        scope.inputData.setBaseChart(baseGmt);
+        change(BaseChart);
+    }
+}
+
+void
+AstroFile::clearBaseChart()
+{
+    if (scope.inputData.hasBaseChart()) {
+        scope.inputData.clearBaseChart();
+        change(BaseChart);
     }
 }
 

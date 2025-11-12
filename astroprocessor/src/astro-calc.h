@@ -11,83 +11,99 @@ class AstroFile;
 typedef QList<AstroFile*> AstroFileList;
 
 struct ADateDelta {
-    int numDays = 0;
+    int numDays   = 0;
     int numMonths = 0;
-    int numYears = 0;
+    int numYears  = 0;
 
     ADateDelta(const QString& str);
 
     ADateDelta(int days = 0, int months = 0, int years = 0) :
-        numDays(days), numMonths(months), numYears(years)
-    { }
+        numDays(days),
+        numMonths(months),
+        numYears(years)
+    {
+    }
 
     ADateDelta(QDate from, QDate to);
 
     QString toString() const
     {
         QStringList sl;
-        bool terse = numYears && numMonths && numDays;
-        auto append = [&](const int& v, const QString& un) {
+        bool        terse  = numYears && numMonths && numDays;
+        auto        append = [&](const int& v, const QString& un) {
             if (!v) return;
-            sl << (terse
-                   ? QString("%1%2").arg(v).arg(un.at(0))
-                   : QString("%1 %2%3").arg(v).arg(un).arg(v!=1?"s":""));
+            sl << (terse ? QString("%1%2").arg(v).arg(un.at(0))
+                                : QString("%1 %2%3").arg(v).arg(un).arg(v != 1 ? "s"
+                                                                        : ""));
         };
-        append(numYears,"yr");
-        append(numMonths,"mo");
-        append(numDays,"day");
-        return sl.join(terse? " " : ", ");
+        append(numYears, "yr");
+        append(numMonths, "mo");
+        append(numDays, "day");
+        return sl.join(terse ? " " : ", ");
     }
 
     QDate addTo(const QDate& d);
     QDate subtractFrom(const QDate& d);
 
-    static ADateDelta fromString(const QString& str)
-    { return ADateDelta(str); }
+    static ADateDelta fromString(const QString& str) { return ADateDelta(str); }
 
     bool operator==(const ADateDelta& other) const
     {
-        return numYears == other.numYears
-                && numMonths == other.numMonths
-                && numDays == other.numDays;
+        return numYears == other.numYears && numMonths == other.numMonths
+               && numDays == other.numDays;
     }
 
     bool operator!=(const ADateDelta& other) const
-    { return !operator==(other); }
+    {
+        return !operator==(other);
+    }
 
     operator bool() const { return numYears || numMonths || numDays; }
-
 };
 
 // A namespace
-namespace A {  // Astrology, sort of :)
+namespace A
+{ // Astrology, sort of :)
 
-template <typename T> struct modalTrait
-{ static const T& defaultNew() { static T dflt; return dflt; } };
+template <typename T>
+struct modalTrait {
+    static const T& defaultNew()
+    {
+        static T dflt;
+        return dflt;
+    }
+};
 
 template <>
-struct modalTrait<bool> { static bool defaultNew() { return true; } };
+struct modalTrait<bool> {
+    static bool defaultNew() { return true; }
+};
 
 template <typename T = bool>
 class modalize {
-    T _was;
+    T  _was;
     T& _state;
 
-public:
+  public:
     modalize(T& state, T newState = modalTrait<T>::defaultNew()) :
         _was(state),
         _state(state)
-    { _state = newState; }
+    {
+        _state = newState;
+    }
 
-    ~modalize()
-    { _state = _was;}
+    ~modalize() { _state = _was; }
 
     operator const T&() const { return _state; }
-    modalize& operator=(T newState) { _state = newState; return *this; }
+    modalize& operator=(T newState)
+    {
+        _state = newState;
+        return *this;
+    }
 };
 
 enum aspectModeEnum {
-    amcUnknown=-1,
+    amcUnknown = -1,
     amcGreatCircle,
     amcEcliptic,
     amcEquatorial,
@@ -98,7 +114,7 @@ enum aspectModeEnum {
 class aspectModeType {
     aspectModeEnum _value;
 
-public:
+  public:
     typedef aspectModeEnum valueType;
 
     aspectModeType(aspectModeEnum e = amcUnknown) : _value(e) { }
@@ -106,8 +122,7 @@ public:
 
     static const aspectModeType& current();
 
-    aspectModeType(const QVariant& var) :
-        _value(amcUnknown)
+    aspectModeType(const QVariant& var) : _value(amcUnknown)
     {
         if (var.isValid()) {
             if (VAR_TYPE(var) == QMetaType::QString) {
@@ -136,12 +151,10 @@ public:
 
     static QString toUserString(unsigned e)
     {
-        static QString aspectModeStr[] = {
-            QObject::tr("Great Circle"),
-            QObject::tr("Ecliptic"),
-            QObject::tr("Equatorial"),
-            QObject::tr("Prime Vertical")
-        };
+        static QString aspectModeStr[] = { QObject::tr("Great Circle"),
+                                           QObject::tr("Ecliptic"),
+                                           QObject::tr("Equatorial"),
+                                           QObject::tr("Prime Vertical") };
         return aspectModeStr[e];
     }
 
@@ -162,12 +175,13 @@ public:
 
     QString asUserString() const { return toUserString(_value); }
 
-private:
+  private:
     static const char** strings()
     {
-        static const char* s_strings[] = {
-            "greatCircle", "ecliptic", "equatorial", "primeVertical"
-        };
+        static const char* s_strings[] = { "greatCircle",
+                                           "ecliptic",
+                                           "equatorial",
+                                           "primeVertical" };
         return s_strings;
     }
 };
@@ -177,60 +191,84 @@ extern aspectModeType aspectMode;
 enum PrimDirMode { prdMundane, prdZodiacal, prdActive };
 extern PrimDirMode primDirMode;
 
-double            getJulianDate(QDateTime GMT, bool ephemerisTime = false);
-float             roundDegree(float deg); // returns 0...360
-const ZodiacSign& getSign(float deg, const Zodiac& zodiac);
-int               getHouse(const Houses& houses, float deg); // returns 1...12
-int               getHouse(ZodiacSignId sign,
-                           const Houses& houses,
-                           const Zodiac& zodiac);
-int               getHouse(const Horoscope& scope, float deg);
+double
+getJulianDate(QDateTime GMT, bool ephemerisTime = false);
+float
+roundDegree(float deg); // returns 0...360
+const ZodiacSign&
+getSign(float deg, const Zodiac& zodiac);
+int
+getHouse(const Houses& houses, float deg); // returns 1...12
+int
+getHouse(ZodiacSignId sign, const Houses& houses, const Zodiac& zodiac);
+int
+getHouse(const Horoscope& scope, float deg);
 
-float    angle(const Star& body1, const Star& body2);
-float    angle(const Star& body, float deg);
-float    angle(const Star& body, QPointF coordinate);
-float    angle(float deg1, float deg2);
-AspectId aspect(const Star&       planet1,
-                const Star&       planet2,
-                const AspectsSet& aspectSet);
-AspectId aspect(const Star&       planet,
-                QPointF           coordinate,
-                const AspectsSet& aspectSet);
-AspectId aspect(const Star& planet1, float degree, const AspectsSet& aspectSet);
-AspectId aspect(float angle, const AspectsSet& aspectSet);
-bool     towardsMovement(const Star& planet1, const Star& planet2);
-PlanetPosition getPosition(const Planet& planet, ZodiacSignId sign);
-const Planet*  doryphoros(const Horoscope& scope);
-const Planet*  auriga(const Horoscope& scope);
-const Planet*  almuten(const Horoscope& scope);
-bool rulerDisposition(int house, int houseAuthority, const Horoscope& scope);
-bool isEarlier(const Planet& planet, const Planet& sun);
-const Planet& ruler          ( int house, const Horoscope& scope );
-PlanetId receptionWith(const Planet& planet, const Horoscope& scope);
+float
+angle(const Star& body1, const Star& body2);
+float
+angle(const Star& body, float deg);
+float
+angle(const Star& body, QPointF coordinate);
+float
+angle(float deg1, float deg2);
+AspectId
+aspect(const Star& planet1, const Star& planet2, const AspectsSet& aspectSet);
+AspectId
+aspect(const Star& planet, QPointF coordinate, const AspectsSet& aspectSet);
+AspectId
+aspect(const Star& planet1, float degree, const AspectsSet& aspectSet);
+AspectId
+aspect(float angle, const AspectsSet& aspectSet);
+bool
+towardsMovement(const Star& planet1, const Star& planet2);
+PlanetPosition
+getPosition(const Planet& planet, ZodiacSignId sign);
+const Planet*
+doryphoros(const Horoscope& scope);
+const Planet*
+auriga(const Horoscope& scope);
+const Planet*
+almuten(const Horoscope& scope);
+bool
+rulerDisposition(int house, int houseAuthority, const Horoscope& scope);
+bool
+isEarlier(const Planet& planet, const Planet& sun);
+const Planet&
+ruler(int house, const Horoscope& scope);
+PlanetId
+receptionWith(const Planet& planet, const Horoscope& scope);
 
-uintMSet getAllFactors(unsigned h);
-void getAllFactors(unsigned h, uintSSet& ss);
-void getAllFactorsAlt(unsigned h, uintSSet& ss);
-uintMSet getPrimeFactors(unsigned h);
-void getPrimeFactors(unsigned h, uintSSet& ss);
+uintMSet
+getAllFactors(unsigned h);
+void
+getAllFactors(unsigned h, uintSSet& ss);
+void
+getAllFactorsAlt(unsigned h, uintSSet& ss);
+uintMSet
+getPrimeFactors(unsigned h);
+void
+getPrimeFactors(unsigned h, uintSSet& ss);
 
-std::vector<bool> getPrimeSieve(unsigned top);
-uintMSet getPrimes(unsigned top);
+std::vector<bool>
+getPrimeSieve(unsigned top);
+uintMSet
+getPrimes(unsigned top);
 
-void findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
-void calculateBaseChartHarmonic(Horoscope& scope);
+void
+findHarmonics(const ChartPlanetMap& cpm, PlanetHarmonics& hx);
+void
+calculateBaseChartHarmonic(Horoscope& scope);
 
 typedef QList<InputData> idlist;
 
-struct EventOptions
-{
-    EventOptions() {};
+struct EventOptions {
+    EventOptions();
     EventOptions(const QVariantMap& map);
     EventOptions(const EventOptions& orig) = default;
-    EventOptions(const EventOptions& orig,
-                 const EventTypeSet& exclude);
+    EventOptions(const EventOptions& orig, const EventTypeSet& exclude);
 
-    ADateDelta defaultTimespan{0 /*yr*/, 1 /*mo*/, 0 /*dy*/};
+    ADateDelta defaultTimespan { 0 /*yr*/, 1 /*mo*/, 0 /*dy*/ };
 
     static const QString&            zposPat();
     static const QRegularExpression& zposRE();
@@ -246,18 +284,15 @@ struct EventOptions
     bool filterLowerUnselectedHarmonics = true;
     bool includeMidpoints               = false;
 
-    bool showStations          = true;
     bool includeShadowTransits = true;
 
     bool includeTransitRange             = true;
-    bool showTransitsToTransits          = true;
     bool limitLunarTransits              = true;
-    bool showTransitsToNatalPlanets      = true;
-    bool showTransitsToNatalAngles       = true;
-    bool showTransitsToHouseCusps        = false;
     bool includeOnlyOuterTransitsToNatal = false;
     bool includeAsteroids                = false;
     bool includeCentaurs                 = true;
+
+    bool includeOnlyInnerProgressionsToNatal = true;
 
     enum skipper {
         SkipNone,
@@ -268,56 +303,25 @@ struct EventOptions
     skipper skipByDuration = SkipNone;
 
     bool skippable(const JDateRange& r, EventType et) const
-    { return skippableEvent(et) && skippablePeriod(r); }
+    {
+        return skippableEvent(et) && skippablePeriod(r);
+    }
 
     bool skippablePeriod(const JDateRange& r) const
     {
         switch (skipByDuration) {
-        case SkipNone:
-            return false;
-        case SkipLessThanDay:
-            return r.second - r.first < 1.0;
-        case SkipLessThanWeek:
-            return r.second - r.first < 7.0;
-        case SkipLessThanMonth:
-            return r.second - r.first < 28.0;
+        case SkipNone:          return false;
+        case SkipLessThanDay:   return r.second - r.first < 1.0;
+        case SkipLessThanWeek:  return r.second - r.first < 7.0;
+        case SkipLessThanMonth: return r.second - r.first < 28.0;
         }
         return false;
     }
 
     bool skippableEvent(EventType et) const
-    { return et == etcTransitToTransit || et == etcTransitToNatal; }
-
-    bool includeTransits() const
     {
-        return showTransitsToTransits || showTransitsToNatalPlanets
-               || showTransitsToNatalAngles || showTransitsToHouseCusps;
+        return et == etcTransitToTransit || et == etcTransitToNatal;
     }
-
-    bool showReturns = true;
-
-    bool showProgressionsToProgressions      = false;
-    bool showProgressionsToNatal             = false;
-    bool includeOnlyInnerProgressionsToNatal = true;
-
-    bool includeProgressions() const
-    {
-        return showProgressionsToNatal || showProgressionsToProgressions;
-    }
-
-    bool showTransitAspectPatterns      = true;
-    bool showTransitNatalAspectPatterns = true;
-
-    bool includeAspectPatterns() const
-    {
-        return showTransitAspectPatterns || showTransitNatalAspectPatterns;
-    }
-
-    bool showIngresses         = false;
-    bool showLunations         = false;
-    bool showHeliacalEvents    = false;
-    bool showPrimaryDirections = false;
-    bool showLifeEvents        = false;
 
     bool expandShowAspectPatterns            = true;
     bool expandShowHousePlacementsOfTransits = true;
@@ -329,14 +333,176 @@ struct EventOptions
     bool expandShowReturnAspects                = true;
     bool expandShowTransitAspectsToReturnPlanet = true;
 
-    // Display modes for column content: 0=default glyphs, 1=rulership, 2=rulership+natal_house
+    // Display modes for column content: 0=default glyphs, 1=rulership,
+    // 2=rulership+natal_house
     enum DisplayMode {
-        DisplayGlyphs = 0,
-        DisplayRulership = 1,
+        DisplayGlyphs                  = 0,
+        DisplayRulership               = 1,
         DisplayRulershipWithNatalHouse = 2
     };
     static DisplayMode s_transitBodyColMode;
     static DisplayMode s_natalTransitBodyColMode;
+
+    // Core enabled events set
+    EventTypeSet enabledEvents;
+
+    // Event type accessors
+    bool isEnabled(EventType et) const { return enabledEvents.count(et) > 0; }
+    void setEnabled(EventType et, bool enabled = true)
+    {
+        if (enabled) enabledEvents.insert(et);
+        else
+            enabledEvents.erase(et);
+    }
+    void enable(EventType et) { enabledEvents.insert(et); }
+    void disable(EventType et) { enabledEvents.erase(et); }
+
+    // Variadic template accessors using C++17 fold expressions
+    template <typename... EventTypes>
+    bool allEnabled(EventTypes... events) const
+    {
+        return (... && isEnabled(events));
+    }
+
+    template <typename... EventTypes>
+    bool anyEnabled(EventTypes... events) const
+    {
+        return (... || isEnabled(events));
+    }
+
+    template <typename... EventTypes>
+    void setEnabled(bool enabled, EventTypes... events)
+    {
+        (setEnabled(events, enabled), ...);
+    }
+
+    // Backward-compatible accessors (map to EventType checks)
+    bool showStations() const { return isEnabled(etcStation); }
+    void setShowStations(bool b) { setEnabled(etcStation, b); }
+
+    bool showTransitsToTransits() const
+    {
+        return isEnabled(etcTransitToTransit);
+    }
+    void setShowTransitsToTransits(bool b)
+    {
+        setEnabled(etcTransitToTransit, b);
+    }
+
+    bool showTransitsToNatalPlanets() const
+    {
+        return isEnabled(etcTransitToNatal);
+    }
+    void setShowTransitsToNatalPlanets(bool b)
+    {
+        setEnabled(etcTransitToNatal, b);
+    }
+
+    bool showTransitsToNatalAngles() const
+    {
+        return isEnabled(etcTransitToNatal);
+    }
+    void setShowTransitsToNatalAngles(bool b)
+    {
+        setEnabled(etcTransitToNatal, b);
+    }
+
+    bool showTransitsToHouseCusps() const { return isEnabled(etcHouseIngress); }
+    void setShowTransitsToHouseCusps(bool b) { setEnabled(etcHouseIngress, b); }
+
+    bool includeTransits() const
+    {
+        return anyEnabled(etcTransitToTransit,
+                          etcTransitToNatal,
+                          etcOuterTransitToNatal,
+                          etcHouseIngress);
+    }
+
+    bool showReturns() const { return isEnabled(etcReturn); }
+    void setShowReturns(bool b)
+    {
+        setEnabled(etcReturn, b);
+        setEnabled(etcSolarReturn, b);
+        setEnabled(etcLunarReturn, b);
+    }
+
+    bool showProgressionsToProgressions() const
+    {
+        return isEnabled(etcProgressedToProgressed);
+    }
+    void setShowProgressionsToProgressions(bool b)
+    {
+        setEnabled(etcProgressedToProgressed, b);
+    }
+
+    bool showProgressionsToNatal() const
+    {
+        return isEnabled(etcProgressedToNatal)
+               || isEnabled(etcInnerProgressedToNatal);
+    }
+    void setShowProgressionsToNatal(bool b)
+    {
+        setEnabled(etcProgressedToNatal, b);
+        setEnabled(etcInnerProgressedToNatal, b);
+    }
+
+    bool includeProgressions() const
+    {
+        return anyEnabled(etcProgressedToProgressed,
+                          etcProgressedToNatal,
+                          etcInnerProgressedToNatal);
+    }
+
+    bool showTransitAspectPatterns() const
+    {
+        return isEnabled(etcTransitAspectPattern);
+    }
+    void setShowTransitAspectPatterns(bool b)
+    {
+        setEnabled(etcTransitAspectPattern, b);
+    }
+
+    bool showTransitNatalAspectPatterns() const
+    {
+        return isEnabled(etcTransitNatalAspectPattern);
+    }
+    void setShowTransitNatalAspectPatterns(bool b)
+    {
+        setEnabled(etcTransitNatalAspectPattern, b);
+    }
+
+    bool includeAspectPatterns() const
+    {
+        return isEnabled(etcTransitAspectPattern)
+               || isEnabled(etcTransitNatalAspectPattern);
+    }
+
+    bool showIngresses() const { return isEnabled(etcSignIngress); }
+    void setShowIngresses(bool b) { setEnabled(etcSignIngress, b); }
+
+    bool showLunations() const { return isEnabled(etcLunation); }
+    void setShowLunations(bool b) { setEnabled(etcLunation, b); }
+
+    bool showHeliacalEvents() const { return isEnabled(etcHeliacalEvents); }
+    void setShowHeliacalEvents(bool b) { setEnabled(etcHeliacalEvents, b); }
+
+    bool showPrimaryDirections() const
+    {
+        return isEnabled(etcPrimaryDirections);
+    }
+    void setShowPrimaryDirections(bool b)
+    {
+        setEnabled(etcPrimaryDirections, b);
+    }
+
+    bool showLifeEvents() const
+    {
+        // User events are >= etcUserEventStart
+        for (auto et : enabledEvents) {
+            if (et >= etcUserEventStart) return true;
+        }
+        return false;
+    }
 
     QVariantMap toMap();
 
@@ -348,9 +514,9 @@ struct EventOptions
 };
 
 class EventFinderBase : public QRunnable {
-public:
+  public:
     virtual void find() = 0;
-    void run(); // sets ephemeris path and then runs
+    void         run(); // sets ephemeris path and then runs
 };
 
 class AspectFinder : public QObject, public EventOptions {
@@ -527,10 +693,14 @@ class EventTypeManager {
                                                const QString& desc);
     static unsigned          registerEventType(const eventTypeInfo& evtinf);
     static QString           eventTypeToString(EventType et)
-    { return std::get<2>(singleton()._eventIdToString.value(et)); }
+    {
+        return std::get<2>(singleton()._eventIdToString.value(et));
+    }
 
-    static QString           eventTypeToBrief(EventType et)
-    { return std::get<1>(singleton()._eventIdToString.value(et)); }
+    static QString eventTypeToBrief(EventType et)
+    {
+        return std::get<1>(singleton()._eventIdToString.value(et));
+    }
 
   private:
     unsigned                      _numEvents = etcUserEventStart;
@@ -542,85 +712,118 @@ class EventTypeManager {
 };
 
 class EventFinderFactory {
-public:
-    typedef QMap<EventType,QString>                 eventNameMap;
-    typedef QMap<QString,QString>                   eventGlossMap;
-    typedef QMap<QString,EventType>                 namedEventMap;
-    typedef std::tuple<EventType,QString,QString>   eventRegistration;
+  public:
+    typedef QMap<EventType, QString>                eventNameMap;
+    typedef QMap<QString, QString>                  eventGlossMap;
+    typedef QMap<QString, EventType>                namedEventMap;
+    typedef std::tuple<EventType, QString, QString> eventRegistration;
 
     static unsigned addEventType(const eventRegistration& ev);
-    static void addEventTypes(std::initializer_list<eventRegistration> evs);
+    static void     addEventTypes(std::initializer_list<eventRegistration> evs);
     static AspectFinder* makeFinder(unsigned et);
 
-private:
-    static eventNameMap     _eventNames;
-    static eventGlossMap    _eventDescrs;
-    static namedEventMap    _eventTypes;
+  private:
+    static eventNameMap  _eventNames;
+    static eventGlossMap _eventDescrs;
+    static namedEventMap _eventTypes;
 };
 
-PlanetClusterMap findClusters(unsigned h,
-                              const PlanetProfile& prof,
-                              unsigned quorum,
-                              const PlanetSet& need = {},
-                              bool skipAllNatalOnly = false,
-                              bool restrictMoon = true,
-                              qreal maxOrb = 8.);
+PlanetClusterMap
+findClusters(unsigned             h,
+             const PlanetProfile& prof,
+             unsigned             quorum,
+             const PlanetSet&     need             = {},
+             bool                 skipAllNatalOnly = false,
+             bool                 restrictMoon     = true,
+             qreal                maxOrb           = 8.);
 
-PlanetClusterMap findClusters(unsigned h, double jd,
-                              const PlanetProfile& prof,
-                              const QList<InputData>& ids,
-                              unsigned quorum,
-                              const PlanetSet& need = {},
-                              bool restrictMoon = true,
-                              qreal maxOrb = 8.);
+PlanetClusterMap
+findClusters(unsigned                h,
+             double                  jd,
+             const PlanetProfile&    prof,
+             const QList<InputData>& ids,
+             unsigned                quorum,
+             const PlanetSet&        need         = {},
+             bool                    restrictMoon = true,
+             qreal                   maxOrb       = 8.);
 
-HarmonicPlanetClusters findClusters(const uintSSet& hs,
-                                    const PlanetProfile& prof,
-                                    unsigned quorum,
-                                    const PlanetSet& need = {},
-                                    bool skipAllNatalOnly = false,
-                                    bool restrictMoon = true,
-                                    qreal maxOrb = 8.);
+HarmonicPlanetClusters
+findClusters(const uintSSet&      hs,
+             const PlanetProfile& prof,
+             unsigned             quorum,
+             const PlanetSet&     need             = {},
+             bool                 skipAllNatalOnly = false,
+             bool                 restrictMoon     = true,
+             qreal                maxOrb           = 8.);
 
-qreal computeSpread(unsigned h,
-                    double jd,
-                    const PlanetProfile& prof,
-                    const QList<InputData>& ids);
+qreal
+computeSpread(unsigned                h,
+              double                  jd,
+              const PlanetProfile&    prof,
+              const QList<InputData>& ids);
 
-inline
-qreal computeSpread(unsigned h, const PlanetProfile& prof)
-{ return computeSpread(h, 0, prof, {}); }
-
-Planet      calculatePlanet      ( PlanetId planet, const InputData& input, const Houses& houses, const Zodiac& zodiac );
-Star calculateStar(const QString&, const InputData& input, const Houses& houses, const Zodiac& zodiac);
-PlanetPower calculatePlanetPower ( const Planet& planet, const Horoscope& scope );
-Houses      calculateHouses      ( const InputData& input );
-Aspect      calculateAspect      ( const AspectsSet& aspectSet, const Planet& planet1, const Planet& planet2 );
-Aspect calculateAspect(const AspectsSet&, const Loc*, const Loc*);
-AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets );
-AspectList  calculateAspects     ( const AspectsSet& aspectSet, const PlanetMap& planets1, const PlanetMap& planets2 );   // synastry
-AspectList calculateAspects(const AspectsSet&, const ChartPlanetPtrMap& planets);
-
-void calculateOrbAndSpan(const PlanetProfile& poses,
-                         const InputData& locale,
-                         double harmonic,
-                         double& orb,
-                         double& horb,
-                         double& span);
-QDateTime calculateReturnTime(PlanetId pid,
-                              const InputData& native,
-                              const InputData& locale,
-                              double harmonic);
-QDateTime calculateClosestTime(PlanetProfile& poses,
-                               const InputData& locale,
-                               double harmonic);
-QList<QDateTime> quotidianSearch(PlanetProfile& poses,
-                                 const InputData& locale,
-                                 const QDateTime& endDt,
-                                 double span,
-                                 bool forceMin);
-
-Horoscope   calculateAll         ( const InputData& input );
-
+inline qreal
+computeSpread(unsigned h, const PlanetProfile& prof)
+{
+    return computeSpread(h, 0, prof, {});
 }
+
+Planet
+calculatePlanet(PlanetId         planet,
+                const InputData& input,
+                const Houses&    houses,
+                const Zodiac&    zodiac);
+Star
+calculateStar(const QString&,
+              const InputData& input,
+              const Houses&    houses,
+              const Zodiac&    zodiac);
+PlanetPower
+calculatePlanetPower(const Planet& planet, const Horoscope& scope);
+Houses
+calculateHouses(const InputData& input);
+Houses
+calculateHouses(const InputData& input, double progressedMC);
+Aspect
+calculateAspect(const AspectsSet& aspectSet,
+                const Planet&     planet1,
+                const Planet&     planet2);
+Aspect
+calculateAspect(const AspectsSet&, const Loc*, const Loc*);
+AspectList
+calculateAspects(const AspectsSet& aspectSet, const PlanetMap& planets);
+AspectList
+calculateAspects(const AspectsSet& aspectSet,
+                 const PlanetMap&  planets1,
+                 const PlanetMap&  planets2); // synastry
+AspectList
+calculateAspects(const AspectsSet&, const ChartPlanetPtrMap& planets);
+
+void
+calculateOrbAndSpan(const PlanetProfile& poses,
+                    const InputData&     locale,
+                    double               harmonic,
+                    double&              orb,
+                    double&              horb,
+                    double&              span);
+QDateTime
+calculateReturnTime(PlanetId         pid,
+                    const InputData& native,
+                    const InputData& locale,
+                    double           harmonic);
+QDateTime
+calculateClosestTime(PlanetProfile&   poses,
+                     const InputData& locale,
+                     double           harmonic);
+QList<QDateTime>
+quotidianSearch(PlanetProfile&   poses,
+                const InputData& locale,
+                const QDateTime& endDt,
+                double           span,
+                bool             forceMin);
+
+Horoscope
+calculateAll(const InputData& input);
+
+} // namespace A
 #endif // A_CALC_H

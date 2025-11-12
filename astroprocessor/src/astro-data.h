@@ -336,10 +336,10 @@ struct HouseSystem {
 };
 
 class InputData {
-    QDateTime _GMT; // greenwich time & date
-    QDateTime _baseGMT;
-    QVector3D _location; // x - longitude (-180...180);
-                         // y - latitude (-180...180), z - height
+    QDateTime     _GMT; // greenwich time & date
+    QDateTime     _baseGMT; // natal chart GMT for progressed charts
+    bool          _hasBaseChart; // true if this is a progressed/derived chart
+    QVector3D     _location; // x & y - long & lat (deg), z - height (meters)
     HouseSystemId _houseSystem;
     ZodiacId      _zodiac;
     AspectSetId   _aspectSet;
@@ -352,7 +352,9 @@ class InputData {
     {
         _GMT.setTimeZone(QTimeZone::UTC);
         _GMT.setSecsSinceEpoch(0);
-        _baseGMT     = _GMT;
+        _baseGMT.setTimeZone(QTimeZone::UTC);
+        _baseGMT.setSecsSinceEpoch(0);
+        _hasBaseChart = false;
         _location    = QVector3D(0, 0, 0);
         _houseSystem = Housesystem_Placidus;
         _zodiac      = Zodiac_Tropical;
@@ -368,6 +370,7 @@ class InputData {
               ZodiacId         zid  = Zodiac_Tropical,
               AspectSetId      asid = AspectSet_Default) :
         _GMT(gmt),
+        _hasBaseChart(false),
         _location(loc),
         _houseSystem(hsys),
         _zodiac(zid),
@@ -387,6 +390,20 @@ class InputData {
     short            tz() const { return _tz; }
     void             setTZ(short tz) { _tz = tz; }
 
+    // Base chart support for progressed charts
+    bool             hasBaseChart() const { return _hasBaseChart; }
+    const QDateTime& baseGMT() const { return _baseGMT; }
+    void setBaseChart(const QDateTime& baseGmt)
+    {
+        _baseGMT      = baseGmt;
+        _hasBaseChart = true;
+    }
+    void clearBaseChart()
+    {
+        _baseGMT.setSecsSinceEpoch(0);
+        _hasBaseChart = false;
+    }
+
     QDateTime getEffectiveDateTime() const
     {
         return dateTime(); /* XXX timezone etc? */
@@ -394,12 +411,10 @@ class InputData {
 
     HouseSystemId houseSystem() const { return _houseSystem; }
     void          setHouseSystem(HouseSystemId hsys) { _houseSystem = hsys; }
-
-    ZodiacId zodiac() const { return _zodiac; }
-    void     setZodiac(ZodiacId zid) { _zodiac = zid; }
-
-    AspectSetId aspectSet() const { return _aspectSet; }
-    void        setAspectSet(AspectSetId asid) { _aspectSet = asid; }
+    ZodiacId      zodiac() const { return _zodiac; }
+    void          setZodiac(ZodiacId zid) { _zodiac = zid; }
+    AspectSetId   aspectSet() const { return _aspectSet; }
+    void          setAspectSet(AspectSetId asid) { _aspectSet = asid; }
 
     // void            computeRAMC() { }
 };
@@ -1408,7 +1423,8 @@ class TransitPosition : public InputPosition {
 };
 
 class ProgressedPosition : public InputPosition {
-    double _njd;
+    double _njd;    // natal birth time julian date
+    double _sunSpeed;
 
   public:
     ProgressedPosition(const ChartPlanetId& cpid,
@@ -1418,6 +1434,20 @@ class ProgressedPosition : public InputPosition {
         InputPosition(cpid, ida, tag),
         _njd(njd)
     {
+        TransitPosition sunPos { { cpid.fileId(), Planet_Sun, Planet_None },
+                                 ida };
+        sunPos.compute(input(), _njd, -1);
+        _sunSpeed = sunPos.speed;
+    }
+
+    Loc* clone() const override { return new ProgressedPosition(*this); }
+
+    bool inMotion() const override { return true; }
+
+    qreal operator()(double jd, int h) override
+    {
+        auto pjd = _njd + (jd - _njd) / 365.25 * _sunSpeed;
+        return compute(input(), pjd, h);
     }
 };
 
@@ -1481,9 +1511,11 @@ enum EventType {
     etcSolarEclipse,                     // SE
     etcLunarEclipse,                     // LE
     etcHeliacalEvents,                   // HRS
+    etcPrimaryDirections,                // PD
     etcTransitAspectPattern,             // TA
     etcTransitNatalAspectPattern,        // TNA
     etcParanatellonta,                   // Par
+    etcParanatellontaToNatal,            // Par=N
     etcNumStandardEvents,
     etcUserEventStart = 64
 };

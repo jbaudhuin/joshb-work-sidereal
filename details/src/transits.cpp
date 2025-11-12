@@ -959,8 +959,9 @@ class EventsTableModel : public QAbstractItemModel {
         // Negative house numbers (intercepted signs) are shown in parentheses
         // Sort by absolute value to get proper numerical order
         QList<int> sortedHouses = planet.houseRuler;
-        std::sort(sortedHouses.begin(), sortedHouses.end(), 
-                  [](int a, int b) { return qAbs(a) < qAbs(b); });
+        std::sort(sortedHouses.begin(), sortedHouses.end(), [](int a, int b) {
+            return qAbs(a) < qAbs(b);
+        });
 
         QStringList houses;
         for (int house : sortedHouses) {
@@ -1488,9 +1489,7 @@ Transits::updateTimezone()
     });
 
     QString url =
-        QString(
-            A::googMapURL
-            + "/timezone/json?2&timestamp=%43&language=en")
+        QString(A::googMapURL + "/timezone/json?2&timestamp=%43&language=en")
             .arg(vec.y())
             .arg(vec.x())
             .arg(MainWindow::instance()->APIKey().c_str())
@@ -2036,15 +2035,14 @@ Transits::applySettings(const AppSettings& s)
          || s.value("Events/patternsSpreadOrb").toDouble()
                 != curr.patternsSpreadOrb
          || s.value("Events/planetPairOrb").toDouble() != curr.planetPairOrb
-         || s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
          || s.value("Events/patternsRestrictMoon").toBool()
                 != curr.patternsRestrictMoon
          || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
-         || s.value("Events/showStations").toBool() != curr.showStations
+         || s.value("Events/showStations").toBool() != curr.showStations()
          || s.value("Events/includeShadowTransits").toBool()
                 != curr.includeShadowTransits
          || s.value("Events/showTransitsToTransits").toBool()
-                != curr.showTransitsToTransits
+                != curr.showTransitsToTransits()
          || s.value("Events/includeOnlyOuterTransitsToNatal").toBool()
                 != curr.includeOnlyOuterTransitsToNatal
          || s.value("Events/limitLunarTransits").toBool()
@@ -2052,31 +2050,31 @@ Transits::applySettings(const AppSettings& s)
          || A::EventOptions::skipper(s.value("Events/skipByDuration").toUInt())
                 != curr.skipByDuration
          || s.value("Events/showTransitsToNatalPlanets").toBool()
-                != curr.showTransitsToNatalPlanets
+                != curr.showTransitsToNatalPlanets()
          || s.value("Events/showTransitsToNatalAngles").toBool()
-                != curr.showTransitsToNatalAngles
+                != curr.showTransitsToNatalAngles()
          || s.value("Events/includeAsteroids").toBool() != curr.includeAsteroids
          || s.value("Events/includeCentaurs").toBool() != curr.includeCentaurs
          || s.value("Events/showTransitsToHouseCusps").toBool()
-                != curr.showTransitsToHouseCusps
-         || s.value("Events/showReturns").toBool() != curr.showReturns
+                != curr.showTransitsToHouseCusps()
+         || s.value("Events/showReturns").toBool() != curr.showReturns()
          || s.value("Events/showProgressionsToProgressions").toBool()
-                != curr.showProgressionsToProgressions
+                != curr.showProgressionsToProgressions()
          || s.value("Events/showProgressionsToNatal").toBool()
-                != curr.showProgressionsToNatal
+                != curr.showProgressionsToNatal()
          || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
                 != curr.includeOnlyInnerProgressionsToNatal
          || s.value("Events/showTransitAspectPatterns").toBool()
-                != curr.showTransitAspectPatterns
+                != curr.showTransitAspectPatterns()
          || s.value("Events/showTransitNatalAspectPatterns").toBool()
-                != curr.showTransitNatalAspectPatterns
-         || s.value("Events/showIngresses").toBool() != curr.showIngresses
-         || s.value("Events/showLunations").toBool() != curr.showLunations
+                != curr.showTransitNatalAspectPatterns()
+         || s.value("Events/showIngresses").toBool() != curr.showIngresses()
+         || s.value("Events/showLunations").toBool() != curr.showLunations()
          || s.value("Events/showHeliacalEvents").toBool()
-                != curr.showHeliacalEvents
+                != curr.showHeliacalEvents()
          || s.value("Events/showPrimaryDirections").toBool()
-                != curr.showPrimaryDirections
-         || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents);
+                != curr.showPrimaryDirections()
+         || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents());
     bool changedExpanded =
         (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
          || s.value("Events/expandShowAspectPatterns").toBool()

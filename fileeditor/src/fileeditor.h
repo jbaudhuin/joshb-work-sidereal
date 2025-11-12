@@ -32,6 +32,7 @@ protected:
     QLineEdit* name;
     QComboBox* type;
     QComboBox* basis;
+    QLabel* basisLbl;
     QDateTimeEdit* dateTime;
     QDoubleSpinBox* timeZone;
     GeoSearchWidget* geoSearch;

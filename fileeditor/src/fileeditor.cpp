@@ -19,6 +19,8 @@
 #include <QJsonValue>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QDir>
+#include <QSettings>
 
 #include "geosearch.h"
 #include "fileeditor.h"
@@ -109,7 +111,8 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
 
     QFormLayout* lay1 = new QFormLayout;
     lay1->addRow(tr("Name:"),       lay3);
-    lay1->addRow(tr("Based on:"),   basis);
+    basisLbl = new QLabel(tr("Based on:"));
+    lay1->addRow(basisLbl,   basis);
     lay1->addRow(tr("Local time:"), lay2);
     lay1->addRow(tr("Location:"),   geoSearch);
     lay1->addItem(new QSpacerItem(1,20));
@@ -241,6 +244,9 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
                 [this,lblw,fndlblw](int i)
         {
             bool isEventSearch = (i == TypeSearch);
+            bool isProgressed = (i == TypeDerivedProg || i == TypeDerivedSA || 
+                                i == TypeDerivedPD);
+            
             startDateLbl->setVisible(isEventSearch);
             startDate->setVisible(isEventSearch);
             endDate->setVisible(isEventSearch);
@@ -249,6 +255,9 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
             lblw->setHidden(isEventSearch);
             fndlblw->setVisible(isEventSearch);
             hits->setVisible(isEventSearch);
+            basis->setVisible(isProgressed);
+            basisLbl->setVisible(isProgressed);
+            
             if (isEventSearch) {
                 auto rev = new QRegularExpressionValidator(_re, this);
                 name->setValidator(rev);
@@ -259,9 +268,22 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
                     //rev->deleteLater();
                 }
             }
+            
+            // Trigger update to populate basis combo when type changes
+            if (isProgressed && !_inUpdate) {
+                update(AstroFile::Type);
+            }
         });
     }
     type->setCurrentIndex(TypeOther);
+
+    // Connect basis combo box to update base chart when changed
+    connect(basis, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int) {
+        if (!_inUpdate) {
+            applyToFile(true, false);
+        }
+    });
 
     if (parent) name->setFocus();
     else dateTime->setFocus();
@@ -384,15 +406,59 @@ void AstroFileEditor::update(AstroFile::Members m)
     geoSearch->blockSignals(true);
     timeZone->blockSignals(true);
     dateTime->blockSignals(true);
+    basis->blockSignals(true);
+    
     geoSearch->setLocation(source->getLocation(),
                            source->getLocationName());
     timeZone->setValue(source->getTimezone());
     auto dt = source->getGMT();
     dateTime->setDateTime(dt);
     dateTime->setTimeZone(QTimeZone(3600 * source->getTimezone()));
+    
+    // Populate basis combo box with available natal charts
+    basis->clear();
+    basis->addItem(tr("(None)"), QVariant());
+    
+    FileType curType = source->getType();
+    bool showBasis = (curType == TypeDerivedProg || curType == TypeDerivedSA || 
+                     curType == TypeDerivedPD);
+    
+    if (showBasis) {
+        // Get all chart files from the chart directory
+        QString chartDir = AstroFile::fixedChartDir();
+        QDir dir(chartDir);
+        QStringList filters;
+        filters << "*.dat";
+        QFileInfoList files = dir.entryInfoList(filters, QDir::Files);
+        
+        int selectedIndex = 0;
+        for (int i = 0; i < files.size(); ++i) {
+            QFileInfo fi = files.at(i);
+            basis->addItem(fi.baseName(), fi.absoluteFilePath());
+            
+            // Check if this is the current base chart
+            if (source->hasBaseChart()) {
+                // Load this file to check its GMT
+                QSettings testFile(fi.absoluteFilePath(), QSettings::IniFormat);
+                auto testGmt = testFile.value("GMT").toString();
+                if (!testGmt.endsWith('Z')) testGmt += 'Z';
+                auto testDT = QDateTime::fromString(testGmt, Qt::ISODate);
+                
+                if (testDT == source->getBaseChartGMT()) {
+                    selectedIndex = i + 1; // +1 because "(None)" is at index 0
+                }
+            }
+        }
+        basis->setCurrentIndex(selectedIndex);
+    }
+    
+    basis->setVisible(showBasis);
+    basisLbl->setVisible(showBasis);
+    
     geoSearch->blockSignals(false);
     timeZone->blockSignals(false);
     dateTime->blockSignals(false);
+    basis->blockSignals(false);
     //if (source->getType()==TypeEvents) {
     // startDate->setDate(source->getStartDate());
     auto r = source->getDateRange();
@@ -490,6 +556,29 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     dst->setLocationName(geoSearch->locationName());
     dst->setLocation(geoSearch->location());
     dst->setTimezone(timeZone->value());
+    
+    // Handle base chart selection
+    FileType curType = dst->getType();
+    bool isProgressed = (curType == TypeDerivedProg || curType == TypeDerivedSA || 
+                        curType == TypeDerivedPD);
+    
+    if (isProgressed && basis->currentIndex() > 0) {
+        // A base chart is selected (not "(None)")
+        QString baseFilePath = basis->currentData().toString();
+        if (!baseFilePath.isEmpty()) {
+            // Load the base chart file to get its GMT
+            QSettings baseFile(baseFilePath, QSettings::IniFormat);
+            auto baseGmtStr = baseFile.value("GMT").toString();
+            if (!baseGmtStr.endsWith('Z')) baseGmtStr += 'Z';
+            auto baseGmt = QDateTime::fromString(baseGmtStr, Qt::ISODate);
+            dst->setBaseChart(baseGmt);
+        } else {
+            dst->clearBaseChart();
+        }
+    } else {
+        dst->clearBaseChart();
+    }
+    
     if (update) {
 #if 1
         dst->setGMT(dateTime->dateTime().toUTC());

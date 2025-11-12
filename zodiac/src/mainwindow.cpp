@@ -76,7 +76,19 @@ AstroFileInfo::refresh()
 
     QString age;
     if (showAge) {
-        float a1 = dt.daysTo(QDateTime::currentDateTime()) / 365.25;
+        float a1;
+        
+        // For progressed charts, show years since natal chart
+        if (currentFile()->hasBaseChart() && filesCount() > 0) {
+            // Calculate years from base chart (natal)
+            QDateTime baseTime = currentFile()->getBaseChartGMT();
+            QDateTime progTime = currentFile()->getGMT();
+            a1 = baseTime.daysTo(progTime) / 365.25;
+        } else {
+            // Normal: years from birth to now
+            a1 = dt.daysTo(QDateTime::currentDateTime()) / 365.25;
+        }
+        
         char  a[7];
         snprintf(a, sizeof(a), "%5.2f", a1);
         age = tr(", %1 years").arg(a);
@@ -1183,6 +1195,13 @@ AstroDatabase::openSelectedWithTransits()
 }
 
 void
+AstroDatabase::openSelectedWithProgressions()
+{
+    for (const auto& fi : getSelectedItems(fileList))
+        emit openFileInNewTabWithProgressions(fi);
+}
+
+void
 AstroDatabase::openSelectedAsSecond()
 {
     auto sfi = getSelectedItems(fileList);
@@ -1262,6 +1281,9 @@ AstroDatabase::showContextMenu(QPoint p)
         mnu->addAction(tr("Open with Transits"),
                        this,
                        SLOT(openSelectedWithTransits()));
+        mnu->addAction(tr("Open with Progressions"),
+                       this,
+                       SLOT(openSelectedWithProgressions()));
         mnu->addAction(tr("Synastry view"), this, SLOT(openSelectedAsSecond()));
 
         mnu->addAction(tr("Composite"), this, SLOT(openSelectedComposite()));
@@ -1645,6 +1667,38 @@ FilesBar::openFileInNewTabWithTransits(const AFileInfo& fi, AstroFile* af)
 }
 
 void
+FilesBar::openFileInNewTabWithProgressions(const AFileInfo& fi)
+{
+    // Load the natal chart
+    AstroFile* file1 = new AstroFile;
+    file1->load(fi);
+    addFile(file1);
+    
+    // Create a progressed chart based on this natal chart
+    AstroFile* file2 = new AstroFile;
+    file2->setType(TypeDerivedProg);
+    file2->setName("Progressed " + file1->getName());
+    file2->setGMT(QDateTime::currentDateTimeUtc());
+    file2->setTimezone(file1->getTimezone());
+    file2->setLocation(file1->getLocation());
+    file2->setLocationName(file1->getLocationName());
+    file2->setBaseChart(file1->getGMT());
+    file2->setParent(this);
+    
+    // Calculate the progressed chart so it has data before displaying
+    file2->calculate();
+    
+    files[currentIndex()] << file2;
+    updateTab(currentIndex());
+    connect(file2,
+            SIGNAL(changed(AstroFile::Members)),
+            this,
+            SLOT(fileUpdated(AstroFile::Members)));
+    connect(file2, SIGNAL(destroyRequested()), this, SLOT(fileDestroyed()));
+    emit currentChanged(currentIndex());
+}
+
+void
 FilesBar::openFileAsSecond(const AFileInfo& fi)
 {
     if (files[currentIndex()].count() < 2) {
@@ -1904,6 +1958,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), Customizable()
             SIGNAL(openFileInNewTabWithTransits(const AFileInfo&)),
             filesBar,
             SLOT(openFileInNewTabWithTransits(const AFileInfo&)));
+    connect(astroDatabase,
+            SIGNAL(openFileInNewTabWithProgressions(const AFileInfo&)),
+            filesBar,
+            SLOT(openFileInNewTabWithProgressions(const AFileInfo&)));
     connect(astroDatabase,
             SIGNAL(openFileAsSecond(const AFileInfo&)),
             filesBar,

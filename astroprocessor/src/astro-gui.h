@@ -41,6 +41,7 @@ class AstroFile : public QObject, public A::EventStore {
         EventList    = 0x2000,
         DateRange    = 0x4000,
         ChangedState = 0x8000,
+        BaseChart    = 0x10000,
         All          = 0xFFFF
     };
 
@@ -82,6 +83,8 @@ class AstroFile : public QObject, public A::EventStore {
     void setEventList(const QList<QDateTime>& evl);
     void setDateRange(const ADateRange& startEnd) { _dateRange = startEnd; }
     void setHarmonic(double harmonic);
+    void setBaseChart(const QDateTime& baseGmt);
+    void clearBaseChart();
 
     void setFocalPlanets(const A::PlanetSet& fp = {}) { _focalPlanets = fp; }
 
@@ -118,6 +121,14 @@ class AstroFile : public QObject, public A::EventStore {
     A::aspectModeEnum       getAspectMode() const { return A::aspectMode; }
     const QList<QDateTime>& getEventList() const { return _eventList; }
     double                  getHarmonic() const { return scope.harmonic; }
+    bool                    hasBaseChart() const
+    {
+        return scope.inputData.hasBaseChart();
+    }
+    const QDateTime& getBaseChartGMT() const
+    {
+        return scope.inputData.baseGMT();
+    }
 
     QDateTime getLocalTime() const
     {

@@ -1303,6 +1303,101 @@ calculateHouses(const InputData& input)
     return ret;
 }
 
+Houses
+calculateHouses(const InputData& input, double progressedMC)
+{
+    // This version calculates houses using a specified MC value
+    // Used for progressed charts where MC is calculated via solar arc
+    
+    Houses ret;
+    ret.system = &getHouseSystem(input.houseSystem());
+    unsigned int flags = SEFLG_SWIEPH;
+    if (input.zodiac() > 1) {
+        flags |= SEFLG_SIDEREAL;
+        swe_set_sid_mode(input.zodiac() - 2, 0, 0);
+    }
+
+    double julianDay = getJulianDate(input.GMT(), false /*i.e., UT*/);
+    double jd = getJulianDate(input.GMT(), true /*i.e., ET*/);
+    char errStr[256] = "";
+    double xx[6];
+
+    swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
+    double eps = xx[0];
+    
+    // Use the provided progressed MC
+    ret.MC = progressedMC;
+    
+    // Convert MC to RAMC
+    xx[0] = progressedMC;
+    xx[1] = 0.0;
+    xx[2] = 1.0;
+    swe_cotrans(xx, xx, -eps);
+    ret.RAMC = xx[0];
+    
+    // Calculate Ascendant and house cusps from the progressed RAMC
+    double geopos[3] = { input.location().x(),
+                        input.location().y(),
+                        input.location().z() };
+    
+    double hcusps[14], ascmc[11];
+    
+    // Use swe_houses_armc to calculate houses from RAMC
+    swe_houses_armc(ret.RAMC,
+                    geopos[1],
+                    eps,
+                    ret.system->sweCode,
+                    hcusps,
+                    ascmc);
+    
+    for (int i = 0; i < 12; i++) ret.cusp[i] = hcusps[i + 1];
+    
+    ret.Asc = ascmc[0];
+    ret.Vx = ascmc[3];
+    ret.EA = ascmc[4];
+    
+    // Calculate RAAC (RA of Ascendant)
+    xx[0] = ret.Asc;
+    xx[1] = 0.0;
+    xx[2] = 1.0;
+    swe_cotrans(xx, xx, -eps);
+    ret.RAAC = xx[0];
+    
+    xx[0] = swe_degnorm(ret.Asc + 180);
+    xx[1] = 0.0;
+    xx[2] = 1.0;
+    swe_cotrans(xx, xx, -eps);
+    ret.RADC = xx[0];
+    
+    // Calculate oblique ascension
+    double DD = asind(sind(eps) * sind(ret.Asc));
+    double AD = asind(tand(DD) * tand(input.location().y()));
+    ret.OAAC = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
+    DD = asind(sind(eps) * sind(swe_degnorm(ret.Asc + 180)));
+    AD = asind(tand(DD) * tand(input.location().y()));
+    ret.ODDC = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
+    
+    ret.halfMedium = swe_difdegn(ret.RAAC, ret.RAMC);
+    ret.halfImum = 180 - ret.halfMedium;
+    
+    // Speculum start (use current time for this)
+    swe_calc_ut(julianDay, SE_SUN, flags & ~SEFLG_SIDEREAL, xx, errStr);
+    double housePos = swe_house_pos(ret.RAMC, geopos[1], eps, 'C', xx, errStr);
+    int which = (housePos >= 4 && housePos < 10) ? SE_CALC_RISE : SE_CALC_SET;
+    swe_rise_trans(julianDay - 1,
+                   SE_SUN,
+                   NULL,
+                   SEFLG_SWIEPH,
+                   which,
+                   geopos,
+                   1013.25,
+                   10,
+                   &ret.startSpeculum,
+                   errStr);
+    
+    return ret;
+}
+
 PlanetPower
 calculatePlanetPower(const Planet& planet, const Horoscope& scope)
 {
@@ -2788,9 +2883,87 @@ calculateAll(const InputData& input)
 {
     Horoscope scope;
     scope.inputData = input;
-    scope.houses    = calculateHouses(input);
-    scope.zodiac    = getZodiac(input.zodiac());
+    
+    // For progressed charts, we need to calculate the progressed date
+    // using secondary progressions (1 day = 1 year)
+    double jd = getJulianDate(input.GMT());
+    
+    // Determine which InputData to use for planet/star calculations
+    const InputData* calcInput = &input;
+    InputData progInput;  // Will be used if this is a progressed chart
+    
+    if (input.hasBaseChart()) {
+        double baseJd = getJulianDate(input.baseGMT());
+        double yearsDiff = (jd - baseJd) / 365.25;
+        double progJd = baseJd + yearsDiff; // 1 day per year
+        
+        // Create a temporary InputData for the progressed calculation date
+        progInput = input;
+        progInput.setGMT(dateTimeFromJulian(progJd));
+        
+        // HOUSE PROGRESSION METHOD: Solar Arc to MC (Traditional)
+        //
+        // Traditional secondary progressions use "solar arc" for houses:
+        // 1. Calculate natal Sun position
+        // 2. Calculate progressed Sun position (X days after birth where X = years lived)
+        // 3. Solar arc = Progressed Sun longitude - Natal Sun longitude
+        // 4. Progressed MC = Natal MC + Solar arc
+        // 5. Calculate houses from progressed MC at birth location (but using progressed obliquity)
+        //
+        // This is the most commonly used method in traditional astrology.
+        // The philosophy: House cusps (angles) progress at the same rate as the Sun
+        
+        // Calculate natal chart to get natal Sun and natal MC
+        // Create a clean natal InputData without base chart reference
+        InputData natalInput = input;
+        natalInput.setGMT(input.baseGMT());  // Use the natal date
+        natalInput.clearBaseChart();  // Clear base chart so it's calculated as a standalone natal chart
+        
+        Houses natalHouses = calculateHouses(natalInput);
+        double natalSunLon = 0.0;
+        {
+            double eps = 0.0;
+            unsigned int flags = 0;
+            double ablong = 0.0;
+            Planet natalSun = calculatePlanet(Planet_Sun, natalInput, natalHouses, 
+                                            getZodiac(natalInput.zodiac()));
+            natalSunLon = natalSun.eclipticPos.x();
+        }
+        
+        // Calculate progressed Sun position
+        // Clear base chart so progInput is calculated as standalone (not recursively progressed!)
+        progInput.clearBaseChart();
+        
+        double progSunLon = 0.0;
+        {
+            double eps = 0.0;
+            unsigned int flags = 0;
+            double ablong = 0.0;
+            Houses tempHouses;  // Not used, but needed for function call
+            Planet progSun = calculatePlanet(Planet_Sun, progInput, tempHouses,
+                                           getZodiac(progInput.zodiac()));
+            progSunLon = progSun.eclipticPos.x();
+        }
+        
+        // Calculate solar arc
+        double solarArc = swe_difdegn(progSunLon, natalSunLon);
+        
+        // Apply solar arc to natal MC to get progressed MC
+        double progressedMC = swe_degnorm(natalHouses.MC + solarArc);
+        
+        // Calculate progressed houses using the progressed MC and progressed obliquity
+        scope.houses = calculateHouses(progInput, progressedMC);
+        scope.zodiac = getZodiac(progInput.zodiac());
+        
+        // Use progInput for planet calculations
+        calcInput = &progInput;
+    } else {
+        // Normal (non-progressed) chart calculation
+        scope.houses = calculateHouses(input);
+        scope.zodiac = getZodiac(input.zodiac());
+    }
 
+    // Calculate planets and stars (common code for both progressed and non-progressed)
     for (PlanetId id : getPlanets(true, true)) {
         if (id == Planet_Asc) {
             Planet asc = Data::getPlanet(id);
@@ -2825,13 +2998,13 @@ calculateAll(const InputData& input)
             scope.planets[id] = hc;
         } else {
             scope.planets[id] =
-                calculatePlanet(id, input, scope.houses, scope.zodiac);
+                calculatePlanet(id, *calcInput, scope.houses, scope.zodiac);
         }
     }
 
     for (const QString& name : std::as_const(getStars())) {
         scope.stars[name.toStdString()] =
-            calculateStar(name, input, scope.houses, scope.zodiac);
+            calculateStar(name, *calcInput, scope.houses, scope.zodiac);
     }
 
     if (scope.planets.contains(-1)) {
@@ -2855,47 +3028,51 @@ calculateAll(const InputData& input)
 /*static*/ EventOptions::DisplayMode EventOptions::s_natalTransitBodyColMode =
     EventOptions::DisplayGlyphs;
 
+EventOptions::EventOptions() = default;
+
 EventOptions::EventOptions(const QVariantMap& map)
 {
-    defaultTimespan       = map.value("Events/defaultTimespan").toString();
-    expandShowOrb         = map.value("Events/secondaryOrb").toDouble();
-    planetPairOrb         = map.value("Events/planetPairOrb").toDouble();
-    patternsQuorum        = map.value("Events/patternsQuorum").toUInt();
-    patternsSpreadOrb     = map.value("Events/patternsSpreadOrb").toDouble();
-    patternsRestrictMoon  = map.value("Events/patternsRestrictMoon").toBool();
-    includeMidpoints      = map.value("Events/includeMidpoints").toBool();
-    showStations          = map.value("Events/showStations").toBool();
+    defaultTimespan      = map.value("Events/defaultTimespan").toString();
+    expandShowOrb        = map.value("Events/secondaryOrb").toDouble();
+    planetPairOrb        = map.value("Events/planetPairOrb").toDouble();
+    patternsQuorum       = map.value("Events/patternsQuorum").toUInt();
+    patternsSpreadOrb    = map.value("Events/patternsSpreadOrb").toDouble();
+    patternsRestrictMoon = map.value("Events/patternsRestrictMoon").toBool();
+    includeMidpoints     = map.value("Events/includeMidpoints").toBool();
+    setShowStations(map.value("Events/showStations").toBool());
     includeShadowTransits = map.value("Events/includeShadowTransits").toBool();
-    showTransitsToTransits =
-        map.value("Events/showTransitsToTransits").toBool();
+    setShowTransitsToTransits(
+        map.value("Events/showTransitsToTransits").toBool());
     limitLunarTransits = map.value("Events/limitLunarTransits").toBool();
     skipByDuration     = skipper(map.value("Events/skipByDuration").toUInt());
-    showTransitsToNatalPlanets =
-        map.value("Events/showTransitsToNatalPlanets").toBool();
+    setShowTransitsToNatalPlanets(
+        map.value("Events/showTransitsToNatalPlanets").toBool());
     includeOnlyOuterTransitsToNatal =
         map.value("Events/includeOnlyOuterTransitsToNatal").toBool();
     includeAsteroids = map.value("Events/includeAsteroids").toBool();
     includeCentaurs  = map.value("Events/includeCentaurs").toBool();
-    showTransitsToNatalAngles =
-        map.value("Events/showTransitsToNatalAngles").toBool();
-    showTransitsToHouseCusps =
-        map.value("Events/showTransitsToHouseCusps").toBool();
-    showReturns = map.value("Events/showReturns").toBool();
-    showProgressionsToProgressions =
-        map.value("Events/showProgressionsToProgressions").toBool();
-    showProgressionsToNatal =
-        map.value("Events/showProgressionsToNatal").toBool();
+    setShowTransitsToNatalAngles(
+        map.value("Events/showTransitsToNatalAngles").toBool());
+    setShowTransitsToHouseCusps(
+        map.value("Events/showTransitsToHouseCusps").toBool());
+    setShowReturns(map.value("Events/showReturns").toBool());
+    setShowProgressionsToProgressions(
+        map.value("Events/showProgressionsToProgressions").toBool());
+    setShowProgressionsToNatal(
+        map.value("Events/showProgressionsToNatal").toBool());
     includeOnlyInnerProgressionsToNatal =
         map.value("Events/includeOnlyInnerProgressionsToNatal").toBool();
-    showTransitAspectPatterns =
-        map.value("Events/showTransitAspectPatterns").toBool();
-    showTransitNatalAspectPatterns =
-        map.value("Events/showTransitNatalAspectPatterns").toBool();
-    showIngresses         = map.value("Events/showIngresses").toBool();
-    showLunations         = map.value("Events/showLunations").toBool();
-    showHeliacalEvents    = map.value("Events/showHeliacalEvents").toBool();
-    showPrimaryDirections = map.value("Events/showPrimaryDirections").toBool();
-    showLifeEvents        = map.value("Events/showLifeEvents").toBool();
+    setShowTransitAspectPatterns(
+        map.value("Events/showTransitAspectPatterns").toBool());
+    setShowTransitNatalAspectPatterns(
+        map.value("Events/showTransitNatalAspectPatterns").toBool());
+    setShowIngresses(map.value("Events/showIngresses").toBool());
+    setShowLunations(map.value("Events/showLunations").toBool());
+    setShowHeliacalEvents(map.value("Events/showHeliacalEvents").toBool());
+    setShowPrimaryDirections(
+        map.value("Events/showPrimaryDirections").toBool());
+    // showLifeEvents is computed from enabledEvents >= etcUserEventStart, not
+    // loaded directly
     expandShowAspectPatterns =
         map.value("Events/expandShowAspectPatterns").toBool();
     expandShowHousePlacementsOfTransits =
@@ -2921,38 +3098,9 @@ EventOptions::EventOptions(const EventOptions& opts,
                            const EventTypeSet& exclude) :
     EventOptions(opts)
 {
+    // Simply remove excluded event types from the enabledEvents set
     for (auto excl : exclude) {
-        switch (excl) {
-        case etcStation:          showStations = false; break;
-        case etcTransitToStation: break;
-        case etcTransitToTransit: showTransitsToTransits = false; break;
-        case etcTransitToNatal:
-            showTransitsToNatalAngles = showTransitsToNatalPlanets = false;
-            break;
-        case etcOuterTransitToNatal:    showTransitsToNatalPlanets = false; break;
-        case etcReturn:                 showReturns = false; break;
-        case etcSolarReturn:            /*todo*/ break;
-        case etcLunarReturn:            /*todo*/ break;
-        case etcProgressedToProgressed: /*todo*/ break;
-        case etcProgressedToNatal:      /*todo*/ break;
-        case etcInnerProgressedToNatal: /*todo*/ break;
-        case etcTransitToProgressed:    /*todo*/ break;
-        case etcSolarArcToNatal:        /*todo*/ break;
-        case etcSignIngress:            showIngresses = false; break;
-        case etcHouseIngress:           showTransitsToHouseCusps = false; break;
-        case etcLunation:               /*todo*/ break;
-        case etcEclipse:                /*todo*/ break;
-        case etcSolarEclipse:           /*todo*/ break;
-        case etcLunarEclipse:           /*todo*/ break;
-        case etcHeliacalEvents:         /*todo*/ break;
-        case etcTransitAspectPattern:   showTransitAspectPatterns = false; break;
-        case etcTransitNatalAspectPattern:
-            showTransitNatalAspectPatterns = false;
-            break;
-        case etcParanatellonta: /*todo*/ break;
-
-        default:                break;
-        }
+        enabledEvents.erase(excl);
     }
 }
 
@@ -3027,32 +3175,33 @@ EventOptions::toMap()
     ret.insert("Events/patternsSpreadOrb", patternsSpreadOrb);
     ret.insert("Events/patternsRestrictMoon", patternsRestrictMoon);
     ret.insert("Events/includeMidpoints", includeMidpoints);
-    ret.insert("Events/showStations", showStations);
+    ret.insert("Events/showStations", showStations());
     ret.insert("Events/includeShadowTransits", includeShadowTransits);
-    ret.insert("Events/showTransitsToTransits", showTransitsToTransits);
+    ret.insert("Events/showTransitsToTransits", showTransitsToTransits());
     ret.insert("Events/limitLunarTransits", limitLunarTransits);
     ret.insert("Events/skipByDuration", skipByDuration);
-    ret.insert("Events/showTransitsToNatalPlanets", showTransitsToNatalPlanets);
+    ret.insert("Events/showTransitsToNatalPlanets",
+               showTransitsToNatalPlanets());
     ret.insert("Events/includeOnlyOuterTransitsToNatal",
                includeOnlyOuterTransitsToNatal);
     ret.insert("Events/includeAsteroids", includeAsteroids);
     ret.insert("Events/includeCentaurs", includeCentaurs);
-    ret.insert("Events/showTransitsToNatalAngles", showTransitsToNatalAngles);
-    ret.insert("Events/showTransitsToHouseCusps", showTransitsToHouseCusps);
-    ret.insert("Events/showReturns", showReturns);
+    ret.insert("Events/showTransitsToNatalAngles", showTransitsToNatalAngles());
+    ret.insert("Events/showTransitsToHouseCusps", showTransitsToHouseCusps());
+    ret.insert("Events/showReturns", showReturns());
     ret.insert("Events/showProgressionsToProgressions",
-               showProgressionsToProgressions);
-    ret.insert("Events/showProgressionsToNatal", showProgressionsToNatal);
+               showProgressionsToProgressions());
+    ret.insert("Events/showProgressionsToNatal", showProgressionsToNatal());
     ret.insert("Events/includeOnlyInnerProgressionsToNatal",
                includeOnlyInnerProgressionsToNatal);
-    ret.insert("Events/showTransitAspectPatterns", showTransitAspectPatterns);
+    ret.insert("Events/showTransitAspectPatterns", showTransitAspectPatterns());
     ret.insert("Events/showTransitNatalAspectPatterns",
-               showTransitNatalAspectPatterns);
-    ret.insert("Events/showIngresses", showIngresses);
-    ret.insert("Events/showLunations", showLunations);
-    ret.insert("Events/showHeliacalEvents", showHeliacalEvents);
-    ret.insert("Events/showPrimaryDirections", showPrimaryDirections);
-    ret.insert("Events/showLifeEvents", showLifeEvents);
+               showTransitNatalAspectPatterns());
+    ret.insert("Events/showIngresses", showIngresses());
+    ret.insert("Events/showLunations", showLunations());
+    ret.insert("Events/showHeliacalEvents", showHeliacalEvents());
+    ret.insert("Events/showPrimaryDirections", showPrimaryDirections());
+    ret.insert("Events/showLifeEvents", showLifeEvents());
 
     ret.insert("Events/expandShowAspectPatterns", expandShowAspectPatterns);
     ret.insert("Events/expandShowHousePlacementsOfTransits",
@@ -3159,7 +3308,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
             return index.value(cpid);
         };
 
-        if (natal && showTransitsToHouseCusps) {
+        if (natal && showTransitsToHouseCusps()) {
             houses          = calculateHouses(_ids[natus]);
             getHouseIngress = [&](PlanetId ingr, bool forward = true) {
                 ChartPlanetId cpid(-1, ingr, Planet_None);
@@ -3218,8 +3367,9 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     }
 
     if (trans
-        && (showTransitsToTransits || showTransitAspectPatterns
-            || showTransitNatalAspectPatterns || showStations || showIngresses))
+        && (showTransitsToTransits() || showTransitAspectPatterns()
+            || showTransitNatalAspectPatterns() || showStations()
+            || showIngresses()))
     {
         QVector<unsigned> ppi, ppo;
         for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
@@ -3238,7 +3388,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
 
         int in = ppi.size();
         int on = ppo.size();
-        if (showTransitsToTransits) {
+        if (showTransitsToTransits()) {
             for (int i = 0; i < in; ++i) {
                 hsetId hs = allAsp;
                 auto   tp = dynamic_cast<TransitPosition*>(_alist[ppi[i]]);
@@ -3274,7 +3424,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
             }
         }
 
-        if (showIngresses) {
+        if (showIngresses()) {
             for (auto i : std::as_const(ppi)) {
                 auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
                 auto pl = tp->planet.planetId();
@@ -3297,7 +3447,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
         }
     }
 
-    if (showProgressionsToProgressions) {
+    if (showProgressionsToProgressions()) {
         QVector<unsigned> tpi;
         for (auto pid : getPlanets()) {
             tpi << getProgressedPlanet(pid);
@@ -3317,12 +3467,13 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     }
 
     if (natal) {
-        if (showTransitsToNatalPlanets || showTransitNatalAspectPatterns
-            || showTransitsToHouseCusps || showTransitsToNatalAngles
-            || showReturns)
+        if (showTransitsToNatalPlanets() || showTransitNatalAspectPatterns()
+            || showTransitsToHouseCusps() || showTransitsToNatalAngles()
+            || showReturns())
         {
             QList<PlanetId> npl;
-            if (showTransitsToNatalPlanets || showTransitNatalAspectPatterns)
+            if (showTransitsToNatalPlanets()
+                || showTransitNatalAspectPatterns())
                 npl << getPlanets();
 
             QVector<unsigned> ppn;
@@ -3330,10 +3481,10 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                 ppn << getNatalPlanet(pid);
             }
 
-            if (!showTransitsToNatalPlanets) ppn.clear();
+            if (!showTransitsToNatalPlanets()) ppn.clear();
 
-            if (showTransitsToNatalPlanets || showTransitsToNatalAngles
-                || showTransitsToHouseCusps)
+            if (showTransitsToNatalPlanets() || showTransitsToNatalAngles()
+                || showTransitsToHouseCusps())
             {
                 QList<PlanetId> tpl;
                 if (includeOnlyOuterTransitsToNatal) {
@@ -3348,7 +3499,8 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                         auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
                         auto np = dynamic_cast<NatalPosition*>(_alist[j]);
                         if (tp->planet.planetId() != np->planet.planetId()
-                            || (!showReturns && !showTransitsToNatalPlanets))
+                            || (!showReturns()
+                                && !showTransitsToNatalPlanets()))
                         {
                             auto hs = allAsp;
                             auto pl = np->planet.planetId();
@@ -3364,7 +3516,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                             _staff.emplace_back(i, j, hs, etcTransitToNatal);
                         }
                     }
-                    if (showTransitsToHouseCusps) {
+                    if (showTransitsToHouseCusps()) {
                         for (int h = Houses_Start; h < Houses_End; ++h) {
                             // FIXME retrograde to prior house, etc. like sign
                             // ingr
@@ -3377,7 +3529,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                                                 conj,
                                                 etcHouseIngress);
                         }
-                    } else if (showTransitsToNatalAngles) {
+                    } else if (showTransitsToNatalAngles()) {
                         for (auto a : getAngles()) {
                             _staff.emplace_back(i,
                                                 getNatalPlanet(a),
@@ -3387,7 +3539,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                     }
                 }
             }
-            if (showReturns) {
+            if (showReturns()) {
                 QList<PlanetId> tpl = getPlanets();
                 for (auto pid : std::as_const(tpl)) {
                     auto   i  = getTransitPlanet(pid);
@@ -3407,7 +3559,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
             }
         }
 
-        if (showProgressionsToNatal) {
+        if (showProgressionsToNatal()) {
             QList<PlanetId> ppl;
             if (includeOnlyInnerProgressionsToNatal)
                 ppl = getInnerPlanets(includeAsteroids);
@@ -3895,22 +4047,23 @@ AspectFinder::findAspectsAndPatterns()
     PlanetSet     nats, trans;
     PlanetProfile b                = _alist;
     bool          skipAllNatalOnly = false;
-    if (!showTransitAspectPatterns && showTransitNatalAspectPatterns) {
+    if (!showTransitAspectPatterns() && showTransitNatalAspectPatterns()) {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<NatalPosition*>(pl);
             if (!pla || pla->inMotion()) continue;
             nats.emplace(pla->planet);
         }
         skipAllNatalOnly = true;
-    } else if (showTransitAspectPatterns
-               && (!showTransitNatalAspectPatterns || _ids.size() == 1))
+    } else if (showTransitAspectPatterns()
+               && (!showTransitNatalAspectPatterns() || _ids.size() == 1))
     {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<TransitPosition*>(pl);
             if (!pla || !pla->inMotion()) continue;
             trans.emplace(pla->planet);
         }
-    } else if (showTransitAspectPatterns && showTransitNatalAspectPatterns) {
+    } else if (showTransitAspectPatterns() && showTransitNatalAspectPatterns())
+    {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<PlanetLoc*>(pl);
             if (!pla) continue;
@@ -3922,7 +4075,7 @@ AspectFinder::findAspectsAndPatterns()
         }
         skipAllNatalOnly = true;
     }
-    bool showPatterns = showTransitAspectPatterns || !nats.empty();
+    bool showPatterns = showTransitAspectPatterns() || !nats.empty();
 
     const auto& start = _range.first;
     auto        end   = _range.second;
@@ -3939,7 +4092,7 @@ AspectFinder::findAspectsAndPatterns()
         auto&& hset = _hsets.at(ij.hsid);
         hs.insert(hset.begin(), hset.end());
     }
-    if (showTransitAspectPatterns || showTransitNatalAspectPatterns) {
+    if (showTransitAspectPatterns() || showTransitNatalAspectPatterns()) {
         auto&& hset = _hsets.at(0);
         hs.insert(hset.begin(), hset.end());
     }
@@ -3985,7 +4138,7 @@ AspectFinder::findAspectsAndPatterns()
     auto                   useRate = 1 / double(maxH); // XXX
     if (showPatterns) {
         useRate *= patternsSpreadOrb / 16.;
-    } else if ((showTransitsToTransits || showTransitsToNatalPlanets)
+    } else if ((showTransitsToTransits() || showTransitsToNatalPlanets())
                && includeTransitRange)
     {
         useRate *= planetPairOrb / 4.;
@@ -4022,7 +4175,7 @@ AspectFinder::findAspectsAndPatterns()
                     *useProf,
                     _ids,
                     patternsQuorum,
-                    !showTransitNatalAspectPatterns ? nats : PlanetSet {},
+                    !showTransitNatalAspectPatterns() ? nats : PlanetSet {},
                     patternsRestrictMoon,
                     patternsSpreadOrb);
                 if (!found.empty()) work[h].swap(found);
@@ -4145,8 +4298,7 @@ AspectFinder::findAspectsAndPatterns()
                         starts[h].emplace(ps, ClusterOrbWhen(orb, pjd));
                         qDebug()
                             << QString(
-                                   "Found H%1 prior start of %2 " "with %3 " "s"
-                                                                             " " "at %4")
+                                   "Found H%1 prior start of %2 " "with %3 " "s" " " "at %4")
                                    .arg(h)
                                    .arg(ps.names().join("="))
                                    .arg(orbWas)
@@ -4244,7 +4396,7 @@ AspectFinder::findAspectsAndPatterns()
                         h,
                         *prof,
                         patternsQuorum,
-                        !showTransitNatalAspectPatterns ? nats : PlanetSet {},
+                        !showTransitNatalAspectPatterns() ? nats : PlanetSet {},
                         skipAllNatalOnly,
                         patternsRestrictMoon,
                         patternsSpreadOrb);
@@ -5027,7 +5179,7 @@ AspectFinder::findStuff()
     _tp->setMaxThreadCount(itc);
 
     _state = runningState;
-    if (showStations) findStations();
+    if (showStations()) findStations();
     if (_state != cancelRequestedState) findAspectsAndPatterns();
     _state = idleState;
 
@@ -5212,12 +5364,14 @@ EventTypeManager::EventTypeManager()
             { etcSolarEclipse, 1, "SE", "Solar Eclipses" },
             { etcLunarEclipse, 1, "LE", "Lunar Eclipses" },
             { etcHeliacalEvents, 1, "HRS", "Heliacal Risings/Settings" },
+            { etcPrimaryDirections, 2, "PD", "Primary Directions" },
             { etcTransitAspectPattern, 1, "TA", "Transit Aspect Patterns" },
             { etcTransitNatalAspectPattern,
               2,
               "TNA",
               "Transit-Natal Aspect Patterns" },
-            { etcParanatellonta, 2, "Par", "Paranatellonta" }
+            { etcParanatellonta, 1, "Par", "Paranatellonta" },
+            { etcParanatellontaToNatal, 2, "Par=N", "Paran-Natal" }
         };
 
     unsigned      id;

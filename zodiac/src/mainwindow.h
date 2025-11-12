@@ -198,6 +198,7 @@ class AstroDatabase : public QFrame {
     void openSelected();
     void openSelectedInNewTab();
     void openSelectedWithTransits();
+    void openSelectedWithProgressions();
     void openSelectedAsSecond();
     void openSelectedWithSolarReturn();
     void openSelectedSolarReturnInNewTab();
@@ -214,6 +215,7 @@ class AstroDatabase : public QFrame {
     void openFile(const AFileInfo&);
     void openFileInNewTab(const AFileInfo&);
     void openFileInNewTabWithTransits(const AFileInfo&);
+    void openFileInNewTabWithProgressions(const AFileInfo&);
     void openFileAsSecond(const AFileInfo&);
     void openFilesComposite(const AFileInfoList&);
     void openFileReturn(const AFileInfo&, const QString& = "Sun");
@@ -256,6 +258,7 @@ class FilesBar : public QTabBar {
     void openFileInNewTab(const AFileInfo& name);
     void openFileInNewTabWithTransits(const AFileInfo& name);
     void openFileInNewTabWithTransits(const AFileInfo& name, AstroFile* af);
+    void openFileInNewTabWithProgressions(const AFileInfo& name);
     void openTransits(int);
     void openFileAsSecond(const AFileInfo& name = AFileInfo());
     void openTransitsAsSecond(AstroFile* af);
