@@ -1799,6 +1799,7 @@ Transits::clickedCell(QModelIndex inx)
         }
         if (shift.size() == focal.size()) focal.swap(shift);
 
+        transitsAF()->suspendUpdate();
         transitsAF()->setFocalPlanets(focal);
         transitsAF()->setName(desc);
         transitsAF()->setGMT(dt);
@@ -1813,10 +1814,11 @@ Transits::clickedCell(QModelIndex inx)
             // Set the natal chart as the base for progressions
             transitsAF()->setBaseChart(file()->getGMT());
         } else {
-            // Reset to default transit type if not a progression event
-            transitsAF()->setType(TypeEvent);
+            // For transit events, reset to TypeOther and clear base chart
+            transitsAF()->setType(TypeOther);
             transitsAF()->clearBaseChart();
         }
+        transitsAF()->resumeUpdate();
         
         emit updateSecond(transitsAF());
         if (_trans && _trans->parent() != this) _trans = nullptr;
@@ -1837,6 +1839,7 @@ Transits::doubleClickedCell(QModelIndex inx)
     A::modalize<bool> noup(_inhibitUpdate);
     AstroFile*        af = new AstroFile;
     MainWindow::theAstroWidget()->setupFile(af);
+    af->suspendUpdate();
     af->setLocation(_location->location());
     af->setLocationName(_location->locationName());
     af->setName(desc);
@@ -1852,6 +1855,7 @@ Transits::doubleClickedCell(QModelIndex inx)
         // Set the natal chart as the base for progressions
         af->setBaseChart(file()->getGMT());
     }
+    af->resumeUpdate();
     
     // bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
     if (transitsOnly() /*|| !shift*/) {
