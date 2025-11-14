@@ -22,8 +22,6 @@
     // clangd configuration
     "clangd.onConfigChanged": "restart",
     "clangd.detectExtensionConflicts": true,
-    // clang-format configuration
-    "editor.formatOnSave": true,
     "[cpp]": {
         "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
     },

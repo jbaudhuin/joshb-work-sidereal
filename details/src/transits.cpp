@@ -1773,6 +1773,8 @@ Transits::clickedCell(QModelIndex inx)
         return;
     }
     auto    dt = _evm->rowDate(inx.row());
+    auto    ev = _evm->rowData(inx.row());
+    auto    et = ev.eventType();
     QString desc;
     if (focal.empty()) desc = _evm->rowDesc(inx.row());
     else {
@@ -1800,6 +1802,22 @@ Transits::clickedCell(QModelIndex inx)
         transitsAF()->setFocalPlanets(focal);
         transitsAF()->setName(desc);
         transitsAF()->setGMT(dt);
+        
+        // Set file type to Prog for progression-related events
+        if (et == A::etcProgressedToProgressed 
+            || et == A::etcProgressedToNatal
+            || et == A::etcInnerProgressedToNatal
+            || et == A::etcTransitToProgressed)
+        {
+            transitsAF()->setType(TypeDerivedProg);
+            // Set the natal chart as the base for progressions
+            transitsAF()->setBaseChart(file()->getGMT());
+        } else {
+            // Reset to default transit type if not a progression event
+            transitsAF()->setType(TypeEvent);
+            transitsAF()->clearBaseChart();
+        }
+        
         emit updateSecond(transitsAF());
         if (_trans && _trans->parent() != this) _trans = nullptr;
     }
@@ -1813,6 +1831,8 @@ Transits::doubleClickedCell(QModelIndex inx)
     auto par = inx.parent();
     if (par.isValid()) inx = par;
     auto              dt   = _evm->rowDate(inx.row());
+    auto              ev   = _evm->rowData(inx.row());
+    auto              et   = ev.eventType();
     auto              desc = _evm->rowDesc(inx.row());
     A::modalize<bool> noup(_inhibitUpdate);
     AstroFile*        af = new AstroFile;
@@ -1821,6 +1841,18 @@ Transits::doubleClickedCell(QModelIndex inx)
     af->setLocationName(_location->locationName());
     af->setName(desc);
     af->setGMT(dt);
+    
+    // Set file type to Prog for progression-related events
+    if (et == A::etcProgressedToProgressed 
+        || et == A::etcProgressedToNatal
+        || et == A::etcInnerProgressedToNatal
+        || et == A::etcTransitToProgressed)
+    {
+        af->setType(TypeDerivedProg);
+        // Set the natal chart as the base for progressions
+        af->setBaseChart(file()->getGMT());
+    }
+    
     // bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
     if (transitsOnly() /*|| !shift*/) {
         emit addChart(af);

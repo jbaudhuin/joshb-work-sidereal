@@ -567,6 +567,37 @@ class AspectFinder : public QObject, public EventOptions {
 
     bool isActive() const { return _numTasks != 0; }
 
+    struct AspectSearchState {
+        PlanetSet     nats;
+        PlanetSet     trans;
+        PlanetProfile b;
+        bool          skipAllNatalOnly;
+        bool          showPatterns;
+
+        QDateTime d, e;
+        double    jd, bjd, ejd, pjd, ljd;
+        QDateTime nd;
+
+        uintSSet hs;
+        unsigned maxH;
+        unsigned h;
+
+        std::function<bool(unsigned, bool)> keep;
+        double                              useRate;
+        int                                 ndays;
+        int                                 nsecs;
+
+        std::map<HarmonicPlanetSet, JDateRangeTasks> inOrb;
+        std::map<HarmonicPlanetSet, JDateRangeHits>  proximityLog;
+        std::map<unsigned, PlanetClusterMap>         starts;
+        std::map<unsigned, PlanetClusterMap>         work;
+
+        PlanetProfile*                               useProf;
+        std::unique_ptr<PlanetProfile>               doomed;
+        searchPairList                               stuff;
+        std::map<HarmonicPlanetSet, JDateRangeTasks> tinOrb;
+    };
+
   signals:
     void progress(double p);
 
@@ -634,6 +665,13 @@ class AspectFinder : public QObject, public EventOptions {
         if (p->inMotion() && pid == Planet_Moon) return h < 4;
         return true;
     }
+
+    void findPriorStarts(AspectSearchState& state);
+    void findNewStarts(AspectSearchState&             state,
+                       bool                           collectingStrays,
+                       std::unique_ptr<PlanetProfile>& useProf);
+    void findTransitPairs(AspectSearchState& state);
+    void findAspects(AspectSearchState& state, modalize<bool>& mum);
 
     std::unique_ptr<QThreadPool> _tp;
 

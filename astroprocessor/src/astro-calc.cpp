@@ -1308,40 +1308,40 @@ calculateHouses(const InputData& input, double progressedMC)
 {
     // This version calculates houses using a specified MC value
     // Used for progressed charts where MC is calculated via solar arc
-    
+
     Houses ret;
-    ret.system = &getHouseSystem(input.houseSystem());
+    ret.system         = &getHouseSystem(input.houseSystem());
     unsigned int flags = SEFLG_SWIEPH;
     if (input.zodiac() > 1) {
         flags |= SEFLG_SIDEREAL;
         swe_set_sid_mode(input.zodiac() - 2, 0, 0);
     }
 
-    double julianDay = getJulianDate(input.GMT(), false /*i.e., UT*/);
-    double jd = getJulianDate(input.GMT(), true /*i.e., ET*/);
-    char errStr[256] = "";
+    double julianDay   = getJulianDate(input.GMT(), false /*i.e., UT*/);
+    double jd          = getJulianDate(input.GMT(), true /*i.e., ET*/);
+    char   errStr[256] = "";
     double xx[6];
 
     swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
     double eps = xx[0];
-    
+
     // Use the provided progressed MC
     ret.MC = progressedMC;
-    
+
     // Convert MC to RAMC
     xx[0] = progressedMC;
     xx[1] = 0.0;
     xx[2] = 1.0;
     swe_cotrans(xx, xx, -eps);
     ret.RAMC = xx[0];
-    
+
     // Calculate Ascendant and house cusps from the progressed RAMC
     double geopos[3] = { input.location().x(),
-                        input.location().y(),
-                        input.location().z() };
-    
+                         input.location().y(),
+                         input.location().z() };
+
     double hcusps[14], ascmc[11];
-    
+
     // Use swe_houses_armc to calculate houses from RAMC
     swe_houses_armc(ret.RAMC,
                     geopos[1],
@@ -1349,37 +1349,37 @@ calculateHouses(const InputData& input, double progressedMC)
                     ret.system->sweCode,
                     hcusps,
                     ascmc);
-    
+
     for (int i = 0; i < 12; i++) ret.cusp[i] = hcusps[i + 1];
-    
+
     ret.Asc = ascmc[0];
-    ret.Vx = ascmc[3];
-    ret.EA = ascmc[4];
-    
+    ret.Vx  = ascmc[3];
+    ret.EA  = ascmc[4];
+
     // Calculate RAAC (RA of Ascendant)
     xx[0] = ret.Asc;
     xx[1] = 0.0;
     xx[2] = 1.0;
     swe_cotrans(xx, xx, -eps);
     ret.RAAC = xx[0];
-    
+
     xx[0] = swe_degnorm(ret.Asc + 180);
     xx[1] = 0.0;
     xx[2] = 1.0;
     swe_cotrans(xx, xx, -eps);
     ret.RADC = xx[0];
-    
+
     // Calculate oblique ascension
     double DD = asind(sind(eps) * sind(ret.Asc));
     double AD = asind(tand(DD) * tand(input.location().y()));
-    ret.OAAC = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
-    DD = asind(sind(eps) * sind(swe_degnorm(ret.Asc + 180)));
-    AD = asind(tand(DD) * tand(input.location().y()));
-    ret.ODDC = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
-    
+    ret.OAAC  = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
+    DD        = asind(sind(eps) * sind(swe_degnorm(ret.Asc + 180)));
+    AD        = asind(tand(DD) * tand(input.location().y()));
+    ret.ODDC  = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
+
     ret.halfMedium = swe_difdegn(ret.RAAC, ret.RAMC);
-    ret.halfImum = 180 - ret.halfMedium;
-    
+    ret.halfImum   = 180 - ret.halfMedium;
+
     // Speculum start (use current time for this)
     swe_calc_ut(julianDay, SE_SUN, flags & ~SEFLG_SIDEREAL, xx, errStr);
     double housePos = swe_house_pos(ret.RAMC, geopos[1], eps, 'C', xx, errStr);
@@ -1394,7 +1394,7 @@ calculateHouses(const InputData& input, double progressedMC)
                    10,
                    &ret.startSpeculum,
                    errStr);
-    
+
     return ret;
 }
 
@@ -2883,78 +2883,88 @@ calculateAll(const InputData& input)
 {
     Horoscope scope;
     scope.inputData = input;
-    
+
     // For progressed charts, we need to calculate the progressed date
     // using secondary progressions (1 day = 1 year)
     double jd = getJulianDate(input.GMT());
-    
+
     // Determine which InputData to use for planet/star calculations
     const InputData* calcInput = &input;
-    InputData progInput;  // Will be used if this is a progressed chart
-    
+    InputData        progInput; // Will be used if this is a progressed chart
+
     if (input.hasBaseChart()) {
-        double baseJd = getJulianDate(input.baseGMT());
+        double baseJd    = getJulianDate(input.baseGMT());
         double yearsDiff = (jd - baseJd) / 365.25;
-        double progJd = baseJd + yearsDiff; // 1 day per year
-        
+        double progJd    = baseJd + yearsDiff; // 1 day per year
+
         // Create a temporary InputData for the progressed calculation date
         progInput = input;
         progInput.setGMT(dateTimeFromJulian(progJd));
-        
+
         // HOUSE PROGRESSION METHOD: Solar Arc to MC (Traditional)
         //
         // Traditional secondary progressions use "solar arc" for houses:
         // 1. Calculate natal Sun position
-        // 2. Calculate progressed Sun position (X days after birth where X = years lived)
+        // 2. Calculate progressed Sun position (X days after birth where X =
+        // years lived)
         // 3. Solar arc = Progressed Sun longitude - Natal Sun longitude
         // 4. Progressed MC = Natal MC + Solar arc
-        // 5. Calculate houses from progressed MC at birth location (but using progressed obliquity)
+        // 5. Calculate houses from progressed MC at birth location (but using
+        // progressed obliquity)
         //
         // This is the most commonly used method in traditional astrology.
-        // The philosophy: House cusps (angles) progress at the same rate as the Sun
-        
+        // The philosophy: House cusps (angles) progress at the same rate as the
+        // Sun
+
         // Calculate natal chart to get natal Sun and natal MC
         // Create a clean natal InputData without base chart reference
         InputData natalInput = input;
-        natalInput.setGMT(input.baseGMT());  // Use the natal date
-        natalInput.clearBaseChart();  // Clear base chart so it's calculated as a standalone natal chart
-        
+        natalInput.setGMT(input.baseGMT()); // Use the natal date
+        natalInput.clearBaseChart(); // Clear base chart so it's calculated as a
+                                     // standalone natal chart
+
         Houses natalHouses = calculateHouses(natalInput);
         double natalSunLon = 0.0;
         {
-            double eps = 0.0;
-            unsigned int flags = 0;
-            double ablong = 0.0;
-            Planet natalSun = calculatePlanet(Planet_Sun, natalInput, natalHouses, 
-                                            getZodiac(natalInput.zodiac()));
-            natalSunLon = natalSun.eclipticPos.x();
+            double       eps      = 0.0;
+            unsigned int flags    = 0;
+            double       ablong   = 0.0;
+            Planet       natalSun = calculatePlanet(Planet_Sun,
+                                              natalInput,
+                                              natalHouses,
+                                              getZodiac(natalInput.zodiac()));
+            natalSunLon           = natalSun.eclipticPos.x();
         }
-        
+
         // Calculate progressed Sun position
-        // Clear base chart so progInput is calculated as standalone (not recursively progressed!)
+        // Clear base chart so progInput is calculated as standalone (not
+        // recursively progressed!)
         progInput.clearBaseChart();
-        
+
         double progSunLon = 0.0;
         {
-            double eps = 0.0;
-            unsigned int flags = 0;
-            double ablong = 0.0;
-            Houses tempHouses;  // Not used, but needed for function call
-            Planet progSun = calculatePlanet(Planet_Sun, progInput, tempHouses,
-                                           getZodiac(progInput.zodiac()));
-            progSunLon = progSun.eclipticPos.x();
+            double       eps    = 0.0;
+            unsigned int flags  = 0;
+            double       ablong = 0.0;
+            Houses       tempHouses; // Not used, but needed for function call
+            Planet       progSun = calculatePlanet(Planet_Sun,
+                                             progInput,
+                                             tempHouses,
+                                             getZodiac(progInput.zodiac()));
+            progSunLon           = progSun.eclipticPos.x();
         }
-        
+
         // Calculate solar arc
         double solarArc = swe_difdegn(progSunLon, natalSunLon);
-        
+
         // Apply solar arc to natal MC to get progressed MC
         double progressedMC = swe_degnorm(natalHouses.MC + solarArc);
-        
-        // Calculate progressed houses using the progressed MC and progressed obliquity
+
+        // Calculate progressed houses using the progressed MC and progressed
+        // obliquity
         scope.houses = calculateHouses(progInput, progressedMC);
         scope.zodiac = getZodiac(progInput.zodiac());
-        
+
         // Use progInput for planet calculations
         calcInput = &progInput;
     } else {
@@ -2963,7 +2973,8 @@ calculateAll(const InputData& input)
         scope.zodiac = getZodiac(input.zodiac());
     }
 
-    // Calculate planets and stars (common code for both progressed and non-progressed)
+    // Calculate planets and stars (common code for both progressed and
+    // non-progressed)
     for (PlanetId id : getPlanets(true, true)) {
         if (id == Planet_Asc) {
             Planet asc = Data::getPlanet(id);
@@ -3219,6 +3230,69 @@ EventOptions::toMap()
     return ret;
 }
 
+std::ostream&
+operator<<(std::ostream& os, const PlanetClusterMap& pcm)
+{
+    os << "(";
+    bool any = false;
+    for (const auto& pc : pcm) {
+        if (any) os << ",\n\t";
+        os << pc.first.names().join("=").toStdString() << " spread "
+           << pc.second;
+        any = true;
+    }
+    os << ")";
+    return os;
+}
+
+QDebug
+operator<<(QDebug qd, const PlanetClusterMap& pcm)
+{
+    std::stringstream ss;
+    ss << pcm;
+    return qd << ss.str().c_str();
+}
+
+std::ostream&
+operator<<(std::ostream& os, const PlanetProfile& pp)
+{
+    bool any = false;
+    for (auto&& ploc : pp) {
+        if (any) os << " ";
+        any = true;
+        os << ploc->description().toStdString();
+    }
+    return os;
+}
+
+QDebug
+operator<<(QDebug qd, const PlanetProfile& pp)
+{
+    std::stringstream ss;
+    ss << pp;
+    return qd << ss.str().c_str();
+}
+
+std::string
+formatPlanetsEtc(const planetsEtc& pe,
+                 const PlanetProfile& alist,
+                 const hsets& hsets)
+{
+    auto [i, j] = pe.planetPair;
+    auto ai = dynamic_cast<PlanetLoc*>(alist[i]);
+    auto aj = dynamic_cast<PlanetLoc*>(alist[j]);
+    
+    QStringList hs;
+    for (auto h : hsets[pe.hsid]) hs << QString::number(h);
+    
+    return QString("H{%1} %2=%3 %4")
+        .arg(hs.join(","))
+        .arg(ai->description())
+        .arg(aj->description())
+        .arg(EventTypeManager::eventTypeToString(pe.et))
+        .toStdString();
+}
+
 /// The intent is to build _staff which comprises the aspect search and _alist
 /// which comprises the planets to be used in the aspect pattern search.
 OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
@@ -3233,7 +3307,9 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     // Better to have some kind of factory scheme, but for now...
     bool                          natal = false, trans = false, prog = false;
     int                           natus = -1, locus = -1, progr = -1;
-    QMap<ChartPlanetId, unsigned> index, revIndex;
+    QMap<ChartPlanetId, unsigned> natalIndex, natalRevIndex;
+    QMap<ChartPlanetId, unsigned> transitIndex, transitRevIndex;
+    QMap<ChartPlanetId, unsigned> progressedIndex, progressedRevIndex;
 
     uintSSet conjSet { 1 };
     hsetId   conj = _hsets.size();
@@ -3271,7 +3347,8 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
         unsigned i = ingr - Ingresses_Start;
         if (!forward) ingr += 12;
         ChartPlanetId                  cpid(-1, ingr, Planet_None);
-        QMap<ChartPlanetId, unsigned>& inx = forward ? index : revIndex;
+        QMap<ChartPlanetId, unsigned>& inx =
+            forward ? transitIndex : transitRevIndex;
         if (!inx.contains(cpid)) {
             inx[cpid] = _alist.size();
             qreal loc =
@@ -3297,15 +3374,15 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     if (natal) {
         getNatalPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(natus, pid, Planet_None);
-            if (!index.contains(cpid)) {
-                index[cpid] = _alist.size();
-                auto pl     = new NatalPosition(cpid, _ids[natus], "r");
+            if (!natalIndex.contains(cpid)) {
+                natalIndex[cpid] = _alist.size();
+                auto pl          = new NatalPosition(cpid, _ids[natus], "r");
                 if (pid >= Houses_Start && pid < Houses_End) {
                     pl->allowAspects = PlanetLoc::aspOnlyConj;
                 }
                 _alist.push_back(pl);
             }
-            return index.value(cpid);
+            return natalIndex.value(cpid);
         };
 
         if (natal && showTransitsToHouseCusps()) {
@@ -3313,7 +3390,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
             getHouseIngress = [&](PlanetId ingr, bool forward = true) {
                 ChartPlanetId cpid(-1, ingr, Planet_None);
 
-                auto&& inx = forward ? index : revIndex;
+                auto&& inx = forward ? transitIndex : transitRevIndex;
                 if (!inx.contains(cpid)) {
                     inx[cpid]  = _alist.size();
                     unsigned i = ingr - Houses_Start;
@@ -3340,11 +3417,11 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     if (trans) {
         getTransitPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(locus, pid, Planet_None);
-            if (!index.contains(cpid)) {
-                index[cpid] = _alist.size();
+            if (!transitIndex.contains(cpid)) {
+                transitIndex[cpid] = _alist.size();
                 _alist.push_back(new TransitPosition(cpid, _ids[locus]));
             }
-            return index.value(cpid);
+            return transitIndex.value(cpid);
         };
     }
     if (!prog && trans) {
@@ -3354,15 +3431,15 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     if (natal) {
         getProgressedPlanet = [&](PlanetId pid) {
             ChartPlanetId cpid(progr, pid, Planet_None);
-            if (!index.contains(cpid)) {
-                index[cpid] = _alist.size();
-                auto pl     = new ProgressedPosition(cpid, _ids[natus], njd);
+            if (!progressedIndex.contains(cpid)) {
+                progressedIndex[cpid] = _alist.size();
+                auto pl = new ProgressedPosition(cpid, _ids[natus], njd);
                 if (pid >= Houses_Start && pid < Houses_End) {
                     pl->allowAspects = PlanetLoc::aspOnlyConj;
                 }
                 _alist.push_back(pl);
             }
-            return index.value(cpid);
+            return progressedIndex.value(cpid);
         };
     }
 
@@ -3447,26 +3524,44 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
         }
     }
 
-    if (showProgressionsToProgressions()) {
-        QVector<unsigned> tpi;
-        for (auto pid : getPlanets()) {
-            tpi << getProgressedPlanet(pid);
-        }
-        for (int i = 0; i < tpi.size(); ++i) {
-            hsetId hs = allAsp;
-#if 0
-            if (limitLunarTransits) {
-                auto tp = dynamic_cast<TransitPosition*>(_alist[ppi[i]]);
-                if (tp->planet.planetId() == Planet_Moon) hs = conjOpp;
-            }
-#endif
-            for (int j = i + 1; j < tpi.size(); ++j) {
-                _staff.emplace_back(i, j, hs, etcProgressedToProgressed);
-            }
-        }
-    }
-
     if (natal) {
+        if (showProgressionsToProgressions()) {
+            QVector<unsigned> tpi;
+            for (auto pid : getPlanets()) {
+                tpi << getProgressedPlanet(pid);
+            }
+            for (int i = 0; i < tpi.size(); ++i) {
+                hsetId hs = allAsp;
+                auto   pp = dynamic_cast<ProgressedPosition*>(_alist[tpi[i]]);
+                auto   pl = pp->planet.planetId();
+                
+                // North/South Node only use conjunction
+                if (pl == Planet_NorthNode || pl == Planet_SouthNode) {
+                    hs = conj;
+                }
+                
+                for (int j = i + 1; j < tpi.size(); ++j) {
+                    auto hst = hs;
+                    auto pp2 = dynamic_cast<ProgressedPosition*>(_alist[tpi[j]]);
+                    auto opl = pp2->planet.planetId();
+                    
+                    // Skip North Node to South Node pairs - they're always opposite
+                    if ((pl == Planet_NorthNode || pl == Planet_SouthNode)
+                        && (opl == Planet_NorthNode || opl == Planet_SouthNode))
+                    {
+                        continue;
+                    }
+                    
+                    // If the other planet is also a node, use conjunction only
+                    if (opl == Planet_NorthNode || opl == Planet_SouthNode) {
+                        hst = conj;
+                    }
+                    
+                    _staff.emplace_back(tpi[i], tpi[j], hst, etcProgressedToProgressed);
+                }
+            }
+        }
+
         if (showTransitsToNatalPlanets() || showTransitNatalAspectPatterns()
             || showTransitsToHouseCusps() || showTransitsToNatalAngles()
             || showReturns())
@@ -3579,10 +3674,9 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
         }
     }
 
-#if 0
-    QMap<hsetId,QStringList> hsm;
-    for (const auto& [ij, hsid, et] : _staff) {
-        auto [i, j] = ij;
+#if 1
+    for (const auto& pe : _staff) {
+        auto [i, j] = pe.planetPair;
         auto ai = dynamic_cast<PlanetLoc*>(_alist[i]);
         auto aj = dynamic_cast<PlanetLoc*>(_alist[j]);
         const auto& pi = ai->planet;
@@ -3597,17 +3691,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
             continue;
         }
 
-        auto& hs = hsm[hsid];
-        if (hs.empty()) {
-            for (auto h: _hsets[hsid]) hs << QString::number(h);
-        }
-        auto what = QString("H{%1} %2=%3 %4")
-                .arg(hs.join(","))
-                .arg(_alist[i]->description())
-                .arg(_alist[j]->description())
-                .arg(EventTypeManager::eventTypeToString(et));
-
-        qDebug() << what;
+        qDebug() << formatPlanetsEtc(pe, _alist, _hsets).c_str();
     }
 #endif
 }
@@ -3635,49 +3719,6 @@ void
 AspectFinder::releaseThread()
 {
     //    swe_close();
-}
-
-std::ostream&
-operator<<(std::ostream& os, const PlanetClusterMap& pcm)
-{
-    os << "(";
-    bool any = false;
-    for (const auto& pc : pcm) {
-        if (any) os << ",\n\t";
-        os << pc.first.names().join("=").toStdString() << " spread "
-           << pc.second;
-        any = true;
-    }
-    os << ")";
-    return os;
-}
-
-QDebug
-operator<<(QDebug qd, const PlanetClusterMap& pcm)
-{
-    std::stringstream ss;
-    ss << pcm;
-    return qd << ss.str().c_str();
-}
-
-std::ostream&
-operator<<(std::ostream& os, const PlanetProfile& pp)
-{
-    bool any = false;
-    for (auto&& ploc : pp) {
-        if (any) os << " ";
-        any = true;
-        os << ploc->description().toStdString();
-    }
-    return os;
-}
-
-QDebug
-operator<<(QDebug qd, const PlanetProfile& pp)
-{
-    std::stringstream ss;
-    ss << pp;
-    return qd << ss.str().c_str();
 }
 
 class TaskTracker {
@@ -4040,27 +4081,614 @@ AspectFinder::findStations()
 }
 
 void
+AspectFinder::findPriorStarts(AspectSearchState& state)
+{
+    state.nd = state.d;
+    while (!state.work.empty() || !state.tinOrb.empty()) {
+        QCoreApplication::processEvents();
+
+        if (_state == cancelRequestedState) break;
+        if (_state == pauseRequestedState) {
+            QThread::usleep(100000);
+            continue;
+        }
+
+        state.nd = state.nd.addDays(-state.ndays).addSecs(-state.nsecs);
+        PlanetSet ws;
+        for (const auto& hpso : state.work) {
+            for (const auto& pso : hpso.second) {
+                ws.insert(pso.first.begin(), pso.first.end());
+            }
+        }
+        for (const auto& hijr : state.tinOrb) {
+            ws.insert(hijr.first.planets.begin(), hijr.first.planets.end());
+        }
+        auto wp  = _alist.profile(ws); // subset of planets
+        auto pjd = getJulianDate(state.nd);
+        (*wp)(pjd); // XXX compute once
+
+        for (auto hit = state.tinOrb.begin(); hit != state.tinOrb.end();) {
+            const auto& hps = hit->first;
+            const auto& ps  = hps.planets;
+            auto        hwp = wp->profile(ps);
+            auto        orb = computeSpread(hps.harmonic, *hwp);
+            delete hwp;
+            if (std::abs(orb) > planetPairOrb) {
+                state.inOrb[hps] = hit->second;
+                // if (!s_quiet)
+                qDebug() << QString("Found H%1 start of %2 at %3 with orb %4")
+                                .arg(hps.harmonic)
+                                .arg(ps.names().join("="))
+                                .arg(dtToString(state.nd))
+                                .arg(orb)
+                                .toStdString()
+                                .c_str();
+                state.tinOrb.erase(hit++);
+            } else {
+                if (!st_quiet)
+                    qDebug()
+                        << QString("Still looking for H%1 start"
+                                   " of %2 "
+                                   "at "
+                                   "%3 "
+                                   "with orb %4")
+                               .arg(hps.harmonic)
+                               .arg(ps.names().join("="))
+                               .arg(dtToString(state.nd))
+                               .arg(orb)
+                               .toStdString()
+                               .c_str();
+                hit->second.range.first = pjd; // update range start
+                ++hit;
+            }
+        }
+
+        for (auto hit = state.work.begin(); hit != state.work.end();) {
+            auto  h   = hit->first;
+            auto& pso = hit->second;
+            for (auto spit = pso.begin(); spit != pso.end();) {
+                const auto& ps     = spit->first;
+                auto        orbWas = spit->second;
+                auto        hwp    = wp->profile(ps);
+                auto        orb    = computeSpread(h, *hwp);
+                delete hwp;
+                if (orb > patternsSpreadOrb) {
+                    state.starts[h].emplace(ps, ClusterOrbWhen(orb, pjd));
+                    qDebug() << QString("Found H%1 prior start of %2 "
+                                        "with %3 "
+                                        "s"
+                                        " "
+                                        "at %4")
+                                    .arg(h)
+                                    .arg(ps.names().join("="))
+                                    .arg(orbWas)
+                                    .arg(dtToString(state.nd))
+                                    .toStdString()
+                                    .c_str();
+                    pso.erase(spit++);
+                } else {
+                    if (orb < spit->second.orb) {
+                        spit->second = { orb, pjd };
+                    }
+                    ++spit;
+                }
+            }
+            if (pso.empty()) state.work.erase(hit++);
+            else
+                ++hit;
+        }
+        delete wp;
+    }
+}
+
+void
+AspectFinder::findNewStarts(AspectSearchState&              state,
+                            bool                            collectingStrays,
+                            std::unique_ptr<PlanetProfile>& useProf)
+{
+    if (!state.showPatterns) return;
+
+    // 1. Patterns
+    for (state.h = state.maxH; state.h >= 1; --state.h) {
+        bool unsel = state.hs.count(state.h) == 0;
+        if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
+        if (collectingStrays) {
+            bool any = false;
+            auto hit = state.starts.find(state.h);
+            if (hit != state.starts.end()) {
+                if (hit->second.empty()) state.starts.erase(hit);
+                else
+                    any = true;
+            }
+            if (!any) continue;
+        }
+        PlanetClusterMap hpc;
+        if (!collectingStrays) {
+            PlanetProfile* prof = &state.b;
+            if (useProf.get()) prof = useProf.get();
+            hpc = findClusters(state.h,
+                               *prof,
+                               patternsQuorum,
+                               !showTransitNatalAspectPatterns() ? state.nats
+                                                                 : PlanetSet {},
+                               state.skipAllNatalOnly,
+                               patternsRestrictMoon,
+                               patternsSpreadOrb);
+        }
+
+        std::list<PlanetClusterMap::iterator> doomed;
+        for (auto sit = state.starts[state.h].begin();
+             sit != state.starts[state.h].end();)
+        {
+            const auto& ps   = sit->first;
+            auto        prof = state.b.profile(ps);
+            auto        hpcit = hpc.find(ps);
+            if (hpcit != hpc.end()) {
+                delete prof;
+                hpc.erase(hpcit); // already have a start time
+                ++sit;
+                continue;
+            }
+            auto spread = computeSpread(state.h, *prof);
+            if (spread <= patternsSpreadOrb) {
+                if (collectingStrays && !st_quiet) {
+                    qDebug() << QString("H%1 %2 with %3 spread at %4")
+                                    .arg(state.h)
+                                    .arg(ps.names().join("="))
+                                    .arg(spread)
+                                    .arg(dtToString(
+                                        dateTimeFromJulian(state.jd)))
+                                    .toStdString()
+                                    .c_str();
+                }
+                // still good so keep
+                delete prof;
+                ++sit;
+                continue;
+            }
+
+            double from = sit->second.when;
+            double to   = state.jd;
+
+            bool cancel = (from == 0);
+            if (cancel) {
+                qDebug() << QString("H%1").arg(state.h) << ps.names()
+                         << "was previously hijacked, so skipping";
+            } else {
+                cancel = skippablePeriod({ from, to });
+                qDebug() << QString("H%1").arg(state.h) << ps.names() << "from"
+                         << dtToString(dateTimeFromJulian(from)) << "to"
+                         << dtToString(state.nd)
+                         << std::string(cancel ? "** too short **" : "");
+            }
+
+            unsigned useH = state.h;
+            if (!cancel && state.h > 1) {
+                // look for a pending pattern at a lower harmonic
+                // because it's likely to be the same pattern but
+                // now we have a tighter bounds. when we find this,
+                // we set the start time to 0 to indicate that it
+                // is no longer active.
+                unsigned prev = 0;
+                for (unsigned f : getAllFactors(state.h)) {
+                    if (f == state.h) break;
+                    if (prev == f) continue;
+                    auto stit = state.starts.find(f);
+                    if (stit == state.starts.end()) continue;
+                    auto& startf = stit->second;
+                    auto  lwrit  = startf.find(ps);
+                    if (lwrit != startf.end()) {
+                        cancel = true;
+                        qDebug() << QString("H%1").arg(f) << ps.names()
+                                 << "exists, so skipping"
+                                 << QString("H%1").arg(state.h);
+                        break;
+                    }
+                    prev = f;
+                }
+            }
+            if (cancel) {
+                delete prof;
+                state.starts[state.h].erase(sit++);
+                continue; // skipped!
+            }
+
+            static size_t clearing = 0;
+            clearing++;
+            qDebug() << clearing
+                     << QString(
+                            "Launching H%1 search for %2 with %3 spread at %4")
+                            .arg(state.h)
+                            .arg(ps.names().join("="))
+                            .arg(spread)
+                            .arg(dtToString(dateTimeFromJulian(state.jd)))
+                            .toStdString()
+                            .c_str();
+            doomed.emplace_back(sit++);
+            // starts[h].erase(sit++);
+
+            ADateTimeRange range(dateTimeFromJulian(from),
+                                 dateTimeFromJulian(state.jd));
+            EventType      et = ps.heterogeneous()
+                                    ? etcTransitNatalAspectPattern
+                                    : etcTransitAspectPattern;
+            auto& ev = _evs.safe_emplace_back(range, et, useH, PlanetSet(ps));
+#if 1
+            _tp->start(
+                [this, prof, from, to, ps, useH, h = state.h, range, &ev] {
+                    startTask();
+#endif
+                    auto csprd = [prof, h, this](double jd) {
+                        if (_state == cancelRequestedState) throw int(1);
+                        auto val = computeSpread(h, jd, *prof, _ids);
+                        // qDebug() << dtToString(dateTimeFromJulian(jd)) <<
+                        // ps.names() << val;
+                        return val;
+                    };
+                    constexpr auto tol =
+                        double(std::numeric_limits<float>::epsilon());
+
+                    double   jd;
+                    double   m  = 1000;
+                    double   a  = from;
+                    double   b  = to;
+                    double   res;
+                    unsigned it = 0;
+                    try {
+                        do {
+                            double mid = a / 2. + b / 2.;
+                            ++it;
+                            res = brentGlobalMin(
+                                csprd, a, b, mid, m, .0000001, tol, jd);
+                            if (jd == a || jd == b) {
+                                qDebug()
+                                    << "Dubious result" << res
+                                    << ((jd == b)
+                                            ? "jd == to"
+                                            : ((jd == a) ? "jd == from" : ""))
+                                    << "for" << QString("H%1").arg(useH)
+                                    << ps.names()
+                                    << QList<qreal> { csprd(a),
+                                                      csprd(mid),
+                                                      csprd(b) };
+                                if (it > 2) break;
+                                m *= 10;
+                                auto q = (mid - a) / 4.;
+                                if (jd == b) a = b - q, b += q;
+                                else
+                                    b = a + q, a -= q;
+                            } else
+                                break;
+                        } while (it < 3);
+
+                        QMutexLocker ml(_evs.mutex());
+                        auto         qdt = dateTimeFromJulian(jd);
+                        ev.reset(qdt, res);
+                    }
+                    catch (int) {
+                    }
+                    delete prof;
+#if 1
+                    endTask();
+                });
+#endif
+            // TODO keep track of this start and end and then search
+        }
+
+        // now hpc should only contain entries that are not in starts[h]
+        // and starts[h] will contain entries that *were* initially in
+        // hpc, so we need to add the remainder of hpc to starts[h] with
+        // the new date.
+        for (const auto& cl : hpc) {
+            bool        add  = true;
+            unsigned    prev = 0;
+            const auto& ps(cl.first);
+            for (unsigned f : getAllFactors(state.h)) {
+                if (f == state.h) break;
+                if (prev == f) continue;
+                auto stit = state.starts.find(f);
+                if (stit == state.starts.end()) continue;
+                const auto& startf = stit->second;
+                auto        lwrit  = startf.find(ps);
+                if (lwrit != startf.end()) {
+                    add = false;
+                    break;
+                }
+            }
+            if (add) {
+                qDebug() << QString("Found H%1 start of %2 "
+                                    "with %3 "
+                                    "spre"
+                                    "ad"
+                                    " "
+                                    "at %4")
+                                .arg(state.h)
+                                .arg(ps.names().join("="))
+                                .arg(cl.second)
+                                .arg(dtToString(dateTimeFromJulian(state.jd)))
+                                .toStdString()
+                                .c_str();
+                state.starts[state.h].emplace(ps,
+                                              ClusterOrbWhen(cl.second.orb,
+                                                             state.pjd));
+            }
+        }
+        for (const auto& it : doomed) state.starts[state.h].erase(it);
+    }
+}
+
+void
+AspectFinder::findTransitPairs(AspectSearchState& state)
+{
+    if (!includeTransitRange) return;
+
+    qreal ad, asp;
+    qreal bd, bsp;
+
+    unsigned i, j;
+
+    auto stuff = _staff;
+    for (state.h = 1; state.h <= state.maxH; ++state.h) {
+        for (auto it = stuff.begin(); it != stuff.end();) {
+            bool unsel = state.hs.count(state.h) == 0;
+            if ((unsel && !filterLowerUnselectedHarmonics)
+                || (_hsets[it->hsid].count(state.h) == 0))
+            {
+                ++it;
+                continue;
+            }
+            std::tie(i, j) = it->planetPair;
+            std::tie(bd, bsp) =
+                PlanetProfile::computeDelta(state.b[i], state.b[j], state.h);
+
+            auto bi   = dynamic_cast<PlanetLoc*>(state.b[i]);
+            auto bj   = dynamic_cast<PlanetLoc*>(state.b[j]);
+            auto good = bi && bj && (bi->aspectable() || bj->aspectable());
+
+            bool isInOrb = false;
+            if (good) {
+                HarmonicPlanetSet hij { state.h, { bi->planet, bj->planet }, it->et };
+
+                auto hasit = state.inOrb.find(hij);
+                isInOrb    = std::abs(bd) <= planetPairOrb;
+#if 0
+                            if (isInOrb)
+                            qDebug() << QString("Found H%1 orb %2 of %3 at %4")
+                                        .arg(state.h).arg(std::abs(bd))
+                                        .arg(hij.second.names().join("="))
+                                        .arg(dtToString(state.d))
+                                        .toStdString().c_str();
+#endif
+                if (hasit == state.inOrb.end() && isInOrb) {
+                    // if (!st_quiet)
+                    qDebug() << QString("Found H%1 start of %2 at %3")
+                                    .arg(state.h)
+                                    .arg(hij.planets.names().join("="))
+                                    .arg(dtToString(state.d))
+                                    .toStdString()
+                                    .c_str();
+                    state.inOrb[hij] = { state.pjd, 0 };
+                    isInOrb          = true;
+                } else if (hasit != state.inOrb.end() && !isInOrb) {
+                    hasit->second.range.second = state.jd;
+                    if (hasit->second.tasks.empty()) {
+                        state.proximityLog[hasit->first].emplace(hasit->second,
+                                                                  0);
+                    } else if (!skippable(hasit->second.range, it->et)) {
+                        for (auto r : hasit->second.tasks) {
+                            r->setInOrbRange(hasit->second.range);
+                            _tp->start(r);
+                        }
+                    } else {
+                        for (auto r : hasit->second.tasks) {
+                            delete r;
+                        }
+                        hasit->second.tasks.clear();
+                    }
+                    // if (!st_quiet)
+                    qDebug() << QString("Found H%1 range of %2 "
+                                        "at "
+                                        "%3 "
+                                        "to "
+                                        "%4")
+                                    .arg(state.h)
+                                    .arg(hij.planets.names().join("="))
+                                    .arg(dtToString(dateTimeFromJulian(
+                                        hasit->second.range.first)))
+                                    .arg(dtToString(state.d))
+                                    .toStdString()
+                                    .c_str();
+                    state.inOrb.erase(hasit);
+                }
+            }
+            if (isInOrb) stuff.erase(it++);
+            else
+                ++it;
+        }
+    }
+}
+
+void
+AspectFinder::findAspects(AspectSearchState& state, modalize<bool>& mum)
+{
+    qreal ad, asp;
+    qreal bd, bsp;
+
+    unsigned i, j;
+    QString  wha_;
+    auto     what = [&] {
+        if (wha_.isEmpty()) {
+            wha_ = QString("H%1 %2=%3")
+                       .arg(state.h)
+                       .arg(_alist[i]->description())
+                       .arg(_alist[j]->description());
+        }
+        return wha_.toStdString();
+    };
+
+    auto stuff = _staff;
+
+    for (state.h = 1; state.h <= state.maxH; ++state.h) {
+        bool unsel = state.hs.count(state.h) == 0;
+        if (unsel && !filterLowerUnselectedHarmonics) continue;
+
+        for (auto it = stuff.begin(); it != stuff.end();) {
+            wha_.clear();
+            std::tie(i, j)   = it->planetPair;
+            auto        et   = it->et;
+            auto        hsid = it->hsid;
+            const auto& hs   = _hsets[hsid];
+            auto        ha   = hs.lower_bound(state.h);
+            if (ha == hs.end()) {
+                // qDebug() << "Snipping" << what().c_str()
+                //          << "because no further harmonics";
+                stuff.erase(it++);
+                continue;
+            } else if (*ha != state.h) {
+                // qDebug() << "Skipping" << what().c_str()
+                //          << "because not selecting h" << h;
+                ++it;
+                continue;
+            }
+
+            if (auto known = dynamic_cast<KnownPosition*>(_alist[j])) {
+                if (std::abs(known->julianDate() - state.jd)
+                    > windowOf(known))
+                {
+                    ++it;
+                    continue;
+                }
+            }
+            qreal ispd =
+                qAbs(_alist[i]->speed / 2. + state.b[i]->speed / 2.);
+            qreal jspd =
+                qAbs(_alist[j]->speed / 2. + state.b[j]->speed / 2.);
+            if (ispd > jspd) {
+                std::swap(i, j);
+                std::swap(ispd, jspd);
+            }
+
+            std::tie(ad, asp) =
+                PlanetProfile::computeDelta(_alist[i], _alist[j], state.h);
+            std::tie(bd, bsp) =
+                PlanetProfile::computeDelta(state.b[i], state.b[j], state.h);
+            if (sgn(ad) == sgn(bd) || (abs(ad) >= 90. || abs(bd) >= 90.)) {
+                if (!state.keep(i, false) || !state.keep(j, false)) {
+                    stuff.erase(it++);
+                } else {
+                    ++it;
+                }
+                continue;
+            }
+
+#if 1
+            auto pi = dynamic_cast<PlanetLoc*>(_alist[i]);
+            if (pi && pi->allowAspects > PlanetLoc::aspOnlyConj) {
+                qreal spd = _alist[j]->speed / 2. + state.b[j]->speed / 2.;
+                if (pi->allowAspects
+                    != ((spd < 0) ? PlanetLoc::aspOnlyRetro
+                                  : PlanetLoc::aspOnlyDirect))
+                {
+                    qDebug() << "skipping wrong-way" << what().c_str();
+                    stuff.erase(it++);
+                    continue;
+                }
+            }
+#endif
+
+            if (true || !st_quiet) {
+                QDateTime pdt(dateTimeFromJulian(state.pjd));
+                QDateTime dt(dateTimeFromJulian(state.jd));
+                qDebug() << what().c_str() << dtToString(pdt) << "delta" << ad
+                         << asp << "vs" << dtToString(dt) << "delta" << bd
+                         << bsp;
+            }
+            auto which = what();
+
+            // At this point, we figure there's _alist transit.
+            // If the harmonic is not on our list, let's clip the
+            // stuff list so that it doesn't get recomputed at _alist
+            // higher-order harmonic. This handles the case where
+            // conjunction would show up on any higher harmonic
+            // as an aspect at that harmonic.
+            stuff.erase(it++);
+            if (unsel) {
+                continue;
+            }
+
+            auto pj = dynamic_cast<PlanetLoc*>(_alist[j]);
+            if (includeTransitRange) {
+                auto hasit =
+                    state.inOrb.find({ state.h, { pi->planet, pj->planet }, et });
+                if (hasit == state.inOrb.end()) {
+                    hasit = state.inOrb.find(
+                        { state.h, { pj->planet, pi->planet }, et });
+                }
+                if (hasit != state.inOrb.end()) {
+                    auto r = new PairAspectFinder(_alist[i],
+                                                  _alist[j],
+                                                  state.h,
+                                                  state.pjd,
+                                                  state.jd,
+                                                  ad,
+                                                  bd,
+                                                  ispd,
+                                                  jspd,
+                                                  state.d,
+                                                  which,
+                                                  et,
+                                                  mum,
+                                                  this);
+                    hasit->second.addTask(r);
+                    continue;
+                }
+            }
+
+            if (skipByDuration == SkipNone) {
+                // enqueue it now if we know it would not be skipped
+                auto r = new PairAspectFinder(_alist[i],
+                                              _alist[j],
+                                              state.h,
+                                              state.pjd,
+                                              state.jd,
+                                              ad,
+                                              bd,
+                                              ispd,
+                                              jspd,
+                                              state.d,
+                                              which,
+                                              et,
+                                              mum,
+                                              this);
+                _tp->start(r);
+            }
+        }
+    }
+}
+
+void
 AspectFinder::findAspectsAndPatterns()
 {
     if (_alist.empty()) return;
 
-    PlanetSet     nats, trans;
-    PlanetProfile b                = _alist;
-    bool          skipAllNatalOnly = false;
+    AspectSearchState state;
+
+    state.b                = PlanetProfile(_alist);
+    state.skipAllNatalOnly = false;
     if (!showTransitAspectPatterns() && showTransitNatalAspectPatterns()) {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<NatalPosition*>(pl);
             if (!pla || pla->inMotion()) continue;
-            nats.emplace(pla->planet);
+            state.nats.emplace(pla->planet);
         }
-        skipAllNatalOnly = true;
+        state.skipAllNatalOnly = true;
     } else if (showTransitAspectPatterns()
                && (!showTransitNatalAspectPatterns() || _ids.size() == 1))
     {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<TransitPosition*>(pl);
             if (!pla || !pla->inMotion()) continue;
-            trans.emplace(pla->planet);
+            state.trans.emplace(pla->planet);
         }
     } else if (showTransitAspectPatterns() && showTransitNatalAspectPatterns())
     {
@@ -4068,44 +4696,44 @@ AspectFinder::findAspectsAndPatterns()
             auto pla = dynamic_cast<PlanetLoc*>(pl);
             if (!pla) continue;
             if (pla->inMotion()) {
-                trans.emplace(pla->planet);
+                state.trans.emplace(pla->planet);
             } else {
-                nats.emplace(pla->planet);
+                state.nats.emplace(pla->planet);
             }
         }
-        skipAllNatalOnly = true;
+        state.skipAllNatalOnly = true;
     }
-    bool showPatterns = showTransitAspectPatterns() || !nats.empty();
+    state.showPatterns = showTransitAspectPatterns() || !state.nats.empty();
 
     const auto& start = _range.first;
     auto        end   = _range.second;
     if (start == end) end = end.addDays(1);
-    auto d = start.startOfDay().toUTC(), e = end.startOfDay().toUTC();
+    state.d = start.startOfDay().toUTC();
+    state.e = end.startOfDay().toUTC();
 
-    double jd  = getJulianDate(d);
-    double bjd = jd;
-    double ejd = getJulianDate(e);
-    for (auto tp : _alist) (*tp)(jd, 1); // the horror
+    state.jd  = getJulianDate(state.d);
+    state.bjd = state.jd;
+    state.ejd = getJulianDate(state.e);
+    for (auto tp : _alist) (*tp)(state.jd, 1); // the horror
 
-    uintSSet hs;
     for (const auto& ij : _staff) {
         auto&& hset = _hsets.at(ij.hsid);
-        hs.insert(hset.begin(), hset.end());
+        state.hs.insert(hset.begin(), hset.end());
     }
     if (showTransitAspectPatterns() || showTransitNatalAspectPatterns()) {
         auto&& hset = _hsets.at(0);
-        hs.insert(hset.begin(), hset.end());
+        state.hs.insert(hset.begin(), hset.end());
     }
-    unsigned maxH = 1;
-    if (hs.empty()) {
-        if (!trans.empty() || !nats.empty()) {
+    state.maxH = 1;
+    if (state.hs.empty()) {
+        if (!state.trans.empty() || !state.nats.empty()) {
             for (auto&& hset : _hsets) {
-                hs.insert(hset.begin(), hset.end());
+                state.hs.insert(hset.begin(), hset.end());
             }
         }
     }
-    if (!hs.empty()) {
-        maxH = *hs.crbegin();
+    if (!state.hs.empty()) {
+        state.maxH = *state.hs.crbegin();
     }
 
     modalize<bool> mum(st_quiet, true);
@@ -4119,213 +4747,120 @@ AspectFinder::findAspectsAndPatterns()
     // preview aspects for those stations, this could prune the list.
     // (Or maybe it's better to have a loop engine that various
     // disciplines could be applied to.)
-    unsigned int h {};
-    auto         keep = [&](unsigned i, bool derived = false) {
+    state.keep = [this, &state](unsigned i, bool derived = false) {
         if (derived) {
             if (auto p = dynamic_cast<PlanetLoc*>(_alist[i])) {
                 if (p->planet.isMidpt()) {
-                    return h < (derived ? 4u : 2u);
+                    return state.h < (derived ? 4u : 2u);
                 }
             }
         }
-        return keepLooking(h, i);
+        return keepLooking(state.h, i);
     };
 
-    HarmonicPlanetDateRangeMap  inOrb;
-    HarmonicPlanetDateRangesMap proximityLog;
-
-    HarmonicPlanetClusters starts;
-    auto                   useRate = 1 / double(maxH); // XXX
-    if (showPatterns) {
-        useRate *= patternsSpreadOrb / 16.;
+    state.useRate = 1 / double(state.maxH); // XXX
+    if (state.showPatterns) {
+        state.useRate *= patternsSpreadOrb / 16.;
     } else if ((showTransitsToTransits() || showTransitsToNatalPlanets())
                && includeTransitRange)
     {
-        useRate *= planetPairOrb / 4.;
+        state.useRate *= planetPairOrb / 4.;
     }
     if (skipByDuration == SkipLessThanMonth) {
-        useRate *= 8;
+        state.useRate *= 8;
     } else if (skipByDuration == SkipLessThanWeek) {
-        useRate *= 2;
+        state.useRate *= 2;
     } else if (skipByDuration == SkipLessThanDay) {
-        // useRate *= 2;
+        // state.useRate *= 2;
     }
 
-    int ndays = int(useRate);
-    int nsecs = (useRate - double(ndays)) * 24. * 60. * 60.;
+    state.ndays = int(state.useRate);
+    state.nsecs = (state.useRate - double(state.ndays)) * 24. * 60. * 60.;
 
-    if (showPatterns || includeTransitRange) {
-        HarmonicPlanetClusters         work;
-        PlanetProfile*                 useProf = &_alist;
-        std::unique_ptr<PlanetProfile> doomed;
-        auto                           stuff = _staff;
-        if (!trans.empty() && !skipAllNatalOnly) {
-            doomed =
-                std::unique_ptr<PlanetProfile>(_alist.profile(trans, stuff));
-            useProf = doomed.get();
+    if (state.showPatterns || includeTransitRange) {
+        state.useProf = &_alist;
+        state.stuff   = _staff;
+        if (!state.trans.empty() && !state.skipAllNatalOnly) {
+            state.doomed = std::unique_ptr<PlanetProfile>(
+                _alist.profile(state.trans, state.stuff));
+            state.useProf = state.doomed.get();
         }
-        HarmonicPlanetDateRangeMap tinOrb;
-        for (unsigned h = 1; h <= maxH; ++h) {
-            bool unsel = hs.count(h) == 0;
+        for (state.h = 1; state.h <= state.maxH; ++state.h) {
+            bool unsel = state.hs.count(state.h) == 0;
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-            if (showPatterns) {
-                auto found = findClusters(
-                    h,
-                    jd,
-                    *useProf,
-                    _ids,
-                    patternsQuorum,
-                    !showTransitNatalAspectPatterns() ? nats : PlanetSet {},
-                    patternsRestrictMoon,
-                    patternsSpreadOrb);
-                if (!found.empty()) work[h].swap(found);
+            if (state.showPatterns) {
+                auto found = findClusters(state.h,
+                                          state.jd,
+                                          *state.useProf,
+                                          _ids,
+                                          patternsQuorum,
+                                          !showTransitNatalAspectPatterns()
+                                              ? state.nats
+                                              : PlanetSet {},
+                                          patternsRestrictMoon,
+                                          patternsSpreadOrb);
+                if (!found.empty()) state.work[state.h].swap(found);
             }
 
             if (!includeTransitRange) continue;
 
             int   i, j;
             qreal bd, bsp;
-            for (auto it = stuff.begin(); it != stuff.end();) {
-                if (_hsets[it->hsid].count(h) == 0) {
+            for (auto it = state.stuff.begin(); it != state.stuff.end();) {
+                if (_hsets[it->hsid].count(state.h) == 0) {
                     ++it;
                     continue;
                 }
                 std::tie(i, j) = it->planetPair;
-                auto bi        = dynamic_cast<PlanetLoc*>((*useProf)[i]);
-                auto bj        = dynamic_cast<PlanetLoc*>((*useProf)[j]);
+                auto bi        = dynamic_cast<PlanetLoc*>((*state.useProf)[i]);
+                auto bj        = dynamic_cast<PlanetLoc*>((*state.useProf)[j]);
                 if (!bi || !bj) continue;
-                bool good         = bi->aspectable() || bj->aspectable();
-                std::tie(bd, bsp) = PlanetProfile::computeDelta(bi, bj, h);
+                bool good = bi->aspectable() || bj->aspectable();
+                std::tie(bd, bsp) =
+                    PlanetProfile::computeDelta(bi, bj, state.h);
                 if (!st_quiet)
                     qDebug() << QString("H%1 %2 at %3 with orb %4")
-                                    .arg(h)
+                                    .arg(state.h)
                                     .arg(PlanetSet({ bi->planet, bj->planet })
                                              .names()
                                              .join('='))
-                                    .arg(dtToString(d))
+                                    .arg(dtToString(state.d))
                                     .arg(bd)
                                     .toStdString()
                                     .c_str();
                 if (good && std::abs(bd) <= planetPairOrb) {
-                    HarmonicPlanetSet hij { h, { bi->planet, bj->planet } };
-                    tinOrb[hij] = { jd, 0 };
+                    qDebug() << formatPlanetsEtc(*it, *state.useProf, _hsets)
+                                    .c_str();
+
+                    HarmonicPlanetSet hij { state.h,
+                                            { bi->planet, bj->planet },
+                                            it->et };
+                    state.tinOrb[hij] = { state.jd, 0 };
                     // if (!s_quiet)
                     qDebug()
                         << QString(
                                "Found H%1 inital start of %2 at %3 with orb %4")
-                               .arg(h)
-                               .arg(hij.second.names().join("="))
-                               .arg(dtToString(d))
+                               .arg(state.h)
+                               .arg(hij.planets.names().join("="))
+                               .arg(dtToString(state.d))
                                .arg(bd)
                                .toStdString()
                                .c_str();
-                    stuff.erase(it++);
+                    state.stuff.erase(it++);
                     continue;
                 }
                 ++it;
             }
         }
 
-        auto nd = d;
-        while (!work.empty() || !tinOrb.empty()) {
-            QCoreApplication::processEvents();
-
-            if (_state == cancelRequestedState) break;
-            if (_state == pauseRequestedState) {
-                QThread::usleep(100000);
-                continue;
-            }
-
-            nd = nd.addDays(-ndays).addSecs(-nsecs);
-            PlanetSet ws;
-            for (const auto& hpso : work) {
-                for (const auto& pso : hpso.second) {
-                    ws.insert(pso.first.begin(), pso.first.end());
-                }
-            }
-            for (const auto& hijr : tinOrb) {
-                ws.insert(hijr.first.second.begin(), hijr.first.second.end());
-            }
-
-            auto wp  = _alist.profile(ws); // subset of planets
-            auto pjd = getJulianDate(nd);
-            (*wp)(pjd); // XXX compute once
-
-            for (auto hit = tinOrb.begin(); hit != tinOrb.end();) {
-                const auto& hps = hit->first;
-                const auto& ps  = hps.second;
-                auto        hwp = wp->profile(ps);
-                auto        orb = computeSpread(hps.first, *hwp);
-                delete hwp;
-                if (std::abs(orb) > planetPairOrb) {
-                    inOrb[hps] = hit->second;
-                    // if (!s_quiet)
-                    qDebug()
-                        << QString("Found H%1 start of %2 at %3 with orb %4")
-                               .arg(hps.first)
-                               .arg(ps.names().join("="))
-                               .arg(dtToString(nd))
-                               .arg(orb)
-                               .toStdString()
-                               .c_str();
-                    tinOrb.erase(hit++);
-                } else {
-                    if (!st_quiet)
-                        qDebug()
-                            << QString(
-                                   "Still looking for H%1 start" " of %2 " "at " "%3 " "with orb %4")
-                                   .arg(hps.first)
-                                   .arg(ps.names().join("="))
-                                   .arg(dtToString(nd))
-                                   .arg(orb)
-                                   .toStdString()
-                                   .c_str();
-                    hit->second.range.first = pjd; // update range start
-                    ++hit;
-                }
-            }
-
-            for (auto hit = work.begin(); hit != work.end();) {
-                auto  h   = hit->first;
-                auto& pso = hit->second;
-                for (auto spit = pso.begin(); spit != pso.end();) {
-                    const auto& ps     = spit->first;
-                    auto        orbWas = spit->second;
-                    auto        hwp    = wp->profile(ps);
-                    auto        orb    = computeSpread(h, *hwp);
-                    delete hwp;
-                    if (orb > patternsSpreadOrb) {
-                        starts[h].emplace(ps, ClusterOrbWhen(orb, pjd));
-                        qDebug()
-                            << QString(
-                                   "Found H%1 prior start of %2 " "with %3 " "s" " " "at %4")
-                                   .arg(h)
-                                   .arg(ps.names().join("="))
-                                   .arg(orbWas)
-                                   .arg(dtToString(nd))
-                                   .toStdString()
-                                   .c_str();
-                        pso.erase(spit++);
-                    } else {
-                        if (orb < spit->second.orb) {
-                            spit->second = { orb, pjd };
-                        }
-                        ++spit;
-                    }
-                }
-                if (pso.empty()) work.erase(hit++);
-                else
-                    ++hit;
-            }
-            delete wp;
-        }
+        findPriorStarts(state);
     }
     if (_state == cancelRequestedState) return;
 
-    double pjd = jd;
-    double ljd = jd;
-    auto   nd  = d.addDays(ndays).addSecs(nsecs);
-    while (d < e || !starts.empty() || !inOrb.empty()) {
+    state.pjd = state.jd;
+    state.ljd = state.jd;
+    state.nd  = state.d.addDays(state.ndays).addSecs(state.nsecs);
+    while (state.d < state.e || !state.starts.empty() || !state.inOrb.empty()) {
         QCoreApplication::processEvents();
 
         if (_state == cancelRequestedState) break;
@@ -4334,327 +4869,58 @@ AspectFinder::findAspectsAndPatterns()
             continue;
         }
 
-        jd = getJulianDate(nd);
-        if (jd - ljd >= 5) {
-            emit progress((ljd - bjd) / (ejd - bjd));
-            ljd = jd;
+        state.jd = getJulianDate(state.nd);
+        if (state.jd - state.ljd >= 5) {
+            emit progress((state.ljd - state.bjd) / (state.ejd - state.bjd));
+            state.ljd = state.jd;
             QCoreApplication::processEvents();
             if (_state == cancelRequestedState) break;
             if (_state == pauseRequestedState) continue;
         }
 
         std::unique_ptr<PlanetProfile> useProf;
-        bool                           collectingStrays = (d >= e);
+        bool                           collectingStrays = (state.d >= state.e);
         if (collectingStrays) {
             PlanetSet ws;
-            for (const auto& hpso : starts) {
+            for (const auto& hpso : state.starts) {
                 for (const auto& pso : hpso.second) {
                     ws.insert(pso.first.begin(), pso.first.end());
                 }
             }
-            for (const auto& hijr : inOrb) {
-                ws.insert(hijr.first.second.begin(), hijr.first.second.end());
+            for (const auto& hijr : state.inOrb) {
+                ws.insert(hijr.first.planets.begin(), hijr.first.planets.end());
             }
             if (ws.empty()) break; // all done
-            if (ws.size() != b.size()) {
+            if (ws.size() != state.b.size()) {
                 qDebug() << "Pruning profile to" << ws.names();
-                auto wp = b.profile(ws);
-                wp->swap(b);
+                auto wp = state.b.profile(ws);
+                wp->swap(state.b);
                 delete wp;
             }
         }
 
-        for (auto tp : b) (*tp)(jd, 1);
-        if (!st_quiet) qDebug() << "stuff" << dtToString(nd);
+        for (auto tp : state.b) (*tp)(state.jd, 1);
+        if (!st_quiet) qDebug() << "stuff" << dtToString(state.nd);
 
-        if (!collectingStrays && !trans.empty() && !skipAllNatalOnly) {
-            useProf = std::unique_ptr<PlanetProfile>(b.profile(trans));
+        if (!collectingStrays && !state.trans.empty()
+            && !state.skipAllNatalOnly)
+        {
+            useProf =
+                std::unique_ptr<PlanetProfile>(state.b.profile(state.trans));
         }
 
         // Do all the things HERE
 
-        if (showPatterns) {
-            // 1. Patterns
-            for (h = maxH; h >= 1; --h) {
-                bool unsel = hs.count(h) == 0;
-                if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-                if (collectingStrays) {
-                    bool any = false;
-                    auto hit = starts.find(h);
-                    if (hit != starts.end()) {
-                        if (hit->second.empty()) starts.erase(hit);
-                        else
-                            any = true;
-                    }
-                    if (!any) continue;
-                }
-                PlanetClusterMap hpc;
-                if (!collectingStrays) {
-                    PlanetProfile* prof = &b;
-                    if (useProf.get()) prof = useProf.get();
-                    hpc = findClusters(
-                        h,
-                        *prof,
-                        patternsQuorum,
-                        !showTransitNatalAspectPatterns() ? nats : PlanetSet {},
-                        skipAllNatalOnly,
-                        patternsRestrictMoon,
-                        patternsSpreadOrb);
-                }
+        findNewStarts(state, collectingStrays, useProf);
 
-                std::list<PlanetClusterMap::iterator> doomed;
-                for (auto sit = starts[h].begin(); sit != starts[h].end();) {
-                    const auto& ps    = sit->first;
-                    auto        prof  = b.profile(ps);
-                    auto        hpcit = hpc.find(ps);
-                    if (hpcit != hpc.end()) {
-                        delete prof;
-                        hpc.erase(hpcit); // already have a start time
-                        ++sit;
-                        continue;
-                    }
-                    auto spread = computeSpread(h, *prof);
-                    if (spread <= patternsSpreadOrb) {
-                        if (collectingStrays && !st_quiet) {
-                            qDebug()
-                                << QString("H%1 %2 with %3 spread at %4")
-                                       .arg(h)
-                                       .arg(ps.names().join("="))
-                                       .arg(spread)
-                                       .arg(dtToString(dateTimeFromJulian(jd)))
-                                       .toStdString()
-                                       .c_str();
-                        }
-                        // still good so keep
-                        delete prof;
-                        ++sit;
-                        continue;
-                    }
-
-                    double from = sit->second.when;
-                    double to   = jd;
-
-                    bool cancel = (from == 0);
-                    if (cancel) {
-                        qDebug() << QString("H%1").arg(h) << ps.names()
-                                 << "was previously hijacked, so skipping";
-                    } else {
-                        cancel = skippablePeriod({ from, to });
-                        qDebug()
-                            << QString("H%1").arg(h) << ps.names() << "from"
-                            << dtToString(dateTimeFromJulian(from)) << "to"
-                            << dtToString(nd)
-                            << std::string(cancel ? "** too short **" : "");
-                    }
-
-                    unsigned useH = h;
-                    if (!cancel && h > 1) {
-                        // look for a pending pattern at a lower harmonic
-                        // because it's likely to be the same pattern but
-                        // now we have a tighter bounds. when we find this,
-                        // we set the start time to 0 to indicate that it
-                        // is no longer active.
-                        unsigned prev = 0;
-                        for (unsigned f : getAllFactors(h)) {
-                            if (f == h) break;
-                            if (prev == f) continue;
-                            auto stit = starts.find(f);
-                            if (stit == starts.end()) continue;
-                            auto& startf = stit->second;
-                            auto  lwrit  = startf.find(ps);
-                            if (lwrit != startf.end()) {
-                                cancel = true;
-                                qDebug() << QString("H%1").arg(f) << ps.names()
-                                         << "exists, so skipping"
-                                         << QString("H%1").arg(h);
-                                break;
-                            }
-                            prev = f;
-                        }
-                    }
-                    if (cancel) {
-                        delete prof;
-                        starts[h].erase(sit++);
-                        continue; // skipped!
-                    }
-
-                    static size_t clearing = 0;
-                    clearing++;
-                    qDebug()
-                        << clearing
-                        << QString(
-                               "Launching H%1 search for %2 " "with %3 " "sprea" "d " "at" " %4")
-                               .arg(h)
-                               .arg(ps.names().join("="))
-                               .arg(spread)
-                               .arg(dtToString(dateTimeFromJulian(jd)))
-                               .toStdString()
-                               .c_str();
-                    doomed.emplace_back(sit++);
-                    // starts[h].erase(sit++);
-
-                    ADateTimeRange range(dateTimeFromJulian(from),
-                                         dateTimeFromJulian(jd));
-                    EventType      et = ps.heterogeneous()
-                                            ? etcTransitNatalAspectPattern
-                                            : etcTransitAspectPattern;
-                    auto&          ev =
-                        _evs.safe_emplace_back(range, et, useH, PlanetSet(ps));
-#if 1
-                    _tp->start([=, &ev] {
-                        startTask();
-#endif
-#if 0 // FIXME
-                    if (prof->size()==2) {
-                        qreal ad, asp, bd, bsp;
-
-                        // check speed
-                        prof->computePos(from,h);
-                        std::tie(ad, asp) = PlanetProfile::computeDelta((*prof)[0], (*prof)[1], h);
-                        prof->computePos(jd,h);
-                        std::tie(bd, bsp) = PlanetProfile::computeDelta((*prof)[0], (*prof)[1], h);
-                        if (sgn(ad) != sgn(bd)) {
-                            auto cps = [prof, h](double jd)
-                                    -> std::pair<qreal,qreal>
-                            {
-                                auto pos = prof->computePos(jd,h);
-                                std::pair<qreal,qreal> ret { pos, prof->speed() };
-                                if (false /*!s_quiet*/) {
-                                    QDateTime dt(dateTimeFromJulian(jd));
-                                    qDebug() << "nri " << dtToString(dt).toLatin1().constData()
-                                             << "ret:" << ret;
-                                }
-                                return ret;
-                            };
-                            uintmax_t iter = 50;
-                            static constexpr int digits =
-                                    std::numeric_limits<double>::digits;
-
-                            auto tjd = newton_raphson_iterate(cps,(from+jd)/2,
-                                                              from,jd,digits,iter);
-                            auto psp = PlanetProfile::computeDelta((*prof)[0],
-                                    (*prof)[1],h);
-                            if (std::abs(psp.first) <= calcLoop::tol) {
-                                qDebug() << "newton succeeded" << iter;
-                                auto qdt = dateTimeFromJulian(tjd);
-                                ev.reset(qdt, psp.first);
-                                delete prof;
-                            } else {
-                                qDebug() << "newton failed" << iter
-                                    << prof->description().toLatin1().constData();
-                            }
-                        }
-                    }
-#endif
-                        auto csprd = [prof, h, this](double jd) {
-                            if (_state == cancelRequestedState) throw int(1);
-                            auto val = computeSpread(h, jd, *prof, _ids);
-                            // qDebug() << dtToString(dateTimeFromJulian(jd)) <<
-                            // ps.names() << val;
-                            return val;
-                        };
-                        constexpr auto tol =
-                            double(std::numeric_limits<float>::epsilon());
-
-                        double   jd;
-                        double   m = 1000;
-                        double   a = from;
-                        double   b = to;
-                        double   res;
-                        unsigned it = 0;
-                        try {
-                            do {
-                                double mid = a / 2. + b / 2.;
-                                ++it;
-                                res = brentGlobalMin(csprd,
-                                                     a,
-                                                     b,
-                                                     mid,
-                                                     m,
-                                                     .0000001,
-                                                     tol,
-                                                     jd);
-                                if (jd == a || jd == b) {
-                                    qDebug() << "Dubious result" << res
-                                             << ((jd == b)
-                                                     ? "jd == to"
-                                                     : ((jd == a) ? "jd == from"
-                                                                  : ""))
-                                             << "for" << QString("H%1").arg(h)
-                                             << ps.names()
-                                             << QList<qreal>({ csprd(a),
-                                                               csprd(mid),
-                                                               csprd(b) });
-                                    if (it > 2) break;
-                                    m *= 10;
-                                    auto q = (mid - a) / 4.;
-                                    if (jd == b) a = b - q, b += q;
-                                    else
-                                        b = a + q, a -= q;
-                                } else
-                                    break;
-                            } while (it < 3);
-
-                            QMutexLocker ml(_evs.mutex());
-                            auto         qdt = dateTimeFromJulian(jd);
-                            ev.reset(qdt, res);
-                        }
-                        catch (int) {
-                        }
-                        delete prof;
-#if 1
-                        endTask();
-                    });
-#endif
-                    // TODO keep track of this start and end and then search
-                }
-
-                // now hpc should only contain entries that are not in starts[h]
-                // and starts[h] will contain entries that *were* initially in
-                // hpc, so we need to add the remainder of hpc to starts[h] with
-                // the new date.
-                for (const auto& cl : hpc) {
-                    bool        add  = true;
-                    unsigned    prev = 0;
-                    const auto& ps(cl.first);
-                    for (unsigned f : getAllFactors(h)) {
-                        if (f == h) break;
-                        if (prev == f) continue;
-                        auto stit = starts.find(f);
-                        if (stit == starts.end()) continue;
-                        const auto& startf = stit->second;
-                        auto        lwrit  = startf.find(ps);
-                        if (lwrit != startf.end()) {
-                            add = false;
-                            break;
-                        }
-                    }
-                    if (add) {
-                        qDebug()
-                            << QString(
-                                   "Found H%1 start of %2 " "with %3 " "spre" "ad" " " "at %4")
-                                   .arg(h)
-                                   .arg(ps.names().join("="))
-                                   .arg(cl.second)
-                                   .arg(dtToString(dateTimeFromJulian(jd)))
-                                   .toStdString()
-                                   .c_str();
-                        starts[h].emplace(ps,
-                                          ClusterOrbWhen(cl.second.orb, pjd));
-                    }
-                }
-                for (const auto& it : doomed) starts[h].erase(it);
-            }
-        } // if includeAspectPatterns
-
-        if (collectingStrays && !inOrb.empty()) {
-            for (auto hit = inOrb.begin(); hit != inOrb.end();) {
+        if (collectingStrays && !state.inOrb.empty()) {
+            for (auto hit = state.inOrb.begin(); hit != state.inOrb.end();) {
                 const auto& hps = hit->first;
-                auto        hwp = b.profile(hps.second);
-                auto        orb = computeSpread(hps.first /*harmonic*/, *hwp);
+                auto        hwp = state.b.profile(hps.planets);
+                auto        orb = computeSpread(hps.harmonic /*harmonic*/, *hwp);
                 delete hwp;
                 if (orb > planetPairOrb) {
-                    hit->second.range.second = pjd;
+                    hit->second.range.second = state.pjd;
                     bool tooShort = skippablePeriod(hit->second.range);
                     bool any      = false;
                     for (auto r : hit->second.tasks) {
@@ -4670,274 +4936,36 @@ AspectFinder::findAspectsAndPatterns()
                     if (!any && !tooShort) {
                         // We didn't find a pending search, and it's not too
                         // short to search for an imperfect aspect
-                        proximityLog[hps].emplace(hit->second, 0);
+                        state.proximityLog[hps].emplace(hit->second, 0);
                     }
-                    inOrb.erase(hit++);
+                    state.inOrb.erase(hit++);
                 } else {
                     ++hit;
                 }
             }
         }
         if (!collectingStrays && !_staff.empty()) {
-            qreal ad, asp;
-            qreal bd, bsp;
-
-            unsigned i, j;
-            QString  wha_;
-            auto     what = [&] {
-                if (wha_.isEmpty()) {
-                    wha_ = QString("H%1 %2=%3")
-                               .arg(h)
-                               .arg(_alist[i]->description())
-                               .arg(_alist[j]->description());
-                }
-                return wha_.toStdString();
-            };
-
-            auto stuff = _staff;
-            if (includeTransitRange) {
-                for (h = 1; h <= maxH; ++h) {
-                    for (auto it = stuff.begin(); it != stuff.end();) {
-                        bool unsel = hs.count(h) == 0;
-                        if ((unsel && !filterLowerUnselectedHarmonics)
-                            || (_hsets[it->hsid].count(h) == 0))
-                        {
-                            ++it;
-                            continue;
-                        }
-                        std::tie(i, j) = it->planetPair;
-                        std::tie(bd, bsp) =
-                            PlanetProfile::computeDelta(b[i], b[j], h);
-
-                        auto bi = dynamic_cast<PlanetLoc*>(b[i]);
-                        auto bj = dynamic_cast<PlanetLoc*>(b[j]);
-                        auto good =
-                            bi && bj && (bi->aspectable() || bj->aspectable());
-
-                        bool isInOrb = false;
-                        if (good) {
-                            HarmonicPlanetSet hij { h,
-                                                    { bi->planet,
-                                                      bj->planet } };
-
-                            auto hasit = inOrb.find(hij);
-                            isInOrb    = std::abs(bd) <= planetPairOrb;
-#if 0
-                            if (isInOrb)
-                            qDebug() << QString("Found H%1 orb %2 of %3 at %4")
-                                        .arg(h).arg(std::abs(bd))
-                                        .arg(hij.second.names().join("="))
-                                        .arg(dtToString(d))
-                                        .toStdString().c_str();
-#endif
-                            if (hasit == inOrb.end() && isInOrb) {
-                                // if (!st_quiet)
-                                qDebug()
-                                    << QString("Found H%1 start of %2 at %3")
-                                           .arg(h)
-                                           .arg(hij.second.names().join("="))
-                                           .arg(dtToString(d))
-                                           .toStdString()
-                                           .c_str();
-                                inOrb[hij] = { pjd, 0 };
-                                isInOrb    = true;
-                            } else if (hasit != inOrb.end() && !isInOrb) {
-                                hasit->second.range.second = jd;
-                                if (hasit->second.tasks.empty()) {
-                                    proximityLog[hasit->first].emplace(
-                                        hasit->second,
-                                        0);
-                                } else if (!skippable(hasit->second.range,
-                                                      it->et))
-                                {
-                                    for (auto r : hasit->second.tasks) {
-                                        r->setInOrbRange(hasit->second.range);
-                                        _tp->start(r);
-                                    }
-                                } else {
-                                    for (auto r : hasit->second.tasks) {
-                                        delete r;
-                                    }
-                                    hasit->second.tasks.clear();
-                                }
-                                // if (!st_quiet)
-                                qDebug()
-                                    << QString(
-                                           "Found H%1 range of %2 " "at " "%3 " "to " "%4")
-                                           .arg(h)
-                                           .arg(hij.second.names().join("="))
-                                           .arg(dtToString(dateTimeFromJulian(
-                                               hasit->second.range.first)))
-                                           .arg(dtToString(d))
-                                           .toStdString()
-                                           .c_str();
-                                inOrb.erase(hasit);
-                            }
-                        }
-                        if (isInOrb) stuff.erase(it++);
-                        else
-                            ++it;
-                    }
-                }
-
-                stuff = _staff;
-            }
-
-            for (h = 1; h <= maxH; ++h) {
-                bool unsel = hs.count(h) == 0;
-                if (unsel && !filterLowerUnselectedHarmonics) continue;
-
-                for (auto it = stuff.begin(); it != stuff.end();) {
-                    wha_.clear();
-                    std::tie(i, j)   = it->planetPair;
-                    auto        et   = it->et;
-                    auto        hsid = it->hsid;
-                    const auto& hs   = _hsets[hsid];
-                    auto        ha   = hs.lower_bound(h);
-                    if (ha == hs.end()) {
-                        // qDebug() << "Snipping" << what().c_str()
-                        //          << "because no further harmonics";
-                        stuff.erase(it++);
-                        continue;
-                    } else if (*ha != h) {
-                        // qDebug() << "Skipping" << what().c_str()
-                        //          << "because not selecting h" << h;
-                        ++it;
-                        continue;
-                    }
-
-                    if (auto known = dynamic_cast<KnownPosition*>(_alist[j])) {
-                        if (std::abs(known->julianDate() - jd)
-                            > windowOf(known))
-                        {
-                            ++it;
-                            continue;
-                        }
-                    }
-                    qreal ispd = qAbs(_alist[i]->speed / 2. + b[i]->speed / 2.);
-                    qreal jspd = qAbs(_alist[j]->speed / 2. + b[j]->speed / 2.);
-                    if (ispd > jspd) {
-                        std::swap(i, j);
-                        std::swap(ispd, jspd);
-                    }
-
-                    std::tie(ad, asp) =
-                        PlanetProfile::computeDelta(_alist[i], _alist[j], h);
-                    std::tie(bd, bsp) =
-                        PlanetProfile::computeDelta(b[i], b[j], h);
-                    if (sgn(ad) == sgn(bd)
-                        || (abs(ad) >= 90. || abs(bd) >= 90.))
-                    {
-                        if (!keep(i) || !keep(j)) {
-                            stuff.erase(it++);
-                        } else {
-                            ++it;
-                        }
-                        continue;
-                    }
-
-#if 1
-                    auto pi = dynamic_cast<PlanetLoc*>(_alist[i]);
-                    if (pi && pi->allowAspects > PlanetLoc::aspOnlyConj) {
-                        qreal spd = _alist[j]->speed / 2. + b[j]->speed / 2.;
-                        if (pi->allowAspects
-                            != ((spd < 0) ? PlanetLoc::aspOnlyRetro
-                                          : PlanetLoc::aspOnlyDirect))
-                        {
-                            qDebug() << "skipping wrong-way" << what().c_str();
-                            stuff.erase(it++);
-                            continue;
-                        }
-                    }
-#endif
-
-                    if (true || !st_quiet) {
-                        QDateTime pdt(dateTimeFromJulian(pjd));
-                        QDateTime dt(dateTimeFromJulian(jd));
-                        qDebug() << what().c_str() << dtToString(pdt) << "delta"
-                                 << ad << asp << "vs" << dtToString(dt)
-                                 << "delta" << bd << bsp;
-                    }
-                    auto which = what();
-
-                    // At this point, we figure there's _alist transit.
-                    // If the harmonic is not on our list, let's clip the
-                    // stuff list so that it doesn't get recomputed at _alist
-                    // higher-order harmonic. This handles the case where
-                    // conjunction would show up on any higher harmonic
-                    // as an aspect at that harmonic.
-                    stuff.erase(it++);
-                    if (unsel) {
-                        continue;
-                    }
-
-                    auto pj = dynamic_cast<PlanetLoc*>(_alist[j]);
-                    if (includeTransitRange) {
-                        auto hasit =
-                            inOrb.find({ h, { pi->planet, pj->planet } });
-                        if (hasit == inOrb.end()) {
-                            hasit =
-                                inOrb.find({ h, { pj->planet, pi->planet } });
-                        }
-                        if (hasit != inOrb.end()) {
-                            auto r = new PairAspectFinder(_alist[i],
-                                                          _alist[j],
-                                                          h,
-                                                          pjd,
-                                                          jd,
-                                                          ad,
-                                                          bd,
-                                                          ispd,
-                                                          jspd,
-                                                          d,
-                                                          which,
-                                                          et,
-                                                          mum,
-                                                          this);
-                            hasit->second.addTask(r);
-                            continue;
-                        }
-                    }
-
-                    if (skipByDuration == SkipNone) {
-                        // enqueue it now if we know it would not be skipped
-                        auto r = new PairAspectFinder(_alist[i],
-                                                      _alist[j],
-                                                      h,
-                                                      pjd,
-                                                      jd,
-                                                      ad,
-                                                      bd,
-                                                      ispd,
-                                                      jspd,
-                                                      d,
-                                                      which,
-                                                      et,
-                                                      mum,
-                                                      this);
-                        _tp->start(r);
-                    }
-                }
-            }
+            findTransitPairs(state);
+            findAspects(state, mum);
         } // if includeTransits
 
-        d  = nd;
-        nd = d.addDays(ndays).addSecs(nsecs);
+        state.d  = state.nd;
+        state.nd = state.d.addDays(state.ndays).addSecs(state.nsecs);
         // nd = d.addDays(_rate);
-        pjd = jd;
-        if (!collectingStrays) _alist.swap(b);
+        state.pjd = state.jd;
+        if (!collectingStrays) _alist.swap(state.b);
     }
 
-    qDebug() << inOrb.size() << "pending pairs";
-    qDebug() << proximityLog.size() << "completed range pairs";
+    qDebug() << state.inOrb.size() << "pending pairs";
+    qDebug() << state.proximityLog.size() << "completed range pairs";
 
     auto frameJob = [&](HarmonicEvent& e, bool prep = true) {
         if (e.planets().size() != 2) return;
         if (e.range().first != QDateTime()) return;
 
         HarmonicPlanetSet hps { e.harmonic(), e.planets() };
-        auto              lit = proximityLog.find(hps);
-        if (lit == proximityLog.end()) return;
+        auto              lit = state.proximityLog.find(hps);
+        if (lit == state.proximityLog.end()) return;
 
         if (prep) prepThread();
         auto& ranges = lit->second;
@@ -4970,11 +4998,11 @@ AspectFinder::findAspectsAndPatterns()
 
     if (_state != cancelRequestedState) {
         bool any = false;
-        for (auto&& [hps, rm] : proximityLog) {
+        for (auto&& [hps, rm] : state.proximityLog) {
             for (const auto& [r, stat] : rm) {
                 if (stat) continue;
-                auto   h  = hps.first;
-                auto&& ps = hps.second;
+                auto   h  = hps.harmonic;
+                auto&& ps = hps.planets;
                 if (ps.size() != 2) {
                     continue; // Only for pairs
                 }
@@ -5067,9 +5095,6 @@ AspectFinder::findAspectsAndPatterns()
                     any = true;
                 }
 
-                EventType et = ps.heterogeneous() ? etcTransitToNatal
-                                                  : etcTransitToTransit;
-
                 // Collect the planet positions at minJD
                 minSep = profile->computePos(minJD, h);
 
@@ -5099,7 +5124,7 @@ AspectFinder::findAspectsAndPatterns()
                 QMutexLocker ml(_evs.mutex());
 
                 auto& ev = _evs.emplace_back(dateTimeFromJulian(minJD),
-                                             et,
+                                             hps.eventType,
                                              h,
                                              std::move(plr),
                                              minSep);
@@ -5108,7 +5133,7 @@ AspectFinder::findAspectsAndPatterns()
             }
         }
 
-        for (const auto& hpc : starts) {
+        for (const auto& hpc : state.starts) {
             for (const auto& pso : hpc.second) {
                 if (pso.second.when == qreal()) continue;
                 qDebug() << QString("Pending pattern H%1 %2 started at %3")

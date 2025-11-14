@@ -1423,8 +1423,8 @@ class TransitPosition : public InputPosition {
 };
 
 class ProgressedPosition : public InputPosition {
-    double _njd;    // natal birth time julian date
-    double _sunSpeed;
+    double _njd;        // natal birth time julian date
+    double _sunSpeed;   // for future use with variable progression rates
 
   public:
     ProgressedPosition(const ChartPlanetId& cpid,
@@ -1446,8 +1446,12 @@ class ProgressedPosition : public InputPosition {
 
     qreal operator()(double jd, int h) override
     {
-        auto pjd = _njd + (jd - _njd) / 365.25 * _sunSpeed;
-        return compute(input(), pjd, h);
+        // Secondary progressions: 1 day after birth = 1 year of life
+        auto pjd = _njd + (jd - _njd) / 365.25;
+        auto pos = compute(input(), pjd, h);
+        // Scale speed by progression rate (1 day per year)
+        speed /= 365.25;
+        return pos;
     }
 };
 
@@ -1820,7 +1824,20 @@ class ADateTimeRange : public ARange<QDateTime> {
     }
 };
 
-typedef std::pair<unsigned, PlanetSet> HarmonicPlanetSet;
+struct HarmonicPlanetSet {
+    unsigned  harmonic;
+    PlanetSet planets;
+    EventType eventType;
+
+    HarmonicPlanetSet(unsigned h = 1, const PlanetSet& ps = {}, EventType et = etcUnknownEvent) :
+        harmonic(h), planets(ps), eventType(et) { }
+
+    bool operator<(const HarmonicPlanetSet& other) const {
+        if (harmonic != other.harmonic) return harmonic < other.harmonic;
+        if (planets != other.planets) return planets < other.planets;
+        return eventType < other.eventType;
+    }
+};
 
 typedef std::pair<double, double> JDateRange;
 typedef std::set<JDateRange>      JDateRanges;

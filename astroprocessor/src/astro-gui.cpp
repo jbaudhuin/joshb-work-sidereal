@@ -268,7 +268,8 @@ AstroFile::change(AstroFile::Members members, bool affectChangedState)
 
     if (!_holdUpdate) {
         if (members
-            & (GMT | Location | HouseSystem | Zodiac | AspectSet | AspectMode))
+            & (Type | GMT | Location | HouseSystem | Zodiac | AspectSet
+               | AspectMode | BaseChart))
             recalculate();
         else if (members & Harmonic) {
             recalculateBaseChart();
