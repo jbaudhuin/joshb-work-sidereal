@@ -746,6 +746,16 @@ class Data {
     static const AspectsSet& tightConjunction();
 };
 
+enum PlanetLocMode {
+    plmUnknown = 0,
+    plmKnown,        // KnownPosition - fixed position at specific JD
+    plmNatal,        // NatalPosition - natal chart position
+    plmTransit,      // TransitPosition - moving transit position
+    plmProgressed,   // ProgressedPosition - secondary progressed position
+    plmSolarArc,     // SolarArcPosition - solar arc directed position
+    plmPrimaryDir    // Future: primary directions
+};
+
 class ChartPlanetId {
     int      _fid;
     PlanetId _pid, _pid2;
@@ -906,6 +916,69 @@ class ChartPlanetId {
     operator PlanetId() const { return _pid; }
 };
 
+class ChartPlanetModeId : public ChartPlanetId {
+    PlanetLocMode  _mode;
+
+  public:
+    ChartPlanetModeId() :
+        ChartPlanetId(),
+        _mode(plmUnknown)
+    {
+    }
+
+    ChartPlanetModeId(const ChartPlanetId& cpid, PlanetLocMode mode) :
+        ChartPlanetId(cpid),
+        _mode(mode)
+    {
+    }
+
+    ChartPlanetModeId(int fileId, PlanetId planetId, PlanetId planetId2,
+                      PlanetLocMode mode) :
+        ChartPlanetId(fileId, planetId, planetId2),
+        _mode(mode)
+    {
+    }
+
+    const ChartPlanetId& chartPlanetId() const { return *this; }
+
+    PlanetLocMode mode() const { return _mode; }
+
+    ChartPlanetModeId id1() const { return { chartPlanetId1(), _mode }; }
+    ChartPlanetModeId id2() const { return { chartPlanetId2(), _mode }; }
+
+    bool operator==(const ChartPlanetModeId& other) const
+    {
+        return ChartPlanetId::operator==(other) && _mode == other._mode;
+    }
+
+    bool operator!=(const ChartPlanetModeId& other) const
+    {
+        return !operator==(other);
+    }
+
+    bool operator<(const ChartPlanetModeId& other) const
+    {
+        if (ChartPlanetId::operator!=(other))
+            return ChartPlanetId::operator<(other);
+        return _mode < other._mode;
+    }
+
+    bool operator<=(const ChartPlanetModeId& other) const
+    {
+        return operator==(other) || operator<(other);
+    }
+
+    // PlanetId comparisons
+    bool operator==(PlanetId p) const { return ChartPlanetId::operator==(p); }
+    bool operator!=(PlanetId p) const { return ChartPlanetId::operator!=(p); }
+    bool operator<(PlanetId p) const { return ChartPlanetId::operator<(p); }
+    bool operator>(PlanetId p) const { return ChartPlanetId::operator>(p); }
+    bool operator<=(PlanetId p) const { return ChartPlanetId::operator<=(p); }
+    bool operator>=(PlanetId p) const { return ChartPlanetId::operator>=(p); }
+
+    operator PlanetId() const { return *this; }
+};
+
 class samePlanet {
   public:
     samePlanet(const ChartPlanetId& cpid,
@@ -931,15 +1004,15 @@ class samePlanet {
     bool          _compareFileId;
 };
 
-class PlanetSet : public std::set<ChartPlanetId> {
+class PlanetSet : public std::set<ChartPlanetModeId> {
   public:
-    using Base = std::set<ChartPlanetId>;
+    using Base = std::set<ChartPlanetModeId>;
     using Base::Base;
 
     bool heterogeneous() const
     {
         std::set<int> seen;
-        return std::any_of(begin(), end(), [&seen](const ChartPlanetId& cpid) {
+        return std::any_of(begin(), end(), [&seen](const ChartPlanetModeId& cpid) {
             if (cpid.fileId() != -1) {
                 seen.insert(cpid.fileId());
                 return seen.size() > 1;
@@ -950,26 +1023,35 @@ class PlanetSet : public std::set<ChartPlanetId> {
 
     bool contains(PlanetId pid) const
     {
-        return std::any_of(begin(), end(), samePlanet(pid));
+        return std::any_of(begin(), end(), [pid](const ChartPlanetModeId& cpid) {
+            return cpid.contains(pid);
+        });
     }
 
     bool containsSolo(PlanetId pid) const
     {
-        return std::any_of(begin(), end(), samePlanet(pid, true /*notwo*/));
+        return std::any_of(begin(), end(), [pid](const ChartPlanetModeId& cpid) {
+            return cpid.isSolo() && cpid.planetId() == pid;
+        });
     }
 
     bool contains(const ChartPlanetId& pid) const
     {
-        return std::any_of(begin(),
-                           end(),
-                           samePlanet(pid, false /*either*/, true /*cmpFID*/));
+        return std::any_of(begin(), end(), [&pid](const ChartPlanetModeId& cpid) {
+            return cpid.chartPlanetId() == pid;
+        });
     }
 
     bool containsSolo(const ChartPlanetId& pid) const
     {
-        return std::any_of(begin(),
-                           end(),
-                           samePlanet(pid, true /*notwo*/, true /*cmpFID*/));
+        return std::any_of(begin(), end(), [&pid](const ChartPlanetModeId& cpid) {
+            return cpid.isSolo() && cpid.chartPlanetId() == pid;
+        });
+    }
+
+    bool contains(const ChartPlanetModeId& pmid) const
+    {
+        return find(pmid) != end();
     }
 
     bool containsAny(const PlanetSet& pset) const
@@ -981,14 +1063,14 @@ class PlanetSet : public std::set<ChartPlanetId> {
 
     bool containsAny(PlanetId start, PlanetId beyond)
     {
-        return std::any_of(begin(), end(), [&](const ChartPlanetId& cpid) {
+        return std::any_of(begin(), end(), [&](const ChartPlanetModeId& cpid) {
             return cpid.planetId() >= start && cpid.planetId() < beyond;
         });
     }
 
     bool containsMidPt() const
     {
-        return std::any_of(begin(), end(), [](const ChartPlanetId& cpid) {
+        return std::any_of(begin(), end(), [](const ChartPlanetModeId& cpid) {
             return !cpid.isSolo();
         });
     }
@@ -997,7 +1079,7 @@ class PlanetSet : public std::set<ChartPlanetId> {
     {
         QString res;
         int     lastFid = empty() ? 0 : begin()->fileId();
-        for (const ChartPlanetId& cpid : *this) {
+        for (const ChartPlanetModeId& cpid : *this) {
             if (cpid.fileId() != lastFid) res += " : ";
             else if (!res.isEmpty())
                 res += ",";
@@ -1012,7 +1094,7 @@ class PlanetSet : public std::set<ChartPlanetId> {
         QStringList res;
         int         lastFid = 0;
         bool        ital    = false;
-        for (const ChartPlanetId& cpid : *this) {
+        for (const ChartPlanetModeId& cpid : *this) {
             if (cpid.fileId() != lastFid) ital = !ital;
             if (ital) {
                 res << "<i>" + cpid.name() + "</i>";
@@ -1031,7 +1113,7 @@ class PlanetSet : public std::set<ChartPlanetId> {
         std::map<int, unsigned> ids;
         for (const auto& cpid : *this) ids[cpid.fileId()]++;
 
-        for (const ChartPlanetId& cpid : *this) {
+        for (const ChartPlanetModeId& cpid : *this) {
             auto name = cpid.name().left(3);
             if (cpid.fileId() == 0 && ids.size() > 1) res << name + "-r";
             else
@@ -1044,7 +1126,7 @@ class PlanetSet : public std::set<ChartPlanetId> {
     {
         unsigned n     = 0;
         bool     snode = false, nnode = false;
-        for (const ChartPlanetId& it : *this) {
+        for (const ChartPlanetModeId& it : *this) {
             if (it.isSolo()) {
                 n += 1;
                 if (it.planetId() == Planet_SouthNode) snode = true;
@@ -1078,7 +1160,7 @@ class ChartPlanetBitmap : public std::map<int, unsigned> {
 
     ChartPlanetBitmap& operator|=(const PlanetSet& planets)
     {
-        for (const auto& p : planets) operator|=(p);
+        for (const auto& p : planets) operator|=(p.chartPlanetId());
         return *this;
     }
 
@@ -1087,6 +1169,11 @@ class ChartPlanetBitmap : public std::map<int, unsigned> {
         value_type val(planetBit(cpid));
         (*this)[val.first] |= val.second;
         return *this;
+    }
+
+    ChartPlanetBitmap& operator|=(const ChartPlanetModeId& pmid)
+    {
+        return operator|=(pmid.chartPlanetId());
     }
 
     bool operator<(const ChartPlanetBitmap& other) const
@@ -1150,7 +1237,7 @@ class ChartPlanetBitmap : public std::map<int, unsigned> {
             while (v) {
                 if (v & 1) {
                     PlanetId pid = int(maxShift()) - num;
-                    pset.insert(ChartPlanetId(val.first, pid, Planet_None));
+                    pset.insert(ChartPlanetModeId(ChartPlanetId(val.first, pid, Planet_None), plmUnknown));
                 }
                 v >>= 1;
                 ++num;
@@ -1197,6 +1284,7 @@ struct Loc {
     virtual qreal   operator()(double /*jd*/, int /*h*/) { return loc; }
     virtual bool    inMotion() const { return false; }
     virtual QString description() const { return desc; }
+    virtual PlanetLocMode mode() const { return plmUnknown; }
 
     virtual const InputData& input() const
     {
@@ -1256,6 +1344,10 @@ struct PlanetLoc : public Loc {
 
     Loc* clone() const override { return new PlanetLoc(*this); }
 
+    ChartPlanetModeId planetModeId() const { 
+        return ChartPlanetModeId(planet, mode()); 
+    }
+
     bool aspectable() const
     {
         return inMotion() || allowAspects <= aspOnlyConj
@@ -1292,6 +1384,7 @@ struct PlanetLoc : public Loc {
     }
 
     virtual qreal defaultSpeed() const override;
+    virtual PlanetLocMode mode() const override { return plmUnknown; }
 };
 
 typedef std::list<Loc*> Locs;
@@ -1332,6 +1425,7 @@ class NatalLoc : public PlanetLoc {
     }
 
     Loc* clone() const override { return new NatalLoc(*this); }
+    PlanetLocMode mode() const override { return plmNatal; }
 };
 
 class InputPosition : public PlanetLoc {
@@ -1373,6 +1467,7 @@ class KnownPosition : public PlanetLoc {
     qreal julianDate() const { return jd; };
 
     Loc* clone() const override { return new KnownPosition(*this); }
+    PlanetLocMode mode() const override { return plmKnown; }
 };
 
 class NatalPosition : public InputPosition {
@@ -1393,6 +1488,8 @@ class NatalPosition : public InputPosition {
     {
         return loc = h == 1 ? _rasiLoc : fmod(_rasiLoc * h, 360.);
     }
+
+    PlanetLocMode mode() const override { return plmNatal; }
 };
 
 class TransitPosition : public InputPosition {
@@ -1420,6 +1517,8 @@ class TransitPosition : public InputPosition {
     {
         return compute(input(), jd, h);
     }
+
+    PlanetLocMode mode() const override { return plmTransit; }
 };
 
 class ProgressedPosition : public InputPosition {
@@ -1453,10 +1552,13 @@ class ProgressedPosition : public InputPosition {
         speed /= 365.25;
         return pos;
     }
+
+    PlanetLocMode mode() const override { return plmProgressed; }
 };
 
 class SolarArcPosition : public InputPosition {
   public:
+    PlanetLocMode mode() const override { return plmSolarArc; }
 };
 
 template <typename T>
@@ -1606,7 +1708,8 @@ class PlanetProfile : public Loc, public std::deque<Loc*> {
         int            inxOld = 0, inxNew = 0;
         for (auto loc : *this) {
             if (auto ploc = dynamic_cast<const PlanetLoc*>(loc)) {
-                auto psit = psp.find(ploc->planet);
+                auto pmid = ploc->planetModeId();
+                auto psit = psp.find(pmid);
                 if (psit != psp.end()) {
                     ret->emplace_back(ploc->clone());
                     inxUpd[inxOld] = inxNew;
@@ -1756,7 +1859,8 @@ class PlanetGroups : public std::map<PlanetSet, PlanetRange> {
     static void getPlanetSet(const T& planets, PlanetSet& plist)
     {
         plist.clear();
-        for (const PlanetLoc& loc : planets) plist.insert(loc.planet);
+        for (const PlanetLoc& loc : planets) 
+            plist.insert(loc.planetModeId());
     }
 
     void insert(const PlanetRange& planets)
@@ -1901,7 +2005,7 @@ class HarmonicAspect {
     {
         for (const auto& loc : _locations) {
             if (const auto ploc = dynamic_cast<const PlanetLoc*>(&loc))
-                _pattern.insert(ploc->planet);
+                _pattern.insert(ploc->planetModeId());
         }
     }
 
@@ -1931,7 +2035,7 @@ class HarmonicAspect {
         _pattern.clear();
         for (const auto& loc : _locations) {
             if (const auto ploc = dynamic_cast<const PlanetLoc*>(&loc))
-                _pattern.insert(ploc->planet);
+                _pattern.insert(ploc->planetModeId());
         }
         _orb = delta;
     }

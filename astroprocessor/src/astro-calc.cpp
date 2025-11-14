@@ -4447,7 +4447,7 @@ AspectFinder::findTransitPairs(AspectSearchState& state)
 
             bool isInOrb = false;
             if (good) {
-                HarmonicPlanetSet hij { state.h, { bi->planet, bj->planet }, it->et };
+                HarmonicPlanetSet hij { state.h, { bi->planetModeId(), bj->planetModeId() }, it->et };
 
                 auto hasit = state.inOrb.find(hij);
                 isInOrb    = std::abs(bd) <= planetPairOrb;
@@ -4619,10 +4619,10 @@ AspectFinder::findAspects(AspectSearchState& state, modalize<bool>& mum)
             auto pj = dynamic_cast<PlanetLoc*>(_alist[j]);
             if (includeTransitRange) {
                 auto hasit =
-                    state.inOrb.find({ state.h, { pi->planet, pj->planet }, et });
+                    state.inOrb.find({ state.h, { pi->planetModeId(), pj->planetModeId() }, et });
                 if (hasit == state.inOrb.end()) {
                     hasit = state.inOrb.find(
-                        { state.h, { pj->planet, pi->planet }, et });
+                        { state.h, { pj->planetModeId(), pi->planetModeId() }, et });
                 }
                 if (hasit != state.inOrb.end()) {
                     auto r = new PairAspectFinder(_alist[i],
@@ -4679,7 +4679,7 @@ AspectFinder::findAspectsAndPatterns()
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<NatalPosition*>(pl);
             if (!pla || pla->inMotion()) continue;
-            state.nats.emplace(pla->planet);
+            state.nats.emplace(pla->planetModeId());
         }
         state.skipAllNatalOnly = true;
     } else if (showTransitAspectPatterns()
@@ -4688,7 +4688,7 @@ AspectFinder::findAspectsAndPatterns()
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<TransitPosition*>(pl);
             if (!pla || !pla->inMotion()) continue;
-            state.trans.emplace(pla->planet);
+            state.trans.emplace(pla->planetModeId());
         }
     } else if (showTransitAspectPatterns() && showTransitNatalAspectPatterns())
     {
@@ -4696,9 +4696,9 @@ AspectFinder::findAspectsAndPatterns()
             auto pla = dynamic_cast<PlanetLoc*>(pl);
             if (!pla) continue;
             if (pla->inMotion()) {
-                state.trans.emplace(pla->planet);
+                state.trans.emplace(pla->planetModeId());
             } else {
-                state.nats.emplace(pla->planet);
+                state.nats.emplace(pla->planetModeId());
             }
         }
         state.skipAllNatalOnly = true;
@@ -4821,7 +4821,7 @@ AspectFinder::findAspectsAndPatterns()
                 if (!st_quiet)
                     qDebug() << QString("H%1 %2 at %3 with orb %4")
                                     .arg(state.h)
-                                    .arg(PlanetSet({ bi->planet, bj->planet })
+                                    .arg(PlanetSet({ bi->planetModeId(), bj->planetModeId() })
                                              .names()
                                              .join('='))
                                     .arg(dtToString(state.d))
@@ -4833,7 +4833,7 @@ AspectFinder::findAspectsAndPatterns()
                                     .c_str();
 
                     HarmonicPlanetSet hij { state.h,
-                                            { bi->planet, bj->planet },
+                                            { bi->planetModeId(), bj->planetModeId() },
                                             it->et };
                     state.tinOrb[hij] = { state.jd, 0 };
                     // if (!s_quiet)
@@ -4998,8 +4998,15 @@ AspectFinder::findAspectsAndPatterns()
 
     if (_state != cancelRequestedState) {
         bool any = false;
-        for (auto&& [hps, rm] : state.proximityLog) {
-            for (const auto& [r, stat] : rm) {
+        for (auto hpsit = state.proximityLog.begin();
+             hpsit != state.proximityLog.end();
+             ++hpsit)
+        {
+            const auto& hps = hpsit->first;
+            const auto& rm  = hpsit->second;
+            for (auto rit = rm.begin(); rit != rm.end(); ++rit) {
+                const auto& r    = rit->first;
+                const auto& stat = rit->second;
                 if (stat) continue;
                 auto   h  = hps.harmonic;
                 auto&& ps = hps.planets;
@@ -5468,7 +5475,7 @@ getSet(const positions& pos)
 {
     PlanetSet ret;
     for (const auto& p : pos) {
-        ret.emplace(p.second);
+        ret.emplace(ChartPlanetModeId(p.second, plmUnknown));
     }
     return ret;
 }

@@ -256,9 +256,7 @@ Harmonics::updateHarmonics()
                     }
                     for (const auto& p : planets) {
                         for (const auto& mp : midpoints) {
-                            A::PlanetSet trio { p,
-                                                mp.chartPlanetId1(),
-                                                mp.chartPlanetId2() };
+                            A::PlanetSet trio { p, mp.id1(), mp.id2() };
                             firstHxItems.insert(std::make_pair(trio, ip));
                         }
                     }

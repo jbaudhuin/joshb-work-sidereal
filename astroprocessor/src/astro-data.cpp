@@ -736,10 +736,11 @@ PlanetGroups::insert(const PlanetQueue& planets, unsigned minQuorum)
         if (p.planet.isSolo()) {
             anySolo = true;
         } else if (!anySolo) {
-            plcat.insert(p.planet.chartPlanetId1());
-            plcat.insert(p.planet.chartPlanetId2());
+            auto pmid = p.planetModeId();
+            plcat.insert(pmid.id1());
+            plcat.insert(pmid.id2());
         }
-        pl.insert(p.planet);
+        pl.insert(p.planetModeId());
         r.insert(p);
     }
     if (!anySolo && plcat.size() == 3 && pl.size() == 2) {
