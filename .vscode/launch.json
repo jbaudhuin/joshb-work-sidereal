@@ -22,7 +22,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${command:cmake.launchTargetPath}",
-            "args": [],
+            "args": ["--new"],
             "cwd": "${workspaceFolder}/bin",
             "stopOnEntry": false,
             "preLaunchTask": "CMake: Build",

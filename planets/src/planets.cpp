@@ -21,12 +21,18 @@ AstroQmlView :: AstroQmlView (QWindow* parent) : QQuickView(parent)
 void AstroQmlView :: fitSceneInView()
 {
     //fitInView(QRect(QPoint(0, 0), initialSize()), Qt::KeepAspectRatio);
+    QQuickItem* root = rootObject();
+    if (!root) {
+        qDebug() << "fitSceneInView: rootObject is null";
+        return;
+    }
+    
     QSizeF newSize(initialSize());
     qreal hscale = size().width() / newSize.width();
     qreal vscale = size().height() / newSize.height();
-    rootObject()->setTransformOrigin(QQuickItem::TopLeft);
-    rootObject()->setSize(newSize);
-    rootObject()->setScale(qMin(hscale, vscale));
+    root->setTransformOrigin(QQuickItem::TopLeft);
+    root->setSize(newSize);
+    root->setScale(qMin(hscale, vscale));
     //setResizeMode(QQuickView::SizeViewToRootObject);
 }
 

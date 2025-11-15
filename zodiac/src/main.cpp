@@ -128,7 +128,19 @@ main(int argc, char* argv[])
     QFontDatabase::addApplicationFont("fonts/Almagest.ttf");
     A::load(lang);
 
-    std::unique_ptr<MainWindow> mw(MainWindow::instance());
+    // Check for command-line flags to skip session restore
+    bool skipRestore = false;
+    QStringList args = a.arguments();
+    for (const QString& arg : args) {
+        QString lower = arg.toLower();
+        if (lower == "--new" || lower == "-new" || lower == "/new" || 
+            lower == "/n" || lower == "--norestore") {
+            skipRestore = true;
+            break;
+        }
+    }
+    
+    std::unique_ptr<MainWindow> mw(MainWindow::instance(skipRestore));
     MainWindow&                 w = *mw;
 
     QFile cssfile("style/style.css");

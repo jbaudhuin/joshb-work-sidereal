@@ -80,7 +80,6 @@ class AstroWidget : public QWidget {
 
     bool _dynAspChange = false;
 
-    void          setupFile(AstroFile* file, bool suspendUpdate = false);
     AstroFileList files() { return fileView->files(); }
     QString       vectorToString(const QVector3D& v);
     QVector3D     vectorFromString(const QString& str);
@@ -124,6 +123,7 @@ class AstroWidget : public QWidget {
 
   public:
     AstroWidget(QWidget* parent = nullptr);
+    void               setupFile(AstroFile* file, bool suspendUpdate = false);
     QToolBar*          getToolBar() { return toolBar; }
     const QWidgetList& getHoroscopeControls() const
     {
@@ -210,6 +210,10 @@ class AstroDatabase : public QFrame {
   public slots:
     void updateList();
 
+  public:
+    void saveDatabaseState();
+    void restoreDatabaseState();
+
   signals:
     void fileRemoved(const AFileInfo&);
     void openFile(const AFileInfo&);
@@ -241,6 +245,9 @@ class FilesBar : public QTabBar {
     void updateTab(int index);
     int  getTabIndex(AstroFile* f, bool seekFirstFileOnly = false);
     int  getTabIndex(QString name, bool seekFirstFileOnly = false);
+
+  public:
+    void saveFilesToSession();
 
   private slots:
     void swapTabs(int, int);
@@ -290,6 +297,7 @@ class MainWindow : public QMainWindow, public Customizable {
     Q_OBJECT
 
   private:
+    bool _skipRestore;
     bool askToSave;
 
     FilesBar*      filesBar;
@@ -303,6 +311,9 @@ class MainWindow : public QMainWindow, public Customizable {
 
     void     addToolBarActions();
     QAction* createActionForPanel(QWidget* w /*, const QIcon &icon*/);
+    
+    void saveSession();
+    void restoreSession();
 
   private slots:
     void saveFile()
@@ -325,11 +336,11 @@ class MainWindow : public QMainWindow, public Customizable {
     void closeEvent(QCloseEvent*);
 
   public:
-    MainWindow(QWidget* parent = nullptr);
+    MainWindow(bool skipRestore = false, QWidget* parent = nullptr);
 
     const std::string& APIKey() const { return _APIKey; }
 
-    static MainWindow*  instance();
+    static MainWindow*  instance(bool skipRestore = false);
     static AstroWidget* theAstroWidget() { return instance()->astroWidget; }
 };
 

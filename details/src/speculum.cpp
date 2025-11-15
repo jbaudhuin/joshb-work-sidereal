@@ -229,8 +229,13 @@ Speculum::updateSpeculumDisplay()
     _radixTime               = scope.inputData.GMT();
     QDateTime localRadixTime = _radixTime.addSecs(m_timezone * 3600);
     QString   dow(tr("MtWTFsS"));
+    int dayOfWeek = localRadixTime.date().dayOfWeek();
+    if (dayOfWeek < 1 || dayOfWeek > 7) {
+        qWarning() << "Invalid day of week:" << dayOfWeek << "for date:" << localRadixTime;
+        dayOfWeek = 1; // Default to Monday
+    }
     QString   radixTimeStr = QString("%1 %2")
-                               .arg(dow[localRadixTime.date().dayOfWeek() - 1])
+                               .arg(dow[dayOfWeek - 1])
                                .arg(localRadixTime.time().toString("hh:mm"));
     _radixBtn->setText(radixTimeStr);
 

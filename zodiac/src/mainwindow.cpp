@@ -6,6 +6,7 @@
 #include <QToolButton>
 
 #include <QFileSystemWatcher>
+#include <QScrollBar>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QTreeView>
@@ -1010,6 +1011,63 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
 }
 
 void
+AstroDatabase::saveDatabaseState()
+{
+    QSettings settings("settings.ini", QSettings::IniFormat);
+    settings.beginGroup("Database");
+    
+    // Save scroll position
+    QScrollBar* vbar = fileList->verticalScrollBar();
+    if (vbar) {
+        settings.setValue("scrollPosition", vbar->value());
+    }
+    
+    // Save expanded state for each directory
+    for (int i = 0; i < dirModel->rowCount(); ++i) {
+        QStandardItem* item = dirModel->item(i);
+        if (item) {
+            QString dirName = item->text();
+            QModelIndex proxyIndex = searchProxy->mapFromSource(dirModel->indexFromItem(item));
+            bool expanded = fileList->isExpanded(proxyIndex);
+            settings.setValue(QString("expanded/%1").arg(dirName), expanded);
+        }
+    }
+    
+    settings.endGroup();
+    qDebug() << "Database state saved";
+}
+
+void
+AstroDatabase::restoreDatabaseState()
+{
+    QSettings settings("settings.ini", QSettings::IniFormat);
+    settings.beginGroup("Database");
+    
+    // Restore expanded state for each directory
+    for (int i = 0; i < dirModel->rowCount(); ++i) {
+        QStandardItem* item = dirModel->item(i);
+        if (item) {
+            QString dirName = item->text();
+            bool expanded = settings.value(QString("expanded/%1").arg(dirName), false).toBool();
+            if (expanded) {
+                QModelIndex proxyIndex = searchProxy->mapFromSource(dirModel->indexFromItem(item));
+                fileList->setExpanded(proxyIndex, true);
+            }
+        }
+    }
+    
+    // Restore scroll position (must be done after expanding)
+    QScrollBar* vbar = fileList->verticalScrollBar();
+    if (vbar) {
+        int scrollPos = settings.value("scrollPosition", 0).toInt();
+        vbar->setValue(scrollPos);
+    }
+    
+    settings.endGroup();
+    qDebug() << "Database state restored";
+}
+
+void
 AstroDatabase::searchFilter(const QString& nf)
 {
     searchProxy->setFilterRegularExpression(nf);
@@ -1562,8 +1620,6 @@ FilesBar::closeTab(int index)
         case QMessageBox::Cancel: return false;
         default:                  break;
         }
-    } else if (count() == 1) {
-        return false; // TODO: make an empty file instead last tab
     }
 
     if (currentIndex() != index) {
@@ -1582,8 +1638,10 @@ FilesBar::closeTab(int index)
     // delete AstroFiles, because we do not need it
     for (AstroFile* i : f) i->destroy();
 
-    if (!count()) addNewFile();
-    else if (next != -1) {
+    if (!count()) {
+        // No tabs left - app will likely close soon
+        qDebug() << "Last tab closed, no tabs remaining";
+    } else if (next != -1) {
         setCurrentIndex(next);
         // QTimer::singleShot(0, [this] {setCurrentIndex(next);});
     }
@@ -1847,7 +1905,8 @@ FilesBar::openTransits(int i)
 
 /* =========================== MAIN WINDOW ================================== */
 
-MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), Customizable()
+MainWindow::MainWindow(bool skipRestore, QWidget* parent) 
+    : QMainWindow(parent), Customizable(), _skipRestore(skipRestore)
 {
     HelpWidget* help = new HelpWidget("text/" + A::usedLanguage(), this);
 
@@ -2017,16 +2076,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), Customizable()
     }
 
     loadSettings();
-    filesBar->addNewFile();
+    if (!_skipRestore) {
+        restoreSession();
+        astroDatabase->restoreDatabaseState();
+    } else {
+        filesBar->addNewFile();
+    }
 }
 
 /*static*/
 MainWindow*
-MainWindow::instance()
+MainWindow::instance(bool skipRestore)
 {
     static MainWindow* theMainWindow = nullptr;
     if (!theMainWindow) {
-        theMainWindow = new MainWindow;
+        theMainWindow = new MainWindow(skipRestore);
     }
     return theMainWindow;
 }
@@ -2157,6 +2221,9 @@ MainWindow::applySettings(const AppSettings& s)
     this->restoreState(s.value("Window/State").toByteArray());
     askToSave = s.value("askToSave").toBool();
     _APIKey   = s.value("Key").toString().toStdString();
+    
+    // Auto-save settings immediately after applying
+    saveSettings();
 }
 
 void
@@ -2176,6 +2243,7 @@ MainWindow::closeEvent(QCloseEvent* ev)
         if (!filesBar->closeTab(filesBar->currentIndex())) return ev->ignore();
     }
 
+    saveSession();
     saveSettings();
 
     QMainWindow::closeEvent(ev);
@@ -2264,4 +2332,248 @@ MainWindow::showAbout()
     connect(b3, SIGNAL(clicked()), this, SLOT(gotoUrl()));
     connect(b, SIGNAL(clicked()), s, SLOT(nextSlide()));
     d->exec();
+}
+
+void
+MainWindow::saveSession()
+{
+    QSettings settings("settings.ini", QSettings::IniFormat);
+    settings.beginGroup("Session");
+    
+    if (filesBar->count() == 0) {
+        // No tabs - save empty session
+        settings.setValue("tabCount", 0);
+        settings.setValue("currentTab", 0);
+        qDebug() << "Session saved: empty (no tabs)";
+    } else {
+        // Save current tab index
+        settings.setValue("currentTab", filesBar->currentIndex());
+        
+        // Save session to FilesBar
+        filesBar->saveFilesToSession();
+        qDebug() << "Session saved:" << filesBar->count() << "tabs";
+    }
+    
+    settings.endGroup();
+    
+    // Save database tree state
+    astroDatabase->saveDatabaseState();
+}
+
+void
+MainWindow::restoreSession()
+{
+    QSettings settings("settings.ini", QSettings::IniFormat);
+    settings.beginGroup("Session");
+    
+    int tabCount = settings.value("tabCount", 0).toInt();
+    
+    if (tabCount == 0) {
+        // No saved session, create default new file
+        filesBar->addNewFile();
+        settings.endGroup();
+        return;
+    }
+    
+    // Restore each tab
+    for (int i = 0; i < tabCount; ++i) {
+        settings.beginGroup(QString("Tab%1").arg(i));
+        
+        int fileCount = settings.value("fileCount", 0).toInt();
+        
+        if (fileCount == 0) {
+            qDebug() << "Tab" << i << "has no files, skipping";
+            settings.endGroup();
+            continue;
+        }
+        
+        for (int j = 0; j < fileCount; ++j) {
+            settings.beginGroup(QString("File%1").arg(j));
+            
+            // Try new format first (directory + filename)
+            QString directory = settings.value("directory").toString();
+            QString filename = settings.value("filename").toString();
+            bool hasUnsavedChanges = settings.value("hasUnsavedChanges", false).toBool();
+            
+            // Backward compatibility: check old "isUnsaved" flag
+            bool isUnsaved = settings.value("isUnsaved", false).toBool();
+            
+            // Fallback to old format if new format not present
+            if (directory.isEmpty() && !isUnsaved && !hasUnsavedChanges) {
+                QString filePath = settings.value("filePath").toString();
+                if (!filePath.isEmpty()) {
+                    // Old format - try to use it
+                    QFileInfo fi(filePath);
+                    directory = fi.absolutePath();
+                    filename = fi.baseName();
+                }
+            }
+            
+            AstroFile* af = nullptr;
+            bool hasCurrentData = settings.contains("name") && settings.contains("gmt");
+            
+            try {
+                if (!directory.isEmpty() && !filename.isEmpty() && !hasCurrentData) {
+                    // Restore saved file without modifications using directory + filename
+                    af = new AstroFile;
+                    astroWidget->setupFile(af);
+                    AFileInfo fileInfo(QDir(directory), filename);
+                    af->load(fileInfo);
+                    qDebug() << "Restored saved file - dir:" << directory 
+                             << "filename:" << filename
+                             << "af->getName():" << af->getName()
+                             << "GMT:" << af->getGMT();
+                } else if (hasCurrentData) {
+                    // Restore file from saved current data (unsaved or modified)
+                    af = new AstroFile;
+                    astroWidget->setupFile(af);
+                    
+                    af->suspendUpdate();
+                    af->setName(settings.value("name").toString());
+                    af->setGMT(settings.value("gmt").toDateTime());
+                    af->setType((FileType)settings.value("type", TypeEvent).toInt());
+                    af->setLocation(settings.value("location").value<QVector3D>());
+                    af->setLocationName(settings.value("locationName").toString());
+                    af->setTimezone(settings.value("timezone").toInt());
+                    af->setHarmonic(settings.value("harmonic", 1.0).toDouble());
+                    af->setComment(settings.value("comment").toString());
+                    
+                    if (settings.value("hasBaseChart", false).toBool()) {
+                        af->setBaseChart(settings.value("baseChart").toDateTime());
+                    }
+                    
+                    af->resumeUpdate();
+                    
+                    // If this file had unsaved changes, DON'T clear the unsaved flag
+                    // (it was set by the property changes above)
+                    if (!hasUnsavedChanges) {
+                        // This was an unsaved new file that never had a saved version
+                        af->clearUnsavedState();
+                    }
+                    
+                    qDebug() << "Restored file from current data:" << af->getName()
+                             << "unsavedChanges:" << hasUnsavedChanges;
+                } else {
+                    qDebug() << "Skipping file with insufficient data";
+                    settings.endGroup();
+                    continue;
+                }
+                
+                if (af) {
+                    if (j == 0) {
+                        filesBar->addFile(af);
+                    } else {
+                        // Add as secondary file
+                        filesBar->openTransitsAsSecond(af);
+                    }
+                }
+            } catch (const std::exception& e) {
+                qDebug() << "Error restoring file" << j << "in tab" << i << ":" << e.what();
+                if (af) delete af;
+            }
+            
+            settings.endGroup(); // File%1
+        }
+        
+        settings.endGroup(); // Tab%1
+    }
+    
+    // Restore current tab
+    int currentTab = settings.value("currentTab", 0).toInt();
+    if (currentTab < filesBar->count()) {
+        filesBar->setCurrentIndex(currentTab);
+    }
+    
+    settings.endGroup();
+    
+    // If no tabs were successfully restored, create a new file
+    if (filesBar->count() == 0) {
+        qDebug() << "No tabs restored, creating new file";
+        filesBar->addNewFile();
+    } else {
+        qDebug() << "Session restored:" << filesBar->count() << "tabs";
+    }
+}
+
+void
+FilesBar::saveFilesToSession()
+{
+    QSettings settings("settings.ini", QSettings::IniFormat);
+    settings.beginGroup("Session");
+    
+    settings.setValue("tabCount", count());
+    
+    for (int i = 0; i < count(); ++i) {
+        settings.beginGroup(QString("Tab%1").arg(i));
+        
+        const AstroFileList& fileList = files[i];
+        settings.setValue("fileCount", fileList.count());
+        
+        for (int j = 0; j < fileList.count(); ++j) {
+            settings.beginGroup(QString("File%1").arg(j));
+            
+            AstroFile* af = fileList[j];
+            
+            // Save file path for saved files
+            // AFileInfo stores files as: directory + encodedName + ".dat"
+            // So we need to save: directory + "/" + baseName (without encoding or .dat)
+            // When restoring, we'll pass this to AFileInfo which will encode and add .dat
+            AFileInfo fileInfo = af->fileInfo();
+            QString filePath;
+            
+            // Check if this is a saved file with a valid path
+            bool hasSavedFile = fileInfo.exists() 
+                             && !af->getName().startsWith("Untitled")
+                             && !fileInfo.absoluteFilePath().isEmpty();
+            
+            bool hasModifications = af->hasUnsavedChanges();
+            
+            if (hasSavedFile) {
+                // Save directory and filename separately
+                // baseName() already decodes and removes .dat
+                QString dir = fileInfo.absolutePath();
+                QString name = fileInfo.baseName(); // decoded, no .dat
+                
+                settings.setValue("directory", dir);
+                settings.setValue("filename", name);
+                
+                qDebug() << "Saving file to session:" << af->getName() 
+                         << "dir:" << dir << "filename:" << name
+                         << "modified:" << hasModifications;
+            } else {
+                qDebug() << "Saving unsaved file to session:" << af->getName();
+            }
+            
+            settings.setValue("filePath", QString()); // Keep for backward compat, but empty
+            settings.setValue("hasUnsavedChanges", hasModifications);
+            
+            // Save current chart data if:
+            // 1. It's a new/unsaved file, OR
+            // 2. It has modifications that haven't been saved
+            if (!hasSavedFile || hasModifications) {
+                // Save current file state
+                settings.setValue("name", af->getName());
+                settings.setValue("gmt", af->getGMT());
+                settings.setValue("type", (int)af->getType());
+                settings.setValue("location", af->getLocation());
+                settings.setValue("locationName", af->getLocationName());
+                settings.setValue("timezone", af->getTimezone());
+                settings.setValue("harmonic", af->getHarmonic());
+                settings.setValue("comment", af->getComment());
+                
+                if (af->hasBaseChart()) {
+                    settings.setValue("hasBaseChart", true);
+                    settings.setValue("baseChart", af->getBaseChartGMT());
+                } else {
+                    settings.setValue("hasBaseChart", false);
+                }
+            }
+            
+            settings.endGroup(); // File%1
+        }
+        
+        settings.endGroup(); // Tab%1
+    }
+    
+    settings.endGroup();
 }
