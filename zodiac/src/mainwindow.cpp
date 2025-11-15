@@ -2346,11 +2346,12 @@ MainWindow::saveSession()
         settings.setValue("currentTab", 0);
         qDebug() << "Session saved: empty (no tabs)";
     } else {
-        // Save current tab index
+        // Save session to FilesBar (this clears old data first)
+        filesBar->saveFilesToSession();
+        
+        // Save current tab index AFTER filesBar saves (so it doesn't get cleared)
         settings.setValue("currentTab", filesBar->currentIndex());
         
-        // Save session to FilesBar
-        filesBar->saveFilesToSession();
         qDebug() << "Session saved:" << filesBar->count() << "tabs";
     }
     
@@ -2500,6 +2501,9 @@ FilesBar::saveFilesToSession()
 {
     QSettings settings("settings.ini", QSettings::IniFormat);
     settings.beginGroup("Session");
+    
+    // Clear all old session data before saving new
+    settings.remove(""); // Removes all keys in current group
     
     settings.setValue("tabCount", count());
     
