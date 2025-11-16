@@ -59,6 +59,12 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     describeSpeculum->setCheckable(true);
     describeSpeculum->setChecked(true);
 
+    describePSSR = toolbar->addAction(tr("PSSR"));
+    describePSSR->setCheckable(true);
+    describePSSR->setChecked(false);
+    describePSSR->setStatusTip(
+        tr("Show Progressed Sidereal Solar Return (requires bi-wheel with return chart)"));
+
     toolbar->addSeparator();
 
     // Create chart selector widget (only visible when multiple charts loaded)
@@ -137,6 +143,7 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     connect(describePower, &QAction::triggered, this, &Plain::refresh);
     connect(describeParans, &QAction::triggered, this, &Plain::refresh);
     connect(describeSpeculum, &QAction::triggered, this, &Plain::refresh);
+    connect(describePSSR, &QAction::triggered, this, &Plain::refresh);
     connect(chartSelector, &QButtonGroup::idClicked, this, [this](int) {
         refresh();
     });
@@ -282,6 +289,7 @@ Plain::refresh()
                    | (A::Article_Parans * describeParans->isChecked())
                    | (A::Article_DiurnalEvents * showAllDiurnalEvents)
                    | (A::Article_Speculum * describeSpeculum->isChecked())
+                   | (A::Article_PSSR * describePSSR->isChecked())
                    | (A::Article_FixedStars * includeFixedStars);
 
     // Build the HTML content with custom aspect sort order
@@ -659,6 +667,15 @@ Plain::refresh()
         }
     }
 
+    // Display PSSR if enabled and bi-wheel present
+    if ((articles & A::Article_PSSR) && filesCount() == 2) {
+        qDebug() << "Plain::refresh: calling describePSSR";
+        AstroFileList biwheel;
+        biwheel.append(file(0));
+        biwheel.append(file(1));
+        html += A::describePSSR(biwheel, paranOrb, /*daysRange=*/270, displayMode, false);
+    }
+
     html += "</body></html>";
     view->setHtml(html);
 
@@ -677,6 +694,7 @@ Plain::defaultSettings()
     s.setValue("Text/describePower", false);
     s.setValue("Text/describeParans", true);
     s.setValue("Text/describeSpeculum", false);
+    s.setValue("Text/describePSSR", false);
     s.setValue("Mundane/displayMode", unsigned(A::DisplayLocalTime));
     s.setValue("Mundane/primDirMode", unsigned(A::prdMundane));
     s.setValue("Mundane/showAllDiurnalEvents", false);
@@ -697,6 +715,7 @@ Plain::currentSettings()
     s.setValue("Text/describePower", describePower->isChecked());
     s.setValue("Text/describeParans", describeParans->isChecked());
     s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
+    s.setValue("Text/describePSSR", describePSSR->isChecked());
     s.setValue("Mundane/displayMode",
                unsigned(displayModeSelector->checkedId()));
     s.setValue("Mundane/primDirMode", unsigned(A::primDirMode));
@@ -717,6 +736,7 @@ Plain::applySettings(const AppSettings& s)
     describePower->setChecked(s.value("Text/describePower").toBool());
     describeParans->setChecked(s.value("Text/describeParans").toBool());
     describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
+    describePSSR->setChecked(s.value("Text/describePSSR").toBool());
 
     A::SpeculumDisplayMode loadedMode =
         A::SpeculumDisplayMode(s.value("Mundane/displayMode").toUInt());

@@ -30,6 +30,7 @@ enum FileType {
     TypeFemale,
     TypeOther,
     TypeSearch,
+    TypeReturn,
     TypeDerivedSA,
     TypeDerivedProg,
     TypeDerivedPD,

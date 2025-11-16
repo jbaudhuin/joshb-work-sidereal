@@ -2863,6 +2863,114 @@ quotidianSearch(PlanetProfile&   poses,
     return ret;
 }
 
+// ============================================================================
+// PSSR (Progressed Sidereal Solar Return) Functions
+// ============================================================================
+
+double
+calculateRAMS(const QDateTime& dt, bool useMeanSun)
+{
+    // Calculate Right Ascension of Mean (or Apparent) Sun
+    double       jd  = getJulianDate(dt, false); // UT
+    char         errStr[256];
+    double       xx[6];
+    unsigned int flags = SEFLG_SWIEPH | SEFLG_EQUATORIAL;
+
+    if (useMeanSun) {
+        // For Mean Sun: use true position (geometric) + no nutation
+        flags |= SEFLG_TRUEPOS | SEFLG_NONUT;
+    }
+    // For Apparent Sun: use default (apparent position with nutation)
+
+    int ret = swe_calc_ut(jd, SE_SUN, flags, xx, errStr);
+    if (ret < 0) {
+        qWarning() << "calculateRAMS error:" << errStr;
+        return 0.0;
+    }
+
+    return xx[0]; // Right Ascension in degrees
+}
+
+double
+calculateAnniversarySecond(const Houses& return1, const Houses& return2)
+{
+    // Anniversary Second = (RAMC₂ - RAMC₁ + 24h) / (Mean Sun annual travel)
+    // where Mean Sun travels approximately 24h 00m 03s per year
+
+    double ramc1 = return1.RAMC;
+    double ramc2 = return2.RAMC;
+
+    // Calculate the difference, accounting for the full 24-hour cycle
+    double ramcDiff = swe_difdegn(ramc2, ramc1); // Normalized difference
+    if (ramcDiff < 0)
+        ramcDiff += 360.0;
+
+    // Add 24 hours (360 degrees) to get the actual advance
+    double actualAdvance = ramcDiff + 360.0;
+
+    // Convert to hours (360 degrees = 24 hours)
+    double actualAdvanceHours = (actualAdvance / 360.0) * 24.0;
+
+    // Mean Sun's annual travel: approximately 24h 00m 03s = 24.000833 hours
+    // This accounts for precession (~50.29" per year ≈ 3.35 seconds per year)
+    double meanSunAnnualTravel = 24.000833; // hours
+
+    // Anniversary second
+    double anniversarySecond = actualAdvanceHours / meanSunAnnualTravel;
+
+    // Helper lambda to convert degrees to sidereal time HH:MM:SS
+    auto degToST = [](double deg) -> QString {
+        double hours = deg / 15.0;
+        int h = (int)hours;
+        int m = (int)((hours - h) * 60.0);
+        double s = (((hours - h) * 60.0 - m) * 60.0);
+        if (h >= 24) h -= 24;
+        if (h < 0) h += 24;
+        return QString("%1h %2m %3s").arg(h, 2, 10, QChar('0')).arg(m, 2, 10, QChar('0')).arg(s, 0, 'f', 3);
+    };
+
+    qDebug() << "=== calculateAnniversarySecond ===";
+    qDebug() << "  Return 1 RAMC:" << ramc1 << "deg =" << degToST(ramc1);
+    qDebug() << "  Return 2 RAMC:" << ramc2 << "deg =" << degToST(ramc2);
+    qDebug() << "  RAMC Diff:" << ramcDiff << "deg =" << degToST(ramcDiff);
+    qDebug() << "  Actual Advance (Diff + 360°):" << actualAdvance << "deg =" << degToST(actualAdvance);
+    qDebug() << "  Actual Advance Hours:" << actualAdvanceHours << "hours";
+    qDebug() << "  Mean Sun Annual Travel:" << meanSunAnnualTravel << "hours";
+    qDebug() << "  Anniversary Second:" << anniversarySecond;
+
+    return anniversarySecond;
+}
+
+double
+calculatePSSRRAMC(const Houses&    returnHouses,
+                  const QDateTime& returnTime,
+                  const QDateTime& eventTime,
+                  double           anniversarySecond,
+                  bool             useMeanSun)
+{
+    // PSSR RAMC = Return RAMC + (Event RAMS - Return RAMS) × Anniversary Second
+
+    double returnRAMS = calculateRAMS(returnTime, useMeanSun);
+    double eventRAMS  = calculateRAMS(eventTime, useMeanSun);
+
+    // Calculate elapsed Mean Sun between return and event
+    double elapsedRAMS = swe_difdeg2n(eventRAMS, returnRAMS); // Signed difference
+
+    // Convert to hours (degrees to hours: 360° = 24h)
+    double elapsedHours = (elapsedRAMS / 360.0) * 24.0;
+
+    // Multiply by anniversary second to get PSSR advancement
+    double pssrAdvanceHours = elapsedHours * anniversarySecond;
+
+    // Convert back to degrees
+    double pssrAdvanceDegrees = (pssrAdvanceHours / 24.0) * 360.0;
+
+    // Add to return RAMC
+    double pssrRAMC = swe_degnorm(returnHouses.RAMC + pssrAdvanceDegrees);
+
+    return pssrRAMC;
+}
+
 QDateTime
 calculateReturnTime(PlanetId         id,
                     const InputData& native,
@@ -3642,6 +3750,12 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                     hsetId hs = conjOpp;
                     auto   tp = dynamic_cast<TransitPosition*>(_alist[i]);
                     auto   pl = tp->planet.planetId();
+                    EventType etype = etcReturn;
+                    if (pl == Planet_Sun) {
+                        etype = etcSolarReturn;
+                    } else if (pl == Planet_Moon) {
+                        etype = etcLunarReturn;
+                    }
                     if (pl == Planet_NorthNode || pl == Planet_SouthNode) {
                         hs = conj;
                     } else if (pl >= Planet_Jupiter && pl <= Planet_Chiron) {
@@ -3649,7 +3763,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                     } else if (pl != Planet_Moon) {
                         hs = conjOppSq;
                     }
-                    _staff.emplace_back(i, j, hs, etcReturn);
+                    _staff.emplace_back(i, j, hs, etype);
                 }
             }
         }
@@ -5587,7 +5701,7 @@ findClusters(const positions& posits,
         if (!st_quiet) {
             unsigned n = 0;
             for (auto jit = it; jit != e; ++jit) ++n;
-            if (n >= quorum) {
+            if (n >= quorum && !st_quiet) {
                 qDebug() << "Found potential quorum" << n;
             }
         }

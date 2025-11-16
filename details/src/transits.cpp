@@ -262,14 +262,15 @@ class EventsTableModel : public QAbstractItemModel {
 
     QString rowDesc(int row) const
     {
-        auto h = index(row, harmonicCol).data(SummaryRole).toString();
-        auto t = index(row, transitBodyCol).data(SummaryRole).toString();
-        auto n = index(row, natalTransitBodyCol).data(SummaryRole).toString();
+        QString h = index(row, harmonicCol).data(SummaryRole).toString();
+        QString t = index(row, transitBodyCol).data(SummaryRole).toString();
+        QString n = index(row, natalTransitBodyCol).data(SummaryRole).toString();
         if (!n.isEmpty()) {
-            return QString("%1 %2=%3").arg(h, t, n);
+            return h + " " + t + "=" + n;
         }
-        return QString("%1 %2 %3")
-            .arg(h, rowDate(row).toLocalTime().toString("yyyy MMMM"), t);
+        auto dt = rowDate(row).toTimeZone(QTimeZone(_tzOffset * 3600));
+        QString dateStr = dt.toString(QString("yyyy MMMM"));
+        return h + " " + dateStr + " " + t;
     }
 
     QVariant headerData(int col,
@@ -293,6 +294,18 @@ class EventsTableModel : public QAbstractItemModel {
     void setZodiac(const A::Zodiac& zod) { _zodiac = zod; }
 
     void setSuffixes(const QStringList& suff) { _suffixes = suff; }
+
+    void setTimezone(short tz) {
+        if (_tzOffset != tz) {
+            _tzOffset = tz;
+            // Refresh date column display
+            if (rowCount() > 0) {
+                emit dataChanged(index(0, dateCol),
+                                index(rowCount() - 1, dateCol),
+                                { Qt::DisplayRole, Qt::ToolTipRole });
+            }
+        }
+    }
 
     QString getPos(float deg) const
     {
@@ -597,7 +610,9 @@ class EventsTableModel : public QAbstractItemModel {
         case dateCol:
             if (prow == -1) {
                 // HarmonicEvent
-                auto dt = _evs[row]->dateTime().toLocalTime();
+                // Convert UTC to chart's timezone
+                auto dt = _evs[row]->dateTime().toTimeZone(
+                    QTimeZone(_tzOffset * 3600));
                 if (role == RawRole) return dt;
 
                 auto&& r = _evs[row]->range();
@@ -622,14 +637,19 @@ class EventsTableModel : public QAbstractItemModel {
 
                 QString res = dt.toString("ddd hh:mm:ss.zzz");
                 if (r != A::ADateTimeRange()) {
-                    auto dtfrom  = r.first.toLocalTime();
-                    auto fmtFrom = dtfrom.date() == dt.date() ? ssfmt : sfmt;
-                    auto dtto    = r.second.toLocalTime();
-                    auto fmtTo   = dtto.date() == dt.date() ? ssfmt : sfmt;
+                    auto dtfrom  = r.first.toTimeZone(QTimeZone(_tzOffset * 3600));
+                    auto dtto    = r.second.toTimeZone(QTimeZone(_tzOffset * 3600));
+                    
+                    // Use full format if years differ, otherwise optimize by date
+                    auto fmtFrom = (dtfrom.date().year() != dt.date().year()) ? fmt :
+                                   (dtfrom.date() == dt.date() ? ssfmt : sfmt);
+                    auto fmtTo   = (dtto.date().year() != dt.date().year()) ? fmt :
+                                   (dtto.date() == dt.date() ? ssfmt : sfmt);
+                    
                     res          = QString("%1 ->\n %2\n  -> %3")
-                              .arg(r.first.toLocalTime().toString(fmtFrom),
+                              .arg(dtfrom.toString(fmtFrom),
                                    res,
-                                   r.second.toLocalTime().toString(fmtTo));
+                                   dtto.toString(fmtTo));
                 }
                 return res;
             }
@@ -1110,6 +1130,7 @@ class EventsTableModel : public QAbstractItemModel {
 
     A::Zodiac      _zodiac;
     A::AspectSetId _aspects = 0;
+    short          _tzOffset = 0; // Timezone offset in hours
 
     QStringList _suffixes;
 
@@ -1472,6 +1493,10 @@ Transits::updateTimezone()
         qreal tz = (response["rawOffset"].toInt()
                     /*+ response["dstOffset"].toInt()*/)
                    / 3600;
+        
+        // Update the model's timezone first so display refreshes
+        _evm->setTimezone(short(tz));
+        
         transitsAF()->suspendUpdate();
         transitsAF()->setLocation(_location->location());
         transitsAF()->setLocationName(_location->locationName());
@@ -1483,13 +1508,17 @@ Transits::updateTimezone()
                  << "with dstOffset" << response["dstOffset"].toInt() / 60
                  << "in" << response["timeZoneName"].toString();
 
-        if (transitsOnly()) emit updateFirst(file());
-        else
+        // Signal that the chart needs updating with new location/timezone
+        // This will cause the chart to redraw with the new location
+        if (transitsOnly()) {
+            emit updateFirst(file());
+        } else {
             emit updateSecond(transitsAF());
+        }
     });
 
     QString url =
-        QString(A::googMapURL + "/timezone/json?2&timestamp=%43&language=en")
+        QString(A::googMapURL + "/timezone/json?location=%1,%2&key=%3&timestamp=%4&language=en")
             .arg(vec.y())
             .arg(vec.x())
             .arg(MainWindow::instance()->APIKey().c_str())
@@ -1520,6 +1549,36 @@ Transits::updateTransits()
     if (!_chs) _chs = new AChangeSignalFrame(_evm);
 
     qDebug() << "filesCount()" << filesCount();
+
+    // Restore location from the appropriate file when switching tabs
+    AstroFile* locFile = nullptr;
+    if (filesCount() >= 2) {
+        // If we have 2+ files, use file(1) for location (the transit/return chart)
+        locFile = file(1);
+    } else if (filesCount() == 1 && transitsOnly()) {
+        // Single file that is transits-only, use it
+        locFile = file(0);
+    } else if (filesCount() == 1) {
+        // Single natal/event chart, use transitsAF() which may have custom location
+        locFile = transitsAF();
+    }
+    
+    if (locFile) {
+        // Update the location widget and transitsAF to match the current chart
+        _pendingLocationChange = true;
+        _location->setLocation(locFile->getLocation());
+        _location->setLocationName(locFile->getLocationName());
+        _pendingLocationChange = false;
+        
+        // Update transitsAF if it's a different object than locFile
+        if (transitsAF() != locFile) {
+            transitsAF()->suspendUpdate();
+            transitsAF()->setLocation(locFile->getLocation());
+            transitsAF()->setLocationName(locFile->getLocationName());
+            transitsAF()->setTimezone(locFile->getTimezone());
+            transitsAF()->resumeUpdate();
+        }
+    }
 
     auto       hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
@@ -1564,6 +1623,7 @@ Transits::updateTransits()
     const auto&         ida(transitsOnly() ? file()->horoscope().inputData
                                    : transitsAF()->horoscope().inputData);
     _evm->setZodiac(scope.zodiac);
+    _evm->setTimezone(transitsAF()->getTimezone());
     _evm->addEvents(_evs);
 
     auto thread = new QThread(this);
@@ -1622,6 +1682,9 @@ Transits::onLocationChange()
 {
     _pendingLocationChange = false;
     if (!transitsAF()) return;
+    
+    // Update the timezone which will refresh the time display
+    // and potentially recalculate if needed
     updateTimezone();
 }
 
@@ -1787,6 +1850,10 @@ Transits::clickedCell(QModelIndex inx)
         file()->setFocalPlanets(focal);
         file()->setName(desc);
         file()->setGMT(dt);
+        // Set file type to Return for return events
+        if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
+            file()->setType(TypeReturn);
+        }
         emit updateFirst(file());
     } else {
         // Grr make transit planets be in fileId 1
@@ -1803,13 +1870,14 @@ Transits::clickedCell(QModelIndex inx)
         transitsAF()->setFocalPlanets(focal);
         transitsAF()->setName(desc);
         transitsAF()->setGMT(dt);
-        
-        // Set file type to Prog for progression-related events
-        if (et == A::etcProgressedToProgressed 
+        // Set file type to Return for return events
+        if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
+            transitsAF()->setType(TypeReturn);
+            transitsAF()->clearBaseChart();
+        } else if (et == A::etcProgressedToProgressed 
             || et == A::etcProgressedToNatal
             || et == A::etcInnerProgressedToNatal
-            || et == A::etcTransitToProgressed)
-        {
+            || et == A::etcTransitToProgressed) {
             transitsAF()->setType(TypeDerivedProg);
             // Set the natal chart as the base for progressions
             transitsAF()->setBaseChart(file()->getGMT());
@@ -1845,12 +1913,14 @@ Transits::doubleClickedCell(QModelIndex inx)
     af->setName(desc);
     af->setGMT(dt);
     
-    // Set file type to Prog for progression-related events
-    if (et == A::etcProgressedToProgressed 
+    // Set file type to Return for return events
+    if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
+        af->setType(TypeReturn);
+        af->clearBaseChart();
+    } else if (et == A::etcProgressedToProgressed 
         || et == A::etcProgressedToNatal
         || et == A::etcInnerProgressedToNatal
-        || et == A::etcTransitToProgressed)
-    {
+        || et == A::etcTransitToProgressed) {
         af->setType(TypeDerivedProg);
         // Set the natal chart as the base for progressions
         af->setBaseChart(file()->getGMT());

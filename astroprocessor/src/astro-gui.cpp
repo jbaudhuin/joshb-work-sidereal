@@ -48,6 +48,7 @@ AstroFile::typeToString(unsigned ft)
     case TypeMale:          return "Male";
     case TypeFemale:        return "Female";
     case TypeEvent:         return "Event";
+    case TypeReturn:        return "Return";
     case TypeOther:         return "Other";
     default:                break;
     }
@@ -65,6 +66,7 @@ AstroFile::typeFromString(const QString& str)
     if (str == "SA") return TypeDerivedSA;
     if (str == "Search") return TypeSearch;
     if (str == "Event") return TypeEvent;
+    if (str == "Return") return TypeReturn;
     return TypeOther;
 }
 
@@ -489,7 +491,9 @@ AstroFileHandler::setFiles(const AstroFileList& files)
     for (AstroFile* file : files) {
         AstroFile* old = (f.count() >= i + 1) ? f[i] : nullptr;
         if (file == old) {
-            flags.clear();
+            // Same file pointer - assume it may have been modified in place
+            // Use All flags to trigger a full refresh
+            flags << AstroFile::All;
         } else {
             if (old) {
                 old->disconnect(this,

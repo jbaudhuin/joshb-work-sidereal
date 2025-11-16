@@ -860,6 +860,20 @@ quotidianSearch(PlanetProfile&   poses,
                 double           span,
                 bool             forceMin);
 
+// PSSR (Progressed Sidereal Solar Return) functions
+double
+calculateRAMS(const QDateTime& dt, bool useMeanSun = true);
+
+double
+calculateAnniversarySecond(const Houses& return1, const Houses& return2);
+
+double
+calculatePSSRRAMC(const Houses&    returnHouses,
+                  const QDateTime& returnTime,
+                  const QDateTime& eventTime,
+                  double           anniversarySecond,
+                  bool             useMeanSun = true);
+
 Horoscope
 calculateAll(const InputData& input);
 

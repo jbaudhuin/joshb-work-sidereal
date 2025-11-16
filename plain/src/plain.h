@@ -28,6 +28,7 @@ class Plain : public AstroFileHandler {
     QAction*      describePower;
     QAction*      describeParans;
     QAction*      describeSpeculum;
+    QAction*      describePSSR;
     QWidget*      chartSelectorWidget; // Store reference to show/hide
     QButtonGroup* chartSelector;
     QRadioButton* showChart1;
