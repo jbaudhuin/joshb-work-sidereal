@@ -1602,6 +1602,7 @@ enum EventType {
     etcTransitToStation,                 // T=S
     etcTransitToTransit,                 // T=T
     etcTransitToNatal,                   // T=N
+    etcTransitToNatalAngles,             // T=NA
     etcOuterTransitToNatal,              // OT=N
     etcReturn,                           // R
     etcSolarReturn,                      // SR

@@ -762,6 +762,11 @@ class EventsTableModel : public QAbstractItemModel {
         {
             if (_isMore) std::swap(a, b);
             switch (_col) {
+            case eventTypeCol:
+                if (a->eventType() < b->eventType()) return true; // event type
+                if (a->eventType() > b->eventType()) return false;
+                // fall through to dateCol
+
             case dateCol:
                 if (a->dateTime() < b->dateTime()) return true; // date-time
                 if (a->dateTime() > b->dateTime()) return false;
@@ -1225,24 +1230,19 @@ Transits::Transits(QWidget* parent) :
     _tview->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _tview->expandAll();
 
-    _evm = new EventsTableModel(this);
-    _tview->setModel(_evm);
+    // Model will be created and set in ensureEventsModel() when file(0) is available
 
     // Create and set custom header
     auto hdr = new TransitHeaderView(Qt::Horizontal, _tview);
     _tview->setHeader(hdr);
 
-    connect(hdr,
-            &QHeaderView::sortIndicatorChanged,
-            _evm,
-            &EventsTableModel::onSortChange);
+    // Note: Will connect sort signal after model is created in ensureEventsModel()
     connect(hdr,
             &TransitHeaderView::ctrlSectionClicked,
             this,
             &Transits::headerClicked);
     hdr->setSectionsClickable(true);
     hdr->setSortIndicatorShown(true);
-    hdr->setSortIndicator(_evm->sortColumn(), _evm->sortOrder());
     hdr->setSectionResizeMode(QHeaderView::ResizeToContents);
 
     QAction* act = new QAction("Copy");
@@ -1454,15 +1454,50 @@ Transits::transitsOnly() const
     return (ftype != TypeMale && ftype != TypeFemale && ftype != TypeEvent);
 }
 
+EventsTableModel*
+Transits::ensureEventsModel()
+{
+    if (filesCount() == 0) return nullptr;
+    
+    // Check if file(0) already has a model
+    auto* evm = qobject_cast<EventsTableModel*>(file(0)->eventsModel());
+    if (!evm) {
+        // Create model owned by file(0)
+        evm = new EventsTableModel(file(0));
+        file(0)->setEventsModel(evm);
+    }
+    
+    // Update our local pointer and view if needed
+    if (_evm != evm) {
+        _evm = evm;
+        _tview->setModel(_evm);
+        
+        // Connect sort signal
+        auto hdr = qobject_cast<TransitHeaderView*>(_tview->header());
+        if (hdr) {
+            connect(hdr,
+                    &QHeaderView::sortIndicatorChanged,
+                    _evm,
+                    &EventsTableModel::onSortChange,
+                    Qt::UniqueConnection);
+            hdr->setSortIndicator(_evm->sortColumn(), _evm->sortOrder());
+        }
+    }
+    
+    return _evm;
+}
+
 AstroFile*
 Transits::transitsAF()
 {
-    // TODO should this be the second file? If so, the omnibus transit
-    // setup has to handle multiple natal files... And the chart would
-    // as well...
-
-    // if (files().count() > 1) return files()[1];
+    // For tabs with 2 files (natal + transits), use file(1) so each tab
+    // has its own independent transit location
+    if (filesCount() > 1) return file(1);
+    
+    // For single-file transits-only tabs, use file(0)
     if (transitsOnly()) return file();
+    
+    // For other cases, use the shared _trans object (legacy behavior)
     if (!_trans) {
         _trans = new AstroFile(this);
         MainWindow::theAstroWidget()->setupFile(_trans);
@@ -1495,7 +1530,9 @@ Transits::updateTimezone()
                    / 3600;
         
         // Update the model's timezone first so display refreshes
-        _evm->setTimezone(short(tz));
+        if (_evm) {
+            _evm->setTimezone(short(tz));
+        }
         
         transitsAF()->suspendUpdate();
         transitsAF()->setLocation(_location->location());
@@ -1534,23 +1571,8 @@ Transits::updateTransits()
     if (!isVisible()) return;
     if (transitsAF()->isSuspendedUpdate()) return;
 
-    if (!_active) {
-        saveScrollPos();
-    } else {
-        disconnect(_active, SIGNAL(finished()), this, SLOT(onCompleted()));
-        emit cancelActive();
-        if (_active) {
-            qDebug() << "waiting for thread" << _active;
-            _active->wait();
-        }
-        _active = nullptr;
-    }
-
-    if (!_chs) _chs = new AChangeSignalFrame(_evm);
-
-    qDebug() << "filesCount()" << filesCount();
-
-    // Restore location from the appropriate file when switching tabs
+    // Restore location from the appropriate file FIRST (before cache check)
+    // This ensures the location widget updates even when using cached events
     AstroFile* locFile = nullptr;
     if (filesCount() >= 2) {
         // If we have 2+ files, use file(1) for location (the transit/return chart)
@@ -1580,12 +1602,47 @@ Transits::updateTransits()
         }
     }
 
+    // Now check cache before doing any heavy calculation work
+    ensureEventsModel();
+    if (!_evm) return;
+    
+    auto& evs = file(0)->events();
+    bool hasEvents = !evs.empty();
+    bool needsRecalc = file(0)->needsEventsRecalc();
+    
+    if (hasEvents && !needsRecalc) {
+        // Events already cached, nothing more to do
+        qDebug() << "Using cached events for file" << file(0)->getName();
+        return;
+    }
+    
+    qDebug() << "Recalculating events for file" << file(0)->getName();
+
+    if (!_active) {
+        saveScrollPos();
+    } else {
+        disconnect(_active, SIGNAL(finished()), this, SLOT(onCompleted()));
+        emit cancelActive();
+        if (_active) {
+            qDebug() << "waiting for thread" << _active;
+            _active->wait();
+        }
+        _active = nullptr;
+    }
+
+    if (!_chs) {
+        auto* evm = ensureEventsModel();
+        if (evm) _chs = new AChangeSignalFrame(evm);
+    }
+
+    qDebug() << "filesCount()" << filesCount();
+
     auto       hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
 
-    _evm->removeEvents(_evs);
+    _evm->removeEvents(evs);
     _evm->setSuffixes({});
-    _evs.clear();
+    evs.clear();
 
 #if 0
     transitsAF()->suspendUpdate();
@@ -1599,22 +1656,22 @@ Transits::updateTransits()
     if (filesCount() >= 1) {
         auto type = file(0)->getType();
         if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
-            af = new A::OmnibusFinder(_evs, r, hs, { file(0), transitsAF() });
+            af = new A::OmnibusFinder(evs, r, hs, { file(0), transitsAF() });
         }
         if (filesCount() > 1) _evm->setSuffixes({ "r" });
     }
     if (!af && filesCount() >= 1) {
-        af = new A::OmnibusFinder(_evs, r, hs, files());
+        af = new A::OmnibusFinder(evs, r, hs, files());
     }
 #else
     if (filesCount() == 1) {
         auto type = file(0)->getType();
         if (type == TypeMale || type == TypeFemale) {
-            af = new A::OmnibusFinder(_evs, r, hs, { file(0), transitsAF() });
+            af = new A::OmnibusFinder(evs, r, hs, { file(0), transitsAF() });
         }
     }
     if (!af && filesCount() >= 1) {
-        af = new A::OmnibusFinder(_evs, r, hs, files());
+        af = new A::OmnibusFinder(evs, r, hs, files());
     }
 #endif
     if (!af) return;
@@ -1624,7 +1681,7 @@ Transits::updateTransits()
                                    : transitsAF()->horoscope().inputData);
     _evm->setZodiac(scope.zodiac);
     _evm->setTimezone(transitsAF()->getTimezone());
-    _evm->addEvents(_evs);
+    _evm->addEvents(evs);
 
     auto thread = new QThread(this);
     thread->setObjectName("omnibus finder");
@@ -1655,6 +1712,11 @@ Transits::onCompleted()
 #if 1
     _evm->sort();
     _active = nullptr;
+    
+    // Mark that events are now calculated and cached
+    if (filesCount() > 0) {
+        file(0)->clearEventsRecalcFlag();
+    }
 #else
     const A::Horoscope& scope(file()->horoscope());
     const auto&         ida(transitsOnly() ? file()->horoscope().inputData
@@ -1768,6 +1830,8 @@ Transits::restoreScrollPos()
                 ttv()->scrollTo(_evm->index(drow, 0));
             }
             if (ident) {
+                // Block signals to prevent triggering clickedCell during scroll restore
+                QSignalBlocker blocker(ttv()->selectionModel());
                 ttv()->setCurrentIndex(_evm->index(drow, col));
             }
             return;
@@ -1801,6 +1865,10 @@ Transits::restoreScrollPos()
 void
 Transits::clickedCell(QModelIndex inx)
 {
+    if (!inx.isValid()) return;
+    if (!_evm) return;
+    if (inx.row() < 0 || inx.row() >= _evm->rowCount()) return;
+    
     auto btns = QGuiApplication::mouseButtons();
     bool mbtn = (btns & Qt::MiddleButton);
     bool lbtn = (btns & Qt::LeftButton);
@@ -1898,6 +1966,10 @@ Transits::clickedCell(QModelIndex inx)
 void
 Transits::doubleClickedCell(QModelIndex inx)
 {
+    if (!inx.isValid()) return;
+    if (!_evm) return;
+    if (inx.row() < 0 || inx.row() >= _evm->rowCount()) return;
+    
     auto par = inx.parent();
     if (par.isValid()) inx = par;
     auto              dt   = _evm->rowDate(inx.row());
@@ -1947,6 +2019,8 @@ Transits::headerClicked(int col)
 {
     // This method is now called only for Ctrl+click events from our custom
     // header
+    if (!_evm) return;
+    
     if (col == EventsTableModel::transitBodyCol) {
         _evm->cycleTransitBodyColMode();
         // Force immediate visual update
@@ -2000,6 +2074,14 @@ Transits::onEventSelectionChanged()
 void
 Transits::onDateRangeChanged()
 {
+    // Save date range to file(0) for per-tab persistence
+    if (filesCount() > 0) {
+        file(0)->setTransitStartDate(_start->date());
+        file(0)->setTransitDuration(_duration->text());
+        
+        // Mark that events need recalculation
+        file(0)->markEventsForRecalc();
+    }
     updateTransits();
 }
 
@@ -2088,6 +2170,33 @@ Transits::filesUpdated(MembersList m)
     if (QApplication::mouseButtons() & Qt::LeftButton) return;
 #endif
 
+    // Restore date range from file(0) when switching tabs (BEFORE any updates)
+    QDate transitStart = file(0)->getTransitStartDate();
+    QString transitDuration = file(0)->getTransitDuration();
+    
+    // If no saved date range, initialize with defaults
+    if (transitStart.isNull() || transitDuration.isEmpty()) {
+        auto today = QDate::currentDate();
+        auto startOfMonth = QDate(today.year(), today.month(), 1);
+        QString defaultDuration = "1 mo";
+        
+        // Save defaults to file so it has its own state
+        file(0)->setTransitStartDate(startOfMonth);
+        file(0)->setTransitDuration(defaultDuration);
+        
+        transitStart = startOfMonth;
+        transitDuration = defaultDuration;
+    }
+    
+    // Always restore from file(0) to ensure each tab has independent dates
+    {
+        ASignalBlocker sb({_start, _duration, _end});
+        _start->setDate(transitStart);
+        _duration->setText(transitDuration);
+        _ddelta = ADateDelta::fromString(transitDuration);
+        _end->setDate(_ddelta.addTo(_start->date()));
+    }
+
     while (m.size() < filesCount()) m.append(AstroFile::Member());
 
     bool any = false;
@@ -2111,9 +2220,19 @@ Transits::filesUpdated(MembersList m)
         _tm = nullptr;
         zap->deleteLater();
 #else
-        if (!_chs) _chs = new AChangeSignalFrame(_evm);
-        _evm->setAspectSet(file()->getAspectSetId());
-        _evm->clearAllEvents();
+        auto* evm = ensureEventsModel();
+        if (!evm) return;
+        
+        // Only mark for recalc if we don't already have valid cached events
+        // This prevents unnecessary recalc when just switching tabs
+        if (filesCount() > 0 && file(0)->events().empty()) {
+            file(0)->markEventsForRecalc();
+        }
+        
+        if (!_chs) _chs = new AChangeSignalFrame(evm);
+        evm->setAspectSet(file()->getAspectSetId());
+        // Don't clear events here - they're stored in file(0) now
+        // evm->clearAllEvents();
 #endif
         describePlanet();
     }
@@ -2207,7 +2326,10 @@ Transits::applySettings(const AppSettings& s)
     curr = A::EventOptions(s.values());
 
     if (changed) {
-        updateTransits();
+        if (filesCount() > 0) {
+            file(0)->markEventsForRecalc();
+            updateTransits();
+        }
     } else if (changedExpanded) {
         // updateExpanded(); ?
     }

@@ -20,6 +20,7 @@
 #include <QLocale>
 #include <QDebug>
 #include "geosearch.h"
+#include "../../astroprocessor/src/astro-output.h"
 
 namespace A {
 const QString googMapURL("https://maps.googleapis.com/maps/api");
@@ -133,10 +134,18 @@ GeoSuggestCompletion::showCompletion(const QStringList &cities,
         item = new QTreeWidgetItem(popup);
         item->setText(0, cities[i]);
         item->setText(1, descr[i]);
-        item->setText(2, pos[i]);
 
         item->setForeground(1, color);
 
+        // Format coordinates nicely for tooltip
+        QString coordStr = pos[i];
+        float lng = coordStr.mid(0, coordStr.indexOf(' ')).toFloat();
+        float lat = coordStr.mid(coordStr.indexOf(' ') + 1).toFloat();
+        QString formattedCoords = QString("%1 %2")
+            .arg(A::formatLongitude(lng, A::HighPrecision))
+            .arg(A::formatLatitude(lat, A::HighPrecision));
+        item->setText(2, formattedCoords);
+        
         item->setToolTip(0, descr[i]);
         item->setToolTip(1, descr[i]);
     }

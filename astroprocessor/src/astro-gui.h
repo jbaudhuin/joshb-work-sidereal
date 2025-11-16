@@ -12,6 +12,7 @@
 #include "../zodiac/src/afileinfo.h"
 
 class QStandardItemModel;
+class QAbstractItemModel;
 
 using A::ADateRange;
 
@@ -137,6 +138,12 @@ class AstroFile : public QObject, public A::EventStore {
 
     const ADateRange& getDateRange() const { return _dateRange; }
 
+    // Transit date range (per-tab state for transits view)
+    QDate getTransitStartDate() const { return _transitStartDate; }
+    void setTransitStartDate(const QDate& date) { _transitStartDate = date; }
+    QString getTransitDuration() const { return _transitDuration; }
+    void setTransitDuration(const QString& duration) { _transitDuration = duration; }
+
     A::FileInput fileInputData() const { return { type, scope.inputData }; }
     A::FileInput fileInputData(FileType typ) const
     {
@@ -148,6 +155,19 @@ class AstroFile : public QObject, public A::EventStore {
     void calculate() { recalculate(); }
 
     const A::InputData& data() const { return scope.inputData; }
+
+    // Events data and model
+    A::HarmonicEvents& events() { return _evs; }
+    const A::HarmonicEvents& events() const { return _evs; }
+    
+    QAbstractItemModel* eventsModel();
+    void setEventsModel(QAbstractItemModel* model);
+    void clearEventsModel();
+    void clearEvents() { _evs.clear(); }
+    
+    bool needsEventsRecalc() const { return _eventsNeedRecalc; }
+    void markEventsForRecalc() { _eventsNeedRecalc = true; }
+    void clearEventsRecalcFlag() { _eventsNeedRecalc = false; }
 
     static void addChartDir(const QString& label, const QString& dir);
 
@@ -196,7 +216,16 @@ class AstroFile : public QObject, public A::EventStore {
     QList<QDateTime> _eventList; // computed contact dateTimes
     ADateRange       _dateRange; // really just start, end
 
+    // Transit date range per-tab state
+    QDate   _transitStartDate;
+    QString _transitDuration;
+
     A::PlanetSet _focalPlanets;
+
+    // Events storage
+    A::HarmonicEvents _evs;
+    QAbstractItemModel* _evm = nullptr;
+    bool _eventsNeedRecalc = false;
 
     virtual void recalculate();
     void         recalculateBaseChart();

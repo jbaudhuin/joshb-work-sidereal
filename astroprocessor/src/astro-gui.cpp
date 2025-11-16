@@ -6,6 +6,7 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTextCodec>
+#include <QAbstractItemModel>
 #include <memory>
 
 
@@ -431,6 +432,34 @@ AstroFile::setEventList(const QList<QDateTime>& evl)
     }
 }
 
+QAbstractItemModel*
+AstroFile::eventsModel()
+{
+    return _evm;
+}
+
+void
+AstroFile::setEventsModel(QAbstractItemModel* model)
+{
+    if (_evm && _evm != model) {
+        _evm->deleteLater();
+    }
+    _evm = model;
+    if (_evm) {
+        _evm->setParent(this);
+    }
+}
+
+void
+AstroFile::clearEventsModel()
+{
+    if (_evm) {
+        _evm->deleteLater();
+        _evm = nullptr;
+    }
+    _eventsNeedRecalc = true;
+}
+
 void
 AstroFile::recalculate()
 {
@@ -614,10 +643,14 @@ AstroFileHandler::calculateSynastryAspects()
                                    file(1)->horoscope().planets);
     }
 
-    bool           alt = (QApplication::keyboardModifiers() & Qt::AltModifier);
+    // is alt being held? @todo this should probably just be the default behavior
+    bool alt = (QApplication::keyboardModifiers() & Qt::AltModifier);
+
     A::AspectSetId aspset = -1;
-    auto           fp     = file(1)->focalPlanets();
+
+    auto fp = file(1)->focalPlanets();
     if (fp.empty()) fp = file(1)->focalPlanets();
+
     const auto& curr(A::EventOptions::current());
     if (fp.size() < curr.patternsQuorum) {
         bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End)
@@ -643,7 +676,7 @@ AstroFileHandler::calculateSynastryAspects()
         auto             hpc = A::findClusters(hs,
                                    pf,
                                    qMax(size_t(2), fp.size()),
-                                   skip && alt ? A::PlanetSet() : fp,
+                                   /*skip &&*/ alt ? A::PlanetSet() : fp,
                                    true /*skipAllNatalOnly*/,
                                    false /*curr.patternsRestrictMoon*/,
                                    curr.expandShowOrb);

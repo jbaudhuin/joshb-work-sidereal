@@ -44,6 +44,10 @@ getPositionName(PlanetPosition p);
 QString
 degreeToString(float deg, AnglePrecision precision = NormalPrecision);
 QString
+formatLatitude(float latitude, AnglePrecision precision = HighPrecision);
+QString
+formatLongitude(float longitude, AnglePrecision precision = HighPrecision);
+QString
 raToString(double raDegrees, AnglePrecision precision = NormalPrecision);
 QString
 siderealTimeToString(double         raDegrees,

@@ -2409,7 +2409,7 @@ dateTimeFromJulian(double jd)
 
 namespace
 {
-static bool       s_quiet  = false;
+static bool       s_quiet  = true;
 thread_local bool st_quiet = s_quiet;
 } // namespace
 
@@ -3737,7 +3737,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                             _staff.emplace_back(i,
                                                 getNatalPlanet(a),
                                                 conj,
-                                                etcTransitToNatal);
+                                                etcTransitToNatalAngles);
                         }
                     }
                 }
@@ -3788,7 +3788,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
         }
     }
 
-#if 1
+#if 0
     for (const auto& pe : _staff) {
         auto [i, j] = pe.planetPair;
         auto ai = dynamic_cast<PlanetLoc*>(_alist[i]);
@@ -3874,7 +3874,7 @@ class PairAspectFinder : public EventFinderTask {
                      const QDateTime& d,
                      std::string      which,
                      EventType        et,
-                     bool             st_quiet,
+                     bool             quiet,
                      AspectFinder*    finder) :
         _a(a->clone()),
         _b(b->clone()),
@@ -3888,7 +3888,7 @@ class PairAspectFinder : public EventFinderTask {
         _d(d),
         _which(std::move(which)),
         _et(et),
-        _beQuiet(st_quiet),
+        _beQuiet(quiet),
         _finder(finder),
         _evs(_finder->_evs) //,
     //_ev(_evs.safe_emplace_back())
@@ -5487,6 +5487,7 @@ EventTypeManager::EventTypeManager()
             { etcTransitToStation, 1, "T=S", "Transits to Station" },
             { etcTransitToTransit, 1, "T=T", "Transits to Transit" },
             { etcTransitToNatal, 2, "T=N", "Transits to Natal" },
+            { etcTransitToNatalAngles, 2, "T=NA", "Transits to Natal Angles" },
             { etcOuterTransitToNatal, 2, "OT=N", "Outer Transits to Natal" },
             { etcReturn, 2, "R", "Returns" },
             { etcSolarReturn, 2, "SR", "Solar Returns" },
@@ -5498,9 +5499,7 @@ EventTypeManager::EventTypeManager()
             { etcProgressedToProgressed, 2, "P=P", "Progressed to Progressed" },
             { etcProgressedToNatal, 2, "P=N", "Progressed to Natal" },
             { etcInnerProgressedToNatal,
-              2,
-              "IP=N",
-              "Inner Progressed to Natal" },
+              2, "IP=N", "Inner Progressed to Natal" },
             { etcTransitToProgressed, 2, "T=P", "Transits to Progressed" },
             { etcSolarArcToNatal, 2, "D=N", "SA Direct to Natal" },
             { etcSignIngress, 1, "T=I", "Sign Ingresses" },

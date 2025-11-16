@@ -234,6 +234,22 @@ sortPlanets(PlanetList& planets, PlanetsOrder order)
 }
 
 QString
+formatLatitude(float latitude, AnglePrecision precision)
+{
+    bool    north = latitude >= 0;
+    return (north ? QObject::tr("%1N") : QObject::tr("%1S"))
+        .arg(degreeToString((north ? 1 : -1) * latitude, precision));
+}
+
+QString
+formatLongitude(float longitude, AnglePrecision precision)
+{
+    bool    east = longitude >= 0;
+    return (east ? QObject::tr("%1E") : QObject::tr("%1W"))
+        .arg(degreeToString((east ? 1 : -1) * longitude, precision));
+}
+
+QString
 describeInput(const InputData& data)
 {
     QString ret;
@@ -246,16 +262,9 @@ describeInput(const InputData& data)
            + QString("%1, %2 %3 GMT").arg(dayOfWeek).arg(date).arg(time)
            + "</p>";
 
-    bool    north = data.location().y() >= 0;
-    QString lat =
-        (north ? QObject::tr("%1N") : QObject::tr("%1S"))
-            .arg(degreeToString((north ? 1 : -1) * data.location().y(),
-                                HighPrecision));
-
-    bool    east = data.location().x() >= 0;
-    QString lng  = (east ? QObject::tr("%1E") : QObject::tr("%1W"))
-                      .arg(degreeToString((east ? 1 : -1) * data.location().x(),
-                                          HighPrecision));
+    QString lat = formatLatitude(data.location().y(), HighPrecision);
+    QString lng = formatLongitude(data.location().x(), HighPrecision);
+    
     ret += "<p><strong>" + QObject::tr("Location:") + "</strong> "
            + QString("%1 %2").arg(lat, lng) + "</p>";
     return ret;

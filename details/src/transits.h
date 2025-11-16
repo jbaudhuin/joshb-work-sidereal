@@ -81,6 +81,8 @@ class Transits : public AstroFileHandler {
 
     EventsTableModel* tvm() const;
 
+    EventsTableModel* ensureEventsModel();
+
     bool transitsOnly() const;
 
     AstroFile* transitsAF();
@@ -175,11 +177,9 @@ class Transits : public AstroFileHandler {
 
     GeoSearchWidget* _location;
 
-    EventsTableModel* _evm;
-
+    EventsTableModel* _evm;  // Points to file(0)->eventsModel()
+    
     ADateDelta _ddelta;
-
-    A::HarmonicEvents _evs;
 
     AChangeSignalFrame* _chs;
 };

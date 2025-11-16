@@ -2391,24 +2391,10 @@ MainWindow::restoreSession()
         for (int j = 0; j < fileCount; ++j) {
             settings.beginGroup(QString("File%1").arg(j));
             
-            // Try new format first (directory + filename)
+            // Read directory and filename
             QString directory = settings.value("directory").toString();
             QString filename = settings.value("filename").toString();
             bool hasUnsavedChanges = settings.value("hasUnsavedChanges", false).toBool();
-            
-            // Backward compatibility: check old "isUnsaved" flag
-            bool isUnsaved = settings.value("isUnsaved", false).toBool();
-            
-            // Fallback to old format if new format not present
-            if (directory.isEmpty() && !isUnsaved && !hasUnsavedChanges) {
-                QString filePath = settings.value("filePath").toString();
-                if (!filePath.isEmpty()) {
-                    // Old format - try to use it
-                    QFileInfo fi(filePath);
-                    directory = fi.absolutePath();
-                    filename = fi.baseName();
-                }
-            }
             
             AstroFile* af = nullptr;
             bool hasCurrentData = settings.contains("name") && settings.contains("gmt");
@@ -2460,7 +2446,15 @@ MainWindow::restoreSession()
                     continue;
                 }
                 
+                // Restore transit date range (per-tab UI state) for all files
                 if (af) {
+                    if (settings.contains("transitStartDate")) {
+                        af->setTransitStartDate(settings.value("transitStartDate").toDate());
+                    }
+                    if (settings.contains("transitDuration")) {
+                        af->setTransitDuration(settings.value("transitDuration").toString());
+                    }
+                    
                     if (j == 0) {
                         filesBar->addFile(af);
                     } else {
@@ -2548,7 +2542,6 @@ FilesBar::saveFilesToSession()
                 qDebug() << "Saving unsaved file to session:" << af->getName();
             }
             
-            settings.setValue("filePath", QString()); // Keep for backward compat, but empty
             settings.setValue("hasUnsavedChanges", hasModifications);
             
             // Save current chart data if:
@@ -2571,6 +2564,14 @@ FilesBar::saveFilesToSession()
                 } else {
                     settings.setValue("hasBaseChart", false);
                 }
+            }
+            
+            // Save transit date range (per-tab UI state, always save regardless of file state)
+            if (!af->getTransitStartDate().isNull()) {
+                settings.setValue("transitStartDate", af->getTransitStartDate());
+            }
+            if (!af->getTransitDuration().isEmpty()) {
+                settings.setValue("transitDuration", af->getTransitDuration());
             }
             
             settings.endGroup(); // File%1

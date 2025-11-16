@@ -400,11 +400,11 @@ struct EventOptions {
 
     bool showTransitsToNatalAngles() const
     {
-        return isEnabled(etcTransitToNatal);
+        return isEnabled(etcTransitToNatalAngles);
     }
     void setShowTransitsToNatalAngles(bool b)
     {
-        setEnabled(etcTransitToNatal, b);
+        setEnabled(etcTransitToNatalAngles, b);
     }
 
     bool showTransitsToHouseCusps() const { return isEnabled(etcHouseIngress); }
@@ -414,6 +414,7 @@ struct EventOptions {
     {
         return anyEnabled(etcTransitToTransit,
                           etcTransitToNatal,
+                          etcTransitToNatalAngles,
                           etcOuterTransitToNatal,
                           etcHouseIngress);
     }
