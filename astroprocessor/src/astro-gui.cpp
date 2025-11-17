@@ -202,6 +202,11 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
     setLocationName(file.value("placeTag").toString());
     setComment(file.value("comment").toString());
 
+    // Clear cached events since we're loading a new chart
+    clearEventsModel();
+    _evs.clear();
+    _eventsNeedRecalc = false;
+
     // Load base chart if present (for progressed charts)
     if (file.contains("baseChartGMT")) {
         auto baseDts = file.value("baseChartGMT").toString();

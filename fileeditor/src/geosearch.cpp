@@ -139,6 +139,7 @@ GeoSuggestCompletion::showCompletion(const QStringList &cities,
 
         // Format coordinates nicely for tooltip
         QString coordStr = pos[i];
+        item->setData(2, Qt::UserRole, coordStr);
         float lng = coordStr.mid(0, coordStr.indexOf(' ')).toFloat();
         float lat = coordStr.mid(coordStr.indexOf(' ') + 1).toFloat();
         QString formattedCoords = QString("%1 %2")
@@ -173,7 +174,7 @@ void GeoSuggestCompletion::doneCompletion()
 
     if (item) {
         QVector3D vec;
-        QString text = item->text(2);
+        QString text = item->data(2, Qt::UserRole).toString();
         vec.setX(text.mid(0, text.indexOf(' ')).toFloat());
         vec.setY(text.mid(text.indexOf(' ') + 1).toFloat());
 
