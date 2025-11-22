@@ -1,6 +1,9 @@
 ﻿#include <QActionGroup>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QPushButton>
+#include <QRadialGradient>
 #include <QStatusBar>
 #include <QToolBar>
 #include <QToolButton>
@@ -2248,6 +2251,23 @@ MainWindow::closeEvent(QCloseEvent* ev)
 
     QMainWindow::closeEvent(ev);
     QApplication::quit();
+}
+
+void
+MainWindow::paintEvent(QPaintEvent* event)
+{
+    QMainWindow::paintEvent(event);
+    
+    // Dynamic radial gradient background
+    QPainter painter(this);
+    
+    // Create a radial gradient centered in the window
+    // The radius is 70% of the larger dimension to ensure good coverage
+    QRadialGradient gradient(rect().center(), qMax(width(), height()) * 0.7);
+    gradient.setColorAt(0, QColor(32, 32, 32));    // Lighter center
+    gradient.setColorAt(1, QColor(80, 80, 80));    // Darker edges
+    
+    painter.fillRect(rect(), gradient);
 }
 
 void

@@ -84,6 +84,20 @@ AstroDatabase QPushButton:pressed {
 	padding-left: 3px;
 }
 
+/* =========================== Transits (Events) ========================================== */
+
+Transits {
+	background: #202020;
+}
+
+Transits QTreeView {
+	background: #202020;
+}
+
+Transits QFrame {
+	background: #202020;
+}
+
 QTreeView {
 	color: #b5bfdf;
 	alternate-background-color: #424242;
@@ -194,7 +208,9 @@ QToolTip {
 }
 
 MainWindow {
-	background: url(style/background.jpg) no-repeat center;
+	/* background: url(style/background.jpg) no-repeat center center fixed; */
+	/* background-size: cover; */
+	/* Commented out - using dynamic background via paintEvent instead */
 }
 
 QDialog#about  {

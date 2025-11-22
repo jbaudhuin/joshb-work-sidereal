@@ -334,6 +334,7 @@ class MainWindow : public QMainWindow, public Customizable {
     void        setupSettingsEditor(AppSettingsEditor*);
 
     void closeEvent(QCloseEvent*);
+    void paintEvent(QPaintEvent* event) override;
 
   public:
     MainWindow(bool skipRestore = false, QWidget* parent = nullptr);
