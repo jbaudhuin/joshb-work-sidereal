@@ -25,14 +25,14 @@
 #include <math.h>
 
 enum FileType {
+    TypeOther,
     TypeEvent,
     TypeMale,
     TypeFemale,
-    TypeOther,
-    TypeSearch,
     TypeReturn,
-    TypeDerivedSA,
     TypeDerivedProg,
+    TypeSearch,
+    TypeDerivedSA,
     TypeDerivedPD,
     TypeDerivedSearch,
     TypeCount
@@ -1530,7 +1530,7 @@ class ProgressedPosition : public InputPosition {
     ProgressedPosition(const ChartPlanetId& cpid,
                        const InputData&     ida,
                        double               njd,
-                       const QString&       tag = "") :
+                       const QString&       tag = "p") :
         InputPosition(cpid, ida, tag),
         _njd(njd)
     {

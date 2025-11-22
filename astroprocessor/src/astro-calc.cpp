@@ -3703,7 +3703,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                         auto np = dynamic_cast<NatalPosition*>(_alist[j]);
                         if (tp->planet.planetId() != np->planet.planetId()
                             || (!showReturns()
-                                && !showTransitsToNatalPlanets()))
+                                && showTransitsToNatalPlanets()))
                         {
                             auto hs = allAsp;
                             auto pl = np->planet.planetId();

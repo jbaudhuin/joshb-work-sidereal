@@ -148,6 +148,7 @@ class TransitHeaderView : public QHeaderView {
             int section = logicalIndexAt(event->pos());
             if (section >= 0) {
                 emit ctrlSectionClicked(section);
+                event->accept();
                 return; // Don't call parent - prevents sorting
             }
         }
@@ -179,14 +180,14 @@ class EventsTableModel : public QAbstractItemModel {
 
     EventsTableModel(QObject* parent = nullptr) : QAbstractItemModel(parent) { }
 
-    EventsTableModel(A::AspectSetId     asps,
-                     const QStringList& suff,
-                     QObject*           parent = nullptr) :
+    EventsTableModel(A::AspectSetId asps,
+                     QObject*       parent = nullptr) :
         QAbstractItemModel(parent),
-        _aspects(asps),
-        _suffixes(suff)
+        _aspects(asps)
     {
     }
+    
+    void setNatalFile(AstroFile* file) { _natalFile = file; }
 
     QModelIndex index(int                row,
                       int                column,
@@ -293,8 +294,6 @@ class EventsTableModel : public QAbstractItemModel {
 
     void setZodiac(const A::Zodiac& zod) { _zodiac = zod; }
 
-    void setSuffixes(const QStringList& suff) { _suffixes = suff; }
-
     void setTimezone(short tz) {
         if (_tzOffset != tz) {
             _tzOffset = tz;
@@ -326,12 +325,23 @@ class EventsTableModel : public QAbstractItemModel {
     static int fid(const A::PlanetLoc& ploc) { return ploc.planet.fileId(); }
     static int fid(const A::Loc& loc) { return -1; }
 
-    QString display(const A::ChartPlanetId& cpid) const { return cpid.name(); }
+    QString display(const A::ChartPlanetModeId& cpid) const
+    {
+        if (QString suff = modeToSuffix(cpid.mode()); suff.isEmpty()) {
+            return cpid.name();
+        } else {
+            return cpid.name() + "-" + suff;
+        }
+    }
 
     QString display(const A::PlanetLoc& s) const
     {
+        QString suff;
+        if (auto suf = modeToSuffix(s.mode()); !suf.isEmpty()) {
+            suff = "-" + suf;
+        }
         return QString(s.planet.fileId() == 1 ? "<i>%1</i>" : "%1")
-                   .arg(s.description())
+                   .arg(s.description() + suff)
                + " "
                + A::zodiacPosition(s.rasiLoc(),
                                    _zodiac,
@@ -340,6 +350,19 @@ class EventsTableModel : public QAbstractItemModel {
     }
 
     QString glyph(const A::ChartPlanetId& cpid) const { return cpid.glyph(); }
+
+    // Helper to convert PlanetLocMode to suffix string
+    static QString modeToSuffix(A::PlanetLocMode mode)
+    {
+        switch (mode) {
+        case A::plmNatal:      return "r";  // radical (natal)
+        case A::plmProgressed: return "p";  // progressed
+        case A::plmTransit:    return "";   // no suffix for transits
+        case A::plmSolarArc:   return "sa"; // solar arc
+        case A::plmPrimaryDir: return "pd"; // primary directions
+        default:               return "";   // unknown/other
+        }
+    }
 
     QString glyph(const A::PlanetLoc& s) const
     {
@@ -357,10 +380,9 @@ class EventsTableModel : public QAbstractItemModel {
         auto desc = s.desc;
         if (!desc.isEmpty()) {
             if (desc == "SD") desc = "%&";
-            else if (desc == "SR")
-                desc = "%#";
-            else if (desc == "n" || desc == "r")
-                desc = "";
+            else if (desc == "SR") desc = "%#";
+            else if (desc == "p") desc = "="; // almagest p
+            else if (desc == "n" || desc == "r") desc = "";
         }
         if (s.speed < 0 && !s.desc.startsWith("S")) {
             desc = "#" + desc; // retrograde
@@ -371,16 +393,26 @@ class EventsTableModel : public QAbstractItemModel {
 
     QString summary(const A::ChartPlanetId& cpid) const
     {
-        if (cpid.fileId() >= 0 && _suffixes.size() > cpid.fileId()) {
-            return cpid.name() + "-" + _suffixes[cpid.fileId()];
-        }
+        // For ChartPlanetId without mode info, we can't determine suffix
+        // This is used for aspect patterns where we don't have PlanetLoc
         return cpid.name();
     }
 
     QString summary(const A::PlanetLoc& s) const
     {
         auto str = s.planet.name();
-        if (!s.desc.isEmpty()) str += "-" + s.desc;
+        
+        // Add mode suffix if available (-r for natal, -p for progressed, etc.)
+        QString suffix = modeToSuffix(s.mode());
+        if (!suffix.isEmpty()) {
+            str += "-" + suffix;
+        }
+        
+        // Add descriptor if present (SD, SR, etc.)
+        if (!s.desc.isEmpty()) {
+            str += "-" + s.desc;
+        }
+        
         return str;
     }
 
@@ -926,16 +958,17 @@ class EventsTableModel : public QAbstractItemModel {
         if (rowCount() == 0) return;
 
         // Emit for all top-level rows
-        emit dataChanged(createIndex(0, column),
-                         createIndex(rowCount() - 1, column),
+        emit dataChanged(index(0, column),
+                         index(rowCount() - 1, column),
                          { Qt::DisplayRole, Qt::FontRole });
 
         // Also emit for all child rows (coincidences)
         for (int i = 0; i < rowCount(); ++i) {
-            int childCount = rowCount(createIndex(i, 0));
+            QModelIndex parentIdx = index(i, 0);
+            int childCount = rowCount(parentIdx);
             if (childCount > 0) {
-                emit dataChanged(createIndex(0, column, i),
-                                 createIndex(childCount - 1, column, i),
+                emit dataChanged(index(0, column, parentIdx),
+                                 index(childCount - 1, column, parentIdx),
                                  { Qt::DisplayRole, Qt::FontRole });
             }
         }
@@ -944,16 +977,14 @@ class EventsTableModel : public QAbstractItemModel {
     // Get natal horoscope for house rulership calculations
     const A::Horoscope& getNatalHoroscope() const
     {
-        // Access the parent Transits object to get the file
-        if (auto transits = qobject_cast<Transits*>(QObject::parent())) {
-            if (transits->file()) {
-                auto fileType = transits->file()->getType();
-                // Only return horoscope for natal charts (Male, Female, Event)
-                if (fileType == TypeMale || fileType == TypeFemale
-                    || fileType == TypeEvent)
-                {
-                    return transits->file()->horoscope();
-                }
+        // Use the stored natal file pointer
+        if (_natalFile) {
+            auto fileType = _natalFile->getType();
+            // Only return horoscope for natal charts (Male, Female, Event)
+            if (fileType == TypeMale || fileType == TypeFemale
+                || fileType == TypeEvent)
+            {
+                return _natalFile->horoscope();
             }
         }
         static const A::Horoscope
@@ -1137,15 +1168,16 @@ class EventsTableModel : public QAbstractItemModel {
     A::AspectSetId _aspects = 0;
     short          _tzOffset = 0; // Timezone offset in hours
 
-    QStringList _suffixes;
-
     int _changeRef = 0;
 
     AChangeSignalFrame* _chs = nullptr;
 
-    DisplayMode& _transitBodyColMode = A::EventOptions::s_transitBodyColMode;
-    DisplayMode& _natalTransitBodyColMode =
-        A::EventOptions::s_natalTransitBodyColMode;
+    // Per-instance display modes - always start with glyphs (mode 0)
+    // Users can Ctrl+click column headers to cycle through modes
+    DisplayMode _transitBodyColMode = A::EventOptions::DisplayGlyphs;
+    DisplayMode _natalTransitBodyColMode = A::EventOptions::DisplayGlyphs;
+    
+    AstroFile* _natalFile = nullptr; // Pointer to natal chart for rulership calculations
 
     friend class AChangeSignalFrame;
 };
@@ -1467,6 +1499,9 @@ Transits::ensureEventsModel()
         file(0)->setEventsModel(evm);
     }
     
+    // Set the natal file for house rulership calculations
+    evm->setNatalFile(file(0));
+    
     // Update our local pointer and view if needed
     if (_evm != evm) {
         _evm = evm;
@@ -1479,6 +1514,11 @@ Transits::ensureEventsModel()
                     &QHeaderView::sortIndicatorChanged,
                     _evm,
                     &EventsTableModel::onSortChange,
+                    Qt::UniqueConnection);
+            connect(hdr,
+                    &TransitHeaderView::ctrlSectionClicked,
+                    this,
+                    &Transits::headerClicked,
                     Qt::UniqueConnection);
             hdr->setSortIndicator(_evm->sortColumn(), _evm->sortOrder());
         }
@@ -1641,7 +1681,6 @@ Transits::updateTransits()
     ADateRange r { _start->date(), _end->date() };
 
     _evm->removeEvents(evs);
-    _evm->setSuffixes({});
     evs.clear();
 
 #if 0
@@ -1655,10 +1694,9 @@ Transits::updateTransits()
 #if 1
     if (filesCount() >= 1) {
         auto type = file(0)->getType();
-        if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
+        if (type != TypeOther) {
             af = new A::OmnibusFinder(evs, r, hs, { file(0), transitsAF() });
         }
-        if (filesCount() > 1) _evm->setSuffixes({ "r" });
     }
     if (!af && filesCount() >= 1) {
         af = new A::OmnibusFinder(evs, r, hs, files());
@@ -1969,7 +2007,10 @@ Transits::doubleClickedCell(QModelIndex inx)
     if (!inx.isValid()) return;
     if (!_evm) return;
     if (inx.row() < 0 || inx.row() >= _evm->rowCount()) return;
-    
+
+    //bool ctrl = (QApplication::keyboardModifiers() & Qt::ControlModifier);
+    bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
+
     auto par = inx.parent();
     if (par.isValid()) inx = par;
     auto              dt   = _evm->rowDate(inx.row());
@@ -1982,7 +2023,11 @@ Transits::doubleClickedCell(QModelIndex inx)
     af->suspendUpdate();
     af->setLocation(_location->location());
     af->setLocationName(_location->locationName());
-    af->setName(desc);
+    if (!transitsOnly() && !shift) {
+        af->setName(file()->getName() + " - " + desc);
+    } else {
+        af->setName(desc);
+    }
     af->setGMT(dt);
     
     // Set file type to Return for return events
@@ -2000,7 +2045,7 @@ Transits::doubleClickedCell(QModelIndex inx)
     af->resumeUpdate();
     
     // bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
-    if (transitsOnly() /*|| !shift*/) {
+    if (transitsOnly() || !shift) {
         emit addChart(af);
     } else {
         emit addChartWithTransits(file()->fileInfo(), af);
@@ -2024,11 +2069,13 @@ Transits::headerClicked(int col)
     if (col == EventsTableModel::transitBodyCol) {
         _evm->cycleTransitBodyColMode();
         // Force immediate visual update
-        _tview->viewport()->repaint();
+        _tview->viewport()->update();
+        _tview->update();
     } else if (col == EventsTableModel::natalTransitBodyCol) {
         _evm->cycleNatalTransitBodyColMode();
         // Force immediate visual update
-        _tview->viewport()->repaint();
+        _tview->viewport()->update();
+        _tview->update();
     }
 }
 
