@@ -2,6 +2,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QMetaType>
 #include <QSettings>
 #include <QStandardPaths>
@@ -167,6 +168,45 @@ AstroFile::save()
     qDebug() << "Saved" << getName() << "to" << fileName();
 
     clearUnsavedState();
+}
+
+void
+AstroFile::saveAs()
+{
+    QString dir = fileInfo().path();
+    if (dir == ".") {
+        dir = fixedChartDir();
+    }
+
+    QString suggestedName = AFileInfo(dir, getName()).filePath();
+    QString newPath = QFileDialog::getSaveFileName(
+        nullptr,
+        tr("Save Chart As"),
+        suggestedName,
+        tr("Chart Files (*%1)").arg(AFileInfo::suff()));
+
+    if (newPath.isEmpty()) {
+        return; // User cancelled
+    }
+
+    // Remove the suffix if user added it (AFileInfo will add it)
+    if (newPath.endsWith(AFileInfo::suff())) {
+        newPath.chop(AFileInfo::suff().length());
+    }
+
+    AFileInfo newFileInfo(newPath);
+    QString newName = newFileInfo.baseName();
+
+    qDebug() << "Saving as:" << newName << "to" << newFileInfo.filePath();
+
+    // Update the file info and name
+    _fileInfo = newFileInfo;
+    
+    // Save to the new location
+    save();
+    
+    // Notify that the file has been renamed/moved (without marking as unsaved since we just saved)
+    emit changed(Name | ChangedState);
 }
 
 void

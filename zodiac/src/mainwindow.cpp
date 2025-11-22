@@ -1,4 +1,5 @@
 ﻿#include <QActionGroup>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPaintEvent>
@@ -13,6 +14,12 @@
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QTreeView>
+#include <QDrag>
+#include <QMimeData>
+#include <QThread>
+
+#include <filesystem>
+#include <system_error>
 
 #include "../astroprocessor/src/astro-calc.h"
 #include "../astroprocessor/src/astro-data.h"
@@ -931,6 +938,78 @@ AstroWidget::setupSettingsEditor(AppSettingsEditor* ed)
             SLOT(applyGeoSettings(AppSettings&)));
 }
 
+/* =========================== FILE TREE VIEW
+ * ======================================== */
+
+FileTreeView::FileTreeView(AstroDatabase* parent)
+  : QTreeView(parent)
+  , database(parent)
+{
+}
+
+void
+FileTreeView::startDrag(Qt::DropActions supportedActions)
+{
+    // Start the drag but DON'T call the base implementation
+    // This prevents Qt from trying to move items in the model
+    QDrag* drag = new QDrag(this);
+    QMimeData* mimeData = new QMimeData();
+    
+    // Create mime data with selected file info
+    QStringList files;
+    auto selection = selectionModel()->selectedIndexes();
+    for (const auto& index : selection) {
+        files << index.data().toString();
+    }
+    mimeData->setText(files.join("\n"));
+    
+    drag->setMimeData(mimeData);
+    
+    // Support both move (default) and copy (with Ctrl)
+    drag->exec(Qt::MoveAction | Qt::CopyAction, Qt::MoveAction);
+}
+
+void
+FileTreeView::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (event->source() == this) {
+        event->acceptProposedAction();
+    } else {
+        event->ignore();
+    }
+}
+
+void
+FileTreeView::dragMoveEvent(QDragMoveEvent* event)
+{
+    QString targetDir;
+    if (database->validateDropTarget(event->position().toPoint(), targetDir)) {
+        event->acceptProposedAction();
+    } else {
+        event->ignore();
+    }
+}
+
+void
+FileTreeView::dropEvent(QDropEvent* event)
+{
+    QString targetDir;
+    if (database->validateDropTarget(event->position().toPoint(), targetDir)) {
+        event->acceptProposedAction();
+        
+        // Check if Ctrl is pressed for copy operation
+        bool copyOperation = (event->modifiers() & Qt::ControlModifier);
+        
+        if (copyOperation) {
+            database->performCopy(targetDir);
+        } else {
+            database->performMove(targetDir);
+        }
+    } else {
+        event->ignore();
+    }
+}
+
 /* =========================== ASTRO FILE DATABASE
  * ================================== */
 
@@ -958,7 +1037,7 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
         f.setBold(true);
         dirit->setData(f, Qt::FontRole);
 
-        dirit->setFlags(Qt::ItemIsEnabled);
+        dirit->setFlags(Qt::ItemIsEnabled | Qt::ItemIsDropEnabled);
 
         fswatch->addPath(dir);
         dirModel->appendRow(dirit);
@@ -967,7 +1046,7 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
     searchProxy = new QSortFilterProxyModel(this);
     searchProxy->setRecursiveFilteringEnabled(true);
 
-    fileList = new QTreeView;
+    fileList = new FileTreeView(this);
     searchProxy->setSourceModel(dirModel);
     fileList->setModel(searchProxy);
 
@@ -978,6 +1057,13 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
     refresh->setCursor(Qt::PointingHandCursor);
 
     fileList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    fileList->setSelectionBehavior(QAbstractItemView::SelectRows);
+    fileList->setEditTriggers(QAbstractItemView::NoEditTriggers); // We'll trigger manually
+    fileList->setDragEnabled(true);
+    fileList->setAcceptDrops(true);
+    fileList->setDropIndicatorShown(true);
+    fileList->setDragDropMode(QAbstractItemView::DragDrop);
+    fileList->setDefaultDropAction(Qt::MoveAction);
     fileList->viewport()->installEventFilter(
         this); // for handling middle mouse button clicks
     fileList->header()->hide();
@@ -1009,6 +1095,10 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
             SIGNAL(textChanged(QString)),
             this,
             SLOT(searchFilter(QString)));
+    connect(dirModel,
+            SIGNAL(itemChanged(QStandardItem*)),
+            this,
+            SLOT(handleItemRenamed(QStandardItem*)));
 
     updateList();
 }
@@ -1025,19 +1115,39 @@ AstroDatabase::saveDatabaseState()
         settings.setValue("scrollPosition", vbar->value());
     }
     
-    // Save expanded state for each directory
-    for (int i = 0; i < dirModel->rowCount(); ++i) {
-        QStandardItem* item = dirModel->item(i);
-        if (item) {
-            QString dirName = item->text();
-            QModelIndex proxyIndex = searchProxy->mapFromSource(dirModel->indexFromItem(item));
+    // Clear old expansion state
+    settings.remove("expanded");
+    
+    // Recursively save expanded state for all directories
+    std::function<void(const QModelIndex&)> saveExpansion = [&](const QModelIndex& index) {
+        if (!index.isValid()) return;
+        
+        QStandardItem* item = dirModel->itemFromIndex(index);
+        if (item && item->data(TypeRole).toUInt() == dirType) {
+            QString path = item->data(PathRole).toString();
+            QModelIndex proxyIndex = searchProxy->mapFromSource(index);
             bool expanded = fileList->isExpanded(proxyIndex);
-            settings.setValue(QString("expanded/%1").arg(dirName), expanded);
+            
+            if (expanded && !path.isEmpty()) {
+                settings.setValue(QString("expanded/%1").arg(path), true);
+            }
+            
+            // Recursively save children
+            for (int i = 0; i < item->rowCount(); ++i) {
+                QStandardItem* child = item->child(i);
+                if (child && child->data(TypeRole).toUInt() == dirType) {
+                    saveExpansion(dirModel->indexFromItem(child));
+                }
+            }
         }
+    };
+    
+    // Save expansion state for all top-level folders and their children
+    for (int i = 0; i < dirModel->rowCount(); ++i) {
+        saveExpansion(dirModel->index(i, 0));
     }
     
     settings.endGroup();
-    qDebug() << "Database state saved";
 }
 
 void
@@ -1046,17 +1156,33 @@ AstroDatabase::restoreDatabaseState()
     QSettings settings("settings.ini", QSettings::IniFormat);
     settings.beginGroup("Database");
     
-    // Restore expanded state for each directory
-    for (int i = 0; i < dirModel->rowCount(); ++i) {
-        QStandardItem* item = dirModel->item(i);
-        if (item) {
-            QString dirName = item->text();
-            bool expanded = settings.value(QString("expanded/%1").arg(dirName), false).toBool();
+    // Recursively restore expanded state for all directories
+    std::function<void(const QModelIndex&)> restoreExpansion = [&](const QModelIndex& index) {
+        if (!index.isValid()) return;
+        
+        QStandardItem* item = dirModel->itemFromIndex(index);
+        if (item && item->data(TypeRole).toUInt() == dirType) {
+            QString path = item->data(PathRole).toString();
+            bool expanded = settings.value(QString("expanded/%1").arg(path), false).toBool();
+            
             if (expanded) {
-                QModelIndex proxyIndex = searchProxy->mapFromSource(dirModel->indexFromItem(item));
+                QModelIndex proxyIndex = searchProxy->mapFromSource(index);
                 fileList->setExpanded(proxyIndex, true);
             }
+            
+            // Recursively restore children
+            for (int i = 0; i < item->rowCount(); ++i) {
+                QStandardItem* child = item->child(i);
+                if (child && child->data(TypeRole).toUInt() == dirType) {
+                    restoreExpansion(dirModel->indexFromItem(child));
+                }
+            }
         }
+    };
+    
+    // Restore expansion state for all top-level folders and their children
+    for (int i = 0; i < dirModel->rowCount(); ++i) {
+        restoreExpansion(dirModel->index(i, 0));
     }
     
     // Restore scroll position (must be done after expanding)
@@ -1067,7 +1193,6 @@ AstroDatabase::restoreDatabaseState()
     }
     
     settings.endGroup();
-    qDebug() << "Database state restored";
 }
 
 void
@@ -1111,6 +1236,39 @@ hasSelectedItems(QTreeView* tv)
 void
 AstroDatabase::updateList()
 {
+    // Save expansion state before clearing
+    QSet<QString> expandedPaths;
+    std::function<void(const QModelIndex&)> saveExpansion = [&](const QModelIndex& index) {
+        if (!index.isValid()) return;
+        
+        QModelIndex proxyIndex = searchProxy->mapFromSource(index);
+        if (fileList->isExpanded(proxyIndex)) {
+            QStandardItem* item = dirModel->itemFromIndex(index);
+            if (item) {
+                QString path = item->data(PathRole).toString();
+                if (!path.isEmpty()) {
+                    expandedPaths.insert(path);
+                }
+            }
+        }
+        
+        // Recursively check children
+        QStandardItem* item = dirModel->itemFromIndex(index);
+        if (item) {
+            for (int i = 0; i < item->rowCount(); ++i) {
+                QStandardItem* child = item->child(i);
+                if (child && child->data(TypeRole).toUInt() == dirType) {
+                    saveExpansion(dirModel->indexFromItem(child));
+                }
+            }
+        }
+    };
+    
+    // Save expansion state of all top-level folders and their children
+    for (int i = 0; i < dirModel->rowCount(); ++i) {
+        saveExpansion(dirModel->index(i, 0));
+    }
+    
     QMap<QStandardItem*, QStringList> sel;
     QItemSelectionModel*              sm = fileList->selectionModel();
     if (sm) {
@@ -1123,7 +1281,7 @@ AstroDatabase::updateList()
 
     QItemSelection sl;
 
-    std::function<void(QModelIndex)> updir = [&](QModelIndex mi) {
+    std::function<void(QModelIndex, int)> updir = [&](QModelIndex mi, int depth) {
         auto diritem = dirModel->itemFromIndex(mi);
         QDir dir(diritem->data().toString());
         diritem->removeRows(0, diritem->rowCount());
@@ -1132,12 +1290,19 @@ AstroDatabase::updateList()
             if (dn == "." || dn == "..") continue;
 
             QFileInfo fi(dir, dn);
+            
+            // Show immediate subdirectories at any level
+            // For deeper nested folders, only show if they contain chart files
+            if (depth > 1 && !directoryHasChartFiles(fi.absoluteFilePath())) {
+                continue;
+            }
+            
             auto      subdirname = AFileInfo::decodeName(dn);
             auto      subdiritem = new QStandardItem(subdirname);
             subdiritem->setData(dirType, TypeRole);
             subdiritem->setData(fi.absoluteFilePath(), PathRole);
             subdiritem->setData(fi.absoluteFilePath(), Qt::ToolTipRole);
-            subdiritem->setFlags(Qt::ItemIsEnabled);
+            subdiritem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsDropEnabled);
             QFont f = subdiritem->data(Qt::FontRole).value<QFont>();
             f.setBold(true);
             subdiritem->setData(f, Qt::FontRole);
@@ -1146,7 +1311,7 @@ AstroDatabase::updateList()
             diritem->appendRow(subdiritem);
 
             QModelIndex sdmi = diritem->child(n)->index();
-            updir(sdmi);
+            updir(sdmi, depth + 1);
         }
 
         QStringList list = dir.entryList(AFileInfo::wildcard(),
@@ -1164,7 +1329,7 @@ AstroDatabase::updateList()
             auto child = new QStandardItem(chit);
             child->setData(fileType, TypeRole);
             child->setData(chit, Qt::ToolTipRole);
-            child->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            child->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
             diritem->appendRow(child);
             while (j < presel.count() && presel.at(j) < chit) ++j;
             if (j < presel.count() && presel.at(j) == chit) {
@@ -1177,9 +1342,36 @@ AstroDatabase::updateList()
 
     for (int i = 0, n = dirModel->rowCount(); i < n; ++i) {
         auto mi = dirModel->index(i, 0);
-        updir(mi);
+        updir(mi, 0);
     }
     if (!sl.empty()) sm->select(sl, QItemSelectionModel::ClearAndSelect);
+    
+    // Restore expansion state after rebuilding
+    std::function<void(const QModelIndex&)> restoreExpansion = [&](const QModelIndex& index) {
+        if (!index.isValid()) return;
+        
+        QStandardItem* item = dirModel->itemFromIndex(index);
+        if (item) {
+            QString path = item->data(PathRole).toString();
+            if (!path.isEmpty() && expandedPaths.contains(path)) {
+                QModelIndex proxyIndex = searchProxy->mapFromSource(index);
+                fileList->setExpanded(proxyIndex, true);
+            }
+            
+            // Recursively restore children
+            for (int i = 0; i < item->rowCount(); ++i) {
+                QStandardItem* child = item->child(i);
+                if (child && child->data(TypeRole).toUInt() == dirType) {
+                    restoreExpansion(dirModel->indexFromItem(child));
+                }
+            }
+        }
+    };
+    
+    // Restore expansion state for all folders
+    for (int i = 0; i < dirModel->rowCount(); ++i) {
+        restoreExpansion(dirModel->index(i, 0));
+    }
 }
 
 void
@@ -1303,16 +1495,14 @@ AstroDatabase::openSelectedSolarReturnInNewTab()
 void
 AstroDatabase::showContextMenu(QPoint p)
 {
-    if (!hasSelectedItems(fileList)) return;
-
     QPoint pos = ((QWidget*) sender())->mapToGlobal(p);
 
     p        = fileList->mapFromGlobal(pos);
-    auto qmi = fileList->indexAt(p);
-    if (!qmi.isValid()) return;
+    auto proxyIndex = fileList->indexAt(p);
+    if (!proxyIndex.isValid()) return;
 
-    qDebug() << qmi << qmi.data() << qmi.data(TypeRole);
-    qmi = searchProxy->mapToSource(qmi);
+    qDebug() << proxyIndex << proxyIndex.data() << proxyIndex.data(TypeRole);
+    auto qmi = searchProxy->mapToSource(proxyIndex);
     qDebug() << qmi;
 
     auto item = dirModel->itemFromIndex(qmi);
@@ -1324,8 +1514,46 @@ AstroDatabase::showContextMenu(QPoint p)
     QMenu* mnu = new QMenu(this);
 
     if (type == dirType) {
-        mnu->addAction(tr("Save here"), [&] { saveCurrent(qmi); });
-        mnu->addAction(tr("New directory..."), [&] { newDirectory(qmi); });
+        mnu->addAction(tr("Save here"), [this, proxyIndex] { saveCurrent(proxyIndex); });
+        mnu->addAction(tr("New folder..."), [this, proxyIndex] { newDirectory(proxyIndex); });
+        
+        // Add delete folder action
+        QString dirPath = item->data(PathRole).toString();
+        QDir dir(dirPath);
+        
+        // Check if directory can be deleted (empty or only non-chart files)
+        bool canDelete = true;
+        QString reason;
+        
+        QFileInfoList entries = dir.entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries);
+        if (entries.isEmpty()) {
+            reason = tr("Delete this empty folder");
+        } else {
+            // Check if it has subdirectories
+            for (const QFileInfo& entry : entries) {
+                if (entry.isDir()) {
+                    canDelete = false;
+                    reason = tr("Cannot delete: folder contains subdirectories");
+                    break;
+                }
+            }
+            
+            // Check if it has chart files
+            if (canDelete) {
+                QStringList chartFiles = dir.entryList(AFileInfo::wildcard(), QDir::Files);
+                if (!chartFiles.isEmpty()) {
+                    canDelete = false;
+                    reason = tr("Cannot delete: folder contains chart files");
+                } else {
+                    reason = tr("Delete folder (contains only non-chart files)");
+                }
+            }
+        }
+        
+        QAction* deleteAction = mnu->addAction(tr("Delete folder"), [this, proxyIndex] { deleteDirectory(proxyIndex); });
+        deleteAction->setEnabled(canDelete);
+        deleteAction->setToolTip(reason);
+        
     } else if (type == fileType) {
         auto getOpener = [&](const QString& name) {
             return [&, name] {
@@ -1372,6 +1600,8 @@ AstroDatabase::showContextMenu(QPoint p)
         smnu->addAction(tr("Chiron"), getOpener("Chiron"));
 
         mnu->addSeparator();
+        mnu->addAction(tr("Rename..."), this, SLOT(renameSelected()));
+        mnu->addAction(tr("Move to folder..."), this, SLOT(moveToFolder()));
         mnu->addAction(QIcon("style/delete.png"),
                        tr("Delete"),
                        this,
@@ -1386,17 +1616,560 @@ AstroDatabase::showContextMenu(QPoint p)
 void
 AstroDatabase::saveCurrent(const QModelIndex& qmi)
 {
+    auto sourceIndex = searchProxy->mapToSource(qmi);
+    auto item = dirModel->itemFromIndex(sourceIndex);
+    if (!item) return;
+
+    QString targetDir;
+    auto type = entryType(item->data(TypeRole).toUInt());
+    
+    if (type == dirType) {
+        targetDir = item->data(PathRole).toString();
+    } else if (type == fileType && item->parent()) {
+        targetDir = item->parent()->data(PathRole).toString();
+    } else {
+        return;
+    }
+
+    // Don't allow saving to Sample Charts
+    if (targetDir.contains("user/") || targetDir.endsWith("user")) {
+        QMessageBox::information(
+            this,
+            tr("Save Failed"),
+            tr("Cannot save charts to the Sample Charts folder."));
+        return;
+    }
+
+    // Emit signal to request saving to this directory
+    emit saveCurrentToDirectory(targetDir);
+}
+
+bool
+AstroDatabase::directoryHasChartFiles(const QString& dirPath)
+{
+    QDir dir(dirPath);
+    
+    // Check for chart files in this directory
+    QStringList files = dir.entryList(AFileInfo::wildcard(), QDir::Files);
+    if (!files.isEmpty()) {
+        return true;
+    }
+    
+    // Recursively check subdirectories
+    QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& subdir : subdirs) {
+        if (directoryHasChartFiles(dir.filePath(subdir))) {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 void
 AstroDatabase::newDirectory(const QModelIndex& qmi)
 {
+    auto sourceIndex = searchProxy->mapToSource(qmi);
+    auto item = dirModel->itemFromIndex(sourceIndex);
+    if (!item) return;
+
+    QString parentDir;
+    auto type = entryType(item->data(TypeRole).toUInt());
+    
+    if (type == dirType) {
+        parentDir = item->data(PathRole).toString();
+    } else if (type == fileType && item->parent()) {
+        parentDir = item->parent()->data(PathRole).toString();
+    } else {
+        return;
+    }
+
+    // Don't allow creating directories in Sample Charts
+    if (parentDir.contains("user/") || parentDir.endsWith("user")) {
+        QMessageBox::information(
+            this,
+            tr("New Directory"),
+            tr("Cannot create directories in the Sample Charts folder."));
+        return;
+    }
+
+    bool ok;
+    QString dirName = QInputDialog::getText(
+        this,
+        tr("New Folder"),
+        tr("Folder name:"),
+        QLineEdit::Normal,
+        "New Folder",  // Default name
+        &ok);
+
+    if (!ok || dirName.isEmpty()) {
+        return;
+    }
+
+    QDir dir(parentDir);
+    
+    // Find unique name if directory already exists
+    QString uniqueName = dirName;
+    int counter = 1;
+    while (dir.exists(uniqueName)) {
+        uniqueName = QString("%1 (%2)").arg(dirName).arg(counter++);
+    }
+
+    if (!dir.mkdir(uniqueName)) {
+        QMessageBox::warning(
+            this,
+            tr("New Directory Failed"),
+            tr("Could not create directory."));
+        return;
+    }
+
+    // Add to file system watcher
+    fswatch->addPath(dir.filePath(uniqueName));
+    
+    // Refresh the list to show the new folder
+    updateList();
+}
+
+void
+AstroDatabase::deleteDirectory(const QModelIndex& qmi)
+{
+    auto sourceIndex = searchProxy->mapToSource(qmi);
+    auto item = dirModel->itemFromIndex(sourceIndex);
+    if (!item) return;
+
+    QString dirPath = item->data(PathRole).toString();
+    
+    // Double-check it's a directory
+    auto type = entryType(item->data(TypeRole).toUInt());
+    if (type != dirType) return;
+    
+    // Don't allow deleting Sample Charts directories
+    if (dirPath.contains("user/") || dirPath.endsWith("user")) {
+        QMessageBox::information(
+            this,
+            tr("Delete Directory"),
+            tr("Cannot delete Sample Charts folders."));
+        return;
+    }
+    
+    QDir dir(dirPath);
+    
+    // Get file info for the directory
+    QFileInfo dirInfo(dirPath);
+    
+    // Verify it's safe to delete
+    QFileInfoList entries = dir.entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries);
+    
+    // Check for subdirectories
+    for (const QFileInfo& entry : entries) {
+        if (entry.isDir()) {
+            QMessageBox::warning(
+                this,
+                tr("Cannot Delete Directory"),
+                tr("The folder contains subdirectories and cannot be deleted."));
+            return;
+        }
+    }
+    
+    // Check for chart files
+    QStringList chartFiles = dir.entryList(AFileInfo::wildcard(), QDir::Files);
+    if (!chartFiles.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            tr("Cannot Delete Directory"),
+            tr("The folder contains chart files and cannot be deleted."));
+        return;
+    }
+    
+    // Confirm deletion
+    QString folderName = dir.dirName();
+    QString message;
+    if (entries.isEmpty()) {
+        message = tr("Delete empty folder '%1'?").arg(folderName);
+    } else {
+        message = tr("Delete folder '%1'?\n\nThe folder contains %2 non-chart file(s) which will also be deleted.")
+                     .arg(folderName)
+                     .arg(entries.count());
+    }
+    
+    auto reply = QMessageBox::question(
+        this,
+        tr("Delete Folder"),
+        message,
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    
+    if (reply != QMessageBox::Yes) {
+        return;
+    }
+    
+    // The issue is likely that the file system watcher has a handle on the parent directory
+    // We need to temporarily remove the parent from watching
+    QString parentPath = dirInfo.absolutePath();
+    bool wasWatchingParent = false;
+    
+    QStringList watchedPaths = fswatch->directories();
+    
+    if (watchedPaths.contains(dirPath)) {
+        fswatch->removePath(dirPath);
+    }
+    
+    // Temporarily remove parent from watcher
+    if (watchedPaths.contains(parentPath)) {
+        fswatch->removePath(parentPath);
+        wasWatchingParent = true;
+        
+        // Give the system a moment to release file handles
+        QThread::msleep(100);
+    }
+    
+    // Check filesystem permissions and try to make it writable
+    std::filesystem::path fsPath = dirPath.toStdString();
+    try {
+        std::filesystem::permissions(fsPath, 
+            std::filesystem::perms::owner_all | std::filesystem::perms::group_all,
+            std::filesystem::perm_options::add);
+    } catch (const std::exception&) {
+        // Ignore permission setting errors
+    }
+    
+    // Delete the directory
+    bool success = false;
+    std::error_code ec;
+    
+    if (entries.isEmpty()) {
+        // For empty directories
+        success = std::filesystem::remove(fsPath, ec);
+    } else {
+        // For non-empty directories (with non-chart files)
+        std::uintmax_t removed = std::filesystem::remove_all(fsPath, ec);
+        success = (removed > 0 && !ec);
+    }
+    
+    // Re-add parent to watcher if it was being watched
+    if (wasWatchingParent) {
+        fswatch->addPath(parentPath);
+    }
+    
+    if (!success) {
+        QMessageBox::warning(
+            this,
+            tr("Delete Failed"),
+            tr("Could not delete the folder: %1\n\nThe folder may be in use or you may not have permission.").arg(dirPath));
+        return;
+    }
+    
+    // Refresh the view
+    updateList();
+}
+
+void
+AstroDatabase::renameSelected()
+{
+    qDebug() << "AstroDatabase::renameSelected() called";
+    
+    auto sm = fileList->selectionModel();
+    if (!sm) return;
+
+    auto sil = sm->selectedIndexes();
+    if (sil.count() != 1) return; // Only allow renaming one file at a time
+
+    auto proxyIndex = sil.first();
+    if (!proxyIndex.parent().isValid()) return; // Can't rename directories (yet)
+
+    auto sourceIndex = searchProxy->mapToSource(proxyIndex);
+    auto item = dirModel->itemFromIndex(sourceIndex);
+    if (!item || !item->parent()) return;
+
+    auto type = entryType(item->data(TypeRole).toUInt());
+    if (type != fileType) return;
+
+    // Store old name and directory for tracking
+    _renamingOldName = item->text();
+    _renamingDir = item->parent()->data(PathRole).toString();
+
+    qDebug() << "Starting rename for:" << _renamingOldName << "in" << _renamingDir;
+
+    // Ensure the item is visible and selected
+    fileList->scrollTo(proxyIndex);
+    fileList->setCurrentIndex(proxyIndex);
+    
+    // Block signals temporarily to avoid triggering itemChanged when we set the flag
+    dirModel->blockSignals(true);
+    
+    // Make this item temporarily editable
+    item->setFlags(item->flags() | Qt::ItemIsEditable);
+    
+    // Unblock signals
+    dirModel->blockSignals(false);
+    
+    qDebug() << "Item flags:" << item->flags();
+    qDebug() << "Calling fileList->edit() on proxyIndex";
+    
+    // Start inline editing
+    fileList->edit(proxyIndex);
+}
+
+void
+AstroDatabase::moveToFolder()
+{
+    auto sm = fileList->selectionModel();
+    if (!sm) return;
+
+    auto sil = sm->selectedIndexes();
+    if (sil.isEmpty()) return;
+
+    // Create a dialog with a tree view showing folder structure
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Move to Folder"));
+    dialog.setModal(true);
+    
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    
+    QLabel* label = new QLabel(tr("Select destination folder:"), &dialog);
+    layout->addWidget(label);
+    
+    // Create a tree view with the same model structure
+    QTreeView* treeView = new QTreeView(&dialog);
+    treeView->setObjectName("folderSelectorTree");
+    
+    // Override the dark styling with light dialog styling
+    treeView->setStyleSheet(
+        "QTreeView#folderSelectorTree {"
+        "    color: #000;"
+        "    background: #FFF;"
+        "    border: 1px solid #CCC;"
+        "}"
+        "QTreeView#folderSelectorTree::item:hover {"
+        "    background: #E0E0E0;"
+        "}"
+        "QTreeView#folderSelectorTree::item:selected {"
+        "    background: #FFD700;"
+        "    color: #000;"
+        "}"
+    );
+    
+    QStandardItemModel* folderModel = new QStandardItemModel(&dialog);
+    
+    // Build a folder-only model from dirModel
+    std::function<void(QStandardItem*, QStandardItem*)> copyFolders = [&](QStandardItem* srcParent, QStandardItem* dstParent) {
+        for (int i = 0; i < srcParent->rowCount(); ++i) {
+            auto srcChild = srcParent->child(i);
+            auto type = entryType(srcChild->data(TypeRole).toUInt());
+            
+            if (type == dirType) {
+                auto dstChild = new QStandardItem(srcChild->text());
+                dstChild->setData(srcChild->data(PathRole), PathRole);
+                dstChild->setData(dirType, TypeRole);
+                dstChild->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+                
+                QFont f = dstChild->data(Qt::FontRole).value<QFont>();
+                f.setBold(true);
+                dstChild->setData(f, Qt::FontRole);
+                
+                dstParent->appendRow(dstChild);
+                
+                // Recursively copy subdirectories
+                copyFolders(srcChild, dstChild);
+            }
+        }
+    };
+    
+    // Copy all top-level folders and their subdirectories
+    for (int i = 0; i < dirModel->rowCount(); ++i) {
+        auto topItem = dirModel->item(i);
+        if (topItem) {
+            auto rootItem = new QStandardItem(topItem->text());
+            rootItem->setData(topItem->data(PathRole), PathRole);
+            rootItem->setData(dirType, TypeRole);
+            rootItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            
+            QFont f = rootItem->data(Qt::FontRole).value<QFont>();
+            f.setBold(true);
+            rootItem->setData(f, Qt::FontRole);
+            
+            folderModel->appendRow(rootItem);
+            copyFolders(topItem, rootItem);
+        }
+    }
+    
+    treeView->setModel(folderModel);
+    treeView->setHeaderHidden(true);
+    treeView->expandAll();
+    treeView->setSelectionMode(QAbstractItemView::SingleSelection);
+    layout->addWidget(treeView);
+    
+    QDialogButtonBox* buttonBox = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttonBox);
+    
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    
+    auto selected = treeView->selectionModel()->selectedIndexes();
+    if (selected.isEmpty()) {
+        QMessageBox::information(this, tr("Move to Folder"), tr("No folder selected."));
+        return;
+    }
+    
+    auto selectedIndex = selected.first();
+    auto selectedItem = folderModel->itemFromIndex(selectedIndex);
+    if (!selectedItem) return;
+    
+    QString targetDir = selectedItem->data(PathRole).toString();
+    
+    // Check if target is Sample Charts
+    if (targetDir.contains("user/") || targetDir.endsWith("user")) {
+        QMessageBox::warning(
+            this,
+            tr("Move to Folder"),
+            tr("Cannot move files to Sample Charts folder."));
+        return;
+    }
+    
+    // Move selected files
+    moveSelected(targetDir);
+}
+
+void
+AstroDatabase::handleItemRenamed(QStandardItem* item)
+{
+    qDebug() << "AstroDatabase::handleItemRenamed() called";
+    
+    if (!item) return;
+    
+    // Check if we're tracking a rename
+    if (_renamingOldName.isEmpty()) {
+        // Spurious change, ignore
+        qDebug() << "No rename in progress, ignoring";
+        return;
+    }
+    
+    qDebug() << "Rename in progress. Old name:" << _renamingOldName << "New name:" << item->text();
+    
+    // Check if this is a file item (not a directory)
+    auto type = entryType(item->data(TypeRole).toUInt());
+    if (type != fileType) {
+        _renamingOldName.clear();
+        _renamingDir.clear();
+        return;
+    }
+    
+    QString newName = item->text();
+    QString oldName = _renamingOldName;
+    QString dir = _renamingDir;
+    
+    // Clear tracking variables
+    _renamingOldName.clear();
+    _renamingDir.clear();
+    
+    // Validate new name
+    if (newName.isEmpty() || newName == oldName) {
+        updateList();
+        return;
+    }
+    
+    AFileInfo oldFileInfo(dir, oldName);
+    AFileInfo newFileInfo(dir, newName);
+    
+    // Check if target already exists
+    if (newFileInfo.exists()) {
+        QMessageBox::warning(
+            this,
+            tr("Rename Failed"),
+            tr("A file named '%1' already exists.").arg(newName));
+        updateList();
+        return;
+    }
+    
+    // Check if file is currently open
+    AstroFile* openFile = nullptr;
+    auto mainWin = qobject_cast<MainWindow*>(window());
+    if (mainWin) {
+        auto filesBar = mainWin->findChild<FilesBar*>();
+        if (filesBar) {
+            openFile = filesBar->findOpenFile(dir, oldName);
+        }
+    }
+    
+    // Perform the rename
+    if (!QFile::rename(oldFileInfo.filePath(), newFileInfo.filePath())) {
+        QMessageBox::warning(
+            this,
+            tr("Rename Failed"),
+            tr("Could not rename file."));
+        updateList();
+        return;
+    }
+    
+    // Update open file if needed
+    if (openFile && mainWin) {
+        openFile->setFileInfo(newFileInfo);
+        auto filesBar = mainWin->findChild<FilesBar*>();
+        if (filesBar) {
+            filesBar->refreshTabForFile(openFile);
+        }
+    }
+    
+    // Refresh the list
+    updateList();
+    
+    // Find and scroll to the renamed item
+    for (int i = 0, n = dirModel->rowCount(); i < n; ++i) {
+        auto dirItem = dirModel->item(i);
+        if (!dirItem) continue;
+        
+        QString itemDir = dirItem->data(PathRole).toString();
+        if (itemDir != dir) continue;
+        
+        // Search children for the new name
+        for (int j = 0; j < dirItem->rowCount(); ++j) {
+            auto child = dirItem->child(j);
+            if (child && child->text() == newName) {
+                QModelIndex sourceIndex = dirModel->indexFromItem(child);
+                QModelIndex proxyIndex = searchProxy->mapFromSource(sourceIndex);
+                fileList->scrollTo(proxyIndex);
+                fileList->setCurrentIndex(proxyIndex);
+                return;
+            }
+        }
+    }
 }
 
 void
 AstroDatabase::keyPressEvent(QKeyEvent* e)
 {
-    if (e->key() == Qt::Key_Delete) deleteSelected();
+    if (e->key() == Qt::Key_Delete) {
+        deleteSelected();
+    } else if (e->key() == Qt::Key_F2) {
+        // Start inline editing
+        auto sm = fileList->selectionModel();
+        if (sm && sm->hasSelection()) {
+            auto sil = sm->selectedIndexes();
+            if (sil.count() == 1) {
+                auto proxyIndex = sil.first();
+                auto sourceIndex = searchProxy->mapToSource(proxyIndex);
+                auto item = dirModel->itemFromIndex(sourceIndex);
+                
+                if (item && item->parent()) { // Only files, not directories
+                    auto type = entryType(item->data(TypeRole).toUInt());
+                    if (type == fileType) {
+                        // Store old name and directory for tracking
+                        _renamingOldName = item->text();
+                        _renamingDir = item->parent()->data(PathRole).toString();
+                        
+                        // Make this item temporarily editable
+                        item->setFlags(item->flags() | Qt::ItemIsEditable);
+                        fileList->edit(proxyIndex);
+                    }
+                }
+            }
+        }
+    }
 }
 
 bool
@@ -1411,6 +2184,321 @@ AstroDatabase::eventFilter(QObject* o, QEvent* e)
     return QObject::eventFilter(o, e);
 }
 
+bool
+AstroDatabase::validateDropTarget(const QPoint& pos, QString& targetDir)
+{
+    QModelIndex dropIndex = fileList->indexAt(pos);
+    if (!dropIndex.isValid()) {
+        return false;
+    }
+
+    auto sourceIndex = searchProxy->mapToSource(dropIndex);
+    auto targetItem = dirModel->itemFromIndex(sourceIndex);
+    if (!targetItem) {
+        return false;
+    }
+
+    // Determine target directory
+    auto type = entryType(targetItem->data(TypeRole).toUInt());
+    
+    if (type == dirType) {
+        targetDir = targetItem->data(PathRole).toString();
+    } else if (type == fileType && targetItem->parent()) {
+        targetDir = targetItem->parent()->data(PathRole).toString();
+    } else {
+        return false;
+    }
+
+    // Don't allow moving to Sample Charts
+    if (targetDir.contains("user/") || targetDir.endsWith("user")) {
+        return false;
+    }
+
+    return true;
+}
+
+void
+AstroDatabase::performMove(const QString& targetDir)
+{
+    // Check one more time if target is Sample Charts (for the error message)
+    if (targetDir.contains("user/") || targetDir.endsWith("user")) {
+        QMessageBox::information(
+            this,
+            tr("Move Failed"),
+            tr("Cannot move files to the Sample Charts folder."));
+        return;
+    }
+    
+    moveSelected(targetDir);
+}
+
+void
+AstroDatabase::performCopy(const QString& targetDir)
+{
+    // Check one more time if target is Sample Charts (for the error message)
+    if (targetDir.contains("user/") || targetDir.endsWith("user")) {
+        QMessageBox::information(
+            this,
+            tr("Copy Failed"),
+            tr("Cannot copy files to the Sample Charts folder."));
+        return;
+    }
+    
+    copySelected(targetDir);
+}
+
+void
+AstroDatabase::moveSelected(const QString& targetDir)
+{
+    auto sm = fileList->selectionModel();
+    if (!sm) return;
+
+    auto sil = sm->selectedIndexes();
+    if (sil.isEmpty()) return;
+
+    QStringList filesToMove;
+    QStringList sourceNames;
+    QString sourceDir;
+
+    // Collect files to move
+    for (const auto& proxyIndex : sil) {
+        if (!proxyIndex.parent().isValid()) continue; // Skip directories for now
+        
+        auto si = searchProxy->mapToSource(proxyIndex);
+        auto item = dirModel->itemFromIndex(si);
+        if (!item || !item->parent()) continue;
+        
+        auto itemType = entryType(item->data(TypeRole).toUInt());
+        if (itemType != fileType) continue;
+        
+        QString dir = item->parent()->data(PathRole).toString();
+        QString name = item->text();
+        
+        if (sourceDir.isEmpty()) {
+            sourceDir = dir;
+        } else if (sourceDir != dir) {
+            QMessageBox::warning(
+                this,
+                tr("Move Failed"),
+                tr("Cannot move files from multiple directories at once."));
+            return;
+        }
+        
+        filesToMove << name;
+        sourceNames << name;
+    }
+
+    if (filesToMove.isEmpty()) return;
+    
+    // Check if moving to same directory
+    if (sourceDir == targetDir) {
+        return; // Nothing to do
+    }
+
+    // Confirm move
+    QString message;
+    if (filesToMove.count() == 1) {
+        message = tr("Move '%1' to '%2'?").arg(filesToMove.first()).arg(QDir(targetDir).dirName());
+    } else {
+        message = tr("Move %1 files to '%2'?").arg(filesToMove.count()).arg(QDir(targetDir).dirName());
+    }
+    
+    QMessageBox msgBox;
+    msgBox.setText(message);
+    msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+    msgBox.setDefaultButton(QMessageBox::Yes);
+    int ret = msgBox.exec();
+    
+    if (ret == QMessageBox::Cancel) {
+        return;
+    }
+
+    // Get MainWindow for checking open files
+    auto mainWin = qobject_cast<MainWindow*>(window());
+    FilesBar* filesBar = nullptr;
+    if (mainWin) {
+        filesBar = mainWin->findChild<FilesBar*>();
+    }
+
+    // Move files
+    bool anyMoved = false;
+    for (const QString& fileName : filesToMove) {
+        AFileInfo oldFileInfo(sourceDir, fileName);
+        AFileInfo newFileInfo(targetDir, fileName);
+
+        // Check if target exists
+        if (newFileInfo.exists()) {
+            QMessageBox::warning(
+                this,
+                tr("Move Failed"),
+                tr("A file named '%1' already exists in the target directory.").arg(fileName));
+            continue;
+        }
+
+        // Check if file is open
+        AstroFile* openFile = nullptr;
+        if (filesBar) {
+            openFile = filesBar->findOpenFile(sourceDir, fileName);
+        }
+
+        // Move the file
+        if (!QFile::rename(oldFileInfo.filePath(), newFileInfo.filePath())) {
+            QMessageBox::warning(
+                this,
+                tr("Move Failed"),
+                tr("Could not move file '%1'.").arg(fileName));
+            continue;
+        }
+
+        // Update open file if needed
+        if (openFile) {
+            openFile->setFileInfo(newFileInfo);
+            if (filesBar) {
+                filesBar->refreshTabForFile(openFile);
+            }
+        }
+
+        anyMoved = true;
+    }
+
+    if (anyMoved) {
+        updateList();
+    }
+}
+
+void
+AstroDatabase::copySelected(const QString& targetDir)
+{
+    auto sm = fileList->selectionModel();
+    if (!sm) return;
+
+    auto sil = sm->selectedIndexes();
+    if (sil.isEmpty()) return;
+
+    QStringList filesToCopy;
+    QString sourceDir;
+
+    // Collect files to copy
+    for (const auto& proxyIndex : sil) {
+        if (!proxyIndex.parent().isValid()) continue; // Skip directories for now
+        
+        auto si = searchProxy->mapToSource(proxyIndex);
+        auto item = dirModel->itemFromIndex(si);
+        if (!item || !item->parent()) continue;
+        
+        auto itemType = entryType(item->data(TypeRole).toUInt());
+        if (itemType != fileType) continue;
+        
+        QString dir = item->parent()->data(PathRole).toString();
+        QString name = item->text();
+        
+        if (sourceDir.isEmpty()) {
+            sourceDir = dir;
+        } else if (sourceDir != dir) {
+            // Mixed source directories - skip for simplicity
+            QMessageBox::warning(
+                this,
+                tr("Copy Failed"),
+                tr("Cannot copy files from multiple directories at once."));
+            return;
+        }
+        
+        filesToCopy << name;
+    }
+
+    if (filesToCopy.isEmpty()) return;
+    
+    // Check if copying to same directory
+    if (sourceDir == targetDir) {
+        // Create copies with " - Copy" suffix
+        QMessageBox msgBox;
+        QString message;
+        if (filesToCopy.count() == 1) {
+            message = tr("Create copy of '%1' in same directory?").arg(filesToCopy.first());
+        } else {
+            message = tr("Create copies of %1 files in same directory?").arg(filesToCopy.count());
+        }
+        msgBox.setText(message);
+        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+        msgBox.setDefaultButton(QMessageBox::Yes);
+        int ret = msgBox.exec();
+        
+        if (ret == QMessageBox::Cancel) {
+            return;
+        }
+    } else {
+        // Confirm copy to different directory
+        QString message;
+        if (filesToCopy.count() == 1) {
+            message = tr("Copy '%1' to '%2'?").arg(filesToCopy.first()).arg(QDir(targetDir).dirName());
+        } else {
+            message = tr("Copy %1 files to '%2'?").arg(filesToCopy.count()).arg(QDir(targetDir).dirName());
+        }
+        
+        QMessageBox msgBox;
+        msgBox.setText(message);
+        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+        msgBox.setDefaultButton(QMessageBox::Yes);
+        int ret = msgBox.exec();
+        
+        if (ret == QMessageBox::Cancel) {
+            return;
+        }
+    }
+
+    // Copy files
+    bool anyCopied = false;
+    for (const QString& fileName : filesToCopy) {
+        AFileInfo sourceFileInfo(sourceDir, fileName);
+        QString targetFileName = fileName;
+        
+        // If copying to same directory, add " - Copy" suffix
+        if (sourceDir == targetDir) {
+            // Find unique name with " - Copy" or " - Copy (n)" suffix
+            int copyNum = 1;
+            AFileInfo testInfo(targetDir, fileName + " - Copy");
+            if (!testInfo.exists()) {
+                targetFileName = fileName + " - Copy";
+            } else {
+                while (true) {
+                    testInfo = AFileInfo(targetDir, fileName + QString(" - Copy (%1)").arg(copyNum));
+                    if (!testInfo.exists()) {
+                        targetFileName = fileName + QString(" - Copy (%1)").arg(copyNum);
+                        break;
+                    }
+                    copyNum++;
+                }
+            }
+        }
+        
+        AFileInfo targetFileInfo(targetDir, targetFileName);
+
+        // Check if target exists (shouldn't happen with our naming scheme for same dir)
+        if (targetFileInfo.exists() && sourceDir != targetDir) {
+            QMessageBox::warning(
+                this,
+                tr("Copy Failed"),
+                tr("A file named '%1' already exists in the target directory.").arg(targetFileName));
+            continue;
+        }
+
+        // Copy the file
+        if (!QFile::copy(sourceFileInfo.filePath(), targetFileInfo.filePath())) {
+            QMessageBox::warning(
+                this,
+                tr("Copy Failed"),
+                tr("Could not copy file '%1'.").arg(fileName));
+            continue;
+        }
+
+        anyCopied = true;
+    }
+
+    if (anyCopied) {
+        updateList();
+    }
+}
+
 /* =========================== FILES BAR
  * ============================================ */
 
@@ -1422,6 +2510,38 @@ FilesBar::FilesBar(QWidget* parent) : QTabBar(parent)
 
     connect(this, SIGNAL(tabMoved(int, int)), this, SLOT(swapTabs(int, int)));
     connect(this, SIGNAL(tabCloseRequested(int)), this, SLOT(closeTab(int)));
+}
+
+AstroFile*
+FilesBar::findOpenFile(const QString& dir, const QString& name)
+{
+    for (int i = 0; i < count(); ++i) {
+        if (i >= files.count()) continue;
+        const auto& tabFiles = files[i];
+        if (!tabFiles.isEmpty()) {
+            auto file = tabFiles.first();
+            if (file && file->fileInfo().baseName() == name &&
+                file->fileInfo().path() == dir) {
+                return file;
+            }
+        }
+    }
+    return nullptr;
+}
+
+void
+FilesBar::refreshTabForFile(AstroFile* file)
+{
+    if (!file) return;
+    
+    for (int i = 0; i < count(); ++i) {
+        if (i >= files.count()) continue;
+        const auto& tabFiles = files[i];
+        if (!tabFiles.isEmpty() && tabFiles.first() == file) {
+            updateTab(i);
+            return;
+        }
+    }
 }
 
 int
@@ -1780,6 +2900,23 @@ FilesBar::openFileAsSecond(const AFileInfo& fi)
 }
 
 void
+FilesBar::saveAsCurrentFile()
+{
+    if (currentFiles().isEmpty()) return;
+    
+    AstroFile* file = currentFiles().first();
+    if (!file) return;
+    
+    file->saveAs();
+    
+    // Update the tab with the new name
+    int idx = currentIndex();
+    if (idx >= 0) {
+        updateTab(idx);
+    }
+}
+
+void
 FilesBar::openTransitsAsSecond(AstroFile* af)
 {
     if (files[currentIndex()].count() < 2) {
@@ -2028,6 +3165,10 @@ MainWindow::MainWindow(bool skipRestore, QWidget* parent)
             SIGNAL(openFileAsSecond(const AFileInfo&)),
             filesBar,
             SLOT(openFileAsSecond(const AFileInfo&)));
+    connect(astroDatabase,
+            SIGNAL(saveCurrentToDirectory(const QString&)),
+            this,
+            SLOT(handleSaveToDirectory(const QString&)));
     connect(astroWidget,
             SIGNAL(appendFileRequested()),
             filesBar,
@@ -2275,6 +3416,40 @@ MainWindow::gotoUrl(QString url)
 {
     if (url.isEmpty()) url = ((QWidget*) sender())->toolTip();
     QDesktopServices::openUrl(QUrl(url));
+}
+
+void
+MainWindow::handleSaveToDirectory(const QString& directory)
+{
+    // Get the current file
+    auto files = filesBar->currentFiles();
+    if (files.isEmpty() || !files[0]) {
+        QMessageBox::warning(this,
+                             tr("No Chart Open"),
+                             tr("Please open a chart before saving to a directory."));
+        return;
+    }
+
+    AstroFile* currentFile = files[0];
+    
+    // Get the current file info
+    AFileInfo currentInfo = currentFile->fileInfo();
+    QString fileName = currentInfo.fileName();
+    
+    // Create new file info with target directory
+    QDir targetDir(directory);
+    AFileInfo newInfo(targetDir, fileName);
+    
+    // Update the file's location
+    currentFile->setFileInfo(newInfo);
+    
+    // Save the file
+    currentFile->save();
+    
+    // Refresh the database to show the file in the new location
+    astroDatabase->updateList();
+    
+    statusBar()->showMessage(tr("Chart saved to %1").arg(directory), 3000);
 }
 
 void

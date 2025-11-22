@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QTabBar>
 #include <QDockWidget>
+#include <QTreeView>
 
 #include <Astroprocessor/Gui>
 #include "help.h"
@@ -12,8 +13,8 @@
 
 class QSortFilterProxyModel;
 class QFileSystemWatcher;
-class QTreeView;
 class QStandardItemModel;
+class QStandardItem;
 class QLineEdit;
 class QActionGroup;
 class AstroFileEditor;
@@ -174,6 +175,24 @@ class AstroWidget : public QWidget {
 /* =========================== ASTRO FILE DATABASE
  * ================================== */
 
+class AstroDatabase;
+
+class FileTreeView : public QTreeView {
+    Q_OBJECT
+
+  private:
+    AstroDatabase* database;
+
+  protected:
+    void dragEnterEvent(QDragEnterEvent* event);
+    void dragMoveEvent(QDragMoveEvent* event);
+    void dropEvent(QDropEvent* event);
+    void startDrag(Qt::DropActions supportedActions);
+
+  public:
+    FileTreeView(AstroDatabase* parent = nullptr);
+};
+
 class AstroDatabase : public QFrame {
     Q_OBJECT
 
@@ -181,20 +200,34 @@ class AstroDatabase : public QFrame {
     enum entryType { unknownType, fileType, dirType, dbType };
     enum { PathRole = Qt::UserRole + 1, TypeRole };
 
-    QTreeView*             fileList;
+    FileTreeView*          fileList;
     QStandardItemModel*    dirModel;
     QSortFilterProxyModel* searchProxy;
     QFileSystemWatcher*    fswatch;
     QLineEdit*             search;
+    QString                _renamingOldName;
+    QString                _renamingDir;
 
   protected:
     virtual void keyPressEvent(QKeyEvent*);
     virtual bool eventFilter(QObject*, QEvent*);
 
+  public:
+    bool validateDropTarget(const QPoint& pos, QString& targetDir);
+    void performMove(const QString& targetDir);
+    void performCopy(const QString& targetDir);
+
   private slots:
     void showContextMenu(QPoint);
     void saveCurrent(const QModelIndex& qmi);
     void newDirectory(const QModelIndex& qmi);
+    void deleteDirectory(const QModelIndex& qmi);
+    bool directoryHasChartFiles(const QString& dirPath);
+    void renameSelected();
+    void moveToFolder();
+    void moveSelected(const QString& targetDir);
+    void copySelected(const QString& targetDir);
+    void handleItemRenamed(QStandardItem* item);
     void openSelected();
     void openSelectedInNewTab();
     void openSelectedWithTransits();
@@ -225,6 +258,7 @@ class AstroDatabase : public QFrame {
     void openFileReturn(const AFileInfo&, const QString& = "Sun");
     void openFileInNewTabWithReturn(const AFileInfo&, const QString& = "Sun");
     void findSelectedDerived(const AFileInfo&);
+    void saveCurrentToDirectory(const QString& directory);
 
   public:
     AstroDatabase(QWidget* parent = nullptr);
@@ -259,6 +293,7 @@ class FilesBar : public QTabBar {
     void addNewFile() { addFile(new AstroFile); }
     void editNewChart();
     void findChart();
+    void saveAsCurrentFile();
     void swapCurrentFiles(int, int);
     void openFile(const AFileInfo& name);
     void openFile(AstroFile* af);
@@ -280,6 +315,8 @@ class FilesBar : public QTabBar {
     FilesBar(QWidget* parent = nullptr);
 
     void                 setAskToSave(bool b) { askToSave = b; }
+    AstroFile*           findOpenFile(const QString& dir, const QString& name);
+    void                 refreshTabForFile(AstroFile* file);
     const AstroFileList& currentFiles()
     {
         if (count() && currentIndex() < count()) return files[currentIndex()];
@@ -321,6 +358,7 @@ class MainWindow : public QMainWindow, public Customizable {
         filesBar->currentFiles()[0]->save();
         astroDatabase->updateList();
     }
+    void handleSaveToDirectory(const QString& directory);
     void currentTabChanged();
     void showSettingsEditor() { openSettingsEditor(); }
     void showAbout();
