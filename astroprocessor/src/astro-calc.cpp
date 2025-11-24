@@ -3415,8 +3415,9 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     // This ugly jumble intends to generate the appropriate planet listings,
     // and then create the T-T T-N P-P P-N pairings. And the ingresses, etc.
     // Better to have some kind of factory scheme, but for now...
-    bool                          natal = false, trans = false, prog = false;
-    int                           natus = -1, locus = -1, progr = -1;
+    bool natal = false, trans = false, prog = false;
+    int  natus = -1, locus = -1, progr = -1;
+
     QMap<ChartPlanetId, unsigned> natalIndex, natalRevIndex;
     QMap<ChartPlanetId, unsigned> transitIndex, transitRevIndex;
     QMap<ChartPlanetId, unsigned> progressedIndex, progressedRevIndex;
@@ -4205,6 +4206,31 @@ void
 AspectFinder::findPriorStarts(AspectSearchState& state)
 {
     state.nd = state.d;
+    
+    // Performance optimization for progressed aspect searches:
+    // 1. When working set contains only progressed/natal positions (no transits),
+    //    use a 100x larger time increment since progressed positions move ~1/365 as fast
+    // 2. When transits are present, skip progressed position updates on most iterations
+    //    (update only every 200th iteration) since they change negligibly
+    
+    // Helper to check if working set contains only progressed/natal positions
+    auto hasOnlySlowPositions = [this](const PlanetSet& ws) -> bool {
+        for (const auto& pmid : ws) {
+            for (auto loc : _alist) {
+                auto ploc = dynamic_cast<const PlanetLoc*>(loc);
+                if (ploc && ploc->planetModeId() == pmid) {
+                    auto mode = ploc->mode();
+                    if (mode == plmTransit) return false;
+                    break;
+                }
+            }
+        }
+        return true;
+    };
+    
+    int iterationCount = 0;
+    const int progressedUpdateFrequency = 200; // Update progressed positions every Nth iteration
+    
     while (!state.work.empty() || !state.tinOrb.empty()) {
         QCoreApplication::processEvents();
 
@@ -4214,7 +4240,7 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
             continue;
         }
 
-        state.nd = state.nd.addDays(-state.ndays).addSecs(-state.nsecs);
+        // Build working set
         PlanetSet ws;
         for (const auto& hpso : state.work) {
             for (const auto& pso : hpso.second) {
@@ -4224,9 +4250,61 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
         for (const auto& hijr : state.tinOrb) {
             ws.insert(hijr.first.planets.begin(), hijr.first.planets.end());
         }
-        auto wp  = _alist.profile(ws); // subset of planets
+        
+        // Optimize time increment for progressed-only working sets
+        int localNdays = state.ndays;
+        int localNsecs = state.nsecs;
+        if (hasOnlySlowPositions(ws)) {
+            // Progressed positions move 1/365th as fast as transits
+            // So we can use a much larger time increment
+            double progressedRate = state.ndays + state.nsecs / (24. * 60. * 60.);
+            progressedRate *= 100.0; // Scale up by 100x for progressed-only searches
+            localNdays = int(progressedRate);
+            localNsecs = (progressedRate - double(localNdays)) * 24. * 60. * 60.;
+        }
+        
+        state.nd = state.nd.addDays(-localNdays).addSecs(-localNsecs);
+        
+        // Separate working set into transit and progressed/natal positions
+        PlanetSet transitPositions, progressedNatalPositions;
+        for (const auto& pmid : ws) {
+            for (auto loc : _alist) {
+                auto ploc = dynamic_cast<const PlanetLoc*>(loc);
+                if (ploc && ploc->planetModeId() == pmid) {
+                    auto mode = ploc->mode();
+                    if (mode == plmTransit) {
+                        transitPositions.insert(pmid);
+                    } else if (mode == plmProgressed || mode == plmNatal) {
+                        progressedNatalPositions.insert(pmid);
+                    }
+                    break;
+                }
+            }
+        }
+        
         auto pjd = getJulianDate(state.nd);
-        (*wp)(pjd); // XXX compute once
+        
+        // Selectively update positions based on iteration count
+        PlanetProfile* wp = nullptr;
+        bool shouldUpdateProgressed = (iterationCount % progressedUpdateFrequency == 0);
+        
+        if (transitPositions.empty() || shouldUpdateProgressed) {
+            // Update all positions
+            wp = _alist.profile(ws);
+            (*wp)(pjd);
+        } else {
+            // Only update transit positions, reuse progressed/natal from previous iteration
+            wp = _alist.profile(ws);
+            for (auto loc : *wp) {
+                auto ploc = dynamic_cast<PlanetLoc*>(loc);
+                if (ploc && transitPositions.count(ploc->planetModeId()) > 0) {
+                    (*ploc)(pjd, 1);
+                }
+                // Skip progressed/natal position updates
+            }
+        }
+        
+        ++iterationCount;
 
         for (auto hit = state.tinOrb.begin(); hit != state.tinOrb.end();) {
             const auto& hps = hit->first;
@@ -4298,7 +4376,8 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
             else
                 ++hit;
         }
-        delete wp;
+        
+        if (wp) delete wp;
     }
 }
 
