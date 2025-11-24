@@ -139,6 +139,7 @@ class Transits : public AstroFileHandler {
     void headerDoubleClicked(int);
     void headerClicked(int);
     void copySelection();
+    void copyTableAsRichText();
     void findIt(const QString&);
     void saveScrollPos();
     void restoreScrollPos();
@@ -182,6 +183,8 @@ class Transits : public AstroFileHandler {
     ADateDelta _ddelta;
 
     AChangeSignalFrame* _chs;
+    
+    QTimer* _progressSortTimer = nullptr;  // Debounces progress-triggered sorts
 };
 
 #endif // Harmonics_H

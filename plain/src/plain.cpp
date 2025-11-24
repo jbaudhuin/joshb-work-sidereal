@@ -673,7 +673,7 @@ Plain::refresh()
         AstroFileList biwheel;
         biwheel.append(file(0));
         biwheel.append(file(1));
-        html += A::describePSSR(biwheel, paranOrb, /*daysRange=*/270, displayMode, false);
+        html += A::describePSSR(biwheel, paranOrb, /*daysRange=*/360, displayMode, false);
     }
 
     html += "</body></html>";

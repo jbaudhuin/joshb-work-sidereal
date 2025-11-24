@@ -33,12 +33,16 @@
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QStringListModel>
+#include <QTextDocument>
 #include <QThreadPool>
 #include <QTimeZone>
 #include <QTimer>
+#include <QToolBar>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <map>
 #include <math.h>
+#include <utility>
 #include <vector>
 
 using namespace std::chrono;
@@ -554,9 +558,10 @@ class EventsTableModel : public QAbstractItemModel {
             while (end != locs.rend() && f == fid(*end)) ++end;
             return std::make_pair(it, end);
         }
-        auto it = locs.rbegin();
-        if (it == locs.rend()) return std::make_pair(it, it);
-        return std::make_pair(it, std::next(it));
+        // For pairs: return the slower moving planet (last in set, first in reverse)
+        auto rit = locs.rbegin();
+        if (rit == locs.rend()) return std::make_pair(rit, rit);
+        return std::make_pair(rit, std::next(rit));
     }
 
     template <typename T>
@@ -572,6 +577,7 @@ class EventsTableModel : public QAbstractItemModel {
             while (end != locs.end() && f == fid(*end)) ++end;
             return std::make_pair(it, end);
         }
+        // For pairs: return the faster moving planet (first in set)
         auto it = locs.begin();
         if (it == locs.end()) return std::make_pair(it, it);
         return std::make_pair(it, std::next(it));
@@ -733,7 +739,22 @@ class EventsTableModel : public QAbstractItemModel {
 #endif
                 return f;
             }
-            return "H" + QString::number(asp.harmonic());
+            // Display H# (optionally with ratio in parentheses)
+            // Orb is shown in tooltip, not in the cell
+            {
+                QString result = "H" + QString::number(asp.harmonic());
+                if (A::EventOptions::current().showHarmonicDividend) {
+                    locPair pp;
+                    if (getPlanetPair(asp.locations(), pp)) {
+                        auto a = A::calculateAspect(aspects(), pp.first, pp.second);
+                        if (a.d && a.d->_harmonic > 0) {
+                            // This is a harmonic aspect, show the ratio in parentheses
+                            result += " (" + a.d->name + ")";
+                        }
+                    }
+                }
+                return result;
+            }
 
         case transitBodyCol:
             // Default glyph display mode
@@ -1076,6 +1097,11 @@ class EventsTableModel : public QAbstractItemModel {
         return getHouseRulershipString(cpid);
     }
 
+    // Export table data to HTML with chart metadata
+    QString exportToHtml(AstroFile* natalFile, AstroFile* transitFile) const;
+    QString planetToText(const A::ChartPlanetModeId& cpid) const;
+    QString planetToText(const A::PlanetLoc& ploc) const;
+
   public slots:
     void rebuild()
     {
@@ -1261,6 +1287,7 @@ Transits::Transits(QWidget* parent) :
     _tview = new TransitTreeView;
     _tview->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _tview->expandAll();
+    _tview->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Expanding);
 
     // Model will be created and set in ensureEventsModel() when file(0) is available
 
@@ -1276,11 +1303,18 @@ Transits::Transits(QWidget* parent) :
     hdr->setSectionsClickable(true);
     hdr->setSortIndicatorShown(true);
     hdr->setSectionResizeMode(QHeaderView::ResizeToContents);
+    hdr->setStretchLastSection(true);
 
-    QAction* act = new QAction("Copy");
+    QAction* act = new QAction("Copy Selection");
     act->setShortcut(QKeySequence::Copy);
     connect(act, SIGNAL(triggered()), this, SLOT(copySelection()));
     _tview->addAction(act);
+    
+    QAction* actCopyTable = new QAction("Copy Table as Report");
+    actCopyTable->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C));
+    actCopyTable->setToolTip("Copy entire events table with chart information as formatted report");
+    connect(actCopyTable, SIGNAL(triggered()), this, SLOT(copyTableAsRichText()));
+    _tview->addAction(actCopyTable);
 
     _start  = new QDateEdit;
     _duraRB = new QRadioButton(tr("for"));
@@ -1321,6 +1355,20 @@ Transits::Transits(QWidget* parent) :
 
     QVBoxLayout* l3 = new QVBoxLayout;
     l3->setContentsMargins(QMargins(0, 0, 0, 0));
+    
+    // Create toolbar at the very top
+    QToolBar* toolbar = new QToolBar(this);
+    toolbar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    toolbar->setIconSize(QSize(16, 16));
+    toolbar->setMovable(false);
+    toolbar->setFloatable(false);
+    
+    QAction* copyTableAction = toolbar->addAction("📋 Copy Report");
+    copyTableAction->setToolTip("Copy events table with chart info (Ctrl+Shift+C)");
+    connect(copyTableAction, &QAction::triggered, this, &Transits::copyTableAsRichText);
+    
+    l3->addWidget(toolbar);
+    
     int i1 = l3->count();
     l3->addItem(l2);
     l3->setStretch(i1, 0);
@@ -1340,7 +1388,16 @@ Transits::Transits(QWidget* parent) :
     // We have to defer the installation of the default loc
     // because we might be in the process of building the
     // astroWidget...
+    // IMPORTANT: Only set default location if no files have been loaded yet
+    // This prevents overwriting the location from loaded chart files during session restore
     QTimer::singleShot(0, [this]() {
+        // Check if we already have files loaded (e.g., from session restore)
+        // If so, updateTransits() will have already set the correct location
+        if (filesCount() > 0) {
+            qDebug() << "Skipping default location init - files already loaded";
+            return;
+        }
+        
         _pendingLocationChange = true;
         auto s = MainWindow::theAstroWidget()->currentSettings();
         auto v = s.value("Scope/defaultLocation").toString().split(" ");
@@ -1472,6 +1529,9 @@ Transits::describePlanet()
 void
 Transits::stopThreads()
 {
+    if (_progressSortTimer && _progressSortTimer->isActive()) {
+        _progressSortTimer->stop();
+    }
     if (_active && !_active->isFinished()) {
         qDebug() << "Cancelling active finder";
         emit cancelActive();
@@ -1627,6 +1687,8 @@ Transits::updateTransits()
     
     if (locFile) {
         // Update the location widget and transitsAF to match the current chart
+        qDebug() << "updateTransits: Setting location from file" << locFile->getName() 
+                 << "to" << locFile->getLocationName();
         _pendingLocationChange = true;
         _location->setLocation(locFile->getLocation());
         _location->setLocationName(locFile->getLocationName());
@@ -1739,15 +1801,27 @@ Transits::updateTransits()
 void
 Transits::onProgress(double prog)
 {
-    // if (_chs) saveScrollPos();
-    _evm->sort();
-    if (_chs) restoreScrollPos();
+    // Debounce sort operations during progress updates to prevent
+    // runaway sorting when many progress signals are queued
+    if (!_progressSortTimer) {
+        _progressSortTimer = new QTimer(this);  // Parent ensures cleanup
+        _progressSortTimer->setSingleShot(true);
+        _progressSortTimer->setInterval(100); // 100ms debounce
+        connect(_progressSortTimer, &QTimer::timeout, [this]() {
+            _evm->sort();
+            if (_chs) restoreScrollPos();
+        });
+    }
+    _progressSortTimer->start();  // Restarts timer if already running
 }
 
 void
 Transits::onCompleted()
 {
 #if 1
+    if (_progressSortTimer && _progressSortTimer->isActive()) {
+        _progressSortTimer->stop();
+    }
     _evm->sort();
     _active = nullptr;
     
@@ -2079,6 +2153,228 @@ Transits::headerClicked(int col)
     }
 }
 
+QString
+EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) const
+{
+    QString html;
+    html += "<!DOCTYPE html>\n<html>\n<head>\n";
+    html += "<meta charset=\"UTF-8\">\n";
+    html += "<style>\n";
+    html += "body { font-family: Arial, sans-serif; margin: 20px; font-size: 9pt; line-height: 1.2; }\n";
+    html += "h2 { color: #333; border-bottom: 2px solid #666; padding-bottom: 5px; font-size: 11pt; margin: 10px 0; }\n";
+    html += "h3 { color: #555; margin-top: 15px; margin-bottom: 8px; font-size: 10pt; }\n";
+    html += ".chart-info { background: #f5f5f5; padding: 8px; margin: 8px 0; border-radius: 5px; font-size: 9pt; }\n";
+    html += ".chart-info p { margin: 3px 0; }\n";
+    html += "table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 8pt; line-height: 1.1; }\n";
+    html += "th { background: #666; color: white; padding: 3px 4px; text-align: left; font-weight: bold; }\n";
+    html += "td { border: 1px solid #ddd; padding: 2px 4px; }\n";
+    html += "tr:nth-child(even) { background: #f9f9f9; }\n";
+    html += "tr:hover { background: #e9e9e9; }\n";
+    html += ".date-range { font-size: 0.9em; color: #666; }\n";
+    html += "</style>\n</head>\n<body>\n";
+    
+    // Add title
+    html += "<h2>Astrological Events Report</h2>\n";
+    
+    // Natal chart information
+    if (natalFile) {
+        html += "<h3>Natal Chart</h3>\n";
+        html += "<div class=\"chart-info\">\n";
+        html += QString("<p><strong>Name:</strong> %1</p>\n").arg(natalFile->getName());
+        
+        auto dt = natalFile->getLocalTime();
+        html += QString("<p><strong>Date:</strong> %1 %2</p>\n")
+            .arg(QLocale().toString(dt.date(), QLocale::LongFormat))
+            .arg(dt.time().toString());
+        
+        QString tzStr;
+        short tz = natalFile->getTimezone();
+        if (tz > 0) tzStr = QString("GMT +%1").arg(tz);
+        else if (tz < 0) tzStr = QString("GMT %1").arg(tz);
+        else tzStr = "GMT";
+        html += QString("<p><strong>Timezone:</strong> %1</p>\n").arg(tzStr);
+        
+        QString location = natalFile->getLocationName();
+        if (location.isEmpty()) {
+            location = QString("%1, %2")
+                .arg(A::formatLatitude(natalFile->getLocation().y()))
+                .arg(A::formatLongitude(natalFile->getLocation().x()));
+        }
+        html += QString("<p><strong>Location:</strong> %1</p>\n").arg(location);
+        html += "</div>\n";
+    }
+    
+    // Transit/progression location information
+    if (transitFile && transitFile != natalFile) {
+        html += "<h3>Transit/Progression Location</h3>\n";
+        html += "<div class=\"chart-info\">\n";
+        
+        QString location = transitFile->getLocationName();
+        if (location.isEmpty()) {
+            location = QString("%1, %2")
+                .arg(A::formatLatitude(transitFile->getLocation().y()))
+                .arg(A::formatLongitude(transitFile->getLocation().x()));
+        }
+        html += QString("<p><strong>Location:</strong> %1</p>\n").arg(location);
+        
+        QString tzStr;
+        short tz = transitFile->getTimezone();
+        if (tz > 0) tzStr = QString("GMT +%1").arg(tz);
+        else if (tz < 0) tzStr = QString("GMT %1").arg(tz);
+        else tzStr = "GMT";
+        html += QString("<p><strong>Timezone:</strong> %1</p>\n").arg(tzStr);
+        html += "</div>\n";
+    }
+    
+    // Events table
+    html += "<h3>Events</h3>\n";
+    html += "<table>\n<thead>\n<tr>\n";
+    html += "<th>Event Type</th>\n";
+    html += "<th>Date/Time</th>\n";
+    html += "<th>Harmonic/Orb</th>\n";
+    html += "<th>Transit Bodies</th>\n";
+    html += "<th>Natal/Transit Bodies</th>\n";
+    html += "</tr>\n</thead>\n<tbody>\n";
+    
+    // Add each event row
+    for (int row = 0; row < _evs.size(); ++row) {
+        html += "<tr>\n";
+        
+        // Event type (bold)
+        auto et = _evs[row]->eventType();
+        html += QString("<td><strong>%1</strong></td>\n").arg(A::EventTypeManager::eventTypeToBrief(et));
+        
+        // Date/time with range if available
+        auto dt = _evs[row]->dateTime().toTimeZone(QTimeZone(_tzOffset * 3600));
+        QString dateStr = dt.toString("yyyy-MM-dd hh:mm:ss");
+        
+        auto&& r = _evs[row]->range();
+        if (r != A::ADateTimeRange()) {
+            auto dtfrom = r.first.toTimeZone(QTimeZone(_tzOffset * 3600));
+            auto dtto = r.second.toTimeZone(QTimeZone(_tzOffset * 3600));
+            dateStr += QString("<br/><span class=\"date-range\">Range: %1 to %2</span>")
+                .arg(dtfrom.toString("yyyy-MM-dd hh:mm"))
+                .arg(dtto.toString("yyyy-MM-dd hh:mm"));
+        }
+        html += QString("<td>%1</td>\n").arg(dateStr);
+        
+        // Harmonic/Orb - include ratio and only show orb if non-zero
+        auto& asp = *_evs[row];
+        QString harmonicStr = QString("H%1").arg(asp.harmonic());
+        
+        // Add aspect ratio if available and setting is enabled
+        typedef std::pair<const A::Loc*, const A::Loc*> locPair;
+        locPair pp;
+        if (A::EventOptions::current().showHarmonicDividend && getPlanetPair(asp.locations(), pp)) {
+            auto a = A::calculateAspect(aspects(), pp.first, pp.second);
+            if (a.d && a.d->_harmonic > 0) {
+                harmonicStr += " (" + a.d->name + ")";
+            }
+        }
+        
+        // Only show orb if non-zero
+        if (asp.orb() != qreal()) {
+            harmonicStr += " " + A::degreeToString(asp.orb(), A::HighPrecision);
+        }
+        
+        html += QString("<td>%1</td>\n").arg(harmonicStr);
+        
+        // Transit bodies (text names) - use column separation logic
+        QStringList transitBodies;
+        if (asp.locations().empty()) {
+            // Use planets
+            if (!singleColumn(asp.planets())) {
+                auto [begin, end] = getTColIters(asp.planets());
+                for (auto it = begin; it != end; ++it) {
+                    transitBodies << this->planetToText(*it);
+                }
+            } else {
+                for (const auto& cpid : asp.planets()) {
+                    transitBodies << this->planetToText(cpid);
+                }
+            }
+        } else {
+            // Use locations (PlanetLoc) - faster planet goes in Transit column
+            auto [begin, end] = getTColIters(asp.locations());
+            for (auto it = begin; it != end; ++it) {
+                transitBodies << this->planetToText(*it);
+            }
+        }
+        html += QString("<td>%1</td>\n").arg(transitBodies.join(", "));
+        
+        // Natal/transit bodies (slower planet or natal planet)
+        QStringList natalTransitBodies;
+        if (asp.locations().empty()) {
+            // Use planets
+            if (!singleColumn(asp.planets())) {
+                auto [begin, end] = getNTColIters(asp.planets());
+                for (auto it = begin; it != end; ++it) {
+                    natalTransitBodies << this->planetToText(*it);
+                }
+            }
+        } else {
+            // Use locations (PlanetLoc) - slower planet goes in T/N column
+            if (!singleColumn(asp.locations())) {
+                auto [begin, end] = getNTColIters(asp.locations());
+                for (auto it = begin; it != end; ++it) {
+                    natalTransitBodies << this->planetToText(*it);
+                }
+            }
+        }
+        html += QString("<td>%1</td>\n").arg(natalTransitBodies.join(", "));
+        
+        html += "</tr>\n";
+    }
+    
+    html += "</tbody>\n</table>\n";
+    html += "</body>\n</html>\n";
+    
+    return html;
+}
+
+QString
+EventsTableModel::planetToText(const A::ChartPlanetModeId& cpid) const
+{
+    // Use 3-letter abbreviation
+    QString name = cpid.name().remove(' ').left(3);
+    
+    // Add mode suffix if applicable
+    QString suffix = modeToSuffix(cpid.mode());
+    if (!suffix.isEmpty()) {
+        name += "-" + suffix;
+    }
+    
+    return name;
+}
+
+QString
+EventsTableModel::planetToText(const A::PlanetLoc& ploc) const
+{
+    // Use 3-letter abbreviation
+    QString name = ploc.planet.name().remove(' ').left(3);
+    
+    // Add mode suffix
+    QString suffix = modeToSuffix(ploc.mode());
+    if (!suffix.isEmpty()) {
+        name += "-" + suffix;
+    }
+    
+    // Add descriptor (SD, SR, etc.)
+    if (!ploc.desc.isEmpty()) {
+        name += "-" + ploc.desc;
+    }
+    
+    // Add position
+    name += " " + A::zodiacPosition(ploc.rasiLoc(), _zodiac, A::HighPrecision, ploc.speed < 0);
+    
+    // Add retrograde indicator
+    if (ploc.speed < 0 && !ploc.desc.startsWith("S")) {
+        name += " (R)";
+    }
+    
+    return name;
+}
+
 void
 Transits::copySelection()
 {
@@ -2098,6 +2394,32 @@ Transits::copySelection()
         qDebug() << md->formats();
         cb->setMimeData(sim->mimeData(qmil));
     }
+}
+
+void
+Transits::copyTableAsRichText()
+{
+    if (!_evm || filesCount() == 0) return;
+    
+    // Determine natal and transit files
+    AstroFile* natal = file(0);
+    AstroFile* transit = transitsAF();
+    
+    // Generate HTML
+    QString html = _evm->exportToHtml(natal, transit);
+    
+    // Copy to clipboard as both HTML and plain text
+    QClipboard* clipboard = QApplication::clipboard();
+    QMimeData* mimeData = new QMimeData();
+    
+    mimeData->setHtml(html);
+    
+    // Also provide plain text version (strip HTML tags for basic compatibility)
+    QTextDocument doc;
+    doc.setHtml(html);
+    mimeData->setText(doc.toPlainText());
+    
+    clipboard->setMimeData(mimeData);
 }
 
 void
@@ -2346,7 +2668,8 @@ Transits::applySettings(const AppSettings& s)
                 != curr.showHeliacalEvents()
          || s.value("Events/showPrimaryDirections").toBool()
                 != curr.showPrimaryDirections()
-         || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents());
+         || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents()
+         || s.value("Events/showHarmonicDividend").toBool() != curr.showHarmonicDividend);
     bool changedExpanded =
         (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
          || s.value("Events/expandShowAspectPatterns").toBool()

@@ -1451,16 +1451,21 @@ describePSSR(const AstroFileList& scopes,
 
             double returnRAMS = A::calculateRAMS(currentReturnTime, useMeanSun);
             double ramcDiff = swe_difdeg2n(targetRAMC, returnScope.houses.RAMC);
+            if (ramcDiff < 0.0) {
+                ramcDiff += 360.0;
+            }
             double ramcDiffHours = (ramcDiff / 360.0) * 24.0;
             double elapsedRAMSHours = ramcDiffHours / anniversarySecond;
             double elapsedDays = elapsedRAMSHours / 24.0 * 365.25;
             
             // Use fractional days for precise event time
             QDateTime eventTime = currentReturnTime.addSecs(elapsedDays * 86400.0);
-            if (eventTime < currentReturnTime || eventTime > endTime) continue;
-
+            
             // Debug output for first few calculations
             qDebug() << "--- PSSR Calculation for" << p.name << "to" << angleName << "---";
+            qDebug() << "  Presumable event time:" << eventTime.toString("yyyy-MM-dd HH:mm:ss");
+            if (eventTime < currentReturnTime || eventTime > endTime) continue;
+
             qDebug() << "  Planet RA:" << siderealTimeToString(planetRA, HighPrecision) << "(" << planetRA << "deg)";
             qDebug() << "  Angle RA:" << siderealTimeToString(angleRA, HighPrecision) << "(" << angleRA << "deg)";
             qDebug() << "  Target RAMC:" << siderealTimeToString(targetRAMC, HighPrecision) << "(" << targetRAMC << "deg)";

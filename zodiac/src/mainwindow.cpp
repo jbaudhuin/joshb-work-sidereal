@@ -1347,27 +1347,28 @@ AstroDatabase::updateList()
     if (!sl.empty()) sm->select(sl, QItemSelectionModel::ClearAndSelect);
     
     // Restore expansion state after rebuilding
-    std::function<void(const QModelIndex&)> restoreExpansion = [&](const QModelIndex& index) {
-        if (!index.isValid()) return;
-        
-        QStandardItem* item = dirModel->itemFromIndex(index);
-        if (item) {
-            QString path = item->data(PathRole).toString();
-            if (!path.isEmpty() && expandedPaths.contains(path)) {
-                QModelIndex proxyIndex = searchProxy->mapFromSource(index);
-                fileList->setExpanded(proxyIndex, true);
-            }
-            
-            // Recursively restore children
-            for (int i = 0; i < item->rowCount(); ++i) {
-                QStandardItem* child = item->child(i);
-                if (child && child->data(TypeRole).toUInt() == dirType) {
-                    restoreExpansion(dirModel->indexFromItem(child));
+    std::function<void(const QModelIndex&)> restoreExpansion =
+        [&](const QModelIndex& index) {
+            if (!index.isValid()) return;
+
+            QStandardItem* item = dirModel->itemFromIndex(index);
+            if (item) {
+                QString path = item->data(PathRole).toString();
+                if (!path.isEmpty() && expandedPaths.contains(path)) {
+                    QModelIndex proxyIndex = searchProxy->mapFromSource(index);
+                    fileList->setExpanded(proxyIndex, true);
+                }
+
+                // Recursively restore children
+                for (int i = 0; i < item->rowCount(); ++i) {
+                    QStandardItem* child = item->child(i);
+                    if (child && child->data(TypeRole).toUInt() == dirType) {
+                        restoreExpansion(dirModel->indexFromItem(child));
+                    }
                 }
             }
-        }
-    };
-    
+        };
+
     // Restore expansion state for all folders
     for (int i = 0; i < dirModel->rowCount(); ++i) {
         restoreExpansion(dirModel->index(i, 0));

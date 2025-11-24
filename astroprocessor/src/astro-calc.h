@@ -333,6 +333,8 @@ struct EventOptions {
     bool expandShowReturnAspects                = true;
     bool expandShowTransitAspectsToReturnPlanet = true;
 
+    bool showHarmonicDividend = false;
+
     // Display modes for column content: 0=default glyphs, 1=rulership,
     // 2=rulership+natal_house
     enum DisplayMode {

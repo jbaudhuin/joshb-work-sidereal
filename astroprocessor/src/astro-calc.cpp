@@ -3206,6 +3206,7 @@ EventOptions::EventOptions(const QVariantMap& map)
         map.value("Events/expandShowReturnAspects").toBool();
     expandShowTransitAspectsToReturnPlanet =
         map.value("Events/expandShowTransitAspectsToReturnPlanet").toBool();
+    showHarmonicDividend = map.value("Events/showHarmonicDividend").toBool();
 
     s_transitBodyColMode =
         DisplayMode(map.value("Events/transitBodyColMode").toUInt());
@@ -3333,6 +3334,7 @@ EventOptions::toMap()
     ret.insert("Events/expandShowReturnAspects", expandShowReturnAspects);
     ret.insert("Events/expandShowTransitAspectsToReturnPlanet",
                expandShowTransitAspectsToReturnPlanet);
+    ret.insert("Events/showHarmonicDividend", showHarmonicDividend);
     ret.insert("Events/transitBodyColMode", s_transitBodyColMode);
     ret.insert("Events/natalTransitBodyColMode", s_natalTransitBodyColMode);
     return ret;
@@ -3781,6 +3783,11 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
             for (auto pid : std::as_const(ppl)) {
                 auto i = getProgressedPlanet(pid);
                 for (auto npid : std::as_const(npl)) {
+                    // Skip node-to-node aspects
+                    if ((pid == Planet_NorthNode || pid == Planet_SouthNode) &&
+                        (npid == Planet_NorthNode || npid == Planet_SouthNode)) {
+                        continue;
+                    }
                     auto j = getNatalPlanet(npid);
                     _staff.emplace_back(i, j, allAsp, etcProgressedToNatal);
                 }
