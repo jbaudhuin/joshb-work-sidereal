@@ -573,6 +573,7 @@ class AspectFinder : public QObject, public EventOptions {
     struct AspectSearchState {
         PlanetSet     nats;
         PlanetSet     trans;
+        PlanetSet     progs;  // Progressed planets (excluded from aspect patterns for now)
         PlanetProfile b;
         bool          skipAllNatalOnly;
         bool          showPatterns;
@@ -773,10 +774,11 @@ PlanetClusterMap
 findClusters(unsigned             h,
              const PlanetProfile& prof,
              unsigned             quorum,
-             const PlanetSet&     need             = {},
-             bool                 skipAllNatalOnly = false,
-             bool                 restrictMoon     = true,
-             qreal                maxOrb           = 8.);
+             const PlanetSet&     need              = {},
+             bool                 skipAllNatalOnly  = false,
+             bool                 restrictMoon      = true,
+             qreal                maxOrb            = 8.,
+             bool                 excludeProgressed = false);
 
 PlanetClusterMap
 findClusters(unsigned                h,
@@ -786,7 +788,8 @@ findClusters(unsigned                h,
              unsigned                quorum,
              const PlanetSet&        need         = {},
              bool                    restrictMoon = true,
-             qreal                   maxOrb       = 8.);
+             qreal                   maxOrb       = 8.,
+             bool                    excludeProgressed = false);
 
 HarmonicPlanetClusters
 findClusters(const uintSSet&      hs,

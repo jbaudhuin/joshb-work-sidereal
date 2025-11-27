@@ -757,6 +757,20 @@ enum PlanetLocMode {
     plmPrimaryDir    // Future: primary directions
 };
 
+// Helper to convert PlanetLocMode to suffix string
+inline QString
+modeToSuffix(PlanetLocMode mode)
+{
+    switch (mode) {
+    case plmNatal:      return "r";  // radical (natal)
+    case plmProgressed: return "p";  // progressed
+    case plmTransit:    return "";   // no suffix for transits
+    case plmSolarArc:   return "sa"; // solar arc
+    case plmPrimaryDir: return "pd"; // primary directions
+    default:            return "";              // unknown/other
+    }
+}
+
 class ChartPlanetId {
     int      _fid;
     PlanetId _pid, _pid2;
@@ -940,6 +954,12 @@ class ChartPlanetModeId : public ChartPlanetId {
     {
     }
 
+    ChartPlanetModeId(const ChartPlanetModeId& other) :
+        ChartPlanetId(other),
+        _mode(other._mode)
+    {
+    }
+
     const ChartPlanetId& chartPlanetId() const { return *this; }
 
     PlanetLocMode mode() const { return _mode; }
@@ -1090,17 +1110,21 @@ class PlanetSet : public std::set<ChartPlanetModeId> {
         return res;
     }
 
-    QStringList names() const
+    QStringList names(bool italicize = false) const
     {
         QStringList res;
         int         lastFid = 0;
         bool        ital    = false;
         for (const ChartPlanetModeId& cpid : *this) {
-            if (cpid.fileId() != lastFid) ital = !ital;
+            auto n = cpid.name();
+            if (auto suff = modeToSuffix(cpid.mode()); !suff.isEmpty()) {
+                n += "-" + suff;
+            }
+            if (italicize && cpid.fileId() != lastFid) ital = !ital;
             if (ital) {
-                res << "<i>" + cpid.name() + "</i>";
+                res << "<i>" + n + "</i>";
             } else {
-                res << cpid.name();
+                res << n;
             }
             lastFid = cpid.fileId();
         }

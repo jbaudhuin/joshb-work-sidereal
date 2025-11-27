@@ -355,19 +355,6 @@ class EventsTableModel : public QAbstractItemModel {
 
     QString glyph(const A::ChartPlanetId& cpid) const { return cpid.glyph(); }
 
-    // Helper to convert PlanetLocMode to suffix string
-    static QString modeToSuffix(A::PlanetLocMode mode)
-    {
-        switch (mode) {
-        case A::plmNatal:      return "r";  // radical (natal)
-        case A::plmProgressed: return "p";  // progressed
-        case A::plmTransit:    return "";   // no suffix for transits
-        case A::plmSolarArc:   return "sa"; // solar arc
-        case A::plmPrimaryDir: return "pd"; // primary directions
-        default:               return "";   // unknown/other
-        }
-    }
-
     QString glyph(const A::PlanetLoc& s) const
     {
         const A::ChartPlanetId& cpid = s.planet;
