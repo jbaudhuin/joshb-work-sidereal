@@ -681,7 +681,8 @@ calculatePlanet(PlanetId         planet,
             }
         }
     } else {
-        double at[4];
+        std::array<double,Star::numAngles> at;
+
         double RA = ret.equatorialPos.x();
         double DD;
         if (primDirMode == prdZodiacal) {
@@ -689,39 +690,43 @@ calculatePlanet(PlanetId         planet,
         } else {
             DD = ret.equatorialPos.y();
         }
-        double AD = asind(tand(DD) * tand(input.location().y()));
-        double OA = input.location().y() >= 0 ? (RA - AD) : (RA + AD);
-        double OD = input.location().y() >= 0 ? (RA + AD) : (RA - AD);
-        // RA - (OAAC - OA)
+        double AD   = asind(tand(DD) * tand(input.location().y()));
+        double OA   = RA - AD;
+        double OD   = RA + AD;
+        double HDor = swe_degnorm(OA - houses.OAAC);
+        double HDoc = swe_degnorm(OD - houses.ODDC);
+
         at[Star::atMC]   = RA;
-        at[Star::atAsc]  = swe_degnorm(houses.RAMC - (houses.OAAC - OA));
-        at[Star::atDesc] = swe_degnorm(houses.RAMC - (houses.ODDC - OD));
+        at[Star::atAsc]  = swe_degnorm(houses.RAMC + HDor);
+        at[Star::atDesc] = swe_degnorm(houses.RAMC + HDoc);
         at[Star::atIC]   = swe_degnorm(RA - 180);
 
         double jd0          = getJulianDate(input.GMT());
         double RAMC0        = houses.RAMC; // in degrees
-        double sidereal_day = 0.99726958;  // days
+        double sidereal_day = 1; //0.99726958;  // days
 
         QString rastr = "Planet Angle Transits in RA of " + ret.name.left(3);
 
         char delim = ':';
-        for (Star::angleTransitMode m = Star::atAsc; m < Star::numAngles;
-             m                        = Star::angleTransitMode(m + 1))
-        {
+        for (unsigned i = 0; i < Star::numAngles; ++i) {
+            auto m = Star::angleTransitMode(i);
             double RA_target = at[m];
             double delta_deg =
                 swe_difdeg2n(RA_target, RAMC0); // signed difference
             double delta_jd     = delta_deg / 360.0 * sidereal_day;
             double jd_target    = jd0 + delta_jd;
-            ret.angleTransit[m] = dateTimeFromJulian(jd_target);
 
+            ret.angleTransit[m] = dateTimeFromJulian(jd_target);
+            
             // Store the RA value for this transit
             ret.angleTransitRA[m] = RA_target;
+            
+            QString desc = angleDesc[m];
 
             swe_split_deg(RA_target, 0, &deg, &min, &sec, &frac, &sgn);
             rastr += QString("%1 %2 %3 %4'%5\"")
                          .arg(delim)
-                         .arg(angleDesc[m])
+                         .arg(desc)
                          .arg(deg, 3, 10, QChar(' '))
                          .arg(min, 2, 10, QChar('0'))
                          .arg(sec, 2, 10, QChar('0'));
@@ -1126,7 +1131,8 @@ calculateStar(const QString&   name,
                 }
             }
         } else {
-            double at[4];
+            std::array<double,Star::numAngles> at;
+
             double RA = ret.equatorialPos.x();
             double DD;
             if (primDirMode == prdZodiacal) {
@@ -1135,17 +1141,17 @@ calculateStar(const QString&   name,
                 DD = ret.equatorialPos.y();
             }
             double AD = asind(tand(DD) * tand(input.location().y()));
-            double OA = input.location().y() >= 0 ? (RA - AD) : (RA + AD);
-            double OD = input.location().y() >= 0 ? (RA + AD) : (RA - AD);
-            // RA - (OAAC - OA)
+            double OA = RA - AD;
+            double OD = RA + AD;
+
             at[Star::atMC]   = RA;
-            at[Star::atAsc]  = swe_degnorm(houses.RAMC - (houses.OAAC - OA));
-            at[Star::atDesc] = swe_degnorm(houses.RAMC - (houses.ODDC - OD));
+            at[Star::atAsc]  = swe_degnorm(houses.RAMC + (OA - houses.OAAC));
+            at[Star::atDesc] = swe_degnorm(houses.RAMC + (OD - houses.ODDC));
             at[Star::atIC]   = swe_degnorm(RA - 180);
 
             double jd0          = getJulianDate(input.GMT());
             double RAMC0        = houses.RAMC; // in degrees
-            double sidereal_day = 0.99726958;  // days
+            double sidereal_day = 1; //0.99726958;  // days
 
 #if 0
             QString rastr = "Star Angle Transits in RA of " + ret.name.left(3);
@@ -1153,9 +1159,8 @@ calculateStar(const QString&   name,
             int32   deg, min, sec, sgn;
             double  frac;
 #endif
-            for (auto m = Star::atAsc; m < Star::numAngles;
-                 m      = Star::angleTransitMode(m + 1))
-            {
+            for (unsigned i = 0; i < Star::numAngles; ++i) {
+                auto m = Star::angleTransitMode(i);
                 double RA_target = at[m];
                 double delta_deg =
                     swe_difdeg2n(RA_target, RAMC0); // signed difference
@@ -1220,6 +1225,7 @@ calculateHouses(const InputData& input)
                   hcusps,
                   ascmc);
     double asc = ascmc[0]; // tropical asc
+    ret.RAMC = ascmc[2];
     xx[0]      = ascmc[0];
     xx[1]      = 0.0;
     xx[2]      = 1.0;
@@ -1231,6 +1237,15 @@ calculateHouses(const InputData& input)
     swe_cotrans(xx, xx, -eps);
     ret.RADC = xx[0];
     // TODO could also get eastpoint and vertex in RA here...
+    
+    // Calculate OAAC and ODDC using declination and geographic latitude
+    double DD = asind(sind(eps) * sind(asc));
+    double AD = asind(tand(DD) * tand(input.location().y()));
+    ret.OAAC  = ret.RAAC - AD;
+    
+    DD = asind(sind(eps) * sind(swe_degnorm(asc + 180)));
+    AD = asind(tand(DD) * tand(input.location().y()));
+    ret.ODDC  = ret.RADC + AD;
 
     if (flags & SEFLG_SIDEREAL) {
         swe_houses_ex(julianDay,
@@ -1246,7 +1261,7 @@ calculateHouses(const InputData& input)
 
     ret.Asc  = ascmc[0];
     ret.MC   = ascmc[1];
-    ret.RAMC = ascmc[2];
+    //ret.RAMC = ascmc[2];
     ret.Vx   = ascmc[3];
     ret.EA   = ascmc[4];
 
@@ -1263,13 +1278,6 @@ calculateHouses(const InputData& input)
     st = swe_degnorm(ret.RAAC);
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
     // qDebug("RAAC %3d %02d %02d", deg, min, sec);
-
-    double DD = asind(sind(eps) * sind(asc));
-    double AD = asind(tand(DD) * tand(input.location().y()));
-    ret.OAAC  = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
-    DD        = asind(sind(eps) * sind(swe_degnorm(asc + 180)));
-    AD        = asind(tand(DD) * tand(input.location().y()));
-    ret.ODDC  = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
 
     ret.halfMedium = swe_difdegn(ret.RAAC, ret.RAMC);
     ret.halfImum   = 180 - ret.halfMedium;

@@ -750,12 +750,26 @@ Plain::applySettings(const AppSettings& s)
         showLocalTime->setChecked(true);
     }
 
-    A::primDirMode = A::PrimDirMode(s.value("Mundane/primDirMode").toUInt());
+    // Check if primDirMode changed - if so, need to recalculate charts
+    A::PrimDirMode newPrimDirMode =
+        A::PrimDirMode(s.value("Mundane/primDirMode").toUInt());
+    bool primDirModeChanged = (A::primDirMode != newPrimDirMode);
+    A::primDirMode          = newPrimDirMode;
+
     showAllDiurnalEvents = s.value("Mundane/showAllDiurnalEvents").toBool();
     paranOrb             = s.value("Mundane/paranOrb").toDouble();
     includeFixedStars    = s.value("Mundane/includeFixedStars").toBool();
     aspectSortOrder =
         A::AspectSortOrder(s.value("Text/aspectSortOrder").toUInt());
+
+    // If primDirMode changed, recalculate all files to update transit times
+    if (primDirModeChanged) {
+        for (int i = 0; i < filesCount(); i++) {
+            if (file(i)) {
+                file(i)->calculate();
+            }
+        }
+    }
 
     refresh();
 }
@@ -775,6 +789,7 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                       { "Sidereal Time", A::DisplaySiderealTime },
                       { "Right Ascension", A::DisplayRightAscension } });
     ed->addCheckBox("Mundane/showAllDiurnalEvents",
+
                     tr("Show all planetary diurnal events"));
     ed->addDoubleSpinBox("Mundane/paranOrb",
                          tr("Orb for paranatellontas"),

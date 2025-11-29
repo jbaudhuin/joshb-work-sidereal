@@ -2783,10 +2783,11 @@ FilesBar::openFile(const AFileInfo& fi)
         return;
     }
 
-    /*if (currentFile()->hasUnsavedChanges())
-      openFileInNewTab(name);
-    else*/
-    currentFiles()[0]->load(fi);
+    if (currentFiles().count() == 0 || currentFiles()[0]->hasUnsavedChanges()) {
+        openFileInNewTab(fi);
+    } else {
+        currentFiles()[0]->load(fi);
+    }
     i = getTabIndex(fi.baseName());
     if (i != -1) updateTab(i);
 }
