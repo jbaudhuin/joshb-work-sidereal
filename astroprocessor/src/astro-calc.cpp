@@ -2928,21 +2928,24 @@ calculateAnniversarySecond(const Houses& return1, const Houses& return2)
     double anniversarySecond = actualAdvanceHours / meanSunAnnualTravel;
 
     // Helper lambda to convert degrees to sidereal time HH:MM:SS
-    auto degToST = [](double deg) -> QString {
+    auto degToST = [](double deg) {
         double hours = deg / 15.0;
         int h = (int)hours;
         int m = (int)((hours - h) * 60.0);
         double s = (((hours - h) * 60.0 - m) * 60.0);
         if (h >= 24) h -= 24;
         if (h < 0) h += 24;
-        return QString("%1h %2m %3s").arg(h, 2, 10, QChar('0')).arg(m, 2, 10, QChar('0')).arg(s, 0, 'f', 3);
+        return QString("%1h %2m %3s")
+                              .arg(h, 2, 10, QChar('0'))
+                              .arg(m, 2, 10, QChar('0'))
+                              .arg(s, 0, 'f', 3);
     };
 
     qDebug() << "=== calculateAnniversarySecond ===";
-    qDebug() << "  Return 1 RAMC:" << ramc1 << "deg =" << degToST(ramc1);
-    qDebug() << "  Return 2 RAMC:" << ramc2 << "deg =" << degToST(ramc2);
-    qDebug() << "  RAMC Diff:" << ramcDiff << "deg =" << degToST(ramcDiff);
-    qDebug() << "  Actual Advance (Diff + 360°):" << actualAdvance << "deg =" << degToST(actualAdvance);
+    qDebug() << "  Return 1 RAMC:" << ramc1 << "deg =" << qPrintable(degToST(ramc1));
+    qDebug() << "  Return 2 RAMC:" << ramc2 << "deg =" << qPrintable(degToST(ramc2));
+    qDebug() << "  RAMC Diff:" << ramcDiff << "deg =" << qPrintable(degToST(ramcDiff));
+    qDebug() << "  Actual Advance (Diff + 360°):" << actualAdvance << "deg =" << qPrintable(degToST(actualAdvance));
     qDebug() << "  Actual Advance Hours:" << actualAdvanceHours << "hours";
     qDebug() << "  Mean Sun Annual Travel:" << meanSunAnnualTravel << "hours";
     qDebug() << "  Anniversary Second:" << anniversarySecond;
@@ -4248,7 +4251,7 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
         PlanetSet ws;
         bool showWork = (workSize != state.work.size());
         workSize = state.work.size();
-        if (showWork) {
+        if (showWork && !st_quiet) {
             if (workSize == 0) {
                 qDebug() << "PERF: No planets in work set";
             } else {
@@ -4266,7 +4269,7 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
 
         bool showTinOrb = (tinOrbSize != state.tinOrb.size());
         tinOrbSize = state.tinOrb.size();
-        if (showTinOrb) {
+        if (showTinOrb && !st_quiet) {
             if (tinOrbSize==0) {
                 qDebug() << "PERF: No planets in tinOrb set";
             } else {
@@ -4321,15 +4324,16 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
         bool shouldUpdateProgressed = (iterationCount % progressedUpdateFrequency == 0);
 
         if (shouldUpdateProgressed) {
-        qDebug() << "PERF: findPriorStarts loop - state.work has"
-                 << state.work.size() << "harmonics, state.tinOrb has"
-                 << state.tinOrb.size() << "items, ws has" << ws.size()
-                 << "planets";
+            qDebug() << "PERF: findPriorStarts loop - state.work has"
+                     << state.work.size() << "harmonics, state.tinOrb has"
+                     << state.tinOrb.size() << "items, ws has" << ws.size()
+                     << "planets";
 
-            qDebug() << "PERF: Skipping progressed/natal position updates this iteration";
+            qDebug() << "PERF: Skipping progressed/natal position updates this "
+                        "iteration";
             qDebug() << "PERF:" << dtToString(state.nd)
-            << "findPriorStarts creating profile from ws with" << ws.size()
-            << "planets:" << ws.names();
+                     << "findPriorStarts creating profile from ws with"
+                     << ws.size() << "planets:" << ws.names();
         }
         if (transitPositions.empty() || shouldUpdateProgressed) {
             // Update all positions
@@ -5114,6 +5118,7 @@ AspectFinder::findAspectsAndPatterns()
     state.ndays = int(state.useRate);
     state.nsecs = (state.useRate - double(state.ndays)) * 24. * 60. * 60.;
 
+    if (!st_quiet) {
     qDebug() << "PERF: === ASPECT SEARCH DIAGNOSTICS ===";
     qDebug() << "PERF: Sampling interval: useRate=" << state.useRate << "days ("
              << state.ndays << "d" << state.nsecs << "s)";
@@ -5129,6 +5134,7 @@ AspectFinder::findAspectsAndPatterns()
              << "progs=" << state.progs.size();
     qDebug() << "PERF: Planet pairs in _staff:" << _staff.size();
     qDebug() << "PERF: =================================";
+    }
 
     if (state.showPatterns || includeTransitRange) {
         state.useProf = &_alist;
@@ -5238,7 +5244,8 @@ AspectFinder::findAspectsAndPatterns()
 
         bool collectingStrays = (state.d >= state.e);
         if (collectingStrays) {
-            qDebug() << "PERF: collectingStrays at time" << dtToString(state.nd) << "(jd=" << state.jd << ")";
+            if (!st_quiet)
+                qDebug() << "PERF: collectingStrays at time" << dtToString(state.nd) << "(jd=" << state.jd << ")";
             PlanetSet ws;
 
             // Log state.starts details
@@ -5256,19 +5263,21 @@ AspectFinder::findAspectsAndPatterns()
                 ws.insert(hijr.first.planets.begin(), hijr.first.planets.end());
             }
 
-            qDebug() << "PERF: collectingStrays - state.starts has"
-                     << state.starts.size() << "harmonics with"
-                     << totalStartsItems << "total items, state.inOrb has"
-                     << totalInOrbItems << "items, ws size:" << ws.size();
-            qDebug() << "PERF: state.b.size() BEFORE any changes:"
-                     << state.b.size();
+            if (!st_quiet) {
+                qDebug() << "PERF: collectingStrays - state.starts has"
+                         << state.starts.size() << "harmonics with"
+                         << totalStartsItems << "total items, state.inOrb has"
+                         << totalInOrbItems << "items, ws size:" << ws.size();
+                qDebug() << "PERF: state.b.size() BEFORE any changes:"
+                         << state.b.size();
+            }
 
             if (ws.empty()) break; // all done
             if (ws.size() != state.b.size()) {
                 qDebug() << "Pruning profile to" << ws.names();
                 auto wp = state.b.profile(ws);
                 wp->swap(state.b);
-                if (state.b.size() == 0) {
+                if (state.b.size() == 0 && !st_quiet) {
                     qDebug() << "PERF: state.b AFTER pruning has"
                              << state.b.size() << "planets";
                 }
@@ -5282,14 +5291,17 @@ AspectFinder::findAspectsAndPatterns()
         QElapsedTimer posTimer;
         posTimer.start();
         if (collectingStrays) {
-            qDebug() << "PERF: state.b.size() BEFORE position updates:" << state.b.size();
-            qDebug() << "PERF: Updating positions to jd=" << state.jd << "("
-                     << dtToString(dateTimeFromJulian(state.jd)) << ")";
+            if (!st_quiet) {
+                qDebug() << "PERF: state.b.size() BEFORE position updates:"
+                         << state.b.size();
+                qDebug() << "PERF: Updating positions to jd=" << state.jd << "("
+                         << dtToString(dateTimeFromJulian(state.jd)) << ")";
+            }
             // Sample first few planets to see their positions before update
             int sampleCount = state.b.size() < 3 ? state.b.size() : 3;
             for (int i = 0; i < sampleCount; i++) {
                 auto pl = dynamic_cast<PlanetLoc*>(state.b[i]);
-                if (pl) {
+                if (pl && !st_quiet) {
                     qDebug() << "PERF:   Before update:" << pl->description()
                              << "pos=" << pl->loc << "speed=" << pl->speed;
                 }
@@ -5298,12 +5310,13 @@ AspectFinder::findAspectsAndPatterns()
         for (auto tp : state.b) (*tp)(state.jd, 1);
         qint64 posUpdateMs = posTimer.elapsed();
         if (collectingStrays) {
+            if (!st_quiet) 
             qDebug() << "PERF: state.b.size() AFTER position updates:" << state.b.size();
             // Sample first few planets to see their positions after update
             int sampleCount = state.b.size() < 3 ? state.b.size() : 3;
             for (int i = 0; i < sampleCount; i++) {
                 auto pl = dynamic_cast<PlanetLoc*>(state.b[i]);
-                if (pl) {
+                if (pl && !st_quiet) {
                     qDebug() << "PERF:   After update:" << pl->description()
                              << "pos=" << pl->loc << "speed=" << pl->speed;
                 }
@@ -5314,10 +5327,13 @@ AspectFinder::findAspectsAndPatterns()
             for (const auto& hpso : state.starts) {
                 for (const auto& pso : hpso.second) {
                     if (sampledCount < 3) {
+                        if (!st_quiet)
                         qDebug() << "PERF:   Requesting profile for H" << hpso.first << "pattern:" << pso.first.names().join("=");
                         auto prof = state.b.profile(pso.first);
+                        if (!st_quiet)
                         qDebug() << "PERF:   Got profile with" << prof->size() << "planets (requested" << pso.first.size() << ")";
                         auto spread = computeSpread(hpso.first, *prof);
+                        if (!st_quiet)
                         qDebug() << "PERF:   H" << hpso.first << pso.first.names().join("=") << "current spread:" << spread << "(threshold:" << patternsSpreadOrb << ")";
                         delete prof;
                         sampledCount++;
@@ -5344,16 +5360,17 @@ AspectFinder::findAspectsAndPatterns()
 
         QElapsedTimer detectionTimer;
         detectionTimer.start();
-        if (collectingStrays) {
+        if (collectingStrays && !st_quiet) {
             qDebug() << "PERF: state.b.size() BEFORE findNewStarts:" << state.b.size();
         }
         findNewStarts(state, collectingStrays, useProf);
         qint64 detectionMs = detectionTimer.elapsed();
-        if (collectingStrays) {
+        if (collectingStrays && !st_quiet) {
             qDebug() << "PERF: state.b.size() AFTER findNewStarts:" << state.b.size();
         }
 
         if (collectingStrays && !state.inOrb.empty()) {
+            if (!st_quiet)
             qDebug() << "PERF: Processing state.inOrb in collectingStrays "
                         "mode, size:"
                      << state.inOrb.size();
@@ -5363,6 +5380,7 @@ AspectFinder::findAspectsAndPatterns()
                 auto        hwp = state.b.profile(hps.planets);
                 auto        orb = computeSpread(hps.harmonic /*harmonic*/, *hwp);
                 delete hwp;
+                if (!st_quiet)
                 qDebug() << "PERF:   H" << hps.harmonic
                          << hps.planets.names().join("=")
                          << "current orb:" << orb
@@ -5393,6 +5411,7 @@ AspectFinder::findAspectsAndPatterns()
                     ++hit;
                 }
             }
+            if (!st_quiet)
             qDebug() << "PERF: Removed" << removedCount << "items from state.inOrb, remaining:" << state.inOrb.size();
         }
         qint64 aspectFindingMs = 0;
@@ -5415,6 +5434,7 @@ AspectFinder::findAspectsAndPatterns()
         cumTotal += totalLoopMs;
 
         if (++iterCount % 10 == 0) {
+            if (!st_quiet)
             qDebug() << "PERF: Loop timing (last 10 iters avg): pos update" << (cumPosUpdate/10.0) << "ms, "
                      << "profile copy" << (cumProfileCopy/10.0) << "ms, "
                      << "detection" << (cumDetection/10.0) << "ms, "

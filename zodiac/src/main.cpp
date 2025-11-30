@@ -54,8 +54,11 @@ zodOutputHandler(QtMsgType                 type,
     case QtWarningMsg:
     case QtCriticalMsg:
     case QtFatalMsg:    fprintf(stderr, "%s\n", msg.toLatin1().constData()); break;
-    case QtInfoMsg:
-    case QtDebugMsg:    printf("%s\n", msg.toLatin1().constData()); break;
+    case QtInfoMsg:     printf("%s\n", msg.toLatin1().constData()); break;
+    case QtDebugMsg:
+        //printf("%s %s:%u\n", msg.toLatin1().constData(), cxt.file, cxt.line);
+        printf("%s\n", msg.toLatin1().constData());
+        break;
     }
 }
 
@@ -79,8 +82,9 @@ main(int argc, char* argv[])
 
     // Debug: Show current working directory and application path
     auto cwd        = QDir::currentPath();
-    auto appDirPath = a.applicationDirPath();
     qDebug() << "current path:" << cwd;
+
+    auto appDirPath = a.applicationDirPath();
     qDebug() << "appDirPath:" << appDirPath;
 
 #ifdef _MSC_VER

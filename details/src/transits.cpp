@@ -1294,6 +1294,7 @@ Transits::Transits(QWidget* parent) :
 
     QAction* act = new QAction("Copy Selection");
     act->setShortcut(QKeySequence::Copy);
+    act->setShortcutContext(Qt::WidgetShortcut);
     connect(act, SIGNAL(triggered()), this, SLOT(copySelection()));
     _tview->addAction(act);
     
@@ -2366,6 +2367,8 @@ void
 Transits::copySelection()
 {
     if (auto sim = tvm()) {
+        if (!_tview) return;
+        
         QClipboard* cb = QApplication::clipboard();
         if (const QMimeData* md = cb->mimeData()) {
             if (md->hasText()) {
@@ -2378,8 +2381,10 @@ Transits::copySelection()
         QModelIndexList      qmil = sm->selectedIndexes();
         qDebug() << qmil;
         QMimeData* md = sim->mimeData(qmil);
-        qDebug() << md->formats();
-        cb->setMimeData(sim->mimeData(qmil));
+        if (md) {
+            qDebug() << md->formats();
+            cb->setMimeData(md);
+        }
     }
 }
 

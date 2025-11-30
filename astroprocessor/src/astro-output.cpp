@@ -1434,49 +1434,118 @@ describePSSR(const AstroFileList& scopes,
             double  angleRA;
 
             switch (angleIdx) {
-            case 0: angleName = "Asc"; angleRA = returnScope.houses.RAAC; break;
-            case 1: angleName = "MC";  angleRA = returnScope.houses.RAMC; break;
-            case 2: angleName = "Desc";angleRA = swe_degnorm(returnScope.houses.RAAC + 180.0); break;
-            case 3: angleName = "IC";  angleRA = swe_degnorm(returnScope.houses.RAMC + 180.0); break;
+#if 1
+            case 0:
+                angleName = "Asc";
+                angleRA   = p.angleTransitRA[Star::atAsc];
+                break;
+            case 1:
+                angleName = "MC";
+                angleRA   = p.angleTransitRA[Star::atMC];
+                break;
+            case 2:
+                angleName = "Desc";
+                angleRA   = p.angleTransitRA[Star::atDesc];
+                break;
+            case 3:
+                angleName = "IC";
+                angleRA   = p.angleTransitRA[Star::atIC];
+                break;
+#else
+            case 0:
+                angleName = "Asc";
+                angleRA   = returnScope.houses.RAAC;
+                break;
+            case 1:
+                angleName = "MC";
+                angleRA   = returnScope.houses.RAMC;
+                break;
+            case 2:
+                angleName = "Desc";
+                angleRA   = swe_degnorm(returnScope.houses.RAAC + 180.0);
+                break;
+            case 3:
+                angleName = "IC";
+                angleRA   = swe_degnorm(returnScope.houses.RAMC + 180.0);
+                break;
+#endif
             }
 
             double planetRA = p.equatorialPos.x();
-            double targetRAMC;
+            double targetRAMC = angleRA;
+            #if 0
             if (angleIdx == 1) {
                 targetRAMC = planetRA;
             } else {
                 double raDiff = swe_difdeg2n(planetRA, angleRA);
                 targetRAMC = swe_degnorm(returnScope.houses.RAMC + raDiff);
             }
+            #endif
 
+            // Calculate the target PSSR RAMC needed
             double returnRAMS = A::calculateRAMS(currentReturnTime, useMeanSun);
             double ramcDiff = swe_difdeg2n(targetRAMC, returnScope.houses.RAMC);
             if (ramcDiff < 0.0) {
                 ramcDiff += 360.0;
             }
-            double ramcDiffHours = (ramcDiff / 360.0) * 24.0;
-            double elapsedRAMSHours = ramcDiffHours / anniversarySecond;
-            double elapsedDays = elapsedRAMSHours / 24.0 * 365.25;
             
-            // Use fractional days for precise event time
-            QDateTime eventTime = currentReturnTime.addSecs(elapsedDays * 86400.0);
+            // Calculate target RAMS: the Sun RA we need to reach
+            // PSSR RAMC = Return RAMC + (Event RAMS - Return RAMS) × anniversarySecond
+            // Solving for Event RAMS:
+            // targetRAMC = returnRAMC + (targetRAMS - returnRAMS) × anniversarySecond
+            // targetRAMC - returnRAMC = (targetRAMS - returnRAMS) × anniversarySecond
+            // (targetRAMC - returnRAMC) / anniversarySecond = targetRAMS - returnRAMS
+            // targetRAMS = returnRAMS + ramcDiff / anniversarySecond
+            double delta = ramcDiff / anniversarySecond;
+            double targetRAMS = swe_degnorm(returnRAMS + delta);
             
-            // Debug output for first few calculations
+            // Now we need to find when the Sun reaches this RA position
+            // Use Newton-Raphson iteration to find the exact time
+            double estimatedDays = (delta / 360.0) * 365.25;
+            double currentJd = A::getJulianDate(currentReturnTime);
+            double targetJd = currentJd + estimatedDays;
+            
+            // Iterate to find exact time when RAMS = targetRAMS
+            for (int iter = 0; iter < 10; iter++) {
+                QDateTime testTime = A::dateTimeFromJulian(targetJd);
+                double testRAMS = A::calculateRAMS(testTime, useMeanSun);
+                
+                // Calculate difference (we want testRAMS to equal targetRAMS)
+                double diff = swe_difdeg2n(testRAMS, targetRAMS);
+                
+                if (qAbs(diff) < 0.00001) {
+                    break;
+                }
+                
+                // Newton-Raphson step: adjust JD by diff/speed
+                // Sun advances ~0.9856 degrees per day in RA
+                double sunRASpeed = 360.0 / 365.25; // degrees per day
+                targetJd -= diff / sunRASpeed;
+            }
+            
+            QDateTime eventTime = A::dateTimeFromJulian(targetJd);
+            
+            // Debug output
             qDebug() << "--- PSSR Calculation for" << p.name << "to" << angleName << "---";
-            qDebug() << "  Presumable event time:" << eventTime.toString("yyyy-MM-dd HH:mm:ss");
-            if (eventTime < currentReturnTime || eventTime > endTime) continue;
+            if (eventTime < currentReturnTime || eventTime > endTime) {
+                qDebug() << "  Event time out of range:" << eventTime.toString("yyyy-MM-dd HH:mm:ss");
+                continue;
+            }
 
             qDebug() << "  Planet RA:" << siderealTimeToString(planetRA, HighPrecision) << "(" << planetRA << "deg)";
             qDebug() << "  Angle RA:" << siderealTimeToString(angleRA, HighPrecision) << "(" << angleRA << "deg)";
             qDebug() << "  Target RAMC:" << siderealTimeToString(targetRAMC, HighPrecision) << "(" << targetRAMC << "deg)";
             qDebug() << "  Return RAMC:" << siderealTimeToString(returnScope.houses.RAMC, HighPrecision) << "(" << returnScope.houses.RAMC << "deg)";
             qDebug() << "  RAMC Diff:" << siderealTimeToString(ramcDiff, HighPrecision) << "(" << ramcDiff << "deg)";
-            qDebug() << "  RAMC Diff Hours:" << ramcDiffHours;
-            qDebug() << "  Elapsed RAMS Hours:" << elapsedRAMSHours;
-            qDebug() << "  Elapsed Days:" << elapsedDays;
+            qDebug() << "  RAMS Off:" << siderealTimeToString(delta, HighPrecision) << "(" << delta << "deg)";
+            qDebug() << "  Return RAMS:" << siderealTimeToString(returnRAMS, HighPrecision) << "(" << returnRAMS << "deg)";
+            qDebug() << "  Target RAMS:" << siderealTimeToString(targetRAMS, HighPrecision) << "(" << targetRAMS << "deg)";
+            qDebug() << "  Event time:" << eventTime.toString("yyyy-MM-dd HH:mm:ss");
             
             double actualPSSRRAMC = A::calculatePSSRRAMC(returnScope.houses, currentReturnTime, eventTime, anniversarySecond, useMeanSun);
+            qDebug() << "  Actual PSSR RAMC at event time:" << siderealTimeToString(actualPSSRRAMC, HighPrecision) << "(" << actualPSSRRAMC << "deg)";
             double mundoOrb = swe_difdeg2n(actualPSSRRAMC, targetRAMC);
+            qDebug() << "  Mundo Orb:" << mundoOrb << "deg";
             events.append({ eventTime, &p, angleName, actualPSSRRAMC, mundoOrb });
         }
     }
