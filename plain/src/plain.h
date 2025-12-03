@@ -8,8 +8,8 @@
 class QCheckBox;
 class QTextBrowser;
 class QToolBar;
-class QButtonGroup;
-class QRadioButton;
+class QComboBox;
+class QPushButton;
 
 /* ================================== WIDGET
  * ======================================== */
@@ -28,17 +28,9 @@ class Plain : public AstroFileHandler {
     QAction*      describePower;
     QAction*      describeParans;
     QAction*      describeSpeculum;
-    QAction*      describePSSR;
-    QWidget*      chartSelectorWidget; // Store reference to show/hide
-    QButtonGroup* chartSelector;
-    QRadioButton* showChart1;
-    QRadioButton* showChart2;
-    QRadioButton* showBothCharts;
-    QWidget*      displayModeWidget; // Container for display mode controls
-    QButtonGroup* displayModeSelector;
-    QRadioButton* showLocalTime;
-    QRadioButton* showSiderealTime;
-    QRadioButton* showRightAscension;
+    QPushButton*  chart1Btn;
+    QPushButton*  chart2Btn;
+    QComboBox*    displayModeSelector;
     QTextBrowser* view;
 
     bool               showAllDiurnalEvents;

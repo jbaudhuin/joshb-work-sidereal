@@ -2998,6 +2998,161 @@ calculateReturnTime(PlanetId         id,
     return calculateClosestTime(poses, locale, harmonic);
 }
 
+PSSRContext
+calculatePSSRContext(const Horoscope& returnChart, bool useMeanSun)
+{
+    PSSRContext ctx;
+    ctx.useMeanSun = useMeanSun;
+    
+    // Store return chart info
+    ctx.returnTime = returnChart.inputData.GMT();
+    ctx.returnRAMC = returnChart.houses.RAMC;
+    ctx.returnRAMS = calculateRAMS(ctx.returnTime, useMeanSun);
+    
+    // Calculate next return to get anniversary second
+    // For solar return: find when Sun returns to its current position one year later
+    const Planet* currentSun = nullptr;
+    for (const Planet& p : returnChart.planets) {
+        if (p.id == Planet_Sun) {
+            currentSun = &p;
+            break;
+        }
+    }
+    
+    if (!currentSun) {
+        qDebug() << "calculatePSSRContext: Could not find Sun in return chart";
+        return ctx; // Invalid context
+    }
+    
+    double targetSunLon = currentSun->eclipticPos.x();
+    double sunSpeed = currentSun->eclipticSpeed.x();
+    
+    if (sunSpeed <= 0.0) {
+        sunSpeed = 0.9856; // Approximate mean motion of Sun in degrees/day
+    }
+    
+    // Estimate next return time (approximately 365.25 days)
+    double estimatedDays = 360.0 / sunSpeed;
+    double currentJd = getJulianDate(ctx.returnTime);
+    double targetJd = currentJd + estimatedDays;
+    
+    // Newton-Raphson iteration to find exact return time
+    InputData tempInput = returnChart.inputData;
+    Houses tempHouses = returnChart.houses;
+    
+    for (int iter = 0; iter < 10; iter++) {
+        tempInput.setGMT(dateTimeFromJulian(targetJd));
+        Planet testSun = calculatePlanet(Planet_Sun, tempInput, tempHouses, 
+                                        getZodiac(tempInput.zodiac()));
+        
+        double sunLon = testSun.eclipticPos.x();
+        double speed = testSun.eclipticSpeed.x();
+        double diff = swe_difdeg2n(sunLon, targetSunLon);
+        
+        if (qAbs(diff) < 0.00001) break;
+        
+        if (speed > 0.0) {
+            targetJd -= diff / speed;
+        } else {
+            qDebug() << "calculatePSSRContext: Invalid speed in iteration";
+            return ctx; // Invalid context
+        }
+    }
+    
+    QDateTime nextReturnTime = dateTimeFromJulian(targetJd);
+    
+    // Calculate houses for next return
+    InputData nextReturnInput = returnChart.inputData;
+    nextReturnInput.setGMT(nextReturnTime);
+    Houses nextReturnHouses = calculateHouses(nextReturnInput);
+    
+    // Calculate anniversary second
+    ctx.anniversarySecond = calculateAnniversarySecond(returnChart.houses, 
+                                                       nextReturnHouses);
+    ctx.isValid = true;
+    
+    qDebug() << "calculatePSSRContext: Anniversary Second =" << ctx.anniversarySecond;
+    
+    return ctx;
+}
+
+QDateTime
+calculateAngularDate(const QDateTime&   radixTime,
+                     const QDateTime&   angleTime,
+                     double             planetRA,
+                     double             angleRA,
+                     const PSSRContext* pssrCtx)
+{
+    if (pssrCtx && pssrCtx->isValid) {
+        // PSSR mode: Find when Sun reaches the RAMS needed for planet to hit angle
+        
+        // Step 1: Calculate what RAMC is needed for planet to be on this angle
+        double targetRAMC = angleRA; // Simplified: angle RA is the target RAMC
+        
+        // Step 2: Calculate how much RAMC differs from return
+        // For converse (angleTime < radixTime), this will be negative (backwards)
+        // For direct (angleTime > radixTime), this will be positive (forwards)
+        double ramcDiff = swe_difdeg2n(targetRAMC, pssrCtx->returnRAMC);
+        
+        // For direct events, ensure we go forward
+        if (angleTime >= radixTime && ramcDiff < 0.0) {
+            ramcDiff += 360.0;
+        }
+        // For converse events, ensure we go backward
+        else if (angleTime < radixTime && ramcDiff > 0.0) {
+            ramcDiff -= 360.0;
+        }
+        
+        // Step 3: Calculate target RAMS using anniversary second
+        // targetRAMS = returnRAMS + ramcDiff / anniversarySecond
+        double delta = ramcDiff / pssrCtx->anniversarySecond;
+        double targetRAMS = swe_degnorm(pssrCtx->returnRAMS + delta);
+        
+        // Step 4: Find when the Sun reaches this RA position (past or future)
+        // Initial estimate
+        double estimatedDays = (delta / 360.0) * 365.25;
+        double currentJd = getJulianDate(pssrCtx->returnTime);
+        double targetJd = currentJd + estimatedDays; // Can be negative for converse
+        
+        // Newton-Raphson iteration to find exact time when RAMS = targetRAMS
+        for (int iter = 0; iter < 10; iter++) {
+            QDateTime testTime = dateTimeFromJulian(targetJd);
+            double testRAMS = calculateRAMS(testTime, pssrCtx->useMeanSun);
+            
+            // Calculate difference (we want testRAMS to equal targetRAMS)
+            double diff = swe_difdeg2n(testRAMS, targetRAMS);
+            
+            if (qAbs(diff) < 0.00001) {
+                break;
+            }
+            
+            // Newton-Raphson step: adjust JD by diff/speed
+            // Sun advances ~0.9856 degrees per day in RA
+            double sunRASpeed = 360.0 / 365.25; // degrees per day
+            targetJd -= diff / sunRASpeed;
+        }
+        
+        // Step 5: Calculate the time difference and apply it from radix
+        QDateTime sunTime = dateTimeFromJulian(targetJd);
+        qint64 offsetSeconds = pssrCtx->returnTime.secsTo(sunTime);
+        
+        // Apply absolute offset forward from radix (all results in future like PD)
+        offsetSeconds = qAbs(offsetSeconds);
+        QDateTime result = radixTime.addSecs(offsetSeconds);
+        
+        return result;
+        
+    } else {
+        // Primary Direction mode - original formula
+        // angleTime is when planet crosses angle (from angleTransit array)
+        // The original formula used time difference in seconds, scaled by (365.25/240)
+        // This appears to convert sidereal time difference to solar days
+        double dist = qAbs(radixTime.secsTo(angleTime));
+        int dayDiff = dist * (365.25 / 240.0);
+        return radixTime.addDays(dayDiff);
+    }
+}
+
 Horoscope
 calculateAll(const InputData& input)
 {

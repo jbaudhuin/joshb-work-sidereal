@@ -1,16 +1,16 @@
 ﻿#include "plain.h"
 #include <Astroprocessor/Output>
-#include <QButtonGroup>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDebug>
 #include <QFile>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QRadioButton>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QTextBrowser>
 #include <QToolBar>
-#include <QWidgetAction>
+#include <QVBoxLayout>
 
 /* ================================== WIDGET
  * ======================================== */
@@ -59,67 +59,31 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     describeSpeculum->setCheckable(true);
     describeSpeculum->setChecked(true);
 
-    describePSSR = toolbar->addAction(tr("PSSR"));
-    describePSSR->setCheckable(true);
-    describePSSR->setChecked(false);
-    describePSSR->setStatusTip(
-        tr("Show Progressed Sidereal Solar Return (requires bi-wheel with return chart)"));
-
     toolbar->addSeparator();
 
-    // Create chart selector widget (only visible when multiple charts loaded)
-    chartSelectorWidget              = new QWidget();
-    QHBoxLayout* chartSelectorLayout = new QHBoxLayout(chartSelectorWidget);
-    chartSelectorLayout->setContentsMargins(5, 0, 5, 0);
-    chartSelectorLayout->addWidget(new QLabel(tr("Show:")));
+    // Create display mode selector combo box (no label)
+    displayModeSelector = new QComboBox();
+    displayModeSelector->addItem(tr("Local Time"), A::DisplayLocalTime);
+    displayModeSelector->addItem(tr("Sidereal Time"), A::DisplaySiderealTime);
+    displayModeSelector->addItem(tr("Right Ascension"), A::DisplayRightAscension);
+    displayModeSelector->setCurrentIndex(0); // Default to Local Time
+    toolbar->addWidget(displayModeSelector);
 
-    chartSelector  = new QButtonGroup(this);
-    showChart1     = new QRadioButton(tr("Chart #1"));
-    showChart2     = new QRadioButton(tr("Chart #2"));
-    showBothCharts = new QRadioButton(tr("Both"));
+    // Insert chart selector buttons at the beginning of toolbar (after Input button)
+    chart1Btn = new QPushButton("1");
+    chart1Btn->setCheckable(true);
+    chart1Btn->setChecked(true); // Default to showing both charts
+    chart1Btn->setToolTip(tr("Show Chart #1"));
+    chart1Btn->setProperty("chartButton", true);
+    toolbar->insertWidget(describeInput, chart1Btn);
 
-    chartSelector->addButton(showChart1, 0);
-    chartSelector->addButton(showChart2, 1);
-    chartSelector->addButton(showBothCharts, 2);
-    showBothCharts->setChecked(true);
-
-    chartSelectorLayout->addWidget(showChart1);
-    chartSelectorLayout->addWidget(showChart2);
-    chartSelectorLayout->addWidget(showBothCharts);
-
-    QWidgetAction* chartSelectorAction = new QWidgetAction(this);
-    chartSelectorAction->setDefaultWidget(chartSelectorWidget);
-    toolbar->addAction(chartSelectorAction);
-
-    // Initially hide the chart selector
-    chartSelectorWidget->setVisible(false);
-
-    toolbar->addSeparator();
-
-    // Create display mode selector widget
-    displayModeWidget              = new QWidget();
-    QHBoxLayout* displayModeLayout = new QHBoxLayout(displayModeWidget);
-    displayModeLayout->setContentsMargins(5, 0, 5, 0);
-    displayModeLayout->addWidget(new QLabel(tr("Display:")));
-
-    displayModeSelector = new QButtonGroup(this);
-    showLocalTime       = new QRadioButton(tr("Local Time"));
-    showSiderealTime    = new QRadioButton(tr("Sidereal Time"));
-    showRightAscension  = new QRadioButton(tr("Right Ascension"));
-
-    displayModeSelector->addButton(showLocalTime, A::DisplayLocalTime);
-    displayModeSelector->addButton(showSiderealTime, A::DisplaySiderealTime);
-    displayModeSelector->addButton(showRightAscension,
-                                   A::DisplayRightAscension);
-    showLocalTime->setChecked(true); // Default to Local Time mode
-
-    displayModeLayout->addWidget(showLocalTime);
-    displayModeLayout->addWidget(showSiderealTime);
-    displayModeLayout->addWidget(showRightAscension);
-
-    QWidgetAction* displayModeAction = new QWidgetAction(this);
-    displayModeAction->setDefaultWidget(displayModeWidget);
-    toolbar->addAction(displayModeAction);
+    chart2Btn = new QPushButton("2");
+    chart2Btn->setCheckable(true);
+    chart2Btn->setChecked(true); // Default to showing both charts
+    chart2Btn->setToolTip(tr("Show Chart #2"));
+    chart2Btn->setProperty("chartButton", true);
+    toolbar->insertWidget(describeInput, chart2Btn);
+    chart2Btn->setVisible(false); // Initially hidden until 2nd chart loaded
 
     view = new QTextBrowser();
 
@@ -143,11 +107,9 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     connect(describePower, &QAction::triggered, this, &Plain::refresh);
     connect(describeParans, &QAction::triggered, this, &Plain::refresh);
     connect(describeSpeculum, &QAction::triggered, this, &Plain::refresh);
-    connect(describePSSR, &QAction::triggered, this, &Plain::refresh);
-    connect(chartSelector, &QButtonGroup::idClicked, this, [this](int) {
-        refresh();
-    });
-    connect(displayModeSelector, &QButtonGroup::idClicked, this, [this](int) {
+    connect(chart1Btn, &QPushButton::clicked, this, &Plain::refresh);
+    connect(chart2Btn, &QPushButton::clicked, this, &Plain::refresh);
+    connect(displayModeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
         refresh();
     });
 
@@ -204,10 +166,8 @@ Plain::filesUpdated(MembersList m)
         view->clear();
         chartsCount   = 0;
         aspectsCached = false;
-        // Hide chart selector when no files
-        if (chartSelectorWidget) {
-            chartSelectorWidget->setVisible(false);
-        }
+        // Hide chart 2 button when no files
+        chart2Btn->setVisible(false);
         return;
     }
 
@@ -217,10 +177,8 @@ Plain::filesUpdated(MembersList m)
     bool chartsCountChanged = (chartsCount != filesCount());
     chartsCount             = filesCount();
 
-    // Show/hide chart selector based on number of files
-    if (chartSelectorWidget) {
-        chartSelectorWidget->setVisible(filesCount() > 1);
-    }
+    // Show/hide chart 2 button based on number of files
+    chart2Btn->setVisible(filesCount() > 1);
 
     // Check if aspects need to be recalculated
     // Invalidate cache if chart data, zodiac, or aspect settings changed
@@ -262,19 +220,15 @@ Plain::refresh()
     bool showSecond = true;
 
     if (filesCount() > 1) {
-        int selectedChart = chartSelector->checkedId();
-        showFirst =
-            (selectedChart == 0 || selectedChart == 2); // Chart #1 or Both
-        showSecond =
-            (selectedChart == 1 || selectedChart == 2); // Chart #2 or Both
+        showFirst  = chart1Btn->isChecked();
+        showSecond = chart2Btn->isChecked();
     } else {
         showSecond = false; // Only one chart available
     }
 
-    // Get display mode directly from button group ID (which matches enum
-    // values)
+    // Get display mode from combo box data
     A::SpeculumDisplayMode displayMode =
-        A::SpeculumDisplayMode(displayModeSelector->checkedId());
+        A::SpeculumDisplayMode(displayModeSelector->currentData().toInt());
 
     // Update aspects cache if needed (only when aspects will be displayed)
     if (describeAspects->isChecked()) {
@@ -289,7 +243,6 @@ Plain::refresh()
                    | (A::Article_Parans * describeParans->isChecked())
                    | (A::Article_DiurnalEvents * showAllDiurnalEvents)
                    | (A::Article_Speculum * describeSpeculum->isChecked())
-                   | (A::Article_PSSR * describePSSR->isChecked())
                    | (A::Article_FixedStars * includeFixedStars);
 
     // Build the HTML content with custom aspect sort order
@@ -667,15 +620,6 @@ Plain::refresh()
         }
     }
 
-    // Display PSSR if enabled and bi-wheel present
-    if ((articles & A::Article_PSSR) && filesCount() == 2) {
-        qDebug() << "Plain::refresh: calling describePSSR";
-        AstroFileList biwheel;
-        biwheel.append(file(0));
-        biwheel.append(file(1));
-        html += A::describePSSR(biwheel, paranOrb, /*daysRange=*/360, displayMode, false);
-    }
-
     html += "</body></html>";
     view->setHtml(html);
 
@@ -694,7 +638,8 @@ Plain::defaultSettings()
     s.setValue("Text/describePower", false);
     s.setValue("Text/describeParans", true);
     s.setValue("Text/describeSpeculum", false);
-    s.setValue("Text/describePSSR", false);
+    s.setValue("Plain/chart1Visible", true);  // Default to showing both
+    s.setValue("Plain/chart2Visible", true);  // Default to showing both
     s.setValue("Mundane/displayMode", unsigned(A::DisplayLocalTime));
     s.setValue("Mundane/primDirMode", unsigned(A::prdMundane));
     s.setValue("Mundane/showAllDiurnalEvents", false);
@@ -715,9 +660,10 @@ Plain::currentSettings()
     s.setValue("Text/describePower", describePower->isChecked());
     s.setValue("Text/describeParans", describeParans->isChecked());
     s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
-    s.setValue("Text/describePSSR", describePSSR->isChecked());
+    s.setValue("Plain/chart1Visible", chart1Btn->isChecked());
+    s.setValue("Plain/chart2Visible", chart2Btn->isChecked());
     s.setValue("Mundane/displayMode",
-               unsigned(displayModeSelector->checkedId()));
+               unsigned(displayModeSelector->currentData().toInt()));
     s.setValue("Mundane/primDirMode", unsigned(A::primDirMode));
     s.setValue("Mundane/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Mundane/paranOrb", paranOrb);
@@ -736,18 +682,18 @@ Plain::applySettings(const AppSettings& s)
     describePower->setChecked(s.value("Text/describePower").toBool());
     describeParans->setChecked(s.value("Text/describeParans").toBool());
     describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
-    describePSSR->setChecked(s.value("Text/describePSSR").toBool());
+
+    // Restore chart button states
+    chart1Btn->setChecked(s.value("Plain/chart1Visible").toBool());
+    chart2Btn->setChecked(s.value("Plain/chart2Visible").toBool());
 
     A::SpeculumDisplayMode loadedMode =
         A::SpeculumDisplayMode(s.value("Mundane/displayMode").toUInt());
 
-    // Set the appropriate radio button based on loaded mode
-    if (loadedMode == A::DisplaySiderealTime) {
-        showSiderealTime->setChecked(true);
-    } else if (loadedMode == A::DisplayRightAscension) {
-        showRightAscension->setChecked(true);
-    } else {
-        showLocalTime->setChecked(true);
+    // Set combo box to the loaded display mode
+    int index = displayModeSelector->findData(loadedMode);
+    if (index >= 0) {
+        displayModeSelector->setCurrentIndex(index);
     }
 
     // Check if primDirMode changed - if so, need to recalculate charts

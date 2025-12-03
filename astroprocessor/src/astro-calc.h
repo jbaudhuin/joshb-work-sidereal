@@ -867,6 +867,19 @@ quotidianSearch(PlanetProfile&   poses,
                 bool             forceMin);
 
 // PSSR (Progressed Sidereal Solar Return) functions
+
+// Context structure for caching PSSR calculations
+struct PSSRContext {
+    double    anniversarySecond = 0.0; // Rate: degrees per day
+    QDateTime returnTime;              // Time of the return chart
+    double    returnRAMS = 0.0;        // Return Sun's RA (or mean Sun)
+    double    returnRAMC = 0.0;        // Return chart RAMC
+    bool      isValid = false;         // Whether this context is valid
+    bool      useMeanSun = true;       // Whether to use mean or apparent Sun
+    
+    PSSRContext() = default;
+};
+
 double
 calculateRAMS(const QDateTime& dt, bool useMeanSun = true);
 
@@ -879,6 +892,28 @@ calculatePSSRRAMC(const Houses&    returnHouses,
                   const QDateTime& eventTime,
                   double           anniversarySecond,
                   bool             useMeanSun = true);
+
+// Calculate PSSR context for a return chart (caches anniversary second)
+PSSRContext
+calculatePSSRContext(const Horoscope& returnChart,
+                     bool             useMeanSun = true);
+
+// Unified function to calculate angular dates using either PD or PSSR
+// If pssrCtx is null or invalid, uses Primary Direction (Naibod rate: 1°/day)
+// If pssrCtx is valid, uses PSSR: finds when Sun reaches the RAMS position
+//   needed for the planet to cross the specified angle
+// Parameters:
+//   radixTime: The return chart time (or natal time for PD)
+//   angleTime: The actual transit time of the planet crossing the angle
+//   planetRA: The planet's Right Ascension in degrees
+//   angleRA: The angle's Right Ascension in degrees (Asc RAAC, MC RAMC, etc.)
+//   pssrCtx: PSSR context (null for PD mode)
+QDateTime
+calculateAngularDate(const QDateTime&   radixTime,
+                     const QDateTime&   angleTime,
+                     double             planetRA,
+                     double             angleRA,
+                     const PSSRContext* pssrCtx = nullptr);
 
 Horoscope
 calculateAll(const InputData& input);

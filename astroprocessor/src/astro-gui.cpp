@@ -509,6 +509,7 @@ void
 AstroFile::recalculate()
 {
     qDebug() << "Calculating file" << getName() << "...";
+    clearPSSRContext(); // Clear cached PSSR context when chart is recalculated
     scope = A::calculateAll(scope.inputData);
 }
 

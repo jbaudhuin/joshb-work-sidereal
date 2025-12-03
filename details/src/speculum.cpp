@@ -14,6 +14,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -296,6 +297,32 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
     nameItem->setFont(nameFont);
     _table->setItem(row, 0, nameItem);
 
+    // Get PSSR context if this is chart 2 and it's a return chart
+    const A::PSSRContext* pssrCtx = nullptr;
+    AstroFile* currentFile = file(_selectedChartIndex);
+    if (_selectedChartIndex == 1 && currentFile && filesCount() > 1) {
+        // Check if chart 2 is a return type or has "Sun-r=Sun" pattern
+        bool isReturn = currentFile->getType() == TypeReturn;
+        
+        if (!isReturn) {
+            // Check for return pattern in filename (H# Sun-r=Sun)
+            QString name = currentFile->getName();
+            QRegularExpression returnPattern(R"(H\d+\s+Sun-r=Sun)");
+            isReturn = returnPattern.match(name).hasMatch();
+        }
+        
+        if (isReturn) {
+            // Try to get cached PSSR context, or calculate if needed
+            if (!currentFile->hasPSSRContext()) {
+                auto ctx = A::calculatePSSRContext(currentFile->horoscope());
+                currentFile->setPSSRContext(ctx);
+            }
+            if (currentFile->hasPSSRContext()) {
+                pssrCtx = &currentFile->pssrContext();
+            }
+        }
+    }
+
     // Add time columns in order: Rise, MC, Set, IC (indices 0, 2, 1, 3)
     QList<int> timeIndices = { 0, 2, 1, 3 };
     for (int col = 1; col <= 4; col++) {
@@ -330,15 +357,25 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
         // Store the actual QDateTime for filtering
         timeItem->setData(Qt::UserRole, transitTime);
 
-        // Calculate and set Primary Direction tooltip
+        // Calculate and set angular date tooltip (PD or PSSR)
         if (transitTime.isValid() && _radixTime.isValid()) {
-            double dist = qAbs(_radixTime.secsTo(transitTime));
-            int    dayDiff =
-                dist * (365.25 / 240.0); // Naibod rate: 1 day per degree
-            QDateTime pdDate    = _radixTime.addDays(dayDiff);
-            QString   direction = (transitTime < _radixTime) ? "Con" : "Dir";
-            QString   tooltip   = QString("PD: %1 %2")
-                                  .arg(pdDate.toString("yyyy/MM/dd"))
+            // Get planet's RA and the angle's RA
+            double planetRA = planet.equatorialPos.x();
+            double angleRA = planet.angleTransitRA[timeIndex];
+            
+            QDateTime angularDateGMT = A::calculateAngularDate(_radixTime, transitTime, 
+                                                                 planetRA, angleRA, pssrCtx);
+            // Convert to local time
+            int offsetSeconds = m_timezone * 3600;
+            QTimeZone timeZone = QTimeZone::fromSecondsAheadOfUtc(offsetSeconds);
+            QDateTime angularDate = angularDateGMT.toTimeZone(timeZone);
+            
+            QString direction = (transitTime < _radixTime) ? "Con" : "Dir";
+            QString method = pssrCtx ? "PSSR" : "PD";
+            QString dateFormat = pssrCtx ? "ddd yyyy-MM-dd hh:mm" : "yyyy/MM/dd";
+            QString tooltip = QString("%1: %2 %3")
+                                  .arg(method)
+                                  .arg(angularDate.toString(dateFormat))
                                   .arg(direction);
             timeItem->setToolTip(tooltip);
         }
@@ -355,6 +392,32 @@ Speculum::addStarRow(const A::Star& star, int row)
     nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
     nameItem->setData(Qt::UserRole, -1); // Use -1 for stars
     _table->setItem(row, 0, nameItem);
+
+    // Get PSSR context if this is chart 2 and it's a return chart
+    const A::PSSRContext* pssrCtx = nullptr;
+    AstroFile* currentFile = file(_selectedChartIndex);
+    if (_selectedChartIndex == 1 && currentFile && filesCount() > 1) {
+        // Check if chart 2 is a return type or has "Sun-r=Sun" pattern
+        bool isReturn = currentFile->getType() == TypeReturn;
+        
+        if (!isReturn) {
+            // Check for return pattern in filename (H# Sun-r=Sun)
+            QString name = currentFile->getName();
+            QRegularExpression returnPattern(R"(H\d+\s+Sun-r=Sun)");
+            isReturn = returnPattern.match(name).hasMatch();
+        }
+        
+        if (isReturn) {
+            // Try to get cached PSSR context, or calculate if needed
+            if (!currentFile->hasPSSRContext()) {
+                auto ctx = A::calculatePSSRContext(currentFile->horoscope());
+                currentFile->setPSSRContext(ctx);
+            }
+            if (currentFile->hasPSSRContext()) {
+                pssrCtx = &currentFile->pssrContext();
+            }
+        }
+    }
 
     // Add time columns for star
     QList<int> timeIndices = { 0, 2, 1, 3 };
@@ -390,15 +453,25 @@ Speculum::addStarRow(const A::Star& star, int row)
         // Store the actual QDateTime for filtering
         timeItem->setData(Qt::UserRole, transitTime);
 
-        // Calculate and set Primary Direction tooltip
+        // Calculate and set angular date tooltip (PD or PSSR)
         if (transitTime.isValid() && _radixTime.isValid()) {
-            double dist = qAbs(_radixTime.secsTo(transitTime));
-            int    dayDiff =
-                dist * (365.25 / 240.0); // Naibod rate: 1 day per degree
-            QDateTime pdDate    = _radixTime.addDays(dayDiff);
-            QString   direction = (transitTime < _radixTime) ? "Con" : "Dir";
-            QString   tooltip   = QString("PD: %1 %2")
-                                  .arg(pdDate.toString("yyyy/MM/dd"))
+            // Get star's RA and the angle's RA
+            double starRA = star.equatorialPos.x();
+            double angleRA = star.angleTransitRA[timeIndex];
+            
+            QDateTime angularDateGMT = A::calculateAngularDate(_radixTime, transitTime,
+                                                                 starRA, angleRA, pssrCtx);
+            // Convert to local time
+            int offsetSeconds = m_timezone * 3600;
+            QTimeZone timeZone = QTimeZone::fromSecondsAheadOfUtc(offsetSeconds);
+            QDateTime angularDate = angularDateGMT.toTimeZone(timeZone);
+            
+            QString direction = (transitTime < _radixTime) ? "Con" : "Dir";
+            QString method = pssrCtx ? "PSSR" : "PD";
+            QString dateFormat = pssrCtx ? "ddd yyyy-MM-dd hh:mm" : "yyyy/MM/dd";
+            QString tooltip = QString("%1: %2 %3")
+                                  .arg(method)
+                                  .arg(angularDate.toString(dateFormat))
                                   .arg(direction);
             timeItem->setToolTip(tooltip);
         }

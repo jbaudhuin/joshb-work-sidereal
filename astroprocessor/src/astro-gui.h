@@ -168,6 +168,18 @@ class AstroFile : public QObject, public A::EventStore {
     bool needsEventsRecalc() const { return _eventsNeedRecalc; }
     void markEventsForRecalc() { _eventsNeedRecalc = true; }
     void clearEventsRecalcFlag() { _eventsNeedRecalc = false; }
+    
+    // PSSR context access
+    const A::PSSRContext& pssrContext() const { return _pssrContext; }
+    bool hasPSSRContext() const { return _pssrContextValid; }
+    void setPSSRContext(const A::PSSRContext& ctx) {
+        _pssrContext = ctx;
+        _pssrContextValid = ctx.isValid;
+    }
+    void clearPSSRContext() {
+        _pssrContext = A::PSSRContext();
+        _pssrContextValid = false;
+    }
 
     static void addChartDir(const QString& label, const QString& dir);
 
@@ -226,6 +238,10 @@ class AstroFile : public QObject, public A::EventStore {
     A::HarmonicEvents _evs;
     QAbstractItemModel* _evm = nullptr;
     bool _eventsNeedRecalc = false;
+    
+    // PSSR (Progressed Sidereal Solar Return) cache
+    A::PSSRContext _pssrContext;
+    bool _pssrContextValid = false;
 
     virtual void recalculate();
     void         recalculateBaseChart();

@@ -25,8 +25,7 @@ enum Article {
     Article_Parans        = 0x20,
     Article_DiurnalEvents = 0x40,
     Article_FixedStars    = 0x80,
-    Article_Speculum      = 0x100,
-    Article_PSSR          = 0x200
+    Article_Speculum      = 0x100
 };
 
 enum AnglePrecision { LowPrecision, NormalPrecision, HighPrecision };
@@ -106,12 +105,6 @@ QString
 describeSpeculum(const Horoscope&    scope,
                  bool                showFixedStars,
                  SpeculumDisplayMode displayMode = DisplayLocalTime);
-QString
-describePSSR(const AstroFileList& scopes,
-             double               paranOrb,
-             int                  daysRange       = 365,
-             SpeculumDisplayMode  displayMode     = DisplayLocalTime,
-             bool                 useMeanSun      = true);
 QString
 _formatTime(const QDateTime& dt, short tz);
 QString

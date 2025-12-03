@@ -892,6 +892,8 @@ struct event {
     static int       _maxWidth;
     static QDateTime _radix;
     static double    _radixRA; // Radix Local Sidereal Time in RA degrees
+    static const PSSRContext* _pssrCtx; // PSSR context for return charts
+    static bool      _isProgressed; // Skip date calculations for progressed charts
 
     event() : _star(NULL), _pivot(0) { }
 
@@ -1015,14 +1017,25 @@ struct event {
                    + _formatTime(_dt, tz) + "</td>";
         }
 
-        // Primary direction calculation - skip in sidereal/RA modes
-        if (_star && displayMode == DisplayLocalTime) {
-            // i.e., not radix, and local time mode
-            double    dist    = qAbs(_radix.secsTo(_dt));
-            int       dayDiff = dist * (365.25 / 240.0);
-            QDateTime newDate = _radix.addDays(dayDiff);
+        // Angular date calculation (PD or PSSR) - skip in sidereal/RA modes and progressed charts
+        if (_star && displayMode == DisplayLocalTime && !_isProgressed) {
+            // i.e., not radix, not progressed, and local time mode
+            // Get the star/planet's RA and the angle RA
+            double planetRA = _star->equatorialPos.x();
+            double angleRA = _star->angleTransitRA[_pivot];
+            
+            QDateTime angularDateGMT = calculateAngularDate(_radix, _dt, planetRA, angleRA, _pssrCtx);
+            QString method = _pssrCtx ? "PSSR" : "PD";
+            QString dateFormat = _pssrCtx ? "ddd yyyy-MM-dd hh:mm" : "yyyy/MM/dd";
+            
+            // Convert to local time using proper timezone offset
+            int offsetSeconds = tz * 3600;
+            QTimeZone timeZone = QTimeZone::fromSecondsAheadOfUtc(offsetSeconds);
+            QDateTime localDate = angularDateGMT.toTimeZone(timeZone);
+            
             ret += "<td style='" + dataCellStyle + "'> --&gt; "
-                   + newDate.toString("yyyy/MM/dd") + "</td>";
+                   + localDate.toString(dateFormat)
+                   + " (" + method + ")</td>";
         } else {
             ret += "<td style='" + dataCellStyle + "'></td>";
         }
@@ -1035,6 +1048,8 @@ struct event {
 int       event::_maxWidth = 0;
 QDateTime event::_radix;
 double    event::_radixRA = 0.0;
+const PSSRContext* event::_pssrCtx = nullptr;
+bool      event::_isProgressed = false;
 } // namespace
 
 QString
@@ -1051,6 +1066,27 @@ describeParans(const AstroFileList& scopes,
     bool  showDates = scopes.count() == 1;
     auto  scope     = scopes.first()->horoscope();
     short tz        = scope.inputData.tz();
+    
+    // Check if this is a return chart and get PSSR context
+    event::_pssrCtx = nullptr;
+    event::_isProgressed = false;
+    AstroFile* file = scopes.first();
+    
+    // Check if it's a progressed chart (skip date calculations)
+    if (file && file->hasBaseChart() && file->getType() != TypeReturn) {
+        event::_isProgressed = true;
+    }
+    
+    if (file && file->getType() == TypeReturn) {
+        // It's a return chart (solar return, demi-return, etc.), try to get or calculate PSSR context
+        if (!file->hasPSSRContext()) {
+            auto ctx = calculatePSSRContext(file->horoscope());
+            file->setPSSRContext(ctx);
+        }
+        if (file->hasPSSRContext()) {
+            event::_pssrCtx = &file->pssrContext();
+        }
+    }
 
     QVector<event> events;
     events << event(scope.inputData.GMT(), NULL, 4); // radix
@@ -1179,7 +1215,10 @@ describeParans(const AstroFileList& scopes,
     }
 
     ret += "</table>";
-    return ret;
+
+    // Clean up static context
+    event::_pssrCtx = nullptr;
+    event::_isProgressed = false;    return ret;
 }
 
 QString
@@ -1270,360 +1309,6 @@ describeSpeculum(const Horoscope&    scope,
 
     ret += "</table>";
     maxWidth = 0; // reset for next time...
-    return ret;
-}
-
-QString
-describePSSR(const AstroFileList& scopes,
-             double               paranOrb,
-             int                  daysRange,
-             SpeculumDisplayMode  displayMode,
-             bool                 useMeanSun)
-{
-    qDebug() << "describePSSR called";
-    qDebug() << "scopes.count()=" << scopes.count();
-    if (scopes.count() != 2) {
-        qDebug() << "PSSR: wrong chart count";
-        return "<h2>" + QObject::tr("PSSR") + "</h2><p>"
-               + QObject::tr(
-                   "PSSR requires a bi-wheel with natal and return charts.")
-               + "</p>";
-    }
-
-    AstroFile*   returnFile = scopes[1];
-    AstroFile*   natalFile  = scopes[0];
-    const auto&  returnScope = returnFile->horoscope();
-    const auto&  natalScope  = natalFile->horoscope();
-    qDebug() << "returnFile type:" << returnFile->getType() << ", hasBaseChart:" << returnFile->hasBaseChart();
-    qDebug() << "natalFile type:" << natalFile->getType();
-    // Check if the second chart has a base chart (i.e., is a return)
-    if (returnFile->getType() != TypeReturn) {
-        qDebug() << "PSSR: second chart is not a return chart";
-        return "<h2>" + QObject::tr("PSSR") + "</h2><p>"
-               + QObject::tr(
-                   "PSSR requires the second chart to be a return chart (with a base chart set).")
-               + "</p>";
-    }
-
-    short tz = returnScope.inputData.tz();
-
-    // Calculate the next return to get the anniversary second
-    // For solar return: find when Sun returns to its current return position one year later
-    QDateTime currentReturnTime = returnScope.inputData.GMT();
-    
-    qDebug() << "=== Return Calculation Debug ===";
-    qDebug() << "Current Return Time:" << currentReturnTime.toString("yyyy-MM-dd HH:mm:ss");
-    qDebug() << "Return chart zodiac:" << returnScope.inputData.zodiac();
-    
-    // Get the Sun's position in the current return chart
-    const Planet* currentSun = nullptr;
-    for (const Planet& p : returnScope.planets) {
-        if (p.id == Planet_Sun) {
-            currentSun = &p;
-            break;
-        }
-    }
-    
-    if (!currentSun) {
-        qDebug() << "ERROR: Could not find Sun in return chart";
-        return "<h2>" + QObject::tr("PSSR") + "</h2><p>"
-               + QObject::tr("Error: Could not find Sun in return chart.") + "</p>";
-    }
-    
-    double targetSunLon = currentSun->eclipticPos.x();
-    qDebug() << "Current Return Sun longitude:" << targetSunLon;
-    qDebug() << "Current Return Sun speed:" << currentSun->eclipticSpeed.x() << "deg/day";
-    
-    // Search for next return: when Sun returns to this same position
-    // Use current Sun's speed to estimate the time (should be ~365.25 days)
-    double sunSpeed = currentSun->eclipticSpeed.x();
-    if (sunSpeed <= 0.0) {
-        qDebug() << "WARNING: Invalid sun speed, using default";
-        sunSpeed = 0.9856; // approximate mean motion of Sun in degrees/day
-    }
-    
-    // Calculate how many degrees the Sun needs to travel to complete 360 degrees
-    double degreesToTravel = 360.0;
-    double estimatedDays = degreesToTravel / sunSpeed;
-    qDebug() << "Estimated days to next return:" << estimatedDays;
-    
-    // Start iterative search from this estimate
-    double currentJd = A::getJulianDate(currentReturnTime);
-    double targetJd = currentJd + estimatedDays;
-    
-    // Create temporary InputData for calculating Sun at different times
-    A::InputData tempInput = returnScope.inputData;
-    A::Houses tempHouses = returnScope.houses;
-    
-    // Newton-Raphson iteration to find exact return time
-    for (int iter = 0; iter < 10; iter++) {
-        // Calculate Sun position at this time
-        tempInput.setGMT(A::dateTimeFromJulian(targetJd));
-        Planet testSun = A::calculatePlanet(Planet_Sun, tempInput, tempHouses, 
-                                           A::getZodiac(tempInput.zodiac()));
-        
-        double sunLon = testSun.eclipticPos.x();
-        double speed = testSun.eclipticSpeed.x();
-        
-        // Calculate difference (we want sunLon to equal targetSunLon)
-        double diff = swe_difdeg2n(sunLon, targetSunLon);
-        
-        qDebug() << "Iter" << iter << "JD:" << targetJd 
-                 << "Sun lon:" << sunLon << "Target:" << targetSunLon 
-                 << "Diff:" << diff << "deg" << "Speed:" << speed;
-        
-        if (qAbs(diff) < 0.00001) {
-            break;
-        }
-        
-        // Newton-Raphson step: adjust JD by diff/speed
-        if (speed > 0.0) {
-            targetJd -= diff / speed;
-        } else {
-            qDebug() << "ERROR: Invalid speed in iteration";
-            break;
-        }
-    }
-    
-    QDateTime nextReturnTime = A::dateTimeFromJulian(targetJd);
-    qDebug() << "Next Return Time:" << nextReturnTime.toString("yyyy-MM-dd HH:mm:ss");
-    
-    // Calculate houses for next return to get its RAMC
-    A::InputData nextReturnInput = returnScope.inputData;
-    nextReturnInput.setGMT(nextReturnTime);
-    A::Houses nextReturnHouses = A::calculateHouses(nextReturnInput);
-
-    // Calculate anniversary second
-    double anniversarySecond =
-        A::calculateAnniversarySecond(returnScope.houses, nextReturnHouses);
-
-    qDebug() << "=== PSSR Calculation Debug ===";
-    qDebug() << "Return RAMC:" << siderealTimeToString(returnScope.houses.RAMC, HighPrecision);
-    qDebug() << "Next Return RAMC:" << siderealTimeToString(nextReturnHouses.RAMC, HighPrecision);
-    qDebug() << "Anniversary Second:" << anniversarySecond;
-
-    // Structure to hold PSSR events (when planets cross angles)
-    struct PSSREvent {
-        QDateTime     dt;
-        const Planet* planet;
-        QString       angleName; // "Asc", "MC", "Desc", "IC"
-        double        pssrRAMC;
-        double        mundoOrb; // orb in mundo (degrees of RA)
-
-        bool operator<(const PSSREvent& other) const { return dt < other.dt; }
-    };
-
-    QVector<PSSREvent> events;
-
-    // For each day in the range, calculate PSSR RAMC and check if planets are
-    // angular
-    QDateTime endTime = currentReturnTime.addDays(daysRange);
-    
-    int& maxWidth(event::_maxWidth);
-    maxWidth = 0;
-
-    for (const Planet& p : returnScope.planets) {
-        if (p.id == Planet_MC || p.id == Planet_Asc) continue;
-        if (p.name.length() > maxWidth) {
-            maxWidth = p.name.length();
-        }
-
-        // For each angle (Asc, MC, Desc, IC)
-        for (int angleIdx = 0; angleIdx < 4; angleIdx++) {
-            QString angleName;
-            double  angleRA;
-
-            switch (angleIdx) {
-#if 1
-            case 0:
-                angleName = "Asc";
-                angleRA   = p.angleTransitRA[Star::atAsc];
-                break;
-            case 1:
-                angleName = "MC";
-                angleRA   = p.angleTransitRA[Star::atMC];
-                break;
-            case 2:
-                angleName = "Desc";
-                angleRA   = p.angleTransitRA[Star::atDesc];
-                break;
-            case 3:
-                angleName = "IC";
-                angleRA   = p.angleTransitRA[Star::atIC];
-                break;
-#else
-            case 0:
-                angleName = "Asc";
-                angleRA   = returnScope.houses.RAAC;
-                break;
-            case 1:
-                angleName = "MC";
-                angleRA   = returnScope.houses.RAMC;
-                break;
-            case 2:
-                angleName = "Desc";
-                angleRA   = swe_degnorm(returnScope.houses.RAAC + 180.0);
-                break;
-            case 3:
-                angleName = "IC";
-                angleRA   = swe_degnorm(returnScope.houses.RAMC + 180.0);
-                break;
-#endif
-            }
-
-            double planetRA = p.equatorialPos.x();
-            double targetRAMC = angleRA;
-            #if 0
-            if (angleIdx == 1) {
-                targetRAMC = planetRA;
-            } else {
-                double raDiff = swe_difdeg2n(planetRA, angleRA);
-                targetRAMC = swe_degnorm(returnScope.houses.RAMC + raDiff);
-            }
-            #endif
-
-            // Calculate the target PSSR RAMC needed
-            double returnRAMS = A::calculateRAMS(currentReturnTime, useMeanSun);
-            double ramcDiff = swe_difdeg2n(targetRAMC, returnScope.houses.RAMC);
-            if (ramcDiff < 0.0) {
-                ramcDiff += 360.0;
-            }
-            
-            // Calculate target RAMS: the Sun RA we need to reach
-            // PSSR RAMC = Return RAMC + (Event RAMS - Return RAMS) × anniversarySecond
-            // Solving for Event RAMS:
-            // targetRAMC = returnRAMC + (targetRAMS - returnRAMS) × anniversarySecond
-            // targetRAMC - returnRAMC = (targetRAMS - returnRAMS) × anniversarySecond
-            // (targetRAMC - returnRAMC) / anniversarySecond = targetRAMS - returnRAMS
-            // targetRAMS = returnRAMS + ramcDiff / anniversarySecond
-            double delta = ramcDiff / anniversarySecond;
-            double targetRAMS = swe_degnorm(returnRAMS + delta);
-            
-            // Now we need to find when the Sun reaches this RA position
-            // Use Newton-Raphson iteration to find the exact time
-            double estimatedDays = (delta / 360.0) * 365.25;
-            double currentJd = A::getJulianDate(currentReturnTime);
-            double targetJd = currentJd + estimatedDays;
-            
-            // Iterate to find exact time when RAMS = targetRAMS
-            for (int iter = 0; iter < 10; iter++) {
-                QDateTime testTime = A::dateTimeFromJulian(targetJd);
-                double testRAMS = A::calculateRAMS(testTime, useMeanSun);
-                
-                // Calculate difference (we want testRAMS to equal targetRAMS)
-                double diff = swe_difdeg2n(testRAMS, targetRAMS);
-                
-                if (qAbs(diff) < 0.00001) {
-                    break;
-                }
-                
-                // Newton-Raphson step: adjust JD by diff/speed
-                // Sun advances ~0.9856 degrees per day in RA
-                double sunRASpeed = 360.0 / 365.25; // degrees per day
-                targetJd -= diff / sunRASpeed;
-            }
-            
-            QDateTime eventTime = A::dateTimeFromJulian(targetJd);
-            
-            // Debug output
-            qDebug() << "--- PSSR Calculation for" << p.name << "to" << angleName << "---";
-            if (eventTime < currentReturnTime || eventTime > endTime) {
-                qDebug() << "  Event time out of range:" << eventTime.toString("yyyy-MM-dd HH:mm:ss");
-                continue;
-            }
-
-            qDebug() << "  Planet RA:" << siderealTimeToString(planetRA, HighPrecision) << "(" << planetRA << "deg)";
-            qDebug() << "  Angle RA:" << siderealTimeToString(angleRA, HighPrecision) << "(" << angleRA << "deg)";
-            qDebug() << "  Target RAMC:" << siderealTimeToString(targetRAMC, HighPrecision) << "(" << targetRAMC << "deg)";
-            qDebug() << "  Return RAMC:" << siderealTimeToString(returnScope.houses.RAMC, HighPrecision) << "(" << returnScope.houses.RAMC << "deg)";
-            qDebug() << "  RAMC Diff:" << siderealTimeToString(ramcDiff, HighPrecision) << "(" << ramcDiff << "deg)";
-            qDebug() << "  RAMS Off:" << siderealTimeToString(delta, HighPrecision) << "(" << delta << "deg)";
-            qDebug() << "  Return RAMS:" << siderealTimeToString(returnRAMS, HighPrecision) << "(" << returnRAMS << "deg)";
-            qDebug() << "  Target RAMS:" << siderealTimeToString(targetRAMS, HighPrecision) << "(" << targetRAMS << "deg)";
-            qDebug() << "  Event time:" << eventTime.toString("yyyy-MM-dd HH:mm:ss");
-            
-            double actualPSSRRAMC = A::calculatePSSRRAMC(returnScope.houses, currentReturnTime, eventTime, anniversarySecond, useMeanSun);
-            qDebug() << "  Actual PSSR RAMC at event time:" << siderealTimeToString(actualPSSRRAMC, HighPrecision) << "(" << actualPSSRRAMC << "deg)";
-            double mundoOrb = swe_difdeg2n(actualPSSRRAMC, targetRAMC);
-            qDebug() << "  Mundo Orb:" << mundoOrb << "deg";
-            events.append({ eventTime, &p, angleName, actualPSSRRAMC, mundoOrb });
-        }
-    }
-
-    // Sort events chronologically
-    std::sort(events.begin(), events.end());
-
-    // Build HTML table
-    QString ret = "<h2>" + QObject::tr("PSSR") + " ("
-                  + (useMeanSun ? QObject::tr("Mean Sun")
-                                : QObject::tr("Apparent Sun"))
-                  + ")</h2>";
-    ret += "<p style='font-size: 90%; color: #aaa;'>";
-    ret += QObject::tr("Anniversary Second: %1").arg(anniversarySecond, 0, 'f', 6);
-    ret += " | " + QObject::tr("Range: %1 days").arg(daysRange);
-    ret += "</p>";
-
-    qDebug() << "PSSR events found:" << events.size();
-    if (events.isEmpty()) {
-        qDebug() << "PSSR: no angular planets found within orb.";
-        ret += "<p>" + QObject::tr("No angular planets found within orb.") + "</p>";
-        return ret;
-    }
-
-    const QString cellPadding = "0px";
-
-    ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
-    ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
-    ret += "<th style='padding: 4px 8px; text-align: left;'>"
-           + QObject::tr("Planet") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: center;'>"
-           + QObject::tr("Angle") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: right;'>";
-        ret += QObject::tr("Date");
-        ret += "</th>";
-        ret += "</tr>";
-
-    // Group events by proximity (like parans)
-    double       orbSecs    = paranOrb * 240; // Convert degrees to seconds
-    bool         anyPrinted = false;
-
-    for (int i = 0; i < events.size(); i++) {
-        const auto& evt = events[i];
-
-        // Check if this event is part of a group
-        bool isFirstInGroup = true;
-        if (i > 0) {
-            qint64 secsDiff =
-                events[i - 1].dt.secsTo(evt.dt);
-            if (qAbs(secsDiff) <= orbSecs) {
-                isFirstInGroup = false;
-            }
-        }
-
-        bool addBorder = (isFirstInGroup && anyPrinted);
-
-        ret += "<tr" + QString(addBorder ? " style='border-top: 1px solid #555;'" : "") + ">";
-        
-         // Planet name
-         ret += "<td style='padding: " + cellPadding
-             + " 8px; font-weight: bold; color: #e9e9e4;'>" + evt.planet->name
-             + "</td>";
-
-         // Angle name
-         ret += "<td style='padding: " + cellPadding
-             + " 8px; text-align: center;'>" + evt.angleName + "</td>";
-
-         // Time/Date
-         QString timeStr = evt.dt.toString("ddd yyyy-MM-dd HH:mm");
-         ret += "<td style='padding: " + cellPadding + " 8px; text-align: right;'>"
-             + timeStr + "</td>";
-
-         ret += "</tr>";
-         anyPrinted = true;
-    }
-
-    ret += "</table>";
-    maxWidth = 0;
     return ret;
 }
 
@@ -1738,10 +1423,6 @@ describe(AstroFileList&& scopes,
 
     if ((article & Article_Speculum) && scope.planets.count()) {
         ret += describeSpeculum(scope, bool(article & Article_FixedStars));
-    }
-
-    if ((article & Article_PSSR) && scopes.count() == 2) {
-        ret += describePSSR(scopes, paranOrb);
     }
 
     ret += "</body></html>";
