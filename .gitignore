@@ -34,6 +34,13 @@ Makefile.*
 /bin/*.ini
 /bin/i18n/*.cmd
 /bin/style/style.unused.css
+/bin/tls/
+/bin/platforms/
+/bin/qcertonly/
+/bin/styles/
+/bin/imageformats/
+/bin/iconengines/
+/bin/generic/
 /etc
 /nsis/*.psd
 /nsis/*.exe

@@ -234,12 +234,12 @@ set_target_properties(zodiac PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin
 )
 
-# Windows RC file - temporarily disabled due to windres issues
-# if(WIN32)
-#     if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/zodiac/app.rc)
-#         target_sources(zodiac PRIVATE zodiac/app.rc)
-#     endif()
-# endif()
+# Windows RC file - includes application icon
+if(WIN32)
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/zodiac/app.rc)
+        target_sources(zodiac PRIVATE zodiac/app.rc)
+    endif()
+endif()
 
 install(TARGETS zodiac
     BUNDLE DESTINATION .

@@ -1,15 +1,15 @@
 !define PRODUCT 'Zodiac'
-!define VERSION '0.7.1'
+!define VERSION '0.9.1'
 
+!include WinMessages.nsh
 !include FontReg.nsh
 !include FontName.nsh
-!include WinMessages.nsh
 
 Name ${Product}
 
 OutFile "${Product}-${VERSION}-installer.exe"
 Icon "${NSISDIR}\Contrib\Graphics\Icons\orange-install.ico"
-InstallDir "$PROGRAMFILES\Zodiac"
+InstallDir "$PROGRAMFILES64\Zodiac"
 InstallDirRegKey HKLM "Software\Zodiac" "Install_Dir"
 RequestExecutionLevel admin
 
@@ -23,7 +23,7 @@ RequestExecutionLevel admin
 ;!insertmacro MUI_LANGUAGE "Russian"
 
 !define MUI_WELCOMEPAGE_TITLE "Welcome to ${PRODUCT} ${VERSION} setup wizard"
-;!define MUI_WELCOMEPAGE_TEXT "Установщик проведет вас через все этапы установки программы ${PRODUCT} ${VERSION} на ваш компьютер."
+;!define MUI_WELCOMEPAGE_TEXT "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ${PRODUCT} ${VERSION} пїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ."
 
 # These indented statements modify settings for MUI_PAGE_FINISH
 !define MUI_FINISHPAGE_NOAUTOCLOSE
@@ -54,10 +54,28 @@ Section "Essential files" SecMain
   
   ; Set output path to the installation directory.
   SetOutPath $INSTDIR
-  File ..\bin\Qt*.dll
-  File ..\bin\icu*.dll
-  File ..\bin\lib*.dll
+  
+  ; Preserve existing settings.ini if it exists
+  IfFileExists "$INSTDIR\settings.ini" 0 +2
+    Rename "$INSTDIR\settings.ini" "$INSTDIR\settings.ini.backup"
+  
+  ; Main executable (required)
   File ..\bin\zodiac.exe
+  File "README_FOR_USERS.txt"
+  File "license.txt"
+  
+  ; Qt DLLs (if present - use /nonfatal so installer still works without them)
+  File /nonfatal ..\bin\Qt*.dll
+  File /nonfatal ..\bin\icu*.dll
+  File /nonfatal ..\bin\lib*.dll
+  
+  ; OpenSSL DLLs (required for HTTPS/TLS - Google Maps API, etc.)
+  File /nonfatal ..\bin\libssl-3-x64.dll
+  File /nonfatal ..\bin\libcrypto-3-x64.dll
+  
+  ; LLVM/MinGW runtime DLLs (required for llvm-mingw builds)
+  File /nonfatal ..\bin\libc++.dll
+  File /nonfatal ..\bin\libunwind.dll
   
   SetOutPath "$INSTDIR\astroprocessor"
   File ..\bin\astroprocessor\*.csv
@@ -99,11 +117,24 @@ Section "Essential files" SecMain
   SetOutPath "$INSTDIR\platforms"
   File ..\bin\platforms\*
   
+  SetOutPath "$INSTDIR\styles"
+  File /nonfatal ..\bin\styles\*
+  
+  SetOutPath "$INSTDIR\tls"
+  File /nonfatal ..\bin\tls\*
+  
   SetOutPath "$INSTDIR\style"
   File ..\bin\style\*
   
   SetOutPath "$INSTDIR\swe"
   File ..\bin\swe\*
+  
+  ; Note: settings.ini deliberately excluded - will be created by application on first run
+  ; This avoids including personal user preferences in the installer
+  
+  ; Restore backed-up settings.ini if it exists
+  IfFileExists "$INSTDIR\settings.ini.backup" 0 +2
+    Rename "$INSTDIR\settings.ini.backup" "$INSTDIR\settings.ini"
   
   SetOutPath "$INSTDIR\text\en"
   File ..\bin\text\en\*
@@ -129,28 +160,31 @@ Section "Essential files" SecMain
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "NoRepair" 1
   WriteUninstaller "uninstall.exe"
   
+  ; Try to grant write permissions to installation directory so settings.ini can be created
+  ; Use icacls command (built into Windows) to grant Users group write access
+  nsExec::ExecToLog 'icacls "$INSTDIR" /grant Users:(OI)(CI)M /T /Q'
+  
 SectionEnd
 
 Section "Fonts" SecFonts
-	SetOutPath "$FONTS"
-	StrCpy $FONT_DIR $FONTS
-	!insertmacro InstallTTFFont 'fonts\Almagest.ttf'
-	!insertmacro InstallTTFFont 'fonts\DejaVuSans.ttf'
-	!insertmacro InstallTTFFont 'fonts\DejaVuSansCondensed.ttf'
-	!insertmacro InstallTTFFont 'fonts\DejaVuSerif.ttf'
-	;File fonts\*.ttf
+  SetOutPath "$FONTS"
+  !insertmacro InstallTTFFont 'fonts\Almagest.ttf'
+  !insertmacro InstallTTFFont 'fonts\DejaVuSans.ttf'
+  !insertmacro InstallTTFFont 'fonts\DejaVuSansCondensed.ttf'
+  !insertmacro InstallTTFFont 'fonts\DejaVuSerif.ttf'
 SectionEnd
 
 ; Optional section (can be disabled by the user)
 Section "Start menu shortcut" SecFolder
+  SetOutPath "$INSTDIR"
   CreateDirectory "$SMPROGRAMS\Zodiac"
   CreateShortCut "$SMPROGRAMS\Zodiac\Uninstall.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\uninstall.exe" 0
-  CreateShortCut "$SMPROGRAMS\Zodiac\Zodiac.lnk" "$INSTDIR\zodiac.exe" "" "$INSTDIR\zodiac.exe" 0
+  CreateShortCut "$SMPROGRAMS\Zodiac\Zodiac.lnk" "$INSTDIR\zodiac.exe" "" "$INSTDIR\zodiac.exe" 0 SW_SHOWNORMAL "" "Zodiac Sidereal - Astrological Software" "$INSTDIR"
 SectionEnd
 
 Section "Desktop shortcut" SecIco
-  SetOutPath "$DESKTOP"
-  CreateShortCut "$DESKTOP\Zodiac.lnk" "$INSTDIR\zodiac.exe"
+  SetOutPath "$INSTDIR"
+  CreateShortCut "$DESKTOP\Zodiac.lnk" "$INSTDIR\zodiac.exe" "" "$INSTDIR\zodiac.exe" 0 SW_SHOWNORMAL "" "Zodiac Sidereal - Astrological Software" "$INSTDIR"
 SectionEnd
 
 ;--------------------------------
@@ -158,12 +192,47 @@ SectionEnd
 ; Uninstaller
 
 Section "Uninstall"
-  ; Remove directories used
+  ; Remove shortcuts
   RMDir /r "$SMPROGRAMS\Zodiac"
-  RMDir /r "$INSTDIR"
-  
   Delete "$DESKTOP\Zodiac.lnk"
   
+  ; Preserve user data by backing it up before removal
+  ; Check if settings.ini exists and preserve it
+  IfFileExists "$INSTDIR\settings.ini" 0 +3
+    CopyFiles "$INSTDIR\settings.ini" "$TEMP\zodiac_settings_backup.ini"
+    MessageBox MB_YESNO "Preserve your settings and user data?$\n$\nThis includes:$\n- settings.ini (API keys, preferences)$\n- user\ directory (your chart files)$\n$\nClick Yes to keep them, No to delete everything." IDYES preserve_data
+  
+  ; User chose to delete everything or no settings exist
+  RMDir /r "$INSTDIR"
+  Goto end_uninstall
+  
+  preserve_data:
+    ; Remove everything except user data
+    Delete "$INSTDIR\zodiac.exe"
+    Delete "$INSTDIR\uninstall.exe"
+    Delete "$INSTDIR\*.dll"
+    RMDir /r "$INSTDIR\astroprocessor"
+    RMDir /r "$INSTDIR\chart"
+    RMDir /r "$INSTDIR\details"
+    RMDir /r "$INSTDIR\fileeditor"
+    RMDir /r "$INSTDIR\fonts"
+    RMDir /r "$INSTDIR\generic"
+    RMDir /r "$INSTDIR\i18n"
+    RMDir /r "$INSTDIR\iconengines"
+    RMDir /r "$INSTDIR\imageformats"
+    RMDir /r "$INSTDIR\images"
+    RMDir /r "$INSTDIR\plain"
+    RMDir /r "$INSTDIR\planets"
+    RMDir /r "$INSTDIR\platforms"
+    RMDir /r "$INSTDIR\style"
+    RMDir /r "$INSTDIR\styles"
+    RMDir /r "$INSTDIR\swe"
+    RMDir /r "$INSTDIR\text"
+    ; Note: user\ directory is preserved
+    ; Note: settings.ini is preserved
+    MessageBox MB_OK "Application removed. Your settings and chart files have been preserved in:$\n$INSTDIR"
+  
+  end_uninstall:
   ; Remove registry keys
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac"
   DeleteRegKey HKLM SOFTWARE\Zodiac

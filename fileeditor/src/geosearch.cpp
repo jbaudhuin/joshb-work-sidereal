@@ -233,6 +233,11 @@ GeoSuggestCompletion::handleNetworkData(QNetworkReply *networkReply)
         QStringList pos;      // "longitude latitude"
 
         QByteArray response(networkReply->readAll());
+        
+        // Debug: Log the response for troubleshooting
+        qDebug() << "GeoSuggest: Received response from" << url.toString();
+        qDebug() << "GeoSuggest: Response:" << response;
+        
         QXmlStreamReader xml(response);
 
         while (!xml.atEnd())
@@ -279,6 +284,14 @@ GeoSuggestCompletion::handleNetworkData(QNetworkReply *networkReply)
         }
 
         showCompletion(shortNames, fullText, pos);
+    }
+    else
+    {
+        // Log network error details
+        qDebug() << "GeoSuggest: Network error:" << networkReply->errorString();
+        qDebug() << "GeoSuggest: Error code:" << networkReply->error();
+        qDebug() << "GeoSuggest: URL:" << networkReply->url().toString();
+        qDebug() << "GeoSuggest: Response:" << networkReply->readAll();
     }
 
     networkReply->deleteLater();

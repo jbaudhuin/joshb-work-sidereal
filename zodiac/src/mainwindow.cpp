@@ -3504,23 +3504,53 @@ MainWindow::showAbout()
     v->addLayout(h);
 
     l->setText(
-        "<center><b><big>" + QApplication::applicationVersion() + "</big></b>>"
-        + tr("Astrological software for personal use.")
-        + "</p>"
-          //"<p><a style='color:yellow'
-          // href=\"http://www.syslog.pro/tag/zodiac\">Watch
-          // developer's blog</a>" " | <a style='color:yellow'
-          // href=\"https://github.com/atten/zodiac\"><img
-          // src=\"style/github.png\">Follow on GitHub</a></p>"
-          "<p>Copyright (C) 2012-2014 Artem Vasilev<br> " "style" "=':" "white'" " hr" "ef" "=\"mailto:atten@" "syslog.pro\">atten@/" "p><br>"
-        + tr(
-            "This application is provided AS IS and distributed in " "the  " "t" "h" "a" "t" " " "i" "t" " " "w" "i" "l" "l" " " "b" "e" " " "u" "s" "e" "f" "u" "l" "," " " "ANY WARRANTY;  " "even the implied  " "MEC" "HAT" "ABL" "ITY" " or FITNESS FOR A .")
-        + "</center>");
+        "<center><b><big>" + QApplication::applicationVersion() + "</big></b>"
+        "<br><b>Zodiac Sidereal</b></center>"
+        "<p>" + tr("Astrological software for personal use.") + "</p>"
+        "<p><b>Original Application:</b><br>"
+        "Copyright © 2012-2014 Artem Vasilev<br>"
+        "<a style='color:yellow' href='mailto:atten@syslog.pro'>atten@syslog.pro</a></p>"
+        "<p><b>Sidereal Branch Enhancements:</b><br>"
+        "Copyright © 2016-2025 Josh Baudhuin<br>"
+        "<a style='color:yellow' href='https://github.com/jbaudhuin/joshb-work-sidereal'>github.com/jbaudhuin/joshb-work-sidereal</a></p>"
+        "<p><b>Key Features Added:</b><br>"
+        "• Sidereal zodiac support (Fagan-Bradley & Lahiri ayanamshas)<br>"
+        "• Harmonic charts and patterns (H1-H32)<br>"
+        "• Fixed star conjunctions and parans<br>"
+        "• Primary directions and speculum<br>"
+        "• Comprehensive event search and timing<br>"
+        "• Transit and progression tracking<br>"
+        "• Equatorial and prime vertical aspects</p>"
+        "<center>" + tr(
+            "This application is provided AS IS with ABSOLUTELY NO WARRANTY. "
+            "It is distributed in the hope that it will be useful, but WITHOUT "
+            "ANY WARRANTY; without even the implied warranty of MERCHANTABILITY "
+            "or FITNESS FOR A PARTICULAR PURPOSE.")
+        + "<br><br>"
+        "<b>License:</b> GNU General Public License v3<br>"
+        "This is free software: you are free to use, modify, and redistribute it.</center>");
 
     l2->setText(
-        "<p><b>Swiss Ephemerides library</b><br> " "Astrodienst AG,  " "res" "e"
-                                                                             "r"
-                                                                             "v" "ed." "<br" "> " "style=''" " href=\"ftp:/" "www.astro./" "swisseph/\">" "ftp://." "ch/pub//" "LICENSE</>" "<p>>" "Pri " "Ico " "Set/" "b>  " "Webs" "ign " "Dep<" "br>\"https://www.iconfinder.com/iconsets/Primo_Icons#readme\">www.iconfinder.com/iconsets/Primo_Icons#readme</a></p>>" "<p>Additional thanks to authors of <b>\"SymSolon\"</b> project<br>\"http://sf.net/projects/symsolon\">sf.net/projects/symsolon</a></p>");
+        "<center><b>Third-Party Libraries & Credits</b></center>"
+        "<p><b>Swiss Ephemeris</b><br>"
+        "© Astrodienst AG, Switzerland. All rights reserved.<br>"
+        "Authors: Dieter Koch and Alois Treindl<br>"
+        "Licensed under GPL v2+<br>"
+        "<a style='color:yellow' href='https://www.astro.com/swisseph/'>www.astro.com/swisseph/</a><br>"
+        "See swe/LICENSE for details</p>"
+        "<p><b>Qt Framework</b><br>"
+        "The Qt Company Ltd.<br>"
+        "Licensed under LGPL v3<br>"
+        "<a style='color:yellow' href='https://www.qt.io/'>www.qt.io</a></p>"
+        "<p><b>Boost C++ Libraries</b><br>"
+        "Boost Software License<br>"
+        "<a style='color:yellow' href='https://www.boost.org/'>www.boost.org</a></p>"
+        "<p><b>Primo Icon Set</b><br>"
+        "Webdesigner Depot<br>"
+        "<a style='color:yellow' href='https://www.iconfinder.com/iconsets/Primo_Icons'>www.iconfinder.com/iconsets/Primo_Icons</a></p>"
+        "<p><b>Additional Thanks:</b><br>"
+        "SymSolon project contributors<br>"
+        "<a style='color:yellow' href='http://sf.net/projects/symsolon'>sf.net/projects/symsolon</a></p>");
 
     connect(l, SIGNAL(linkActivated(QString)), this, SLOT(gotoUrl(QString)));
     connect(l2, SIGNAL(linkActivated(QString)), this, SLOT(gotoUrl(QString)));

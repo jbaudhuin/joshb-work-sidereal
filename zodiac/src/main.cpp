@@ -78,7 +78,7 @@ main(int argc, char* argv[])
 {
     QApplication a(argc, argv);
     a.setApplicationName("Zodiac");
-    a.setApplicationVersion("v0.8.1 (build 2019-02-08)");
+    a.setApplicationVersion("v0.9.1 (build 2025-12-03)");
 
     // Debug: Show current working directory and application path
     auto cwd        = QDir::currentPath();
