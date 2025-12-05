@@ -43,6 +43,7 @@ class AstroFile : public QObject, public A::EventStore {
         DateRange    = 0x4000,
         ChangedState = 0x8000,
         BaseChart    = 0x10000,
+        TimezoneLocked = 0x20000,
         All          = 0xFFFF
     };
 
@@ -86,10 +87,14 @@ class AstroFile : public QObject, public A::EventStore {
     void setHarmonic(double harmonic);
     void setBaseChart(const QDateTime& baseGmt);
     void clearBaseChart();
+    void setTimezoneLocked(bool locked);
 
     void setFocalPlanets(const A::PlanetSet& fp = {}) { _focalPlanets = fp; }
 
     QString          getName() const { return _fileInfo.baseName(); }
+    QString          getBaseName() const;
+    QString          getDisplayName() const;
+    bool             isTimezoneLocked() const { return _timezoneLocked; }
     const AFileInfo& fileInfo() const { return _fileInfo; }
 
     const QString&   getComment() const { return comment; }
@@ -223,6 +228,7 @@ class AstroFile : public QObject, public A::EventStore {
     QString      comment;
     QString      locationName;
     FileType     type;
+    bool         _timezoneLocked;
     A::Horoscope scope;
 
     QList<QDateTime> _eventList; // computed contact dateTimes

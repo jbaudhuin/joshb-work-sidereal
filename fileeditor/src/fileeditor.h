@@ -35,6 +35,7 @@ protected:
     QLabel* basisLbl;
     QDateTimeEdit* dateTime;
     QDoubleSpinBox* timeZone;
+    QPushButton* lockTimezone;
     GeoSearchWidget* geoSearch;
     QPlainTextEdit* comment;
     QLabel* startDateLbl;
@@ -48,6 +49,7 @@ protected:
     bool _inUpdate;
     bool _inApply;
     bool _inDateSelection;
+    bool _userEditedTime;  // Track if user manually changed time in this session
 
     void update(AstroFile::Members);
     void updateTabs();

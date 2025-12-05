@@ -223,6 +223,7 @@ class AstroDatabase : public QFrame {
     void newDirectory(const QModelIndex& qmi);
     void deleteDirectory(const QModelIndex& qmi);
     bool directoryHasChartFiles(const QString& dirPath);
+    void setTypeForSelected();
     void renameSelected();
     void moveToFolder();
     void moveSelected(const QString& targetDir);

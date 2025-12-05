@@ -1601,6 +1601,7 @@ AstroDatabase::showContextMenu(QPoint p)
         smnu->addAction(tr("Chiron"), getOpener("Chiron"));
 
         mnu->addSeparator();
+        mnu->addAction(tr("Set Type..."), this, SLOT(setTypeForSelected()));
         mnu->addAction(tr("Rename..."), this, SLOT(renameSelected()));
         mnu->addAction(tr("Move to folder..."), this, SLOT(moveToFolder()));
         mnu->addAction(QIcon("style/delete.png"),
@@ -1862,6 +1863,92 @@ AstroDatabase::deleteDirectory(const QModelIndex& qmi)
     
     // Refresh the view
     updateList();
+}
+
+void
+AstroDatabase::setTypeForSelected()
+{
+    qDebug() << "AstroDatabase::setTypeForSelected() called";
+    
+    auto sm = fileList->selectionModel();
+    if (!sm) return;
+
+    auto sil = sm->selectedIndexes();
+    if (sil.isEmpty()) return;
+
+    // Get selected file paths
+    QStringList filePaths;
+    for (const auto& proxyIndex : sil) {
+        auto sourceIndex = searchProxy->mapToSource(proxyIndex);
+        auto item = dirModel->itemFromIndex(sourceIndex);
+        if (!item) continue;
+        
+        auto type = entryType(item->data(TypeRole).toUInt());
+        if (type == fileType) {
+            filePaths << item->data(PathRole).toString();
+        }
+    }
+    
+    if (filePaths.isEmpty()) {
+        QMessageBox::information(this, tr("Set Type"), 
+            tr("No chart files selected."));
+        return;
+    }
+
+    // Create dialog to select new type
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Set Chart Type"));
+    dialog.setModal(true);
+    
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    
+    QLabel* label = new QLabel(
+        tr("Set type for %n selected chart(s):", "", filePaths.count()), 
+        &dialog);
+    layout->addWidget(label);
+    
+    QComboBox* typeCombo = new QComboBox(&dialog);
+    typeCombo->addItem(tr("Other"), TypeOther);
+    typeCombo->addItem(tr("Event"), TypeEvent);
+    typeCombo->addItem(tr("Male"), TypeMale);
+    typeCombo->addItem(tr("Female"), TypeFemale);
+    typeCombo->addItem(tr("Return"), TypeReturn);
+    typeCombo->addItem(tr("Progressed"), TypeDerivedProg);
+    typeCombo->addItem(tr("Search"), TypeSearch);
+    typeCombo->addItem(tr("Solar Arc"), TypeDerivedSA);
+    typeCombo->addItem(tr("Primary Directions"), TypeDerivedPD);
+    typeCombo->addItem(tr("Derived Search"), TypeDerivedSearch);
+    layout->addWidget(typeCombo);
+    
+    QDialogButtonBox* buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    
+    FileType newType = static_cast<FileType>(typeCombo->currentData().toInt());
+    
+    // Apply the type to all selected files
+    int successCount = 0;
+    for (const QString& filePath : filePaths) {
+        AFileInfo fi(filePath);
+        if (!fi.exists()) continue;
+        
+        // Load the file, change the type, and save it
+        QSettings file(filePath, QSettings::IniFormat);
+        file.setValue("type", AstroFile::typeToString(newType));
+        file.sync();
+        
+        qDebug() << "Set type for" << fi.baseName() << "to" << AstroFile::typeToString(newType);
+        successCount++;
+    }
+    
+    QMessageBox::information(this, tr("Set Type"), 
+        tr("Updated type for %n chart(s).", "", successCount));
 }
 
 void

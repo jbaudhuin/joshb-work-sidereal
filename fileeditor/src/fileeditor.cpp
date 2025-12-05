@@ -36,7 +36,8 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     AstroFileHandler(parent),
     _inUpdate(false),
     _inApply(false),
-    _inDateSelection(false)
+    _inDateSelection(false),
+    _userEditedTime(false)
 {
     if (planets.empty()) {
         planets = QStringList({ "Sun", "Moon", "Mercury", "Venus", "Mars",
@@ -60,6 +61,24 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     basis      = new QComboBox;
     dateTime   = new QDateTimeEdit;
     timeZone   = new QDoubleSpinBox;
+    lockTimezone = new QPushButton;
+    lockTimezone->setCheckable(true);
+    lockTimezone->setMaximumWidth(40);
+    lockTimezone->setFlat(true);  // Remove button styling
+    QFont lockFont = lockTimezone->font();
+    lockFont.setPointSize(lockFont.pointSize() + 4);  // Make emoji bigger
+    lockTimezone->setFont(lockFont);
+    lockTimezone->setText("🔓");  // Unicode unlocked padlock
+    lockTimezone->setToolTip(tr("Click to lock timezone (for relocation charts)"));
+    connect(lockTimezone, &QPushButton::toggled, this, [this](bool checked) {
+        lockTimezone->setText(checked ? "🔒" : "🔓");  // Locked / Unlocked
+        lockTimezone->setToolTip(checked ? 
+            tr("Timezone locked - click to unlock") : 
+            tr("Click to lock timezone (for relocation charts)"));
+        if (!_inUpdate && !_inApply) {
+            applyToFile(true, false);
+        }
+    });
     geoSearch  = new GeoSearchWidget;
     comment    = new QPlainTextEdit;
 
@@ -70,7 +89,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     for (unsigned i = TypeEvent, n = TypeCount;
          i < n; ++i)
     {
-        type->addItem(tr(AstroFile::typeToString(i).toLatin1().constData()));
+        type->addItem(tr(AstroFile::typeToString(i).toLatin1().constData()), i);
     }
     type->setCurrentIndex(-1);
 
@@ -101,13 +120,15 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
 
     QHBoxLayout* lay3 = new QHBoxLayout;
     lay3->addWidget(name);
-    lay3->addWidget(new QLabel(tr("Type:")));
-    lay3->addWidget(type);
+    // Temporarily hidden:
+    // lay3->addWidget(new QLabel(tr("Type:")));
+    // lay3->addWidget(type);
 
     QHBoxLayout* lay2 = new QHBoxLayout;
     lay2->addWidget(dateTime);
     lay2->addWidget(new QLabel(tr("Time zone:")));
     lay2->addWidget(timeZone);
+    lay2->addWidget(lockTimezone);
 
     QFormLayout* lay1 = new QFormLayout;
     lay1->addRow(tr("Name:"),       lay3);
@@ -205,8 +226,16 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     connect(timeZone,   SIGNAL(valueChanged(double)),
             this, SLOT(timezoneChanged()));
 
-    connect(dateTime, SIGNAL(dateTimeChanged(const QDateTime&)),
-            this, SLOT(updateTimezone()));
+    // Track when user manually edits time
+    connect(dateTime, &QDateTimeEdit::dateTimeChanged,
+            this, [this](const QDateTime&) {
+        if (!_inUpdate && !_inApply) {
+            _userEditedTime = true;
+            qDebug() << "User manually edited time";
+        }
+    });
+
+    // Only update timezone when location changes, not when user edits time
     connect(geoSearch, SIGNAL(locationChanged()),
             this, SLOT(updateTimezone()));
 
@@ -292,32 +321,12 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
 void
 AstroFileEditor::timezoneChanged()
 {
+    // Just update the display prefix - don't touch the datetime widget
+    // The timezone value will be used when converting to GMT in applyToFile()
     if (timeZone->value() < 0)
         timeZone->setPrefix("");
     else
         timeZone->setPrefix("+");
-
-    QTimeZone tz(3600 * timeZone->value());
-    QDateTime dt  = dateTime->dateTime();
-    auto      otz = dt.timeZone();
-    if (tz != otz) {
-        bool blocked = dateTime->signalsBlocked();
-        if (!blocked) {
-            dateTime->blockSignals(true);
-        }
-#if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
-        auto newd  = tz.offsetFromUtc(dt);
-        auto oldd  = otz.offsetFromUtc(dt);
-        auto delta = newd - oldd;
-        auto upd   = dt.addSecs(delta);
-        dateTime->setDateTime(upd);
-#else
-        dateTime->setTimeZone(tz);
-#endif
-        if (!blocked) {
-            dateTime->blockSignals(false);
-        }
-    }
 }
 
 void
@@ -329,6 +338,14 @@ AstroFileEditor::updateTimezone()
         return;
     }
 
+    // Check if timezone is locked (for relocation charts)
+    if (lockTimezone->isChecked()) {
+        qDebug() << "Skipping timezone update - timezone is locked";
+        return;
+    }
+
+    // Now that time display is decoupled from timezone, we can safely
+    // update timezone when location changes without affecting displayed time
     QVector3D vec(geoSearch->location());
 
     auto nm = new QNetworkAccessManager(this);
@@ -397,23 +414,51 @@ void AstroFileEditor::update(AstroFile::Members m)
 
     AstroFile* source =  file(currentFile);
 
+    // Reset user-edited flag when loading a chart
+    _userEditedTime = false;
+
     A::modalize<bool> inUpdate(_inUpdate,true);
     if (m & AstroFile::Type) {
-        type->setCurrentIndex(source->getType());
+        // Find the combo box index that has this enum value
+        int idx = type->findData(source->getType());
+        if (idx >= 0) {
+            type->setCurrentIndex(idx);
+        }
     }
 
-    name->setText(source->getName());
+    // Show only the base name (without ", loc: City" suffix) in the name field
+    name->setText(source->getBaseName());
     geoSearch->blockSignals(true);
     timeZone->blockSignals(true);
+    lockTimezone->blockSignals(true);
     dateTime->blockSignals(true);
     basis->blockSignals(true);
     
     geoSearch->setLocation(source->getLocation(),
                            source->getLocationName());
     timeZone->setValue(source->getTimezone());
-    auto dt = source->getGMT();
-    dateTime->setDateTime(dt);
-    dateTime->setTimeZone(QTimeZone(3600 * source->getTimezone()));
+    lockTimezone->setChecked(source->isTimezoneLocked());
+    
+    // Update lock button appearance manually since signals are blocked
+    bool isLocked = source->isTimezoneLocked();
+    lockTimezone->setText(isLocked ? "🔒" : "🔓");
+    lockTimezone->setToolTip(isLocked ? 
+        tr("Timezone locked - click to unlock") : 
+        tr("Click to lock timezone (for relocation charts)"));
+    
+    // Convert GMT to local time in the chart's timezone
+    auto gmtDt = source->getGMT();
+    QTimeZone tz(3600 * source->getTimezone());
+    QDateTime localDt = gmtDt.toTimeZone(tz);
+    
+    // Set the datetime widget without timezone - just display the local time
+    dateTime->blockSignals(true);
+    dateTime->setDate(localDt.date());
+    dateTime->setTime(localDt.time());
+    dateTime->blockSignals(false);
+    
+    qDebug() << "Loading: GMT" << gmtDt << "TZ offset" << source->getTimezone()
+             << "-> Local time" << localDt.date() << localDt.time();
     
     // Populate basis combo box with available natal charts
     basis->clear();
@@ -457,6 +502,7 @@ void AstroFileEditor::update(AstroFile::Members m)
     
     geoSearch->blockSignals(false);
     timeZone->blockSignals(false);
+    lockTimezone->blockSignals(false);
     dateTime->blockSignals(false);
     basis->blockSignals(false);
     //if (source->getType()==TypeEvents) {
@@ -551,11 +597,35 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
         }
     }
 
-    dst->setName(name->text());
-    dst->setType(FileType(type->currentIndex()));
+    // Build full name with location suffix if timezone is locked
+    QString fullName = name->text();
+    if (lockTimezone->isChecked() && !geoSearch->locationName().isEmpty()) {
+        // Extract just the city name (first part before comma)
+        QString cityName = geoSearch->locationName().split(',').first().trimmed();
+        fullName = fullName + " in " + cityName;
+    }
+    
+    // Preserve the original file's directory when setting the name
+    // Fall back to default chart directory if original is read-only
+    QString dir = dst->fileInfo().path();
+    if (dir == ".") {
+        dir = AstroFile::fixedChartDir();
+    } else {
+        // Check if directory is writable
+        QFileInfo dirInfo(dir);
+        if (!dirInfo.isWritable()) {
+            qDebug() << "Directory" << dir << "is read-only, using default chart directory";
+            dir = AstroFile::fixedChartDir();
+        }
+    }
+    AFileInfo newFileInfo(dir, fullName);
+    dst->setFileInfo(newFileInfo);
+    
+    dst->setType(FileType(type->currentData().toInt()));
     dst->setLocationName(geoSearch->locationName());
     dst->setLocation(geoSearch->location());
     dst->setTimezone(timeZone->value());
+    dst->setTimezoneLocked(lockTimezone->isChecked());
     
     // Handle base chart selection
     FileType curType = dst->getType();
@@ -580,16 +650,18 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     }
     
     if (update) {
-#if 1
-        dst->setGMT(dateTime->dateTime().toUTC());
-#else
-        auto    gmt = dateTime->dateTime().toUTC();
-        QString ugh = gmt.toString(Qt::ISODate);
-        if (!ugh.endsWith("Z")) {
-            ugh += "Z";
-        }
-        dst->setGMT(QDateTime::fromString(ugh,Qt::ISODate));
-#endif
+        // Manually construct GMT from displayed local time and timezone value
+        // Don't trust QDateTimeEdit's internal timezone handling
+        QDate localDate = dateTime->date();
+        QTime localTime = dateTime->time();
+        QTimeZone tz(3600 * timeZone->value());
+        QDateTime localDt(localDate, localTime, tz);
+        QDateTime gmt = localDt.toUTC();
+        dst->setGMT(gmt);
+        
+        qDebug() << "Saving: Local time" << localDate << localTime 
+                 << "TZ offset" << timeZone->value()
+                 << "-> GMT" << gmt;
     }
     dst->setComment(comment->document()->toPlainText());
 
@@ -607,6 +679,11 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
 
     if (resume) dst->resumeUpdate();
     if (!setNeedsSaveFlag) dst->clearUnsavedState();
+    
+    // Reset user-edited flag after saving
+    if (setNeedsSaveFlag) {
+        _userEditedTime = false;
+    }
 }
 
 /*void AstroFileEditor::showEvent(QShowEvent* e)

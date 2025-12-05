@@ -29,6 +29,7 @@ AstroFile::AstroFile(QObject* parent) : QObject(parent)
     _unsavedChanges    = false;
     _holdUpdate        = false;
     _holdUpdateMembers = None;
+    _timezoneLocked    = false;
     qDebug() << "Created file" << getName();
 }
 
@@ -143,6 +144,7 @@ AstroFile::save()
     file.setValue("lat", getLocation().y());
     file.setValue("z", getLocation().z());
     file.setValue("placeTag", getLocationName());
+    file.setValue("timezoneLocked", _timezoneLocked);
     file.setValue("comment", getComment());
 
     // Base chart support for progressed charts
@@ -229,7 +231,22 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
         qDebug() << val << file.value(val);
     }
 
-    setType(typeFromString(file.value("type").toString()));
+    // Load chart type - handle both string (new) and integer (legacy) formats
+    QVariant typeValue = file.value("type");
+    if (typeValue.typeId() == QMetaType::QString || typeValue.typeId() == QMetaType::QByteArray) {
+        setType(typeFromString(typeValue.toString()));
+    } else {
+        // Legacy integer format (rare) - use value directly
+        int typeInt = typeValue.toInt();
+        if (typeInt >= 0 && typeInt < TypeCount) {
+            qWarning() << "File" << getName() << "uses legacy integer type format:" << typeInt;
+            setType(static_cast<FileType>(typeInt));
+            _unsavedChanges = true; // Mark for re-saving in string format
+        } else {
+            qWarning() << "Invalid type value for" << getName() << "- defaulting to TypeOther";
+            setType(TypeOther);
+        }
+    }
 
     auto dts = file.value("GMT").toString();
     if (!dts.endsWith('Z')) dts += 'Z';
@@ -240,6 +257,7 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
                           file.value("lat").toFloat(),
                           file.value("z").toFloat()));
     setLocationName(file.value("placeTag").toString());
+    _timezoneLocked = file.value("timezoneLocked", false).toBool();
     setComment(file.value("comment").toString());
 
     // Clear cached events since we're loading a new chart
@@ -439,6 +457,38 @@ AstroFile::clearBaseChart()
         scope.inputData.clearBaseChart();
         change(BaseChart);
     }
+}
+
+void
+AstroFile::setTimezoneLocked(bool locked)
+{
+    if (_timezoneLocked == locked) return;
+    _timezoneLocked = locked;
+    change(TimezoneLocked);
+}
+
+QString
+AstroFile::getBaseName() const
+{
+    QString fullName = getName();
+    // Extract base name from "Name in City" format
+    int locIndex = fullName.indexOf(" in ");
+    if (locIndex > 0) {
+        return fullName.left(locIndex);
+    }
+    return fullName;
+}
+
+QString
+AstroFile::getDisplayName() const
+{
+    QString base = getBaseName();
+    if (_timezoneLocked && !locationName.isEmpty()) {
+        // Extract just the city name (first part before comma)
+        QString cityName = locationName.split(',').first().trimmed();
+        return base + " in " + cityName;
+    }
+    return base;
 }
 
 void
