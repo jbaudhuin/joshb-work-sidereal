@@ -142,19 +142,17 @@ Section "Essential files" SecMain
   SetOutPath "$INSTDIR\text\ru"
   File ..\bin\text\ru\*
     
-  SetOutPath "$INSTDIR\user"
-  File "..\bin\user\Brad Pitt.dat"
-  File "..\bin\user\Diana, Princess of Wales.dat"
-  File "..\bin\user\Leonardo Dicaprio.dat"
-  File "..\bin\user\Marilyn Monroe.dat"
-  File "..\bin\user\Vladimir Putin.dat"
-  File "..\bin\user\Yuri Gagarin.dat"
+  SetOutPath "$INSTDIR\sampleCharts"
+  File ..\bin\sampleCharts\*.dat
   
   ; Write the installation path into the registry
   WriteRegStr HKLM Software\Zodiac "Install_Dir" "$INSTDIR"
   
   ; Write the uninstall keys for Windows
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "DisplayName" "Zodiac"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "DisplayName" "Zodiac Sidereal"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "DisplayIcon" "$INSTDIR\zodiac.exe,0"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "Publisher" "Turtle Crescent Graphics"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "NoModify" 1
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "NoRepair" 1
@@ -172,6 +170,22 @@ Section "Fonts" SecFonts
   !insertmacro InstallTTFFont 'fonts\DejaVuSans.ttf'
   !insertmacro InstallTTFFont 'fonts\DejaVuSansCondensed.ttf'
   !insertmacro InstallTTFFont 'fonts\DejaVuSerif.ttf'
+SectionEnd
+
+; Optional section - curated default settings (only for new installations)
+Section /o "Author's curated settings" SecSettings
+  SetOutPath "$INSTDIR"
+  
+  ; Only install if settings.ini doesn't already exist
+  IfFileExists "$INSTDIR\settings.ini" 0 +3
+    ; Settings exist - skip installation
+    Goto settings_done
+  
+  ; Settings don't exist - install curated defaults
+  File "default-settings.ini"
+  Rename "$INSTDIR\default-settings.ini" "$INSTDIR\settings.ini"
+  
+  settings_done:
 SectionEnd
 
 ; Optional section (can be disabled by the user)
@@ -200,7 +214,7 @@ Section "Uninstall"
   ; Check if settings.ini exists and preserve it
   IfFileExists "$INSTDIR\settings.ini" 0 +3
     CopyFiles "$INSTDIR\settings.ini" "$TEMP\zodiac_settings_backup.ini"
-    MessageBox MB_YESNO "Preserve your settings and user data?$\n$\nThis includes:$\n- settings.ini (API keys, preferences)$\n- user\ directory (your chart files)$\n$\nClick Yes to keep them, No to delete everything." IDYES preserve_data
+    MessageBox MB_YESNO "Preserve your settings and user data?$\n$\nThis includes:$\n- settings.ini (API keys, preferences)$\n- sampleCharts\ directory (sample chart files)$\n$\nClick Yes to keep them, No to delete everything." IDYES preserve_data
   
   ; User chose to delete everything or no settings exist
   RMDir /r "$INSTDIR"
@@ -228,7 +242,7 @@ Section "Uninstall"
     RMDir /r "$INSTDIR\styles"
     RMDir /r "$INSTDIR\swe"
     RMDir /r "$INSTDIR\text"
-    ; Note: user\ directory is preserved
+    ; Note: sampleCharts\ directory is preserved if user chose to keep data
     ; Note: settings.ini is preserved
     MessageBox MB_OK "Application removed. Your settings and chart files have been preserved in:$\n$INSTDIR"
   
@@ -239,11 +253,25 @@ Section "Uninstall"
 SectionEnd
 
 ;--------------------------------
+; Functions
+
+; Check at startup if settings exist and disable curated settings option
+Function .onInit
+  ; Check if settings.ini already exists in the installation directory
+  IfFileExists "$INSTDIR\settings.ini" 0 settings_check_done
+    ; Settings exist - disable the curated settings section (make it read-only/grayed out)
+    SectionSetFlags ${SecSettings} ${SF_RO}
+    SectionSetText ${SecSettings} "Author's curated settings (already configured)"
+  settings_check_done:
+FunctionEnd
+
+;--------------------------------
 ;Descriptions
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
     !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "Essential files for running application."
 	!insertmacro MUI_DESCRIPTION_TEXT ${SecFonts} "Font files for correct demonstration of glyphs and symbols."
+	!insertmacro MUI_DESCRIPTION_TEXT ${SecSettings} "Curated layout and display settings by the author (for new installations only). Includes optimized preferences for aspect orbs, house systems, and interface layout. Existing settings will be preserved if already present."
 	!insertmacro MUI_DESCRIPTION_TEXT ${SecFolder} "Folder contains application shortcuts in Start menu."
 	!insertmacro MUI_DESCRIPTION_TEXT ${SecIco} "Desktop shortcut."
   !insertmacro MUI_FUNCTION_DESCRIPTION_END

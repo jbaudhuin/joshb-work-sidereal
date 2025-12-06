@@ -1634,7 +1634,7 @@ AstroDatabase::saveCurrent(const QModelIndex& qmi)
     }
 
     // Don't allow saving to Sample Charts
-    if (targetDir.contains("user/") || targetDir.endsWith("user")) {
+    if (targetDir.contains("sampleCharts/") || targetDir.endsWith("sampleCharts")) {
         QMessageBox::information(
             this,
             tr("Save Failed"),
@@ -3553,6 +3553,17 @@ MainWindow::showAbout()
     QPushButton* b2 = new QPushButton;
     QPushButton* b3 = new QPushButton;
 
+    // Set dialog size to match background image aspect ratio (640x400 = 16:10)
+    d->setMinimumSize(640, 500);  // Minimum size to ensure background covers dialog
+    d->resize(800, 600);           // Default size - larger but maintains aspect ratio
+    
+    // Set background image with scaling using palette instead of CSS
+    QPalette palette;
+    QPixmap background("style/about.jpg");
+    palette.setBrush(QPalette::Window, QBrush(background.scaled(d->size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation)));
+    d->setPalette(palette);
+    d->setAutoFillBackground(true);
+    
     b->setCheckable(true);
     b1->setIconSize(QSize(32, 32));
     b2->setIconSize(QSize(32, 32));
@@ -3598,7 +3609,7 @@ MainWindow::showAbout()
         "Copyright © 2012-2014 Artem Vasilev<br>"
         "<a style='color:yellow' href='mailto:atten@syslog.pro'>atten@syslog.pro</a></p>"
         "<p><b>Sidereal Branch Enhancements:</b><br>"
-        "Copyright © 2016-2025 Josh Baudhuin<br>"
+        "Copyright © 2016-2025 Josh Baudhuin/Turtle Crescent Graphics<br>"
         "<a style='color:yellow' href='https://github.com/jbaudhuin/joshb-work-sidereal'>github.com/jbaudhuin/joshb-work-sidereal</a></p>"
         "<p><b>Key Features Added:</b><br>"
         "• Sidereal zodiac support (Fagan-Bradley & Lahiri ayanamshas)<br>"

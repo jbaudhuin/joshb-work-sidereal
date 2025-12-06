@@ -22,14 +22,14 @@ RequestExecutionLevel admin
 !define MUI_HEADERIMAGE_BITMAP "top.bmp"
 ;!insertmacro MUI_LANGUAGE "Russian"
 
-!define MUI_WELCOMEPAGE_TITLE "Установка программы ${PRODUCT} ${VERSION}"
-!define MUI_WELCOMEPAGE_TEXT "Установщик проведет вас через все этапы установки программы ${PRODUCT} ${VERSION} на ваш компьютер."
+!define MUI_WELCOMEPAGE_TITLE "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ${PRODUCT} ${VERSION}"
+!define MUI_WELCOMEPAGE_TEXT "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ${PRODUCT} ${VERSION} пїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ."
 
 # These indented statements modify settings for MUI_PAGE_FINISH
 !define MUI_FINISHPAGE_NOAUTOCLOSE
 !define MUI_FINISHPAGE_RUN "$INSTDIR\zodiac.exe"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
-!define MUI_FINISHPAGE_RUN_TEXT "Запустить приложение"
+!define MUI_FINISHPAGE_RUN_TEXT "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "license-ru.txt"
@@ -48,7 +48,7 @@ RequestExecutionLevel admin
 ;--------------------------------
 
 ; The stuff to install
-Section "Файлы программы" SecMain
+Section "пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ" SecMain
 
   SectionIn RO
   
@@ -110,13 +110,8 @@ Section "Файлы программы" SecMain
   SetOutPath "$INSTDIR\text\ru"
   File ..\bin\text\ru\*
   
-  SetOutPath "$INSTDIR\user"
-  File "..\bin\user\Brad Pitt.dat"
-  File "..\bin\user\Diana, Princess of Wales.dat"
-  File "..\bin\user\Leonardo Dicaprio.dat"
-  File "..\bin\user\Marilyn Monroe.dat"
-  File "..\bin\user\Vladimir Putin.dat"
-  File "..\bin\user\Yuri Gagarin.dat"
+  SetOutPath "$INSTDIR\sampleCharts"
+  File ..\bin\sampleCharts\*.dat
   
   ; Write the installation path into the registry
   WriteRegStr HKLM Software\Zodiac "Install_Dir" "$INSTDIR"
@@ -130,7 +125,7 @@ Section "Файлы программы" SecMain
   
 SectionEnd
 
-Section "Шрифты" SecFonts
+Section "пїЅпїЅпїЅпїЅпїЅпїЅ" SecFonts
 	SetOutPath "$FONTS"
 	StrCpy $FONT_DIR $FONTS
 	!insertmacro InstallTTFFont 'fonts\Almagest.ttf'
@@ -141,13 +136,13 @@ Section "Шрифты" SecFonts
 SectionEnd
 
 ; Optional section (can be disabled by the user)
-Section "Ярлыки в меню Пуск" SecFolder
+Section "пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ" SecFolder
   CreateDirectory "$SMPROGRAMS\Zodiac"
-  CreateShortCut "$SMPROGRAMS\Zodiac\Удалить.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\uninstall.exe" 0
-  CreateShortCut "$SMPROGRAMS\Zodiac\Запуск.lnk" "$INSTDIR\zodiac.exe" "" "$INSTDIR\zodiac.exe" 0
+  CreateShortCut "$SMPROGRAMS\Zodiac\пїЅпїЅпїЅпїЅпїЅпїЅпїЅ.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\uninstall.exe" 0
+  CreateShortCut "$SMPROGRAMS\Zodiac\пїЅпїЅпїЅпїЅпїЅпїЅ.lnk" "$INSTDIR\zodiac.exe" "" "$INSTDIR\zodiac.exe" 0
 SectionEnd
 
-Section "Ярлык на рабочий стол" SecIco
+Section "пїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ" SecIco
   SetOutPath "$DESKTOP"
   CreateShortCut "$DESKTOP\Zodiac.lnk" "$INSTDIR\zodiac.exe"
 SectionEnd
@@ -172,8 +167,8 @@ SectionEnd
 ;Descriptions
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-    !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "Файлы программы, обязательные для установки."
-	!insertmacro MUI_DESCRIPTION_TEXT ${SecFonts} "Шрифты, необходимые для корректного отображения текста и значков."
-	!insertmacro MUI_DESCRIPTION_TEXT ${SecFolder} "Папка с ярлыками для запуска или удаления программы."
-	!insertmacro MUI_DESCRIPTION_TEXT ${SecIco} "Ярлык на рабочий стол."
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ."
+	!insertmacro MUI_DESCRIPTION_TEXT ${SecFonts} "пїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ."
+	!insertmacro MUI_DESCRIPTION_TEXT ${SecFolder} "пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ."
+	!insertmacro MUI_DESCRIPTION_TEXT ${SecIco} "пїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ."
   !insertmacro MUI_FUNCTION_DESCRIPTION_END

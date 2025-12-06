@@ -310,7 +310,7 @@ $RequiredDirs = @(
     "style",
     "swe",
     "text",
-    "user"
+    "sampleCharts"
 )
 
 $missingDirs = @()

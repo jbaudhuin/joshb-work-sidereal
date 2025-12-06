@@ -110,7 +110,7 @@ AstroFile::_fixedChartDirMap()
         if (!d.exists()) QDir().mkpath(d.absolutePath());
 
         s_map["User Charts"]   = dir;
-        s_map["Sample Charts"] = "user/";
+        s_map["Sample Charts"] = "sampleCharts/";
         _fixedChartDirMapKeys() << "User Charts" << "Sample Charts";
     }
     return s_map;

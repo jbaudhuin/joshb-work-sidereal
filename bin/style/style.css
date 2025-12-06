@@ -214,7 +214,7 @@ MainWindow {
 }
 
 QDialog#about  {
-	background: url(style/about.jpg) no-repeat top center;
+	/* Background set via paintEvent in C++ code */
 }
 
 QDialog#about QLabel {
