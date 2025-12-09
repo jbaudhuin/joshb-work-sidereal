@@ -8,7 +8,13 @@
 #include <Astroprocessor/Calc>
 #include <QDir>
 #include <qqmlfile.h>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QCoreApplication>
 #include "planets.h"
+#include "../../zodiac/src/slidewidget.h"
 
 /* =========================== ASTRO QML VIEW ======================================= */
 
@@ -47,6 +53,9 @@ void AstroQmlView :: setSource(const QUrl& url)
 
 Planets :: Planets(QWidget *parent) : AstroFileHandler(parent)
  {
+  // Enable drag and drop
+  setAcceptDrops(true);
+  
   QLabel* label1 = new QLabel(tr("Sort by:"));
   sortByPlanets  = new QRadioButton(tr("planet"));
   sortByHouses   = new QRadioButton(tr("house"));
@@ -69,7 +78,9 @@ Planets :: Planets(QWidget *parent) : AstroFileHandler(parent)
   QVBoxLayout* l3 = new QVBoxLayout(this);
     l3->setContentsMargins(0,5,0,0);
     l3->addLayout(l1);
-    l3->addWidget(QWidget::createWindowContainer(view));
+    QWidget* viewContainer = QWidget::createWindowContainer(view);
+    viewContainer->setAcceptDrops(false); // Disable drops on the container so parent Planets widget handles them
+    l3->addWidget(viewContainer);
 
   connect(sortByPlanets,  SIGNAL(released()), this, SLOT(orderChanged()));
   connect(sortByHouses,   SIGNAL(released()), this, SLOT(orderChanged()));
@@ -230,3 +241,55 @@ void Planets :: objectClicked(QString name)
   A::PlanetId id = name.remove("card_").toInt();
   emit planetSelected(id, 0);
  }
+
+void
+Planets::dragEnterEvent(QDragEnterEvent* event)
+{
+    qDebug() << "Planets::dragEnterEvent";
+    // Accept drops from the chart list
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) {
+        qDebug() << "Planets accepting drag";
+        event->acceptProposedAction();
+    }
+}
+
+void
+Planets::dragMoveEvent(QDragMoveEvent* event)
+{
+    // Accept drag move events
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) {
+        event->acceptProposedAction();
+    }
+}
+
+void
+Planets::dropEvent(QDropEvent* event)
+{
+    qDebug() << "Planets::dropEvent";
+    
+    // Extract file path from mime data
+    QString filePath;
+    
+    if (event->mimeData()->hasText()) {
+        filePath = event->mimeData()->text();
+        qDebug() << "Planets drop text:" << filePath;
+    }
+    
+    if (filePath.isEmpty() && event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        if (!urls.isEmpty()) {
+            filePath = urls.first().toLocalFile();
+            qDebug() << "Planets drop URL:" << filePath;
+        }
+    }
+    
+    if (!filePath.isEmpty()) {
+        // Get parent SlideWidget and emit its chartDropped signal
+        SlideWidget* slideWidget = qobject_cast<SlideWidget*>(parentWidget());
+        if (slideWidget) {
+            qDebug() << "Planets emitting chartDropped signal";
+            emit slideWidget->chartDropped(filePath);
+            event->acceptProposedAction();
+        }
+    }
+}

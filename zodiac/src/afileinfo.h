@@ -17,7 +17,7 @@ public:
     { }
 
     AFileInfo(const QString& file) :
-        QFileInfo(encodeName(file) + suff())
+        QFileInfo(file.endsWith(suff(), Qt::CaseInsensitive) ? file : (encodeName(file) + suff()))
     { }
 
     //AFileInfo& operator=(AFileInfo&& other);

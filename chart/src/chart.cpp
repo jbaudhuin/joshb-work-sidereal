@@ -4,6 +4,11 @@
 #include <Astroprocessor/Output>
 #include <QDebug>
 #include <QEvent>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QCoreApplication>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
@@ -11,6 +16,7 @@
 #include <QWheelEvent>
 #include <math.h>
 #include <swephexp.h>
+#include "../../zodiac/src/slidewidget.h"
 
 
 RotatingCircleItem::RotatingCircleItem(QRect rect, const QPen& pen) :
@@ -143,6 +149,9 @@ Chart::Chart(QWidget* parent) : AstroFileHandler(parent)
 {
     chartsCount = 0;
     zoom        = 1;
+    
+    // Enable drag and drop
+    setAcceptDrops(true);
 
     float scale(0.8), sc2(0.5);
     viewport    = QRect(chartRect().x() / scale,
@@ -162,6 +171,7 @@ Chart::Chart(QWidget* parent) : AstroFileHandler(parent)
     view->scene()->installEventFilter(this);
     view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    view->setAcceptDrops(false); // Disable drops on the view so parent Chart widget handles them
 
     QVBoxLayout* layout = new QVBoxLayout(this);
     layout->setContentsMargins(QMargins(0, 0, 0, 0));
@@ -1066,4 +1076,56 @@ Chart::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addSpacing(10);
     ed->addControl("Circle/includeAsteroids", tr("Display Juno etc.:"));
     ed->addControl("Circle/includeCentaurs", tr("Display Chiron:"));
+}
+
+void
+Chart::dragEnterEvent(QDragEnterEvent* event)
+{
+    qDebug() << "Chart::dragEnterEvent";
+    // Accept drops from the chart list - check for text or URLs
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) {
+        qDebug() << "Chart accepting drag";
+        event->acceptProposedAction();
+    }
+}
+
+void
+Chart::dragMoveEvent(QDragMoveEvent* event)
+{
+    // Accept drag move events - check for text or URLs
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) {
+        event->acceptProposedAction();
+    }
+}
+
+void
+Chart::dropEvent(QDropEvent* event)
+{
+    qDebug() << "Chart::dropEvent";
+    
+    // Extract file path from mime data
+    QString filePath;
+    
+    if (event->mimeData()->hasText()) {
+        filePath = event->mimeData()->text();
+        qDebug() << "Chart drop text:" << filePath;
+    }
+    
+    if (filePath.isEmpty() && event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        if (!urls.isEmpty()) {
+            filePath = urls.first().toLocalFile();
+            qDebug() << "Chart drop URL:" << filePath;
+        }
+    }
+    
+    if (!filePath.isEmpty()) {
+        // Get parent SlideWidget and emit its chartDropped signal
+        SlideWidget* slideWidget = qobject_cast<SlideWidget*>(parentWidget());
+        if (slideWidget) {
+            qDebug() << "Chart emitting chartDropped signal";
+            emit slideWidget->chartDropped(filePath);
+            event->acceptProposedAction();
+        }
+    }
 }

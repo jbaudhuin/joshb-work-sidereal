@@ -62,6 +62,9 @@ class Planets : public AstroFileHandler
 
     protected:                            // AstroFileHandler && other implementations
         void filesUpdated(MembersList);
+        void dragEnterEvent(QDragEnterEvent* event) override;
+        void dragMoveEvent(QDragMoveEvent* event) override;
+        void dropEvent(QDropEvent* event) override;
 
     public:
         Planets(QWidget *parent = 0);

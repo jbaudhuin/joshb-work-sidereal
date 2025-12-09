@@ -1521,15 +1521,30 @@ Transits::stopThreads()
         _progressSortTimer->stop();
     }
     if (_active && !_active->isFinished()) {
-        qDebug() << "Cancelling active finder";
-        emit cancelActive();
-        QThread::usleep(100000);
+        qDebug() << "========================================";
+        qDebug() << "[STOP THREADS] Cancelling active finder thread" << _active << _active->objectName();
+        qDebug() << "[STOP THREADS] AspectFinder:" << _activeFinder.data();
+        qDebug() << "========================================";
+        if (_activeFinder) {
+            _activeFinder->cancel();
+        }
+        // Wait for the thread to actually finish completely
+        // The finder thread's waitForDone loop will ensure thread pool tasks finish
+        qDebug() << "[STOP THREADS] Waiting for finder thread to finish...";
+        _active->wait();
+        qDebug() << "========================================";
+        qDebug() << "[STOP THREADS] Finder thread finished and cleaned up";
+        qDebug() << "========================================";
     }
 }
 
 bool
 Transits::transitsOnly() const
 {
+    // Transits-only mode: single file that is NOT a person's natal chart
+    // If we have 2+ files, we're in synastry/comparison mode, not transits-only
+    if (filesCount() != 1) return false;
+    
     auto ftype = file()->getType();
     return (ftype != TypeMale && ftype != TypeFemale && ftype != TypeEvent);
 }
@@ -1635,6 +1650,8 @@ Transits::updateTimezone()
 
         // Signal that the chart needs updating with new location/timezone
         // This will cause the chart to redraw with the new location
+        // Stop any active finder threads before updating the chart
+        stopThreads();
         if (transitsOnly()) {
             emit updateFirst(file());
         } else {
@@ -1655,6 +1672,16 @@ Transits::updateTimezone()
 void
 Transits::updateTransits()
 {
+    qDebug() << "========================================";
+    qDebug() << "[UPDATE TRANSITS START] filesCount:" << filesCount();
+    if (filesCount() > 0 && file(0)) {
+        qDebug() << "[UPDATE TRANSITS START] file(0):" << file(0)->getName() << "type:" << file(0)->getType();
+    }
+    if (filesCount() > 1 && file(1)) {
+        qDebug() << "[UPDATE TRANSITS START] file(1):" << file(1)->getName() << "type:" << file(1)->getType();
+    }
+    qDebug() << "========================================";
+    
     if (filesCount() == 0) return;
     if (!isVisible()) return;
     if (transitsAF()->isSuspendedUpdate()) return;
@@ -1711,13 +1738,21 @@ Transits::updateTransits()
     if (!_active) {
         saveScrollPos();
     } else {
+        qDebug() << "========================================";
+        qDebug() << "[CLEANUP OLD] Found existing finder thread" << _active << _active->objectName();
+        qDebug() << "[CLEANUP OLD] AspectFinder:" << _activeFinder.data();
+        qDebug() << "[CLEANUP OLD] Disconnecting and canceling...";
         disconnect(_active, SIGNAL(finished()), this, SLOT(onCompleted()));
-        emit cancelActive();
+        if (_activeFinder) {
+            _activeFinder->cancel();
+        }
         if (_active) {
-            qDebug() << "waiting for thread" << _active;
+            qDebug() << "[CLEANUP OLD] Waiting for thread" << _active;
             _active->wait();
+            qDebug() << "[CLEANUP OLD] Thread finished and will be deleted";
         }
         _active = nullptr;
+        qDebug() << "========================================";
     }
 
     if (!_chs) {
@@ -1744,7 +1779,14 @@ Transits::updateTransits()
 #if 1
     if (filesCount() >= 1) {
         auto type = file(0)->getType();
+        qDebug() << "[UPDATE TRANSITS] filesCount:" << filesCount();
+        qDebug() << "[UPDATE TRANSITS] file(0) name:" << file(0)->getName() << "type:" << type;
+        if (filesCount() > 1) {
+            qDebug() << "[UPDATE TRANSITS] file(1) name:" << file(1)->getName() << "type:" << file(1)->getType();
+        }
+        qDebug() << "[UPDATE TRANSITS] transitsAF() name:" << transitsAF()->getName() << "type:" << transitsAF()->getType();
         if (type != TypeOther) {
+            qDebug() << "[UPDATE TRANSITS] Creating OmnibusFinder with file(0) and transitsAF()";
             af = new A::OmnibusFinder(evs, r, hs, { file(0), transitsAF() });
         }
     }
@@ -1772,18 +1814,38 @@ Transits::updateTransits()
     _evm->addEvents(evs);
 
     auto thread = new QThread(this);
-    thread->setObjectName("omnibus finder");
+    QString chartName = file(0)->getName();
+    QString threadName = QString("finder:%1").arg(chartName);
+    thread->setObjectName(threadName);
     af->moveToThread(thread);
 
+    qDebug() << "========================================";
+    qDebug() << "[CREATE FINDER] Creating new finder thread for chart:" << chartName;
+    qDebug() << "[CREATE FINDER] Thread:" << thread << threadName;
+    qDebug() << "[CREATE FINDER] AspectFinder:" << af;
+    
+    // CRITICAL: These signal/slot connections cross thread boundaries
+    // The finder thread emits signals that the main thread receives
     connect(this, SIGNAL(cancelActive()), af, SLOT(cancel()));
     connect(thread, SIGNAL(started()), af, SLOT(findStuff()));
     connect(af, SIGNAL(progress(double)), this, SLOT(onProgress(double)));
     connect(thread, SIGNAL(finished()), this, SLOT(onCompleted()));
     connect(thread, SIGNAL(finished()), thread, SLOT(deleteLater()));
-    connect(thread, SIGNAL(finished()), af, SLOT(deleteLater()));
+    // Delete AspectFinder after thread finishes
+    // We can't use moveToThread() here because the worker thread has exited
+    // and moveToThread() must be called from the object's current thread.
+    // Since the finder is no longer doing work, we can delete it directly.
+    connect(thread, &QThread::finished, this, [af]() {
+        qDebug() << "[DELETE FINDER] Deleting AspectFinder:" << af;
+        delete af;
+    });
+    
     thread->start();
     _active = thread;
-    qDebug() << "started thread" << thread;
+    _activeFinder = af;
+    
+    qDebug() << "[CREATE FINDER] Started finder thread" << thread;
+    qDebug() << "========================================";
 }
 
 void
@@ -1807,16 +1869,35 @@ void
 Transits::onCompleted()
 {
 #if 1
+    qDebug() << "[ON COMPLETED] Starting cleanup, thread:" << _active.data() << "finder:" << _activeFinder.data();
     if (_progressSortTimer && _progressSortTimer->isActive()) {
         _progressSortTimer->stop();
     }
+    
+    // Disconnect all signals from the finder before deletion to prevent
+    // any queued progress() signals from being processed after deletion
+    if (_activeFinder) {
+        qDebug() << "[ON COMPLETED] Disconnecting ALL finder signals/slots";
+        _activeFinder->disconnect();  // Disconnect all signals FROM the finder
+        disconnect(_activeFinder.data());  // Disconnect all signals TO the finder
+    }
+    
+    // Delete _chs BEFORE sorting to emit changeDone() signal first
+    qDebug() << "[ON COMPLETED] Deleting change signal frame";
+    delete _chs;
+    _chs = nullptr;
+    
+    qDebug() << "[ON COMPLETED] Sorting model";
     _evm->sort();
+    qDebug() << "[ON COMPLETED] Sort complete, clearing pointers";
     _active = nullptr;
+    _activeFinder = nullptr;
     
     // Mark that events are now calculated and cached
     if (filesCount() > 0) {
         file(0)->clearEventsRecalcFlag();
     }
+    qDebug() << "[ON COMPLETED] Cleanup complete";
 #else
     const A::Horoscope& scope(file()->horoscope());
     const auto&         ida(transitsOnly() ? file()->horoscope().inputData
@@ -1826,8 +1907,7 @@ Transits::onCompleted()
     // QTimer::singleShot(0,[this]{ _tview->expandAll(); });
 
 #endif
-    delete _chs;
-    _chs = nullptr;
+    // _chs is already deleted earlier
 }
 
 void
@@ -2022,6 +2102,8 @@ Transits::clickedCell(QModelIndex inx)
         if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
             file()->setType(TypeReturn);
         }
+        // Stop any active finder threads before updating the chart
+        stopThreads();
         emit updateFirst(file());
     } else {
         // Grr make transit planets be in fileId 1
@@ -2056,6 +2138,11 @@ Transits::clickedCell(QModelIndex inx)
         }
         transitsAF()->resumeUpdate();
         
+        // Clear unsaved state since this is a generated chart from an event
+        transitsAF()->clearUnsavedState();
+        
+        // Stop any active finder threads before updating the chart
+        stopThreads();
         emit updateSecond(transitsAF());
         if (_trans && _trans->parent() != this) _trans = nullptr;
     }
@@ -2105,6 +2192,9 @@ Transits::doubleClickedCell(QModelIndex inx)
         af->setBaseChart(file()->getGMT());
     }
     af->resumeUpdate();
+    
+    // Clear unsaved state since this is a generated chart from an event
+    af->clearUnsavedState();
     
     // bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
     if (transitsOnly() || !shift) {

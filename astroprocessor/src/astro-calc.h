@@ -616,7 +616,14 @@ class AspectFinder : public QObject, public EventOptions {
     }
     void cancel()
     {
-        if (_state == runningState) _state = cancelRequestedState;
+        auto thread = QThread::currentThread();
+        qDebug() << "[CANCEL SLOT]" << thread << thread->objectName() << "- cancel() called, current state:" << _state.loadRelaxed();
+        if (_state == runningState) {
+            _state = cancelRequestedState;
+            qDebug() << "[CANCEL SLOT]" << thread << thread->objectName() << "- State changed to cancelRequestedState";
+        } else {
+            qDebug() << "[CANCEL SLOT]" << thread << thread->objectName() << "- State was NOT runningState, no change made";
+        }
     }
     void findStuff();
 
@@ -677,7 +684,7 @@ class AspectFinder : public QObject, public EventOptions {
     void findTransitPairs(AspectSearchState& state);
     void findAspects(AspectSearchState& state, modalize<bool>& mum);
 
-    std::unique_ptr<QThreadPool> _tp;
+    QThreadPool* _tp;  // Points to global thread pool, not owned
 
     HarmonicEvents& _evs;
     ADateRange      _range;

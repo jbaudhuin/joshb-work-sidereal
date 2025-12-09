@@ -1,6 +1,7 @@
 ﻿#include <QActionGroup>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPushButton>
@@ -67,6 +68,9 @@ AstroFileInfo::AstroFileInfo(QWidget* parent) : AstroFileHandler(parent)
     edit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     edit->setCursor(Qt::PointingHandCursor);
     setStatusTip(tr("Input data"));
+    
+    // Enable drag and drop
+    setAcceptDrops(true);
 
     QGridLayout* layout = new QGridLayout(this);
     layout->addWidget(edit, 0, 0, 1, 1);
@@ -179,6 +183,57 @@ AstroFileInfo::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("age", tr("Show age:"));
 }
 
+void
+AstroFileInfo::dragEnterEvent(QDragEnterEvent* event)
+{
+    qDebug() << "AstroFileInfo::dragEnterEvent - index:" << currentIndex;
+    // Accept drops from the chart list
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasFormat("application/x-qabstractitemmodeldatalist")) {
+        qDebug() << "AstroFileInfo accepting drag for widget" << currentIndex;
+        event->acceptProposedAction();
+    }
+}
+
+void
+AstroFileInfo::dragMoveEvent(QDragMoveEvent* event)
+{
+    // Accept drag move events
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasFormat("application/x-qabstractitemmodeldatalist")) {
+        event->acceptProposedAction();
+    }
+}
+
+void
+AstroFileInfo::dropEvent(QDropEvent* event)
+{
+    qDebug() << "AstroFileInfo::dropEvent - index:" << currentIndex;
+    
+    // Get the file path from the mime data
+    QString filePath;
+    
+    // Check for file path in text format
+    if (event->mimeData()->hasText()) {
+        filePath = event->mimeData()->text();
+        qDebug() << "Drop text:" << filePath;
+    }
+    
+    // Check for URL format
+    if (filePath.isEmpty() && event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        if (!urls.isEmpty()) {
+            filePath = urls.first().toLocalFile();
+            qDebug() << "Drop URL:" << filePath;
+        }
+    }
+    
+    if (!filePath.isEmpty()) {
+        // Emit signal with the file path and target index
+        // Index 0 = primary chart (left), Index 1 = secondary chart (right)
+        emit chartDropped(filePath, currentIndex);
+        event->acceptProposedAction();
+    }
+}
+
 /* =========================== ASTRO WIDGET
  * ========================================= */
 
@@ -235,10 +290,16 @@ AstroWidget::AstroWidget(QWidget* parent) : QWidget(parent)
 
     connect(fileView, SIGNAL(clicked()), this, SLOT(openEditor()));
     connect(fileView2nd, SIGNAL(clicked()), this, SLOT(openEditor()));
+    connect(fileView, SIGNAL(chartDropped(QString,int)), this, SLOT(handleChartDroppedOnInputWidget(QString,int)));
+    connect(fileView2nd, SIGNAL(chartDropped(QString,int)), this, SLOT(handleChartDroppedOnInputWidget(QString,int)));
     connect(slides,
             SIGNAL(currentSlideChanged()),
             this,
             SLOT(currentSlideChanged()));
+    connect(slides,
+            SIGNAL(chartDropped(QString)),
+            this,
+            SIGNAL(chartFileDropped(QString)));
 }
 
 void
@@ -519,6 +580,15 @@ AstroWidget::destroyEditor()
 {
     editor->deleteLater();
     editor = nullptr;
+}
+
+void
+AstroWidget::handleChartDroppedOnInputWidget(const QString& filePath, int targetIndex)
+{
+    qDebug() << "AstroWidget::handleChartDroppedOnInputWidget:" << filePath << "targetIndex:" << targetIndex;
+    
+    // Emit signal to be handled by MainWindow/FilesBar
+    emit chartDroppedOnInputWidget(filePath, targetIndex);
 }
 
 void
@@ -948,6 +1018,14 @@ FileTreeView::FileTreeView(AstroDatabase* parent)
 }
 
 void
+FileTreeView::mousePressEvent(QMouseEvent* event)
+{
+    // Capture the index where the mouse was pressed for later use in startDrag
+    dragStartIndex = indexAt(event->pos());
+    QTreeView::mousePressEvent(event);
+}
+
+void
 FileTreeView::startDrag(Qt::DropActions supportedActions)
 {
     // Start the drag but DON'T call the base implementation
@@ -955,15 +1033,96 @@ FileTreeView::startDrag(Qt::DropActions supportedActions)
     QDrag* drag = new QDrag(this);
     QMimeData* mimeData = new QMimeData();
     
-    // Create mime data with selected file info
+    // Use the index captured in mousePressEvent (where drag started)
+    QModelIndex dragIndex = dragStartIndex;
+    
+    // Get selected indexes
+    QModelIndexList selection = selectionModel()->selectedIndexes();
+    
+    // Determine which items to drag:
+    // If the drag started from a selected item, drag all selected items
+    // Otherwise, just drag the single item under the mouse
     QStringList files;
-    auto selection = selectionModel()->selectedIndexes();
-    for (const auto& index : selection) {
-        files << index.data().toString();
+    
+    if (selection.contains(dragIndex) && !selection.isEmpty()) {
+        // Drag all selected items
+        qDebug() << "Dragging" << selection.count() << "selected items";
+        for (const auto& index : selection) {
+            qDebug() << "  Index row:" << index.row() << "column:" << index.column();
+            qDebug() << "  Display data:" << index.data(Qt::DisplayRole).toString();
+            
+            QString path;
+            QString pathData = index.data(Qt::UserRole + 1).toString(); // PathRole
+            
+            if (!pathData.isEmpty()) {
+                // Directory item - has full path
+                path = pathData;
+            } else {
+                // File item - need to build path from parent directory + filename
+                QString filename = index.data(Qt::DisplayRole).toString();
+                QModelIndex parentIndex = index.parent();
+                if (parentIndex.isValid()) {
+                    QString parentPath = parentIndex.data(Qt::UserRole + 1).toString();
+                    if (!parentPath.isEmpty()) {
+                        path = parentPath + "/" + AFileInfo::encodeName(filename) + AFileInfo::suff();
+                        qDebug() << "  Built path from parent:" << path;
+                    }
+                }
+            }
+            
+            if (!path.isEmpty()) {
+                files << path;
+            } else {
+                qDebug() << "  WARNING: Could not determine path!";
+            }
+        }
+    } else if (dragIndex.isValid()) {
+        // Drag just the single item under the mouse
+        qDebug() << "Dragging single item from drag start index";
+        qDebug() << "  Index row:" << dragIndex.row() << "column:" << dragIndex.column();
+        qDebug() << "  Display data:" << dragIndex.data(Qt::DisplayRole).toString();
+        
+        QString path;
+        QString pathData = dragIndex.data(Qt::UserRole + 1).toString(); // PathRole
+        
+        if (!pathData.isEmpty()) {
+            // Directory item - has full path
+            path = pathData;
+        } else {
+            // File item - need to build path from parent directory + filename
+            QString filename = dragIndex.data(Qt::DisplayRole).toString();
+            QModelIndex parentIndex = dragIndex.parent();
+            if (parentIndex.isValid()) {
+                QString parentPath = parentIndex.data(Qt::UserRole + 1).toString();
+                if (!parentPath.isEmpty()) {
+                    path = parentPath + "/" + AFileInfo::encodeName(filename) + AFileInfo::suff();
+                    qDebug() << "  Built path from parent:" << path;
+                }
+            }
+        }
+        
+        if (!path.isEmpty()) {
+            files << path;
+        } else {
+            qDebug() << "  WARNING: Could not determine path!";
+        }
     }
-    mimeData->setText(files.join("\n"));
+    
+    // Set both text and URL formats for compatibility
+    if (!files.isEmpty()) {
+        mimeData->setText(files.first()); // Use first file path
+        
+        // Also provide as URL list
+        QList<QUrl> urls;
+        for (const QString& file : files) {
+            urls << QUrl::fromLocalFile(file);
+        }
+        mimeData->setUrls(urls);
+    }
     
     drag->setMimeData(mimeData);
+    
+    qDebug() << "FileTreeView::startDrag - files:" << files;
     
     // Support both move (default) and copy (with Ctrl)
     drag->exec(Qt::MoveAction | Qt::CopyAction, Qt::MoveAction);
@@ -972,21 +1131,31 @@ FileTreeView::startDrag(Qt::DropActions supportedActions)
 void
 FileTreeView::dragEnterEvent(QDragEnterEvent* event)
 {
+    // Allow drags from this tree view - accept them here for internal reordering,
+    // but they will also propagate to other widgets outside this tree
     if (event->source() == this) {
         event->acceptProposedAction();
     } else {
-        event->ignore();
+        // Let external drag sources work too
+        QTreeView::dragEnterEvent(event);
     }
 }
 
 void
 FileTreeView::dragMoveEvent(QDragMoveEvent* event)
 {
-    QString targetDir;
-    if (database->validateDropTarget(event->position().toPoint(), targetDir)) {
-        event->acceptProposedAction();
+    // Only handle drag move if it's within the tree view area
+    // This allows drags to continue outside the widget
+    if (event->source() == this) {
+        QString targetDir;
+        if (database->validateDropTarget(event->position().toPoint(), targetDir)) {
+            event->acceptProposedAction();
+        } else {
+            // Don't ignore - let it propagate
+            event->setAccepted(false);
+        }
     } else {
-        event->ignore();
+        QTreeView::dragMoveEvent(event);
     }
 }
 
@@ -1425,6 +1594,8 @@ AstroDatabase::openSelected()
 
     auto count = sfi.count();
     if (count == 1) {
+        // Close secondary chart before opening (if user confirms)
+        emit closeSecondaryChartRequested();
         emit openFile(sfi.first());
     } else {
         for (const auto& fi : sfi) {
@@ -2807,6 +2978,47 @@ FilesBar::swapCurrentFiles(int i, int j)
 }
 
 bool
+FilesBar::closeSecondaryChart()
+{
+    // Check if there's a secondary chart to close
+    if (currentIndex() < 0 || currentIndex() >= files.count()) return true;
+    if (files[currentIndex()].count() < 2) return true;
+    
+    AstroFile* secondFile = files[currentIndex()][1];
+    if (!secondFile) return true;
+    
+    // Prompt to save if needed
+    if (askToSave && secondFile->hasUnsavedChanges()) {
+        QMessageBox msgBox;
+        msgBox.setText(
+            tr("Save changes in '%1' before closing?").arg(secondFile->getName()));
+        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No
+                                  | QMessageBox::Cancel);
+        msgBox.setDefaultButton(QMessageBox::Yes);
+        int ret = msgBox.exec();
+
+        switch (ret) {
+        case QMessageBox::Yes:    secondFile->save(); break;
+        case QMessageBox::Cancel: return false;
+        default:                  break;
+        }
+    }
+    
+    // Stop any active transit finder threads before closing the secondary chart
+    if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>()) {
+        transits->stopThreads();
+    }
+    
+    // Remove the secondary file - fileDestroyed() slot will handle removal from list
+    secondFile->destroy();
+    // Note: files[currentIndex()].removeAt(1) is handled by fileDestroyed() slot
+    updateTab(currentIndex());
+    emit currentChanged(currentIndex());
+    
+    return true;
+}
+
+bool
 FilesBar::closeTab(int index)
 {
     int next = -1;
@@ -2843,6 +3055,11 @@ FilesBar::closeTab(int index)
         setCurrentIndex(index);
     }
 
+    // Stop any active transit finder threads before closing the tab
+    if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>()) {
+        transits->stopThreads();
+    }
+
     files.removeAt(index);
     static_cast<QTabBar*>(this)->removeTab(index);
 
@@ -2873,6 +3090,10 @@ FilesBar::openFile(const AFileInfo& fi)
     if (currentFiles().count() == 0 || currentFiles()[0]->hasUnsavedChanges()) {
         openFileInNewTab(fi);
     } else {
+        // Stop any active transit finder threads before replacing the chart
+        if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>()) {
+            transits->stopThreads();
+        }
         currentFiles()[0]->load(fi);
     }
     i = getTabIndex(fi.baseName());
@@ -2884,6 +3105,10 @@ FilesBar::openFile(AstroFile* af)
 {
     auto i = currentIndex();
     if (i != -1) {
+        // Stop any active transit finder threads before replacing the chart
+        if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>()) {
+            transits->stopThreads();
+        }
         files[currentIndex()][0] = af;
         updateTab(i);
     }
@@ -2909,6 +3134,7 @@ FilesBar::openFileInNewTabWithTransits(const AFileInfo& fi)
     AstroFile* file2 = new AstroFile;
     file2->setName("Transits " + QDate::currentDate().toString());
     file2->setParent(this);
+    file2->clearUnsavedState(); // Transit charts don't need to be saved
     files[currentIndex()] << file2;
     updateTab(currentIndex());
     connect(file2,
@@ -3258,6 +3484,10 @@ MainWindow::MainWindow(bool skipRestore, QWidget* parent)
             SIGNAL(saveCurrentToDirectory(const QString&)),
             this,
             SLOT(handleSaveToDirectory(const QString&)));
+    connect(astroDatabase,
+            SIGNAL(closeSecondaryChartRequested()),
+            filesBar,
+            SLOT(closeSecondaryChart()));
     connect(astroWidget,
             SIGNAL(appendFileRequested()),
             filesBar,
@@ -3270,6 +3500,14 @@ MainWindow::MainWindow(bool skipRestore, QWidget* parent)
             SIGNAL(swapFilesRequested(int, int)),
             filesBar,
             SLOT(swapCurrentFiles(int, int)));
+    connect(astroWidget,
+            SIGNAL(chartFileDropped(QString)),
+            this,
+            SLOT(handleChartDroppedOnSlides(QString)));
+    connect(astroWidget,
+            SIGNAL(chartDroppedOnInputWidget(QString,int)),
+            this,
+            SLOT(handleChartDroppedOnInputWidget(QString,int)));
     connect(statusBar(),
             SIGNAL(messageChanged(QString)),
             help,
@@ -3539,6 +3777,111 @@ MainWindow::handleSaveToDirectory(const QString& directory)
     astroDatabase->updateList();
     
     statusBar()->showMessage(tr("Chart saved to %1").arg(directory), 3000);
+}
+
+void
+MainWindow::handleChartDroppedOnSlides(const QString& filePath)
+{
+    qDebug() << "MainWindow::handleChartDroppedOnSlides:" << filePath;
+    
+    // Close secondary chart first (like double-click behavior)
+    if (!filesBar->closeSecondaryChart()) {
+        // User canceled the save prompt
+        return;
+    }
+    
+    // Decode URL encoding (e.g., %3d -> =)
+    QString decodedPath = QUrl::fromPercentEncoding(filePath.toUtf8());
+    qDebug() << "Decoded path:" << decodedPath;
+    
+    // Use the file path directly - AFileInfo has a constructor that takes a full path
+    AFileInfo fi(decodedPath);
+    if (fi.exists()) {
+        filesBar->openFile(fi);
+        // Force tab update to show new chart name
+        filesBar->updateTab(filesBar->currentIndex());
+    } else {
+        QMessageBox::warning(this,
+                             tr("File Not Found"),
+                             tr("Could not find chart file: %1").arg(decodedPath));
+    }
+}
+
+void
+MainWindow::handleChartDroppedOnInputWidget(const QString& filePath, int targetIndex)
+{
+    qDebug() << "MainWindow::handleChartDroppedOnInputWidget:" << filePath << "targetIndex:" << targetIndex;
+    
+    // Decode URL encoding (e.g., %3d -> =)
+    QString decodedPath = QUrl::fromPercentEncoding(filePath.toUtf8());
+    qDebug() << "Decoded path:" << decodedPath;
+    
+    // AFileInfo constructor intelligently handles paths that already end with .dat
+    AFileInfo fi(decodedPath);
+    if (!fi.exists()) {
+        QMessageBox::warning(this,
+                             tr("File Not Found"),
+                             tr("Could not find chart file: %1").arg(decodedPath));
+        return;
+    }
+    
+    if (targetIndex == 0) {
+        // Dropped on left (primary chart) widget - open as primary without closing secondary
+        // Check if there's an unsaved primary chart
+        auto files = filesBar->currentFiles();
+        if (!files.isEmpty() && files[0] && files[0]->hasUnsavedChanges()) {
+            QMessageBox msgBox;
+            msgBox.setText(
+                tr("Save changes in '%1' before opening another chart?").arg(files[0]->getName()));
+            msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No
+                                      | QMessageBox::Cancel);
+            msgBox.setDefaultButton(QMessageBox::Yes);
+            int ret = msgBox.exec();
+
+            switch (ret) {
+            case QMessageBox::Yes:    files[0]->save(); break;
+            case QMessageBox::Cancel: return;
+            default:                  break;
+            }
+        }
+        
+        // Open as primary chart (without creating new tab if current tab has no changes)
+        if (files.isEmpty() || !files[0] || !files[0]->hasUnsavedChanges()) {
+            if (files.isEmpty() || !files[0]) {
+                filesBar->openFileInNewTab(fi);
+            } else {
+                files[0]->load(fi);
+            }
+        } else {
+            filesBar->openFileInNewTab(fi);
+        }
+        // Force tab update to show new chart name
+        filesBar->updateTab(filesBar->currentIndex());
+    } else if (targetIndex == 1) {
+        // Dropped on right (secondary chart) widget - open as secondary
+        // This is like the synastry/openFileAsSecond functionality
+        auto files = filesBar->currentFiles();
+        if (files.count() >= 2 && files[1] && files[1]->hasUnsavedChanges()) {
+            QMessageBox msgBox;
+            msgBox.setText(
+                tr("Save changes in '%1' before replacing it?").arg(files[1]->getName()));
+            msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No
+                                      | QMessageBox::Cancel);
+            msgBox.setDefaultButton(QMessageBox::Yes);
+            int ret = msgBox.exec();
+
+            switch (ret) {
+            case QMessageBox::Yes:    files[1]->save(); break;
+            case QMessageBox::Cancel: return;
+            default:                  break;
+            }
+        }
+        
+        // Open as secondary chart
+        filesBar->openFileAsSecond(fi);
+        // Force tab update to show new chart name
+        filesBar->updateTab(filesBar->currentIndex());
+    }
 }
 
 void

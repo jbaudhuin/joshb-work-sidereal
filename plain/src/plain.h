@@ -54,6 +54,9 @@ class Plain : public AstroFileHandler {
 
   protected: // AstroFileHandler implementations
     void filesUpdated(MembersList m);
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
     AppSettings defaultSettings();
     AppSettings currentSettings();

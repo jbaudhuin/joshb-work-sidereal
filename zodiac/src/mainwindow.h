@@ -39,9 +39,13 @@ class AstroFileInfo : public AstroFileHandler {
 
   protected:
     void filesUpdated(MembersList members); // AstroFileHandler implementations
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
   signals:
     void clicked();
+    void chartDropped(const QString& filePath, int targetIndex);
 
   public:
     AstroFileInfo(QWidget* parent = nullptr);
@@ -112,6 +116,7 @@ class AstroWidget : public QWidget {
     void aspectSelectionChanged();
     void destroyingFile();
     void destroyEditor();
+    void handleChartDroppedOnInputWidget(const QString& filePath, int targetIndex);
 
   public slots:
     void openEditor();
@@ -121,6 +126,8 @@ class AstroWidget : public QWidget {
     void helpRequested(QString tag);
     void appendFileRequested();
     void swapFilesRequested(int, int);
+    void chartFileDropped(const QString& filePath);
+    void chartDroppedOnInputWidget(const QString& filePath, int targetIndex);
 
   public:
     AstroWidget(QWidget* parent = nullptr);
@@ -182,8 +189,10 @@ class FileTreeView : public QTreeView {
 
   private:
     AstroDatabase* database;
+    QModelIndex dragStartIndex; // Track the index where drag started
 
   protected:
+    void mousePressEvent(QMouseEvent* event) override;
     void dragEnterEvent(QDragEnterEvent* event);
     void dragMoveEvent(QDragMoveEvent* event);
     void dropEvent(QDropEvent* event);
@@ -260,6 +269,7 @@ class AstroDatabase : public QFrame {
     void openFileInNewTabWithReturn(const AFileInfo&, const QString& = "Sun");
     void findSelectedDerived(const AFileInfo&);
     void saveCurrentToDirectory(const QString& directory);
+    void closeSecondaryChartRequested();
 
   public:
     AstroDatabase(QWidget* parent = nullptr);
@@ -277,11 +287,11 @@ class FilesBar : public QTabBar {
 
     QString _finding, _findingDerived;
 
-    void updateTab(int index);
     int  getTabIndex(AstroFile* f, bool seekFirstFileOnly = false);
     int  getTabIndex(QString name, bool seekFirstFileOnly = false);
 
   public:
+    void updateTab(int index);
     void saveFilesToSession();
 
   private slots:
@@ -311,6 +321,7 @@ class FilesBar : public QTabBar {
     void openFileInNewTabWithReturn(const AFileInfo& name, const QString& body);
     void nextTab() { setCurrentIndex((currentIndex() + 1) % count()); }
     bool closeTab(int);
+    bool closeSecondaryChart();
 
   public:
     FilesBar(QWidget* parent = nullptr);
@@ -360,6 +371,8 @@ class MainWindow : public QMainWindow, public Customizable {
         astroDatabase->updateList();
     }
     void handleSaveToDirectory(const QString& directory);
+    void handleChartDroppedOnSlides(const QString& filePath);
+    void handleChartDroppedOnInputWidget(const QString& filePath, int targetIndex);
     void currentTabChanged();
     void showSettingsEditor() { openSettingsEditor(); }
     void showAbout();

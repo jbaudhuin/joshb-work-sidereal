@@ -2,7 +2,12 @@
 #include <QPropertyAnimation>
 #include <QGraphicsBlurEffect>
 #include <QDebug>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QMimeData>
 #include "slidewidget.h"
+#include "afileinfo.h"
 
 
 /* =========================== SLIDE WIDGET ========================================= */
@@ -15,6 +20,9 @@ SlideWidget :: SlideWidget(QWidget *parent) : QWidget(parent)
 
   layout = new QHBoxLayout(this);
   layout->setContentsMargins(QMargins(0,0,0,0));
+  
+  // Enable drag and drop
+  setAcceptDrops(true);
  }
 
 void SlideWidget :: addSlide(QWidget* wdg, int number)
@@ -187,4 +195,49 @@ void SlideWidget :: transitionDone()
 
   foreach (QWidget* wdg, slides)
     if (wdg != slides[index]) wdg->hide();   // hide others
+ }
+
+void SlideWidget :: dragEnterEvent(QDragEnterEvent* event)
+ {
+  // Accept drops from the chart list (file tree view)
+  if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) {
+    event->acceptProposedAction();
+  }
+ }
+
+void SlideWidget :: dragMoveEvent(QDragMoveEvent* event)
+ {
+  // Accept drag move events
+  if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) {
+    event->acceptProposedAction();
+  }
+ }
+
+void SlideWidget :: dropEvent(QDropEvent* event)
+ {
+  qDebug() << "SlideWidget::dropEvent";
+  
+  // Get the file path from the mime data
+  QString filePath;
+  
+  // Check for file path in text format (from the tree view drag)
+  if (event->mimeData()->hasText()) {
+    filePath = event->mimeData()->text();
+    qDebug() << "Drop text:" << filePath;
+  }
+  
+  // Check for URL format
+  if (filePath.isEmpty() && event->mimeData()->hasUrls()) {
+    QList<QUrl> urls = event->mimeData()->urls();
+    if (!urls.isEmpty()) {
+      filePath = urls.first().toLocalFile();
+      qDebug() << "Drop URL:" << filePath;
+    }
+  }
+  
+  if (!filePath.isEmpty()) {
+    // Emit signal to open the chart (closing secondary chart like double-click)
+    emit chartDropped(filePath);
+    event->acceptProposedAction();
+  }
  }

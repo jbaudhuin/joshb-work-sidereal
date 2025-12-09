@@ -106,6 +106,9 @@ protected:                            // AstroFileHandler && other implementatio
 
     bool eventFilter(QObject *, QEvent *);
     void resizeEvent(QResizeEvent *ev);
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 public slots:
     void onPlanetsSelected(const A::PlanetSet&) { }

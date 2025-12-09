@@ -67,6 +67,7 @@ class Transits : public AstroFileHandler {
     ~Transits();
 
     QTreeView* ttv() const;
+    void       stopThreads();
 
   protected: // AstroFileHandler implementation
     void filesUpdated(MembersList) override;
@@ -86,7 +87,6 @@ class Transits : public AstroFileHandler {
     bool transitsOnly() const;
 
     AstroFile* transitsAF();
-    void       stopThreads();
 
   signals:
     // void updateTransits(double);
@@ -160,6 +160,7 @@ class Transits : public AstroFileHandler {
     TransitTreeView* _tview;
 
     QPointer<QThread> _active;
+    QPointer<A::AspectFinder> _activeFinder;
     QLineEdit*        _input;
     QDateEdit*        _start;
     QLineEdit*        _duration;

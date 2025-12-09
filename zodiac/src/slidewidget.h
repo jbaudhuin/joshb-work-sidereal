@@ -4,6 +4,8 @@
 #include <QWidget>
 
 class QHBoxLayout;
+class QDragEnterEvent;
+class QDropEvent;
 
 /* =========================== SLIDE WIDGET ========================================= */
 
@@ -28,9 +30,15 @@ class SlideWidget : public QWidget
 
     signals:
         void currentSlideChanged();
+        void chartDropped(const QString& filePath);
 
     public slots:
         void nextSlide();
+
+    protected:
+        void dragEnterEvent(QDragEnterEvent* event) override;
+        void dragMoveEvent(QDragMoveEvent* event) override;
+        void dropEvent(QDropEvent* event) override;
 
     private slots:
         void transitionDone();

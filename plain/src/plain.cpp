@@ -3,6 +3,11 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDebug>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QCoreApplication>
 #include <QFile>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -11,6 +16,7 @@
 #include <QTextBrowser>
 #include <QToolBar>
 #include <QVBoxLayout>
+#include "../../zodiac/src/slidewidget.h"
 
 /* ================================== WIDGET
  * ======================================== */
@@ -19,6 +25,9 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
 {
     chartsCount   = 0;
     aspectsCached = false;
+    
+    // Enable drag and drop
+    setAcceptDrops(true);
 
     // Create toolbar with toggle actions
     toolbar = new QToolBar(tr("Display Options"), this);
@@ -86,6 +95,7 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     chart2Btn->setVisible(false); // Initially hidden until 2nd chart loaded
 
     view = new QTextBrowser();
+    view->setAcceptDrops(false); // Disable drops on the view so parent Plain widget handles them
 
     showAllDiurnalEvents = false;
     includeFixedStars    = true;
@@ -749,4 +759,56 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                     { { "Planet pairs", A::SortByPlanets },
                       { "Orb strength", A::SortByOrbStrength },
                       { "Aspect type", A::SortByAspectType } });
+}
+
+void
+Plain::dragEnterEvent(QDragEnterEvent* event)
+{
+    qDebug() << "Plain::dragEnterEvent";
+    // Accept drops from the chart list
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) {
+        qDebug() << "Plain accepting drag";
+        event->acceptProposedAction();
+    }
+}
+
+void
+Plain::dragMoveEvent(QDragMoveEvent* event)
+{
+    // Accept drag move events
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) {
+        event->acceptProposedAction();
+    }
+}
+
+void
+Plain::dropEvent(QDropEvent* event)
+{
+    qDebug() << "Plain::dropEvent";
+    
+    // Extract file path from mime data
+    QString filePath;
+    
+    if (event->mimeData()->hasText()) {
+        filePath = event->mimeData()->text();
+        qDebug() << "Plain drop text:" << filePath;
+    }
+    
+    if (filePath.isEmpty() && event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        if (!urls.isEmpty()) {
+            filePath = urls.first().toLocalFile();
+            qDebug() << "Plain drop URL:" << filePath;
+        }
+    }
+    
+    if (!filePath.isEmpty()) {
+        // Get parent SlideWidget and emit its chartDropped signal
+        SlideWidget* slideWidget = qobject_cast<SlideWidget*>(parentWidget());
+        if (slideWidget) {
+            qDebug() << "Plain emitting chartDropped signal";
+            emit slideWidget->chartDropped(filePath);
+            event->acceptProposedAction();
+        }
+    }
 }

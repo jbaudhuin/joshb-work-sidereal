@@ -23,6 +23,9 @@
 #include <swehouse.h>
 #include <swephexp.h>
 
+// Set to 1 to enable pseudo-finder debug mode (runs for 15 sec, no actual work)
+#define DEBUG_FINDER_THREADS 0
+
 using namespace boost::math::tools;
 
 namespace A
@@ -732,7 +735,9 @@ calculatePlanet(PlanetId         planet,
                          .arg(sec, 2, 10, QChar('0'));
             delim = ',';
         }
+#if !DEBUG_FINDER_THREADS
         qDebug() << qPrintable(rastr);
+#endif
     }
     if (ret.id == Planet_SouthNode) {
         qSwap(ret.angleTransit[Star::atAsc], ret.angleTransit[Star::atDesc]);
@@ -3612,8 +3617,14 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
         const auto& ida  = f->horoscope().inputData;
         auto        type = f->getType();
         if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
-            natus = i, natal = true;
-            njd = getJulianDate(ida.GMT());
+            // Only set natus to the FIRST Male/Female/Event file found
+            if (!natal) {
+                natus = i, natal = true;
+                njd = getJulianDate(ida.GMT());
+            } else if (!trans) {
+                // Second Male/Female/Event file becomes the transit/comparison chart
+                locus = i, trans = true;
+            }
         } else if (type == TypeDerivedProg)
             progr = i, prog = true;
         else
@@ -5859,22 +5870,62 @@ AspectFinder::findStuff()
 {
     prepThread();
 
-    _tp = std::make_unique<QThreadPool>();
+    // Use the global thread pool instead of creating a new one
+    // This allows proper cleanup and avoids orphaned threads
+    _tp = QThreadPool::globalInstance();
 
-    auto itc = QThread::idealThreadCount();
-    qDebug() << "Ideal thread count" << itc;
-    _tp->setMaxThreadCount(itc);
+    auto threadName = QThread::currentThread()->objectName();
+    auto threadPtr = QThread::currentThread();
+    
+    qDebug() << "========================================";
+    qDebug() << "[FINDER START]" << threadPtr << threadName;
+    qDebug() << "Using GLOBAL thread pool, ideal thread count" << QThread::idealThreadCount();
+    qDebug() << "========================================";
 
     _state = runningState;
+    
+#if DEBUG_FINDER_THREADS
+    // Pseudo-finder mode: Just run for 15 seconds checking for cancellation
+    qDebug() << "[FINDER DEBUG MODE]" << threadPtr << threadName << "- Running in pseudo mode for 15 seconds";
+    QElapsedTimer timer;
+    timer.start();
+    int iteration = 0;
+    while (timer.elapsed() < 15000 && _state != cancelRequestedState) {
+        QThread::msleep(500);  // Check every 500ms
+        if (++iteration % 4 == 0) {  // Log every 2 seconds
+            qDebug() << "[FINDER ALIVE]" << threadPtr << threadName 
+                     << "- Running" << timer.elapsed() / 1000.0 << "seconds";
+        }
+        emit progress(timer.elapsed() / 15000.0);
+    }
+    if (_state == cancelRequestedState) {
+        qDebug() << "[FINDER CANCELED]" << threadPtr << threadName 
+                 << "- Canceled after" << timer.elapsed() / 1000.0 << "seconds";
+    } else {
+        qDebug() << "[FINDER COMPLETED]" << threadPtr << threadName 
+                 << "- Pseudo-run finished after 15 seconds";
+    }
+#else
+    // Normal finder mode
     if (showStations()) findStations();
     if (_state != cancelRequestedState) findAspectsAndPatterns();
+#endif
+    
     _state = idleState;
 
-    qDebug() << "Exiting finder thread";
+    qDebug() << "[FINDER CLEANUP]" << threadPtr << threadName << "- Waiting for thread pool...";
+    _tp->waitForDone();
+    qDebug() << "[FINDER CLEANUP]" << threadPtr << threadName << "- Thread pool finished";
+    
+    qDebug() << "========================================";
+    qDebug() << "[FINDER EXIT]" << threadPtr << threadName;
+    qDebug() << "========================================";
 
     releaseThread();
 
-    thread()->exit();
+    // Exit the thread event loop to trigger finished() signal
+    // This allows proper cleanup via deleteLater()
+    thread()->exit(0);
 }
 
 #if 0 // has midpoints code
