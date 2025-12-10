@@ -120,9 +120,8 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
 
     QHBoxLayout* lay3 = new QHBoxLayout;
     lay3->addWidget(name);
-    // Temporarily hidden:
-    // lay3->addWidget(new QLabel(tr("Type:")));
-    // lay3->addWidget(type);
+    lay3->addWidget(new QLabel(tr("Type:")));
+    lay3->addWidget(type);
 
     QHBoxLayout* lay2 = new QHBoxLayout;
     lay2->addWidget(dateTime);

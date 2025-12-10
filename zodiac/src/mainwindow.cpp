@@ -3094,6 +3094,13 @@ FilesBar::openFile(const AFileInfo& fi)
         if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>()) {
             transits->stopThreads();
         }
+        
+        // Reset transit date range to defaults for the new chart
+        auto today = QDate::currentDate();
+        auto startOfMonth = QDate(today.year(), today.month(), 1);
+        currentFiles()[0]->setTransitStartDate(startOfMonth);
+        currentFiles()[0]->setTransitDuration("1 mo");
+        
         currentFiles()[0]->load(fi);
     }
     i = getTabIndex(fi.baseName());
@@ -3109,6 +3116,13 @@ FilesBar::openFile(AstroFile* af)
         if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>()) {
             transits->stopThreads();
         }
+        
+        // Reset transit date range to defaults for the new chart
+        auto today = QDate::currentDate();
+        auto startOfMonth = QDate(today.year(), today.month(), 1);
+        af->setTransitStartDate(startOfMonth);
+        af->setTransitDuration("1 mo");
+        
         files[currentIndex()][0] = af;
         updateTab(i);
     }
