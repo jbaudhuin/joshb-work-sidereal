@@ -4505,7 +4505,8 @@ MainWindow::currentSettings()
     s.setValue("Window/Geometry", this->saveGeometry());
     s.setValue("Window/State", this->saveState());
     s.setValue("askToSave", askToSave);
-    // Load API key from APIKey.ini to populate settings dialog
+    // Populate API key from APIKey.ini for display in settings dialog only
+    // This value is never saved to settings.ini
     s.setValue("Key", SessionManager::readAPIKey());
     return s;
 }
@@ -4518,23 +4519,34 @@ MainWindow::applySettings(const AppSettings& s)
     this->restoreState(s.value("Window/State").toByteArray());
     askToSave = s.value("askToSave").toBool();
     
-    // Handle API key - save to APIKey.ini if changed in settings
+    // Handle API key - only save to APIKey.ini if changed via settings dialog
+    // Note: Key will only be in 's' when coming from the settings dialog,
+    // not when loading from settings.ini/session files (due to saveSettings override)
     if (s.contains("Key")) {
         QString newKey = s.value("Key").toString();
         QString currentKey = SessionManager::readAPIKey();
         
-        // If the key in settings differs from APIKey.ini, update APIKey.ini
+        // If key changed in settings dialog, save it to APIKey.ini
         if (newKey != currentKey) {
-            qDebug() << "Updating API key in APIKey.ini";
+            qDebug() << "API key changed in settings dialog, saving to APIKey.ini";
             SessionManager::writeAPIKey(newKey);
             _APIKey = newKey.toStdString();
         }
     }
     
-    // Load API key from APIKey.ini (in case it wasn't in settings)
+    // Always ensure API key is loaded from APIKey.ini at startup
     if (_APIKey.empty()) {
         _APIKey = SessionManager::readAPIKey().toStdString();
     }
+}
+
+void
+MainWindow::saveSettings(const QString& iniFile)
+{
+    // Get current settings but exclude the API key
+    AppSettings s = currentSettings();
+    s.values().remove("Key");  // Never save API key to settings.ini or session files
+    s.save(iniFile);
 }
 
 void

@@ -472,6 +472,7 @@ class MainWindow : public QMainWindow, public Customizable {
     AppSettings currentSettings();
     void        applySettings(const AppSettings&);
     void        setupSettingsEditor(AppSettingsEditor*);
+    void        saveSettings(const QString& iniFile = "settings.ini") override;
 
     void closeEvent(QCloseEvent*);
     void paintEvent(QPaintEvent* event) override;

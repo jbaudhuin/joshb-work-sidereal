@@ -2653,17 +2653,19 @@ Transits::filesUpdated(MembersList m)
     bool any = false;
     int  f   = 0;
     for (auto ml : m) {
-        FileType type = file(f++)->getType();
+        FileType type = file(f)->getType();
         if (type >= TypeSearch) continue;
 
         if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
-            any |= (ml & AstroFile::GMT);
+            // For natal/event charts (file 0), check GMT and Location changes
+            any |= (ml & (AstroFile::GMT | AstroFile::Location));
         }
 
         any |= (ml
                 & (AstroFile::Timezone | AstroFile::Zodiac
-                   | AstroFile::AspectSet | AstroFile::AspectMode
-                   | AstroFile::Location | AstroFile::LocationName));
+                   | AstroFile::AspectSet | AstroFile::AspectMode));
+        
+        f++;
     }
     if (any) {
 #if OLDMODEL

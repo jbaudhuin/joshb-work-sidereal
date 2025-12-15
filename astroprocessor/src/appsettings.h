@@ -141,7 +141,7 @@ class Customizable
         virtual void setupSettingsEditor  ( AppSettingsEditor* )  { }
 
         void loadSettings (const QString& iniFile = "settings.ini");
-        void saveSettings (const QString& iniFile = "settings.ini");
+        virtual void saveSettings (const QString& iniFile = "settings.ini");
         void openSettingsEditor();
 };
 
