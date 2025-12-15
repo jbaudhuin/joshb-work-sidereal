@@ -36,6 +36,15 @@ to-transits, transits-to-natal, returns-to-natal, and stations. For all harmonic
 * Added dynamic harmonic aspect display up to H32. That is, you can show all aspect lines from H1 to H32 on the chart-wheel. It is easy to add or subtract one or more of these harmonics as desired: just click on the appropriate button on the status bar. Ptolemaic aspects would be: 1 2 3 6 8.
 * Chart-wheel now shows aspect intensity by thickening the aspect line.
 * Improved glyph layout in chart-wheel. Still not perfect, but I think it's better.
+* **Session Management (v0.9.2)**: Complete workflow management system
+  - Automatic session save/restore preserves all open charts, tabs, and settings
+  - **Save Session As** toolbar button to promote timestamped sessions to named sessions
+  - Session database browser with context menu for managing sessions
+  - **Open in New Window** launches selected session in separate instance
+  - **Load in Current** imports charts from saved sessions into current workspace
+  - Single-instance mode by default with window raising when app is relaunched
+  - Command-line options: `--new` for fresh start, `--load-session <file>` for specific session
+  - Sessions stored as `.zos` files (Zodiac Session format)
 
 Mainly, the events listing is where I'm focusing most of my efforts lately, to make it quick, easy and powerful.
 

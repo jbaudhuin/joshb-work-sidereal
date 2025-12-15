@@ -3632,7 +3632,8 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     }
 
     QVector<ZodiacSign> signs = getZodiac(_ids[0].zodiac()).signs.toVector();
-    auto                getIngress = [&](PlanetId ingr, bool forward = true) {
+
+    auto getIngress = [&](PlanetId ingr, bool forward = true) {
         unsigned i = ingr - Ingresses_Start;
         if (!forward) ingr += 12;
         ChartPlanetId                  cpid(-1, ingr, Planet_None);

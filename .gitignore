@@ -47,6 +47,7 @@ Makefile.*
 *.user
 /build-Qt*/*
 /build-*/*
+*.zos
 
 # VIM
 

@@ -2,6 +2,42 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.2] - 2025-12-15
+
+### Added
+- **Session Management Features**:
+  - **Save Session As**: Promote current timestamped session to a named session via toolbar button
+    - Prompts for user-defined session name
+    - Automatically switches current session to the new named file
+    - Future auto-saves update the named session
+  - **Session Context Menu** (right-click on session in database):
+    - **Open in New Window**: Launch session in separate application instance
+    - **Load in Current**: Import charts from selected session(s) into current tabs
+    - **Rename Session**: Convert timestamped sessions to named sessions or rename existing
+    - **Delete Sessions**: Remove unwanted session files (with protection for current session)
+  - **Command-Line Options**:
+    - `--new` / `-new` / `/new`: Start fresh session without restoring previous state
+    - `--load-session <file>`: Launch with specific session file
+    - Both options allow multiple concurrent instances
+- **Single Instance Management**:
+  - Default behavior: single instance with automatic window raising
+  - Double-clicking zodiac icon brings existing window to foreground
+  - Multiple instances supported when using `--new` or `--load-session` flags
+- **Debug Logging** (debug builds only):
+  - Per-instance log files (zodiac-<PID>.log)
+  - Detailed session restore and command-line argument tracking
+
+### Fixed
+- Process handle inheritance issue on Windows causing freeze when launching child instances
+  - Redirected stdout/stderr to null device for detached processes (debug builds)
+  - Prevents I/O deadlock from orphaned parent process handles
+- Session file naming: User-named sessions now use clean filenames (e.g., `MySession.zos`) instead of `session-MySession.zos`
+
+### Changed
+- Session files now use `.zos` extension (Zodiac Session) instead of generic `.ini`
+- Toolbar icons: "Save Session As" uses `file.png` for visual distinction from chart save
+- Version bumped to 0.9.2
+
 ## [0.9.1] - 2025-12-03
 
 ### Added

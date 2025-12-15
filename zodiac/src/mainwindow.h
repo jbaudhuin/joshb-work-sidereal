@@ -206,7 +206,7 @@ class AstroDatabase : public QFrame {
     Q_OBJECT
 
   private:
-    enum entryType { unknownType, fileType, dirType, dbType };
+    enum entryType { unknownType, fileType, dirType, dbType, sessionType };
     enum { PathRole = Qt::UserRole + 1, TypeRole };
 
     FileTreeView*          fileList;
@@ -248,6 +248,10 @@ class AstroDatabase : public QFrame {
     void openSelectedComposite();
     void findSelectedDerived();
     void deleteSelected();
+    void openSessionInNewWindow();
+    void loadSessionsInCurrent();
+    void renameSession();
+    void deleteSessions();
     void searchFilter(const QString&);
 
   public slots:
@@ -280,6 +284,8 @@ class AstroDatabase : public QFrame {
 
 class FilesBar : public QTabBar {
     Q_OBJECT
+    
+    friend class MainWindow;  // Allow MainWindow to access private members for session management
 
   private:
     bool                 askToSave;
@@ -339,6 +345,65 @@ class FilesBar : public QTabBar {
     }
 };
 
+/* =========================== SESSION MANAGER
+ * ========================================== */
+
+class SessionManager {
+public:
+    // Session info structure
+    struct SessionInfo {
+        QString filename;      // e.g., "session-1734124800.ini"
+        QDateTime timestamp;
+        int chartCount;
+        QString name;          // Optional user-defined name
+        
+        // Format session info for display
+        QString displayName() const;
+    };
+    
+    // Get current session filename based on timestamp
+    static QString currentSessionFile();
+    
+    // Set current session file (for session restore)
+    static void setCurrentSessionFile(const QString& filename);
+    
+    // Get most recent session from sessions.ini MRU
+    static QString getMostRecentSession();
+    
+    // Clone a settings file to a new session file, optionally excluding sections
+    static bool cloneSessionFile(const QString& sourceFile, const QString& destFile, 
+                                  const QStringList& excludeSections = QStringList());
+    
+    // Add session to MRU in sessions.ini
+    static void addToMRU(const QString& sessionFile);
+    
+    // Get list of recent sessions from sessions.ini
+    static QList<SessionInfo> getRecentSessions(int maxCount = 10);
+    
+    // Initialize session file on app launch
+    static QString initializeSession(bool isNewSession);
+    
+    // Read API key from APIKey.ini
+    static QString readAPIKey();
+    
+    // Write API key to APIKey.ini
+    static void writeAPIKey(const QString& apiKey);
+    
+    // Get/set session name
+    static QString getSessionName(const QString& sessionFile);
+    static void setSessionName(const QString& sessionFile, const QString& name);
+    
+    // Generate session filename from name or timestamp
+    static QString sessionFileFromName(const QString& name);
+    static QString sessionFileFromTimestamp(qint64 timestamp = 0); // 0 = current time
+    
+    // Check if session file is named (not timestamped)
+    static bool isNamedSession(const QString& sessionFile);
+    
+private:
+    static QString s_currentSessionFile;
+};
+
 /* =========================== MAIN WINDOW
  * ========================================== */
 
@@ -347,6 +412,8 @@ class MainWindow : public QMainWindow, public Customizable {
 
   private:
     bool _skipRestore;
+    bool _launchedWithNew;  // Track if launched with --new flag
+    bool _isServerInstance; // Track if this instance is running the single-instance server
     bool askToSave;
 
     FilesBar*      filesBar;
@@ -357,12 +424,31 @@ class MainWindow : public QMainWindow, public Customizable {
     QMenu*         panelsMenu;
 
     std::string _APIKey;
+    
+    // Session management
+    QDateTime _sessionStartTime;      // When this instance started
+    QString   _currentSessionKey;     // Current session being worked on
+    bool      _hadOverlappingInstances; // Track if other instances existed during lifetime
 
     void     addToolBarActions();
     QAction* createActionForPanel(QWidget* w /*, const QIcon &icon*/);
     
     void saveSession();
     void restoreSession();
+    bool hasOtherInstances();  // Check if other instances are running
+    
+    // Session management methods
+    struct SessionInfo {
+        QString key;           // Settings key (e.g., "Session_1234567890")
+        QDateTime timestamp;
+        int chartCount;
+        QString name;          // Optional user-defined name (future feature)
+    };
+    QList<SessionInfo> listRecentSessions();
+    void saveSessionWithTimestamp(const QString& sessionKey);
+    void restoreSessionByKey(const QString& sessionKey);
+    void pruneOldSessions(int maxSessions = 10);
+    QString generateSessionKey(const QDateTime& dt);
 
   private slots:
     void saveFile()
@@ -376,6 +462,8 @@ class MainWindow : public QMainWindow, public Customizable {
     void currentTabChanged();
     void showSettingsEditor() { openSettingsEditor(); }
     void showAbout();
+    void showRestoreSessionDialog();
+    void saveSessionAs();
     void gotoUrl(QString url = "");
     void contextMenu(QPoint);
 
@@ -389,11 +477,11 @@ class MainWindow : public QMainWindow, public Customizable {
     void paintEvent(QPaintEvent* event) override;
 
   public:
-    MainWindow(bool skipRestore = false, QWidget* parent = nullptr);
+    MainWindow(bool skipRestore = false, bool isServerInstance = true, QWidget* parent = nullptr);
 
     const std::string& APIKey() const { return _APIKey; }
 
-    static MainWindow*  instance(bool skipRestore = false);
+    static MainWindow*  instance(bool skipRestore = false, bool isServerInstance = true, const QString& sessionFile = QString());
     static AstroWidget* theAstroWidget() { return instance()->astroWidget; }
 };
 

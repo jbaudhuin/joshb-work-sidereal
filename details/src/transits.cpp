@@ -2662,7 +2662,8 @@ Transits::filesUpdated(MembersList m)
 
         any |= (ml
                 & (AstroFile::Timezone | AstroFile::Zodiac
-                   | AstroFile::AspectSet | AstroFile::AspectMode));
+                   | AstroFile::AspectSet | AstroFile::AspectMode
+                   | AstroFile::Location | AstroFile::LocationName));
     }
     if (any) {
 #if OLDMODEL

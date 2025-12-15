@@ -91,6 +91,7 @@ private:
     QPushButton* cancel;
     QPushButton* bApply;
     QPushButton* setDefault;
+    QPushButton* saveAsDefaults;
 
     void updateControls();
     QFormLayout* lastLayout();
@@ -99,6 +100,7 @@ private:
     void change();         // помечает текущие настройки как несохранённые
     void applySettings();
     void restoreDefaults();
+    void saveSettingsAsDefaults();
 
 signals:
     void apply(AppSettings&);

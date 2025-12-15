@@ -32,9 +32,12 @@
 #include <QComboBox>
 #include <QTabWidget>
 #include <QFormLayout>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QTextCodec>
 #include <QTimer>
 #include <QDebug>
+#include <QMessageBox>
 
 #include "appsettings.h"
 #include "astro-data.h"
@@ -111,11 +114,13 @@ AppSettingsEditor::AppSettingsEditor() : QDialog()
     cancel = new QPushButton(tr("Cancel"), this);
     bApply = new QPushButton(tr("Apply"), this);
     setDefault = new QPushButton(tr("By default"), this);
+    saveAsDefaults = new QPushButton(tr("Save as Defaults"), this);
 
     setWindowTitle(tr("Settings"));
     bApply->setEnabled(false);
 
     QHBoxLayout* btnLayout = new QHBoxLayout;
+    btnLayout->addWidget(saveAsDefaults);
     btnLayout->addWidget(setDefault);
     btnLayout->addStretch(0);
     btnLayout->addSpacing(10);
@@ -132,6 +137,7 @@ AppSettingsEditor::AppSettingsEditor() : QDialog()
     connect(ok, SIGNAL(clicked()), this, SLOT(accept()));
     connect(cancel, SIGNAL(clicked()), this, SLOT(reject()));
     connect(setDefault, SIGNAL(clicked()), this, SLOT(restoreDefaults()));
+    connect(saveAsDefaults, SIGNAL(clicked()), this, SLOT(saveSettingsAsDefaults()));
 
     if (lastTab != -1) {
         // restore prior tab, after the dialog is assembled.
@@ -395,6 +401,40 @@ void AppSettingsEditor::restoreDefaults()
     changed = true;
     bApply->setEnabled(true);
     updateControls();
+}
+
+void AppSettingsEditor::saveSettingsAsDefaults()
+{
+    // Get current settings from controls
+    for (auto i = boundControls.begin(); i != boundControls.end(); ++i) {
+        auto w = i.value();
+
+        QVariant value;
+        if (auto le = qobject_cast<QLineEdit*>(w)) {
+            value = le->text();
+        } else if (auto cb = qobject_cast<QCheckBox*>(w)) {
+            value = cb->isChecked();
+        } else if (auto sb = qobject_cast<QSpinBox*>(w)) {
+            value = sb->value();
+        } else if (auto dsb = qobject_cast<QDoubleSpinBox*>(w)) {
+            value = dsb->value();
+        } else if (auto cmb = qobject_cast<QComboBox*>(w)) {
+            value = cmb->currentData();
+        }
+
+        settings.setValue(i.key(), value);
+    }
+    
+    // Save to settings.ini template file
+    settings.save("settings.ini");
+    
+    qDebug() << "Settings saved as defaults to settings.ini";
+    
+    // Show confirmation
+    QMessageBox::information(this, 
+                             tr("Saved as Defaults"),
+                             tr("Current settings have been saved as the default template.\n\n"
+                                "New sessions will start with these settings."));
 }
 
 

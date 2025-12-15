@@ -1,5 +1,5 @@
 !define PRODUCT 'Zodiac'
-!define VERSION '0.9.1'
+!define VERSION '0.9.2'
 
 !include WinMessages.nsh
 !include FontReg.nsh
@@ -194,21 +194,23 @@ Section "Start menu shortcut" SecFolder
   CreateDirectory "$SMPROGRAMS\Zodiac"
   CreateShortCut "$SMPROGRAMS\Zodiac\Uninstall.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\uninstall.exe" 0
   CreateShortCut "$SMPROGRAMS\Zodiac\Zodiac.lnk" "$INSTDIR\zodiac.exe" "" "$INSTDIR\zodiac.exe" 0 SW_SHOWNORMAL "" "Zodiac Sidereal - Astrological Software" "$INSTDIR"
+  CreateShortCut "$SMPROGRAMS\Zodiac\Zodiac (New Session).lnk" "$INSTDIR\zodiac.exe" "--new" "$INSTDIR\zodiac.exe" 0 SW_SHOWNORMAL "" "Zodiac Sidereal - New Session (no restore)" "$INSTDIR"
 SectionEnd
 
 Section "Desktop shortcut" SecIco
   SetOutPath "$INSTDIR"
   CreateShortCut "$DESKTOP\Zodiac.lnk" "$INSTDIR\zodiac.exe" "" "$INSTDIR\zodiac.exe" 0 SW_SHOWNORMAL "" "Zodiac Sidereal - Astrological Software" "$INSTDIR"
+  CreateShortCut "$DESKTOP\Zodiac (New Session).lnk" "$INSTDIR\zodiac.exe" "--new" "$INSTDIR\zodiac.exe" 0 SW_SHOWNORMAL "" "Zodiac Sidereal - New Session (no restore)" "$INSTDIR"
 SectionEnd
 
 ;--------------------------------
 
 ; Uninstaller
-
 Section "Uninstall"
   ; Remove shortcuts
   RMDir /r "$SMPROGRAMS\Zodiac"
   Delete "$DESKTOP\Zodiac.lnk"
+  Delete "$DESKTOP\Zodiac (New Session).lnk"
   
   ; Preserve user data by backing it up before removal
   ; Check if settings.ini exists and preserve it
