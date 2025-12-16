@@ -61,6 +61,7 @@ Section "Essential files" SecMain
   
   ; Main executable (required)
   File ..\bin\zodiac.exe
+  File "launch-session.bat"
   File "README_FOR_USERS.txt"
   File "license.txt"
   
@@ -158,6 +159,12 @@ Section "Essential files" SecMain
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "NoRepair" 1
   WriteUninstaller "uninstall.exe"
   
+  ; Register .zos file association
+  WriteRegStr HKCR ".zos" "" "ZodiacSession"
+  WriteRegStr HKCR "ZodiacSession" "" "Zodiac Session File"
+  WriteRegStr HKCR "ZodiacSession\DefaultIcon" "" "$INSTDIR\zodiac.exe,0"
+  WriteRegStr HKCR "ZodiacSession\shell\open\command" "" '"$INSTDIR\launch-session.bat" "%1"'
+  
   ; Try to grant write permissions to installation directory so settings.ini can be created
   ; Use icacls command (built into Windows) to grant Users group write access
   nsExec::ExecToLog 'icacls "$INSTDIR" /grant Users:(OI)(CI)M /T /Q'
@@ -249,6 +256,10 @@ Section "Uninstall"
     MessageBox MB_OK "Application removed. Your settings and chart files have been preserved in:$\n$INSTDIR"
   
   end_uninstall:
+  ; Remove file association
+  DeleteRegKey HKCR ".zos"
+  DeleteRegKey HKCR "ZodiacSession"
+  
   ; Remove registry keys
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac"
   DeleteRegKey HKLM SOFTWARE\Zodiac

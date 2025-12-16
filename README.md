@@ -37,14 +37,22 @@ to-transits, transits-to-natal, returns-to-natal, and stations. For all harmonic
 * Chart-wheel now shows aspect intensity by thickening the aspect line.
 * Improved glyph layout in chart-wheel. Still not perfect, but I think it's better.
 * **Session Management (v0.9.2)**: Complete workflow management system
-  - Automatic session save/restore preserves all open charts, tabs, and settings
-  - **Save Session As** toolbar button to promote timestamped sessions to named sessions
-  - Session database browser with context menu for managing sessions
-  - **Open in New Window** launches selected session in separate instance
-  - **Load in Current** imports charts from saved sessions into current workspace
-  - Single-instance mode by default with window raising when app is relaunched
-  - Command-line options: `--new` for fresh start, `--load-session <file>` for specific session
-  - Sessions stored as `.zos` files (Zodiac Session format)
+  - **Auto-save/restore**: All open charts, tabs, and settings automatically preserved between sessions
+  - **Named sessions**: Promote timestamped sessions to named sessions via **Save Session As** toolbar button
+  - **Window titles**: Named sessions display in title bar (e.g., "Zodiac - My Research Session")
+  - **Session database**: Browse, manage, and launch sessions from the database panel
+  - **Multi-window support**: 
+    - **Open in New Window**: Launch any session in a separate instance
+    - **Load in Current**: Import charts from saved sessions into current workspace
+    - Sessions can be double-clicked to open (Windows `.zos` file association)
+  - **Smart session handling**:
+    - Single-instance mode by default with automatic window raising on relaunch
+    - Timestamped sessions (session-1234567890.zos) for automatic saves
+    - Named sessions (MySession.zos) for organized workflows
+    - Del key support for cleaning up unwanted sessions
+  - **User directory storage**: Sessions stored in Documents/zodiac-charts for easy backup and cloud sync
+  - **Command-line options**: `--new` for fresh start, `--load-session <file>` for specific session
+  - **Preserved settings**: settings.ini and sessions.ini in user directory; API keys in install directory
 
 Mainly, the events listing is where I'm focusing most of my efforts lately, to make it quick, easy and powerful.
 

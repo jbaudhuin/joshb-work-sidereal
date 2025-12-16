@@ -58,6 +58,7 @@ Section "����� ���������" SecMain
   File ..\bin\icu*.dll
   File ..\bin\lib*.dll
   File ..\bin\zodiac.exe
+  File "launch-session.bat"
   
   SetOutPath "$INSTDIR\astroprocessor"
   File ..\bin\astroprocessor\*.csv
@@ -123,6 +124,12 @@ Section "����� ���������" SecMain
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac" "NoRepair" 1
   WriteUninstaller "uninstall.exe"
   
+  ; Register .zos file association
+  WriteRegStr HKCR ".zos" "" "ZodiacSession"
+  WriteRegStr HKCR "ZodiacSession" "" "Zodiac Session File"
+  WriteRegStr HKCR "ZodiacSession\DefaultIcon" "" "$INSTDIR\zodiac.exe,0"
+  WriteRegStr HKCR "ZodiacSession\shell\open\command" "" '"$INSTDIR\launch-session.bat" "%1"'
+  
 SectionEnd
 
 Section "������" SecFonts
@@ -157,6 +164,10 @@ Section "Uninstall"
   RMDir /r "$INSTDIR"
   
   Delete "$DESKTOP\Zodiac.lnk"
+  
+  ; Remove file association
+  DeleteRegKey HKCR ".zos"
+  DeleteRegKey HKCR "ZodiacSession"
   
   ; Remove registry keys
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Zodiac"

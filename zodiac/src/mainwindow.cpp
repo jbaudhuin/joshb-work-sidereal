@@ -54,6 +54,7 @@
 #include <QScrollArea>
 #include <QSettings>
 #include <QShortcut>
+#include <QStandardPaths>
 #include <QWidget>
 #include <math.h>
 
@@ -63,12 +64,35 @@
 QString SessionManager::s_currentSessionFile;
 
 QString 
+SessionManager::sessionDirectory()
+{
+    // Use the same directory as user charts (Documents/zodiac-charts)
+    constexpr auto loc = QStandardPaths::DocumentsLocation;
+    QString dir = QStandardPaths::writableLocation(loc) + "/zodiac-charts";
+    
+    // Ensure directory exists
+    QDir d(dir);
+    if (!d.exists()) {
+        QDir().mkpath(d.absolutePath());
+    }
+    
+    return dir;
+}
+
+QString 
+SessionManager::settingsFile()
+{
+    return sessionDirectory() + "/settings.ini";
+}
+
+QString 
 SessionManager::currentSessionFile()
 {
     if (s_currentSessionFile.isEmpty()) {
         // Generate session filename based on current time
         qint64 timestamp = QDateTime::currentDateTime().toSecsSinceEpoch();
-        s_currentSessionFile = QStringLiteral("session-%1.zos").arg(timestamp);
+        QString filename = QStringLiteral("session-%1.zos").arg(timestamp);
+        s_currentSessionFile = sessionDirectory() + "/" + filename;
     }
     return s_currentSessionFile;
 }
@@ -82,7 +106,8 @@ SessionManager::setCurrentSessionFile(const QString& filename)
 QString 
 SessionManager::getMostRecentSession()
 {
-    QSettings sessions("sessions.ini", QSettings::IniFormat);
+    QString sessionsIni = sessionDirectory() + "/sessions.ini";
+    QSettings sessions(sessionsIni, QSettings::IniFormat);
     QStringList mru = sessions.value(QStringLiteral("MRU/sessions")).toStringList();
     
     if (mru.count() > 0) {
@@ -162,7 +187,8 @@ SessionManager::cloneSessionFile(const QString& sourceFile, const QString& destF
 void 
 SessionManager::addToMRU(const QString& sessionFile)
 {
-    QSettings sessions("sessions.ini", QSettings::IniFormat);
+    QString sessionsIni = sessionDirectory() + "/sessions.ini";
+    QSettings sessions(sessionsIni, QSettings::IniFormat);
     QStringList mru = sessions.value(QStringLiteral("MRU/sessions")).toStringList();
     
     // Remove if already exists (will re-add at front)
@@ -187,7 +213,8 @@ QList<SessionManager::SessionInfo>
 SessionManager::getRecentSessions(int maxCount)
 {
     QList<SessionInfo> result;
-    QSettings sessions("sessions.ini", QSettings::IniFormat);
+    QString sessionsIni = sessionDirectory() + "/sessions.ini";
+    QSettings sessions(sessionsIni, QSettings::IniFormat);
     QStringList mru = sessions.value(QStringLiteral("MRU/sessions")).toStringList();
     
     for (const QString& filename : mru) {
@@ -240,18 +267,12 @@ SessionManager::initializeSession(bool isNewSession)
     QStringList excludeSections;
     
     if (mostRecent.isEmpty()) {
-        // First launch ever - use settings.ini template
-        sourceFile = "settings.ini";
-        
-        // If settings.ini doesn't exist, it will be created from AppSettings defaults
-        if (!QFile::exists(sourceFile)) {
-            qDebug() << "First launch: settings.ini will be created from defaults";
-            // settings.ini will be created by AppSettings initialization
-            // For now, just create an empty session file
-            QSettings session(sessionFile, QSettings::IniFormat);
-            session.sync();
-            return sessionFile;
-        }
+        // First launch ever - no template exists yet
+        // Create an empty session file; settings will be populated from MainWindow defaults
+        qDebug() << "First launch: creating empty session file";
+        QSettings session(sessionFile, QSettings::IniFormat);
+        session.sync();
+        return sessionFile;
     } else {
         // Clone most recent session
         sourceFile = mostRecent;
@@ -311,7 +332,23 @@ SessionManager::sessionFileFromName(const QString& name)
     // Sanitize name for filename - remove invalid characters
     QString safeName = name;
     safeName.replace(QRegularExpression("[/\\\\:*?\"<>|]"), "-");
-    return QStringLiteral("%1.zos").arg(safeName);
+    QString filename = QStringLiteral("%1.zos").arg(safeName);
+    return sessionDirectory() + "/" + filename;
+}
+
+QString 
+SessionManager::sessionNameFromFile(const QString& filepath)
+{
+    QString basename = QFileInfo(filepath).baseName();
+    
+    // Check if it's a timestamped session (e.g., "session-1234567890")
+    if (basename.startsWith("session-")) {
+        // It's a timestamped session, no display name
+        return QString();
+    }
+    
+    // It's a named session, return the basename as the name
+    return basename;
 }
 
 QString 
@@ -320,7 +357,8 @@ SessionManager::sessionFileFromTimestamp(qint64 timestamp)
     if (timestamp == 0) {
         timestamp = QDateTime::currentDateTime().toSecsSinceEpoch();
     }
-    return QStringLiteral("session-%1.zos").arg(timestamp);
+    QString filename = QStringLiteral("session-%1.zos").arg(QString::number(timestamp));
+    return sessionDirectory() + "/" + filename;
 }
 
 bool 
@@ -1543,7 +1581,7 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
 
     // Add Sessions folder at the top
     auto sessionsItem = new QStandardItem(tr("Sessions"));
-    sessionsItem->setData(QDir::currentPath(), PathRole); // Sessions in current directory
+    sessionsItem->setData(SessionManager::sessionDirectory(), PathRole); // Sessions in zodiac-charts directory
     sessionsItem->setData(dbType, TypeRole); // Use dbType to mark as special
     sessionsItem->setData(tr("Session files"), Qt::ToolTipRole);
     
@@ -1553,7 +1591,7 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
     
     sessionsItem->setFlags(Qt::ItemIsEnabled); // No drag-drop for sessions
     
-    fswatch->addPath(QDir::currentPath()); // Watch for new session files
+    fswatch->addPath(SessionManager::sessionDirectory()); // Watch for new session files
     dirModel->appendRow(sessionsItem);
 
     for (const auto& name : AstroFile::fixedChartDirMapKeys()) {
@@ -1636,7 +1674,7 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
 void
 AstroDatabase::saveDatabaseState()
 {
-    QSettings settings("settings.ini", QSettings::IniFormat);
+    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
     settings.beginGroup("Database");
     
     // Save scroll position
@@ -1684,7 +1722,7 @@ AstroDatabase::saveDatabaseState()
 void
 AstroDatabase::restoreDatabaseState()
 {
-    QSettings settings("settings.ini", QSettings::IniFormat);
+    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
     settings.beginGroup("Database");
     
     // Recursively restore expanded state for all directories
@@ -1974,6 +2012,30 @@ AstroDatabase::deleteSelected()
     int  count = sil.count();
     if (!count) return;
 
+    // Check if any selected items are sessions
+    auto sfpModel = qobject_cast<QSortFilterProxyModel*>(fileList->model());
+    auto dirModel = qobject_cast<QStandardItemModel*>(
+        sfpModel ? sfpModel->sourceModel() : fileList->model());
+    
+    bool hasSessions = false;
+    if (dirModel) {
+        for (const auto& mi : sil) {
+            auto sourceIndex = sfpModel->mapToSource(mi);
+            auto item = dirModel->itemFromIndex(sourceIndex);
+            if (item && item->data(TypeRole).toUInt() == sessionType) {
+                hasSessions = true;
+                break;
+            }
+        }
+    }
+    
+    // If any sessions are selected, route to deleteSessions() which handles them properly
+    if (hasSessions) {
+        deleteSessions();
+        return;
+    }
+
+    // Original file deletion logic for non-session items
     QMessageBox msgBox;
     msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
     msgBox.setDefaultButton(QMessageBox::Save);
@@ -2025,18 +2087,15 @@ AstroDatabase::openSessionInNewWindow()
     if (!firstItem || firstItem->data(TypeRole).toUInt() != sessionType) return;
 
     QString sessionFile = firstItem->data(Qt::ToolTipRole).toString();
-    QString sessionFileName = QFileInfo(sessionFile).fileName();
     
     QStringList args;
-    args << "--load-session" << sessionFileName;
+    args << "--load-session" << sessionFile;  // Pass full path
     
     qDebug() << "=== openSessionInNewWindow ===";
     qDebug() << "Session file (full path):" << sessionFile;
-    qDebug() << "Session file (name only):" << sessionFileName;
     qDebug() << "Executable:" << QCoreApplication::applicationFilePath();
     qDebug() << "Arguments:" << args;
-    qDebug() << "Working directory:" << QDir::currentPath();
-    qDebug() << "Session file exists:" << QFile::exists(sessionFileName);
+    qDebug() << "Session file exists:" << QFile::exists(sessionFile);
     
     // Use QProcess in detached mode to avoid any potential blocking
     // IMPORTANT: Redirect stdout/stderr to prevent handle inheritance issues
@@ -2179,12 +2238,11 @@ AstroDatabase::renameSession()
     
     if (!ok || newName.isEmpty()) return;
     
-    // Generate new filename
+    // Generate new filename (already includes full path from sessionFileFromName)
     QString newSessionFile = SessionManager::sessionFileFromName(newName);
-    QString newFullPath = QDir::current().absoluteFilePath(newSessionFile);
     
     // Check if target already exists
-    if (QFile::exists(newFullPath) && newFullPath != oldSessionFile) {
+    if (QFile::exists(newSessionFile) && newSessionFile != oldSessionFile) {
         QMessageBox::warning(this, 
             tr("Rename Failed"), 
             tr("A session with the name '%1' already exists.").arg(newName));
@@ -2192,13 +2250,13 @@ AstroDatabase::renameSession()
     }
     
     // Rename the file
-    if (QFile::rename(oldSessionFile, newFullPath)) {
+    if (QFile::rename(oldSessionFile, newSessionFile)) {
         // Update the session name in the file
-        SessionManager::setSessionName(newFullPath, newName);
+        SessionManager::setSessionName(newSessionFile, newName);
         
         // Update current session reference if this is the current session
         if (oldSessionFile == SessionManager::currentSessionFile()) {
-            SessionManager::setCurrentSessionFile(newFullPath);
+            SessionManager::setCurrentSessionFile(newSessionFile);
         }
         
         updateList();
@@ -4360,6 +4418,9 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, QWidget* parent)
         qDebug() << "Skipping session restore, adding new file";
         filesBar->addNewFile();
     }
+    
+    // Update window title with session name if available
+    updateWindowTitle();
 }
 
 /*static*/
@@ -4382,6 +4443,19 @@ MainWindow::contextMenu(QPoint p)
 {
     QPoint pos = ((QWidget*) sender())->mapToGlobal(p);
     panelsMenu->exec(pos);
+}
+
+void
+MainWindow::updateWindowTitle()
+{
+    QString currentSession = SessionManager::currentSessionFile();
+    QString sessionName = SessionManager::sessionNameFromFile(currentSession);
+    
+    if (!sessionName.isEmpty()) {
+        setWindowTitle(QString("%1 - %2").arg(QApplication::applicationName()).arg(sessionName));
+    } else {
+        setWindowTitle(QApplication::applicationName());
+    }
 }
 
 void
@@ -4520,17 +4594,21 @@ MainWindow::applySettings(const AppSettings& s)
     askToSave = s.value("askToSave").toBool();
     
     // Handle API key - only save to APIKey.ini if changed via settings dialog
-    // Note: Key will only be in 's' when coming from the settings dialog,
-    // not when loading from settings.ini/session files (due to saveSettings override)
+    // Note: Key should only be processed when coming from the settings dialog with a non-empty value
+    // Session files may have empty Key= entries which should be ignored
     if (s.contains("Key")) {
         QString newKey = s.value("Key").toString();
-        QString currentKey = SessionManager::readAPIKey();
         
-        // If key changed in settings dialog, save it to APIKey.ini
-        if (newKey != currentKey) {
-            qDebug() << "API key changed in settings dialog, saving to APIKey.ini";
-            SessionManager::writeAPIKey(newKey);
-            _APIKey = newKey.toStdString();
+        // Only process non-empty keys (empty means it came from an old session file)
+        if (!newKey.isEmpty()) {
+            QString currentKey = SessionManager::readAPIKey();
+            
+            // If key changed in settings dialog, save it to APIKey.ini
+            if (newKey != currentKey) {
+                qDebug() << "API key changed in settings dialog, saving to APIKey.ini";
+                SessionManager::writeAPIKey(newKey);
+                _APIKey = newKey.toStdString();
+            }
         }
     }
     
@@ -4847,9 +4925,8 @@ MainWindow::showRestoreSessionDialog()
             }
             
             // Clone the selected session to a new session file (fork it)
-            QString newSessionFile;
             qint64 newTimestamp = QDateTime::currentDateTime().toSecsSinceEpoch();
-            newSessionFile = QString("session-%1.zos").arg(QString::number(newTimestamp));
+            QString newSessionFile = SessionManager::sessionFileFromTimestamp(newTimestamp);
             
             qDebug() << "Cloning session:" << selectedSessionFile << "->" << newSessionFile;
             SessionManager::cloneSessionFile(selectedSessionFile, newSessionFile);
@@ -4860,6 +4937,9 @@ MainWindow::showRestoreSessionDialog()
             // Reload settings and session from the new file
             loadSettings(newSessionFile);
             restoreSession();
+            
+            // Update window title
+            updateWindowTitle();
             
             qDebug() << "Session restored from:" << selectedSessionFile << "to new session:" << newSessionFile;
         }
@@ -4899,12 +4979,11 @@ MainWindow::saveSessionAs()
     
     if (!ok || newName.isEmpty()) return;
     
-    // Generate new filename
+    // Generate new filename (already includes full path from sessionFileFromName)
     QString newSessionFile = SessionManager::sessionFileFromName(newName);
-    QString newFullPath = QDir::current().absoluteFilePath(newSessionFile);
     
     // Check if target already exists
-    if (QFile::exists(newFullPath) && newFullPath != currentSessionFile) {
+    if (QFile::exists(newSessionFile) && newSessionFile != currentSessionFile) {
         QMessageBox::StandardButton reply = QMessageBox::question(
             this,
             tr("Overwrite Session"),
@@ -4916,7 +4995,7 @@ MainWindow::saveSessionAs()
         }
         
         // Remove existing file
-        QFile::remove(newFullPath);
+        QFile::remove(newSessionFile);
     }
     
     // Save current session state to the current file
@@ -4924,8 +5003,8 @@ MainWindow::saveSessionAs()
     saveSettings(currentSessionFile);
     
     // If renaming to a different file, copy/rename
-    if (newFullPath != currentSessionFile) {
-        if (QFile::copy(currentSessionFile, newFullPath)) {
+    if (newSessionFile != currentSessionFile) {
+        if (QFile::copy(currentSessionFile, newSessionFile)) {
             qDebug() << "Session saved as:" << newSessionFile;
             
             // Update the current session file reference to the new name
@@ -4933,6 +5012,9 @@ MainWindow::saveSessionAs()
             
             // Update database to reflect the new session file
             astroDatabase->updateList();
+            
+            // Update window title with new session name
+            updateWindowTitle();
             
             QMessageBox::information(this,
                                    tr("Session Saved"),
@@ -5027,7 +5109,9 @@ MainWindow::showAbout()
         "• Primary directions and speculum<br>"
         "• Comprehensive event search and timing<br>"
         "• Transit and progression tracking<br>"
-        "• Equatorial and prime vertical aspects</p>"
+        "• Equatorial and prime vertical aspects<br>"
+        "• Complete session management with auto-save/restore<br>"
+        "• Named sessions with multi-window support</p>"
         "<center>" + tr(
             "This application is provided AS IS with ABSOLUTELY NO WARRANTY. "
             "It is distributed in the hope that it will be useful, but WITHOUT "
@@ -5076,6 +5160,29 @@ MainWindow::saveSession()
     
     // Always save the timestamp
     settings.setValue("lastSaved", QDateTime::currentDateTime());
+    
+    // Save session name (derived from filename if it's a named session)
+    QString currentSession = SessionManager::currentSessionFile();
+    QFileInfo fileInfo(currentSession);
+    QString baseName = fileInfo.baseName(); // e.g., "Myself" or "session-1234567890"
+    
+    // Check if it's a named session (not a timestamp-based session)
+    if (!baseName.startsWith("session-")) {
+        // It's a named session - decode and save the name
+        QString sessionName = AFileInfo::decodeName(baseName);
+        settings.setValue("name", sessionName);
+    } else {
+        // Timestamped session - check if it might have been renamed
+        QString suffix = baseName.mid(8); // Remove "session-" prefix
+        bool isTimestamp;
+        suffix.toLongLong(&isTimestamp);
+        if (!isTimestamp) {
+            // It's a named session with "session-" prefix
+            QString sessionName = AFileInfo::decodeName(baseName);
+            settings.setValue("name", sessionName);
+        }
+        // else: Pure timestamp, no name to save
+    }
     
     if (filesBar->count() == 0) {
         // No tabs - save empty session
@@ -5257,7 +5364,7 @@ MainWindow::generateSessionKey(const QDateTime& dt)
 QList<MainWindow::SessionInfo>
 MainWindow::listRecentSessions()
 {
-    QSettings settings("settings.ini", QSettings::IniFormat);
+    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
     QList<SessionInfo> sessions;
     
     // Get all groups that start with "Session_"
@@ -5298,7 +5405,7 @@ MainWindow::listRecentSessions()
 void
 MainWindow::saveSessionWithTimestamp(const QString& sessionKey)
 {
-    QSettings settings("settings.ini", QSettings::IniFormat);
+    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
     settings.beginGroup(sessionKey);
     
     if (filesBar->count() == 0) {
@@ -5388,7 +5495,7 @@ MainWindow::saveSessionWithTimestamp(const QString& sessionKey)
 void
 MainWindow::restoreSessionByKey(const QString& sessionKey)
 {
-    QSettings settings("settings.ini", QSettings::IniFormat);
+    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
     settings.beginGroup(sessionKey);
     
     int tabCount = settings.value("tabCount", 0).toInt();
@@ -5508,7 +5615,7 @@ MainWindow::pruneOldSessions(int maxSessions)
         return; // Nothing to prune
     }
     
-    QSettings settings("settings.ini", QSettings::IniFormat);
+    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
     
     // Remove sessions beyond the limit (oldest ones)
     for (int i = maxSessions; i < sessions.size(); ++i) {

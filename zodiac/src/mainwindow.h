@@ -361,6 +361,12 @@ public:
         QString displayName() const;
     };
     
+    // Get the directory where session files are stored (same as user charts)
+    static QString sessionDirectory();
+    
+    // Get the settings file path (in user's chart directory)
+    static QString settingsFile();
+    
     // Get current session filename based on timestamp
     static QString currentSessionFile();
     
@@ -395,6 +401,7 @@ public:
     
     // Generate session filename from name or timestamp
     static QString sessionFileFromName(const QString& name);
+    static QString sessionNameFromFile(const QString& filepath);
     static QString sessionFileFromTimestamp(qint64 timestamp = 0); // 0 = current time
     
     // Check if session file is named (not timestamped)
@@ -464,6 +471,7 @@ class MainWindow : public QMainWindow, public Customizable {
     void showAbout();
     void showRestoreSessionDialog();
     void saveSessionAs();
+    void updateWindowTitle();
     void gotoUrl(QString url = "");
     void contextMenu(QPoint);
 

@@ -23,6 +23,7 @@
 #include <QObject>
 #include <QStringList>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QWidget>
 #include <QLabel>
 #include <QLineEdit>
@@ -425,10 +426,12 @@ void AppSettingsEditor::saveSettingsAsDefaults()
         settings.setValue(i.key(), value);
     }
     
-    // Save to settings.ini template file
-    settings.save("settings.ini");
+    // Save to settings.ini template file in user's chart directory
+    QString settingsPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) 
+                           + "/zodiac-charts/settings.ini";
+    settings.save(settingsPath);
     
-    qDebug() << "Settings saved as defaults to settings.ini";
+    qDebug() << "Settings saved as defaults to" << settingsPath;
     
     // Show confirmation
     QMessageBox::information(this, 

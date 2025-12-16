@@ -26,6 +26,7 @@ Function InstallTTFFont
   Push $1
   Push $2
   Push $3
+  Push $4
   
   ; Get the font file name without path
   StrCpy $1 $0 "" -12
@@ -37,16 +38,23 @@ Function InstallTTFFont
   Call GetFileName
   Pop $2
   
+  ; Get font name from the file
+  Push $0
+  Call GetFontName
+  Pop $3
+  
+  ; Check if font is already registered
+  ReadRegStr $4 HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "$3 (TrueType)"
+  StrCmp $4 "" install_font
+    DetailPrint "Font already installed: $3"
+    Goto done_font
+  
+  install_font:
   ; Copy font file to Windows Fonts directory
   ClearErrors
   CopyFiles /SILENT $0 "$FONTS"
   IfErrors 0 +2
     DetailPrint "Failed to copy font: $2"
-  
-  ; Get font name from the file
-  Push $0
-  Call GetFontName
-  Pop $3
   
   ; Register the font in the registry
   WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "$3 (TrueType)" "$2"
@@ -54,6 +62,8 @@ Function InstallTTFFont
   ; Notify Windows of font change
   SendMessage ${HWND_BROADCAST} ${WM_FONTCHANGE} 0 0 /TIMEOUT=5000
   
+  done_font:
+  Pop $4
   Pop $3
   Pop $2
   Pop $1
