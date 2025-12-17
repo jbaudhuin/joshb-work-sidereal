@@ -1474,13 +1474,10 @@ Transits::Transits(QWidget* parent) :
     auto startOfMonth = QDate(today.year(), today.month(), 1);
     _start->setDate(startOfMonth);
 
-    connect(_evm, &EventsTableModel::aboutToChange, [this] {
-        if (!_active) saveScrollPos();
-    });
-    connect(_evm, SIGNAL(changeDone()), this, SLOT(restoreScrollPos()));
-
-    connect(ttv()->verticalScrollBar(), &QScrollBar::valueChanged, [this](int) {
-        if (_active) saveScrollPos();
+    connect(ttv()->verticalScrollBar(), &QScrollBar::valueChanged, [this](int value) {
+        qDebug() << "[SCROLL] valueChanged:" << value << "lastScrollValue:" << _lastScrollValue;
+        saveScrollPos();
+        _lastScrollValue = value;
     });
     connect(ttv()->verticalScrollBar(),
             SIGNAL(rangeChanged(int, int)),
@@ -1495,7 +1492,13 @@ Transits::Transits(QWidget* parent) :
     });
 }
 
-Transits::~Transits() { stopThreads(); }
+Transits::~Transits() { 
+    // Disconnect scroll bar signals to prevent crashes during destruction
+    if (_tview && _tview->verticalScrollBar()) {
+        disconnect(_tview->verticalScrollBar(), nullptr, this, nullptr);
+    }
+    stopThreads(); 
+}
 
 QTreeView*
 Transits::ttv() const
@@ -1569,6 +1572,18 @@ Transits::ensureEventsModel()
     if (_evm != evm) {
         _evm = evm;
         _tview->setModel(_evm);
+        
+        // Connect to custom signals for event recalculation
+        QObject::connect(_evm, &EventsTableModel::aboutToChange, this, [this] {
+            saveScrollPos();
+        });
+        QObject::connect(_evm, &EventsTableModel::changeDone, this, &Transits::restoreScrollPos);
+
+        // Connect to standard model reset signals for sorting/filtering
+        QObject::connect(_evm, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
+            saveScrollPos();
+        });
+        QObject::connect(_evm, &QAbstractItemModel::modelReset, this, &Transits::restoreScrollPos);
         
         // Connect sort signal
         auto hdr = qobject_cast<TransitHeaderView*>(_tview->header());
@@ -1897,6 +1912,24 @@ Transits::onCompleted()
     if (filesCount() > 0) {
         file(0)->clearEventsRecalcFlag();
     }
+    
+    // Final restore attempt - if anchor can't be found now, it won't be found
+    if (_anchor.isValid()) {
+        restoreScrollPos();
+        
+        // Try one more time to see if we can find it
+        bool matches = false;
+        int col = _evm->sortColumn();
+        auto order = _evm->sortOrder();
+        int targetRow = _evm->rowForData(_anchor.event, matches, col, order == Qt::DescendingOrder);
+        
+        if (!matches || targetRow < 0) {
+            // Event not found after completion - clear anchor
+            qDebug() << "[ON COMPLETED] Anchor event not found, clearing anchor";
+            _anchor.clear();
+        }
+    }
+    
     qDebug() << "[ON COMPLETED] Cleanup complete";
 #else
     const A::Horoscope& scope(file()->horoscope());
@@ -1951,94 +1984,152 @@ Transits::findIt(const QString& val)
 void
 Transits::saveScrollPos()
 {
+    qDebug() << "[SAVE ANCHOR] Called";
+    
     if (_inRestoreScrollPos) return;
-
-    auto sender = this->sender();
-    if (!sender) return;
+    
+    // Guard against calls during destruction
+    if (!_evm || !_tview) return;
 
     if (_evm->rowCount() == 0) {
+        _anchor.clear();
         return;
     }
 
-    _anchorTop.clear();
-    _anchorCur.clear();
-
-    _anchorSort       = _evm->sortColumn();
-    _anchorOrder      = _evm->sortOrder();
-    _anchorVisibleRow = -1;
-
-    QModelIndex top = ttv()->indexAt(ttv()->rect().topLeft());
-    if (top.isValid()) {
-        _anchorTop = _evm->rowData(top);
-    }
-
+    // Determine anchor type based on what triggered the save
     auto cur = ttv()->currentIndex();
-    if (cur.isValid()) {
-        _anchorCur = _evm->rowData(cur);
-        if (top.isValid() && ttv()->visualRect(cur).isValid()) {
-            _anchorVisibleRow = cur.row() - top.row();
+    bool hasSelection = cur.isValid();
+    
+    // Check if this is from a scroll event by examining scroll bar position
+    int currentScrollValue = ttv()->verticalScrollBar()->value();
+    bool isScrollEvent = (_lastScrollValue >= 0 && currentScrollValue != _lastScrollValue);
+    
+    if (hasSelection && !isScrollEvent) {
+        // Selection anchor: preserve the selected row's position in viewport
+        A::HarmonicEvent currentEvent = _evm->rowData(cur);
+        
+        // If we already have a Selection anchor for the same event, preserve its offset
+        // This prevents offset drift when sorting/filtering without scrolling
+        if (_anchor.type == AnchorType::Selection && _anchor.event == currentEvent) {
+            // Just update sort info, keep existing offset
+            _anchor.sortColumn = _evm->sortColumn();
+            _anchor.sortOrder = _evm->sortOrder();
+        } else {
+            // New selection or different event - recalculate everything
+            _anchor.event = currentEvent;
+            _anchor.type = AnchorType::Selection;
+            _anchor.sortColumn = _evm->sortColumn();
+            _anchor.sortOrder = _evm->sortOrder();
+            
+            // Calculate offset from top of viewport
+            QRect viewportRect = ttv()->rect();
+            QModelIndex topIndex = ttv()->indexAt(viewportRect.topLeft());
+            if (topIndex.isValid()) {
+                _anchor.visibleRowOffset = cur.row() - topIndex.row();
+            } else {
+                _anchor.visibleRowOffset = 0;
+            }
+        }
+    } else {
+        // Scroll anchor: determine if Top or Bottom based on scroll direction
+        if (isScrollEvent && currentScrollValue < _lastScrollValue) {
+            // Scrolled up - use Bottom anchor
+            QModelIndex bottom = ttv()->indexAt(ttv()->rect().bottomLeft());
+            if (bottom.isValid()) {
+                _anchor.event = _evm->rowData(bottom);
+                _anchor.type = AnchorType::Bottom;
+                _anchor.sortColumn = _evm->sortColumn();
+                _anchor.sortOrder = _evm->sortOrder();
+                _anchor.visibleRowOffset = -1;
+            }
+        } else {
+            // Scrolled down or other case - use Top anchor
+            QModelIndex top = ttv()->indexAt(ttv()->rect().topLeft());
+            if (top.isValid()) {
+                _anchor.event = _evm->rowData(top);
+                _anchor.type = AnchorType::Top;
+                _anchor.sortColumn = _evm->sortColumn();
+                _anchor.sortOrder = _evm->sortOrder();
+                _anchor.visibleRowOffset = -1;
+            }
         }
     }
+    
+    _lastScrollValue = currentScrollValue;
 }
 
 void
 Transits::restoreScrollPos()
 {
-    if (_anchorCur == A::HarmonicEvent() && _anchorTop == A::HarmonicEvent()) {
-        return;
-    }
+    // Guard against calls during destruction
+    if (!_evm || !_tview) return;
+    
+    if (!_anchor.isValid()) return;
 
     if (_inRestoreScrollPos) return;
 
     A::modalize<bool> irsp(_inRestoreScrollPos);
     int               col   = _evm->sortColumn();
     auto              order = _evm->sortOrder();
-    bool              ident = false;
-    if (col != _anchorSort || (!_anchorCur.isNull() && _anchorVisibleRow >= 0))
-    {
-        if (_anchorCur == A::HarmonicEvent()) return;
-        auto drow = _evm->rowForData(_anchorCur,
-                                     ident,
-                                     col,
-                                     _evm->sortOrder() == Qt::DescendingOrder);
-        if (drow != -1) {
-            if (_anchorVisibleRow != -1) {
-                int useRow = std::max(0, drow - _anchorVisibleRow);
-                ttv()->scrollTo(_evm->index(useRow, 0),
-                                QAbstractItemView::PositionAtTop);
-            } else {
-                ttv()->scrollTo(_evm->index(drow, 0));
-            }
-            if (ident) {
-                // Block signals to prevent triggering clickedCell during scroll restore
+    
+    // Check if sort order changed - if so, we need to find the item again
+    bool sortChanged = (col != _anchor.sortColumn || order != _anchor.sortOrder);
+    
+    // Try to find the anchored event in the current model
+    bool matches = false;
+    int targetRow = _evm->rowForData(_anchor.event, matches, col, order == Qt::DescendingOrder);
+    
+    if (!matches || targetRow < 0) {
+        // Event not found yet (still calculating) or not found at all
+        // During progressive updates, this is normal - just return and wait
+        // After final completion, onCompleted will clear invalid anchors
+        return;
+    }
+    
+    // Found the event - restore based on anchor type
+    QModelIndex targetIndex = _evm->index(targetRow, 0);
+    
+    switch (_anchor.type) {
+        case AnchorType::Selection:
+            // Restore selected row at its previous visual offset
+            {
                 QSignalBlocker blocker(ttv()->selectionModel());
-                ttv()->setCurrentIndex(_evm->index(drow, col));
+                ttv()->setCurrentIndex(targetIndex);
             }
-            return;
-        }
+            
+            // Scroll to maintain the same visual offset from top
+            if (_anchor.visibleRowOffset >= 0) {
+                int scrollToRow = targetRow - _anchor.visibleRowOffset;
+                if (scrollToRow >= 0) {
+                    QModelIndex scrollToIndex = _evm->index(scrollToRow, 0);
+                    ttv()->scrollTo(scrollToIndex, QAbstractItemView::PositionAtTop);
+                } else {
+                    ttv()->scrollTo(targetIndex, QAbstractItemView::PositionAtTop);
+                }
+            } else {
+                ttv()->scrollTo(targetIndex, QAbstractItemView::PositionAtCenter);
+            }
+            break;
+            
+        case AnchorType::Top:
+            // Scroll so this item is at the top of the viewport
+            ttv()->scrollTo(targetIndex, QAbstractItemView::PositionAtTop);
+            break;
+            
+        case AnchorType::Bottom:
+            // Scroll so this item is at the bottom of the viewport
+            ttv()->scrollTo(targetIndex, QAbstractItemView::PositionAtBottom);
+            break;
+            
+        case AnchorType::None:
+        default:
+            break;
     }
-
-    auto drow = _evm->rowForData(_anchorTop,
-                                 ident,
-                                 col,
-                                 _evm->sortOrder() == Qt::DescendingOrder);
-    if (drow != -1) {
-        auto pos =
-            (order == _anchorOrder ? QAbstractItemView::PositionAtTop
-                                   : QAbstractItemView::PositionAtBottom);
-        ttv()->scrollTo(_evm->index(drow, col), pos);
-    }
-    if (_anchorCur == A::HarmonicEvent()) return;
-    auto crow = _evm->rowForData(_anchorCur,
-                                 ident,
-                                 col,
-                                 _evm->sortOrder() == Qt::DescendingOrder);
-    if (crow == -1 || !ident) return;
-    auto ci = tvm()->index(crow, col);
-    ttv()->setCurrentIndex(ci);
-    auto rect = ttv()->visualRect(ci);
-    if (!rect.isValid()) {
-        ttv()->scrollTo(ci);
+    
+    // Update anchor's sort info if it changed
+    if (sortChanged) {
+        _anchor.sortColumn = col;
+        _anchor.sortOrder = order;
     }
 }
 
@@ -2048,6 +2139,9 @@ Transits::clickedCell(QModelIndex inx)
     if (!inx.isValid()) return;
     if (!_evm) return;
     if (inx.row() < 0 || inx.row() >= _evm->rowCount()) return;
+    
+    // Save scroll position when user clicks a cell (creates selection anchor)
+    saveScrollPos();
     
     auto btns = QGuiApplication::mouseButtons();
     bool mbtn = (btns & Qt::MiddleButton);

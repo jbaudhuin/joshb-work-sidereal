@@ -171,15 +171,38 @@ class Transits : public AstroFileHandler {
     QPushButton*      _forth;
     QDateEdit*        _end;
 
-    A::HarmonicEvent _anchorTop, _anchorCur;
-    int              _anchorSort;
-    Qt::SortOrder    _anchorOrder;
-    int              _anchorVisibleRow;
-    bool             _inRestoreScrollPos = false;
+    enum class AnchorType {
+        None,
+        Top,       // Preserve top visible row (user scrolled down)
+        Selection, // Preserve selected row at its visual offset (user clicked)
+        Bottom     // Preserve bottom visible row (user scrolled up)
+    };
+
+    struct ScrollAnchor {
+        A::HarmonicEvent event;
+        AnchorType type = AnchorType::None;
+        int sortColumn = -1;
+        Qt::SortOrder sortOrder = Qt::AscendingOrder;
+        int visibleRowOffset = -1; // Offset from viewport top (for Selection type)
+        
+        void clear() {
+            event = A::HarmonicEvent();
+            type = AnchorType::None;
+            sortColumn = -1;
+            sortOrder = Qt::AscendingOrder;
+            visibleRowOffset = -1;
+        }
+        
+        bool isValid() const { return type != AnchorType::None; }
+    };
+
+    ScrollAnchor _anchor;
+    bool         _inRestoreScrollPos = false;
+    int          _lastScrollValue = -1; // Track scroll direction
 
     GeoSearchWidget* _location;
 
-    EventsTableModel* _evm;  // Points to file(0)->eventsModel()
+    QPointer<EventsTableModel> _evm;  // Points to file(0)->eventsModel() - QPointer for safe destruction
     
     ADateDelta _ddelta;
 
