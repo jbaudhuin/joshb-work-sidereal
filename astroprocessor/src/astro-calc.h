@@ -577,6 +577,7 @@ class AspectFinder : public QObject, public EventOptions {
         PlanetProfile b;
         bool          skipAllNatalOnly;
         bool          showPatterns;
+        bool          onlyProgressedAndNatal; // True when only slow-moving P=P/P=N aspects remain
 
         QDateTime d, e;
         double    jd, bjd, ejd, pjd, ljd;
@@ -683,6 +684,7 @@ class AspectFinder : public QObject, public EventOptions {
                        std::unique_ptr<PlanetProfile>& useProf);
     void findTransitPairs(AspectSearchState& state);
     void findAspects(AspectSearchState& state, modalize<bool>& mum);
+    void findRemainingAspects(AspectSearchState& state);
 
     QThreadPool* _tp;  // Points to global thread pool, not owned
 

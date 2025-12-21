@@ -253,12 +253,14 @@ SessionManager::initializeSession(bool isNewSession)
 {
     QString sessionFile = currentSessionFile();
     
-    // If session file already exists (e.g., loaded via --load-session), use it directly
+    // If session file already exists (e.g., loaded via --load-session or named session), use it directly
     if (QFile::exists(sessionFile)) {
         qDebug() << "Using existing session file:" << sessionFile;
         return sessionFile;
     }
 
+    // Check if this is a named session
+    bool isNamed = isNamedSession(sessionFile);
     
     QString mostRecent = getMostRecentSession();
     
@@ -283,6 +285,8 @@ SessionManager::initializeSession(bool isNewSession)
         excludeSections << QStringLiteral("Session");
     }
     
+    // For named sessions, create the file immediately
+    // For timestamped sessions, also create it (will be updated on close)
     qDebug() << "Cloning session:" << sourceFile << "->" << sessionFile;
     qDebug() << "Excluding sections:" << excludeSections;
     
@@ -1270,13 +1274,13 @@ AstroWidget::defaultSettings()
 
     for (AstroFileHandler* h : handlers) s << h->defaultSettings();
 
-    s.setValue("Scope/defaultLocation", "37.6184 55.7512 0");
-    s.setValue("Scope/defaultLocationName", "Moscow, Russia");
+    s.setValue("Scope/defaultLocation", "-122.6784 45.5152 82");
+    s.setValue("Scope/defaultLocationName", "Portland, OR, USA");
     s.setValue("Scope/zodiac",
-               0); // indexes of ComboBox items, not values itself
-    s.setValue("Scope/houseSystem", 0);
-    s.setValue("Scope/aspectSet", 0);
-    s.setValue("Scope/dynamic", "all");
+               2); // Fagan-Bradley (Sidereal)
+    s.setValue("Scope/houseSystem", 2); // Campanus
+    s.setValue("Scope/aspectSet", 5); // Dynamic
+    s.setValue("Scope/dynamic", "1, 2, 3, 4, 6, 8, 12"); // Ptolemaic
     s.setValue("Scope/aspectMode", 1); // ecliptic
     s.setValue("slide",
                slides->currentIndex()); // чтобы не возвращалась к первому
@@ -4479,40 +4483,43 @@ MainWindow::addToolBarActions()
     connect(newFindAct, SIGNAL(triggered()), filesBar, SLOT(findChart()));
 
     toolBar->addWidget(tbNew);
-    
-    // Use standard icon for Restore Session - SP_DialogOpenButton shows folder/open icon
-    toolBar->addAction(style()->standardIcon(QStyle::SP_DialogOpenButton),
-                       tr("Restore"),
-                       this,
-                       SLOT(showRestoreSessionDialog()));
-    
-    toolBar->addAction(QIcon("style/save.png"),
-                       tr("Save"),
-                       this,
-                       SLOT(saveFile()));
-    
-    toolBar->addAction(QIcon("style/file.png"),
-                       tr("Save Session As..."),
-                       this,
-                       SLOT(saveSessionAs()));
-    toolBar->addAction(QIcon("style/edit.png"),
-                       tr("Edit"),
-                       astroWidget,
-                       SLOT(openEditor()));
+
+    auto editAct = toolBar->addAction(QIcon("style/edit.png"),
+                                       tr("Edit..."),
+                                       astroWidget,
+                                       SLOT(openEditor()));
+
+    auto saveAct = toolBar->addAction(QIcon("style/save.png"),
+                                       tr("Save Chart"),
+                                       this,
+                                       SLOT(saveFile()));
+
+    auto saveSessionAct = toolBar->addAction(QIcon("style/file.png"),
+                                              tr("Save Session..."),
+                                              this,
+                                              SLOT(saveSessionAs()));
+
+    // Use standard icon for Restore Session - SP_DialogOpenButton shows
+    // folder/open icon
+    auto restoreSessionAct = toolBar->addAction(style()->standardIcon(QStyle::SP_DialogOpenButton),
+                                                 tr("Restore Session..."),
+                                                 this,
+                                                 SLOT(showRestoreSessionDialog()));
+
     // toolBar  -> addAction(QIcon("style/print.png"), tr("Экспорт"));
 
     newAct->setShortcut(QKeySequence("CTRL+N"));
     newEditAct->setShortcut(QKeySequence("Ctrl+Shift+N"));
-    toolBar->actions()[2]->setShortcut(QKeySequence("CTRL+S"));
-    toolBar->actions()[4]->setShortcut(QKeySequence("F2"));
+    editAct->setShortcut(QKeySequence("F2"));
+    saveAct->setShortcut(QKeySequence("CTRL+S"));
     // toolBar  -> actions()[4]->setShortcut(QKeySequence("CTRL+P"));
 
     newAct->setStatusTip(tr("New data") + "\n Ctrl+N");
     newEditAct->setStatusTip(tr("Edit new data") + "\n Ctrl+Shift+N");
-    toolBar->actions()[1]->setStatusTip(tr("Restore session"));
-    toolBar->actions()[2]->setStatusTip(tr("Save data") + "\n Ctrl+S");
-    toolBar->actions()[3]->setStatusTip(tr("Save session with name"));
-    toolBar->actions()[4]->setStatusTip(tr("Edit data...") + "\n F2");
+    editAct->setStatusTip(tr("Edit data...") + "\n F2");
+    saveAct->setStatusTip(tr("Save data") + "\n Ctrl+S");
+    saveSessionAct->setStatusTip(tr("Save session with name"));
+    restoreSessionAct->setStatusTip(tr("Restore session"));
     // toolBar  -> actions()[3]->setStatusTip(tr("Печать или экспорт \n
     // Ctrl+P"));
 
@@ -4647,24 +4654,15 @@ MainWindow::closeEvent(QCloseEvent* ev)
     QString currentSession = SessionManager::currentSessionFile();
     bool isNamed = SessionManager::isNamedSession(currentSession);
     
+    // Both named and timestamped sessions: Update the current file in-place
+    saveSession();
+    saveSettings(currentSession);
+    SessionManager::addToMRU(currentSession);
+    
     if (isNamed) {
-        // Named session: Update in-place
-        saveSession();
-        saveSettings(currentSession);
-        SessionManager::addToMRU(currentSession);
         qDebug() << "Named session updated:" << currentSession;
     } else {
-        // Timestamped session: Create new timestamped session on close
-        qint64 newTimestamp = QDateTime::currentDateTime().toSecsSinceEpoch();
-        QString newSessionFile = QString("session-%1.zos").arg(newTimestamp);
-        
-        // Save to new session file
-        SessionManager::setCurrentSessionFile(newSessionFile);
-        saveSession();
-        saveSettings(newSessionFile);
-        SessionManager::addToMRU(newSessionFile);
-        
-        qDebug() << "Session saved to new timestamped file:" << newSessionFile;
+        qDebug() << "Timestamped session updated:" << currentSession;
     }
     
     ev->accept();

@@ -431,6 +431,11 @@ describeAspectsTable(const AspectList& aspects, AspectSortOrder sortOrder)
     ret += "</tr>";
 
     for (const Aspect& asp : sortedAspects) {
+        // Skip aspects with invalid planet pointers
+        if (!asp.planet1 || !asp.planet2 || !asp.d) {
+            continue;
+        }
+        
         ret += "<tr>";
 
         // Aspect name

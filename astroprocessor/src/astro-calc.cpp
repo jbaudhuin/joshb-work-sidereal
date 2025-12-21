@@ -735,7 +735,7 @@ calculatePlanet(PlanetId         planet,
                          .arg(sec, 2, 10, QChar('0'));
             delim = ',';
         }
-#if !DEBUG_FINDER_THREADS
+#if 0 // !DEBUG_FINDER_THREADS
         qDebug() << qPrintable(rastr);
 #endif
     }
@@ -2570,12 +2570,13 @@ struct calcLoop {
                     jdc + (fabs(flo) / (fabs(flo) + fabs(fhi))) * span;
                 uintmax_t iter = 20;
                 try {
-                    jd   = newton_raphson_iterate(ncpos,
+                    jd = newton_raphson_iterate(ncpos,
                                                 guess,
                                                 jdc,
                                                 jdc + span,
                                                 digits,
                                                 iter);
+
                     done = fabs(poses[1]->loc - poses[0]->loc) <= tol
                            || span < tol;
                     if (done) qDebug() << "  done by newton";
@@ -4838,11 +4839,7 @@ AspectFinder::findNewStarts(AspectSearchState&              state,
             }
             if (add) {
                 qDebug() << QString("Found H%1 start of %2 "
-                                    "with %3 "
-                                    "spre"
-                                    "ad"
-                                    " "
-                                    "at %4")
+                                    "with %3 spread at %4")
                                 .arg(state.h)
                                 .arg(ps.names().join("="))
                                 .arg(cl.second)
@@ -5161,6 +5158,524 @@ AspectFinder::findAspects(AspectSearchState& state, modalize<bool>& mum)
 }
 
 void
+AspectFinder::findRemainingAspects(AspectSearchState& state)
+{
+    // ~.7 arcsecond (true perfection)
+    constexpr double goodSeparationThreshold = 0.0003;
+
+    modalize<bool> mum2(st_quiet, false);
+
+    bool any = false;
+    for (auto hpsit = state.proximityLog.begin();
+         _state != cancelRequestedState && hpsit != state.proximityLog.end();
+         ++hpsit)
+    {
+        const auto& hps = hpsit->first;
+        const auto& rm  = hpsit->second;
+        for (auto rit = rm.begin(); rit != rm.end(); ++rit) {
+            const auto& r    = rit->first;
+            const auto& stat = rit->second;
+            if (stat) continue;
+            auto   h  = hps.harmonic;
+            auto&& ps = hps.planets;
+            if (ps.size() != 2) {
+                continue; // Only for pairs
+            }
+            auto desc = QString("[%1 - %2]")
+                            .arg(dtToString(dateTimeFromJulian(r.first)),
+                                 dtToString(dateTimeFromJulian(r.second)));
+            if (skipByDuration != SkipNone) {
+                double duration  = r.second - r.first;
+                double threshold = 0.0;
+                switch (skipByDuration) {
+                case SkipLessThanDay:   threshold = 1.0; break;
+                case SkipLessThanWeek:  threshold = 7.0; break;
+                case SkipLessThanMonth: threshold = 30.0; break;
+                default:                threshold = 0.0; break;
+                }
+                if (duration < threshold) {
+                    if (!st_quiet) {
+                        qDebug() << "Skipping inexact aspect search for pair"
+                                 << ps.names().join("=") << "harmonic" << h
+                                 << "duration" << duration
+                                 << "days (threshold:" << threshold << ")";
+                    }
+                    continue;
+                }
+            }
+            if (ps.begin()->samePlanet({ Planet_Moon })
+                || ps.rbegin()->samePlanet({ Planet_Moon }))
+            {
+#if 0
+                    qDebug() << "Skipping lunar straggler "
+                             << QString("H%1 %2: %3")
+                                    .arg(h)
+                                    .arg(ps.names().join("="))
+                                    .arg(desc)
+                                    .toStdString()
+                                    .c_str();
+#endif
+                continue;
+            }
+
+            // Find the corresponding InputData for each planet
+            auto     profile = _alist.profile(ps);
+            unsigned iters   = 0;
+
+            // Define the function to minimize: aspect separation at jd
+            auto csprd = [&](double jd) {
+                ++iters;
+                return profile->computePos(jd, h);
+            };
+
+            auto cps = [&](double jd) -> std::pair<qreal, qreal> {
+                auto pos = profile->computePos(jd, h);
+                return { pos, profile->speed() };
+            };
+
+            // Recursive binary search to find ALL perfections in the range
+            // Returns a list of narrowed brackets, each containing one
+            // perfection
+            struct PerfectionBracket {
+                double left, right;
+                bool   hasCrossing;
+            };
+
+            // Use the same time increment that found the aspect in the main
+            // loop This accounts for harmonics, orb settings, and aspect types
+            double minBracketSize = state.useRate;
+
+            if (!st_quiet) {
+                qDebug() << "Using minBracketSize =" << minBracketSize
+                         << "days for" << ps.names().join("=") << "H" << h
+                         << "(eventType:" << hps.eventType << ")";
+            }
+
+            std::function<std::vector<PerfectionBracket>(double, double, int)>
+                findPerfections;
+            findPerfections = [&](double left,
+                                  double right,
+                                  int depth) -> std::vector<PerfectionBracket> {
+                constexpr int maxDepth = 15;
+
+                if (depth >= maxDepth || (right - left) <= minBracketSize) {
+                    // Base case: bracket small enough or too deep
+                    // Check if there's a sign change in this bracket
+                    profile->computePos(left, h);
+                    qreal leftSep = PlanetProfile::computeDelta((*profile)[0],
+                                                                (*profile)[1],
+                                                                h)
+                                        .first;
+                    profile->computePos(right, h);
+                    qreal rightSep = PlanetProfile::computeDelta((*profile)[0],
+                                                                 (*profile)[1],
+                                                                 h)
+                                         .first;
+                    bool hasCrossing = (sgn(leftSep) != sgn(rightSep));
+                    return { PerfectionBracket { left, right, hasCrossing } };
+                }
+
+                double mid = (left + right) / 2.0;
+
+                profile->computePos(left, h);
+                qreal leftSep =
+                    PlanetProfile::computeDelta((*profile)[0], (*profile)[1], h)
+                        .first;
+
+                profile->computePos(mid, h);
+                qreal midSep =
+                    PlanetProfile::computeDelta((*profile)[0], (*profile)[1], h)
+                        .first;
+
+                profile->computePos(right, h);
+                qreal rightSep =
+                    PlanetProfile::computeDelta((*profile)[0], (*profile)[1], h)
+                        .first;
+
+                if (!st_quiet && depth < 3) {
+                    qDebug()
+                        << "  Depth" << depth << ":"
+                        << "left=" << dtToString(dateTimeFromJulian(left))
+                        << "sep=" << leftSep << "|"
+                        << "mid=" << dtToString(dateTimeFromJulian(mid))
+                        << "sep=" << midSep << "|"
+                        << "right=" << dtToString(dateTimeFromJulian(right))
+                        << "sep=" << rightSep;
+                }
+
+                bool leftToMidCrossing  = (sgn(leftSep) != sgn(midSep));
+                bool midToRightCrossing = (sgn(midSep) != sgn(rightSep));
+
+                if (leftToMidCrossing && midToRightCrossing) {
+                    // CASE 3: Both halves have crossings - recursively search
+                    // BOTH
+                    if (!st_quiet && depth < 3) {
+                        qDebug() << "  -> Both halves have crossings, "
+                                    "recursively searching both";
+                    }
+                    auto leftResults  = findPerfections(left, mid, depth + 1);
+                    auto rightResults = findPerfections(mid, right, depth + 1);
+                    leftResults.insert(leftResults.end(),
+                                       rightResults.begin(),
+                                       rightResults.end());
+                    return leftResults;
+                } else if (leftToMidCrossing) {
+                    // CASE 2: Only left half has crossing
+                    if (!st_quiet && depth < 3) {
+                        qDebug()
+                            << "  -> Left half has crossing, searching left";
+                    }
+                    return findPerfections(left, mid, depth + 1);
+                } else if (midToRightCrossing) {
+                    // CASE 2: Only right half has crossing
+                    if (!st_quiet && depth < 3) {
+                        qDebug()
+                            << "  -> Right half has crossing, searching right";
+                    }
+                    return findPerfections(mid, right, depth + 1);
+                } else {
+                    // CASE 1: No crossing detected - find minimum using
+                    // magnitude
+                    qreal absLeft  = std::abs(leftSep);
+                    qreal absMid   = std::abs(midSep);
+                    qreal absRight = std::abs(rightSep);
+
+                    if (absMid <= absLeft && absMid <= absRight) {
+                        // Mid is smallest, narrow both sides toward it
+                        return findPerfections(left + (mid - left) / 2.0,
+                                               mid + (right - mid) / 2.0,
+                                               depth + 1);
+                    } else if (absLeft < absRight) {
+                        return findPerfections(left, mid, depth + 1);
+                    } else {
+                        return findPerfections(mid, right, depth + 1);
+                    }
+                }
+            };
+
+            if (!st_quiet) {
+                qDebug() << "Starting recursive perfection search for"
+                         << ps.names().join("=") << "H" << h << "over range ["
+                         << dtToString(dateTimeFromJulian(r.first)) << "to"
+                         << dtToString(dateTimeFromJulian(r.second)) << "]"
+                         << "(" << (r.second - r.first) << "days)";
+            }
+
+            auto perfectionBrackets = findPerfections(r.first, r.second, 0);
+
+            if (!st_quiet) {
+                qDebug() << "Found" << perfectionBrackets.size()
+                         << "bracket(s) for" << ps.names().join("=")
+                         << "after recursive search from"
+                         << (r.second - r.first) << "days";
+                for (size_t i = 0; i < perfectionBrackets.size(); ++i) {
+                    const auto& bracket      = perfectionBrackets[i];
+                    double      bracketDays  = bracket.right - bracket.left;
+                    double      bracketHours = bracketDays * 24.0;
+                    qDebug()
+                        << "  Bracket" << i << ":"
+                        << "[" << dtToString(dateTimeFromJulian(bracket.left))
+                        << "to" << dtToString(dateTimeFromJulian(bracket.right))
+                        << "]"
+                        << "(" << bracketDays << "days =" << bracketHours
+                        << "hours)"
+                        << (bracket.hasCrossing ? "HAS crossing"
+                                                : "no crossing");
+                }
+            }
+
+            // Process each perfection bracket
+            for (const auto& bracket : perfectionBrackets) {
+                double left            = bracket.left;
+                double right           = bracket.right;
+                bool   foundSignChange = bracket.hasCrossing;
+
+                constexpr int digits = std::numeric_limits<double>::digits;
+
+                double minJD, minSep;
+                bool   usedNewtonRaphson =
+                    false; // Track if N-R was used for perfect aspect marking
+
+                // If we never found a sign change (Case 1), skip Newton-Raphson
+                // and go straight to Brent minimization
+                if (!foundSignChange) {
+                    if (!st_quiet) {
+                        qDebug() << "No perfection detected (Case 1), using "
+                                    "Brent minimization for"
+                                 << ps.names().join("=");
+                    }
+                    minSep = -1; // Force Brent path
+                } else {
+                    // Found a crossing - try Newton-Raphson
+                    try {
+                        boost::uintmax_t iter = 30;
+
+                        auto guess = (left + right)
+                                     / 2.0; // Use narrowed bracket midpoint
+                        minJD = newton_raphson_iterate(cps,
+                                                       guess,
+                                                       left,
+                                                       right,
+                                                       digits,
+                                                       iter);
+
+                        // Compute positions at the found minimum, then get
+                        // separation
+                        profile->computePos(minJD, h);
+                        minSep = PlanetProfile::computeDelta(profile[0],
+                                                             profile[1],
+                                                             h)
+                                     .first;
+
+                        if (!st_quiet) {
+                            qDebug() << "Newton-Raphson found minJD="
+                                     << dtToString(dateTimeFromJulian(minJD))
+                                     << "sep=" << minSep << "(" << iter
+                                     << "iterations)";
+                        }
+
+                        // Check if Newton-Raphson converged to a boundary
+                        constexpr double boundaryEps = 1e-6;
+
+                        bool atBoundary =
+                            (std::abs(minJD - left) < boundaryEps
+                             || std::abs(minJD - right) < boundaryEps);
+                        bool goodSeparation =
+                            (std::abs(minSep) < goodSeparationThreshold);
+
+                        if (atBoundary && !goodSeparation) {
+                            // At boundary with poor separation - reject and use
+                            // Brent
+                            if (!st_quiet) {
+                                qDebug()
+                                    << "Newton-Raphson converged to boundary "
+                                       "with poor separation"
+                                    << QString("H%1 %2: %3 (sep=%4, %5 iters)")
+                                           .arg(h)
+                                           .arg(ps.names().join("="))
+                                           .arg(desc)
+                                           .arg(minSep)
+                                           .arg(iter)
+                                           .toStdString()
+                                           .c_str();
+                            }
+                            minSep = -1; // Force fallback to Brent
+                        } else if (goodSeparation) {
+                            // Found perfection (separation close to zero)
+                            usedNewtonRaphson = true;
+                            if (!st_quiet) {
+                                qDebug()
+                                    << "Newton-Raphson found perfection"
+                                    << QString("H%1 %2: %3 (sep=%4, %5 iters)")
+                                           .arg(h)
+                                           .arg(ps.names().join("="))
+                                           .arg(desc)
+                                           .arg(minSep)
+                                           .arg(iter)
+                                           .toStdString()
+                                           .c_str();
+                            }
+                        } else {
+                            // Not at boundary - Newton-Raphson found valid
+                            // minimum (just not perfect) Keep this result as an
+                            // imperfect aspect
+                            usedNewtonRaphson =
+                                true; // Mark as used for event creation
+                            if (!st_quiet) {
+                                qDebug()
+                                    << "Newton-Raphson found imperfect minimum"
+                                    << QString("H%1 %2: %3 (sep=%4, %5 iters)")
+                                           .arg(h)
+                                           .arg(ps.names().join("="))
+                                           .arg(desc)
+                                           .arg(minSep)
+                                           .arg(iter)
+                                           .toStdString()
+                                           .c_str();
+                            }
+                            // Keep minSep and minJD - don't force Brent
+                            // fallback
+                        }
+                    }
+                    catch (...) {
+                        if (!st_quiet) {
+                            qDebug() << "Newton-Raphson threw exception for"
+                                     << QString("H%1 %2: %3")
+                                            .arg(h)
+                                            .arg(ps.names().join("="))
+                                            .arg(desc)
+                                            .toStdString()
+                                            .c_str();
+                        }
+                        minSep = -1; // Force brentZhangStage fallback
+                    }
+
+                    // If Newton-Raphson failed (at boundary OR exception), use
+                    // brentZhangStage fallback
+                    if (minSep == -1) {
+                        // Use brentZhangStage (like PairAspectFinder) with
+                        // endpoint values
+                        profile->computePos(left, h);
+                        qreal leftSep =
+                            PlanetProfile::computeDelta((*profile)[0],
+                                                        (*profile)[1],
+                                                        h)
+                                .first;
+                        profile->computePos(right, h);
+                        qreal rightSep =
+                            PlanetProfile::computeDelta((*profile)[0],
+                                                        (*profile)[1],
+                                                        h)
+                                .first;
+
+                        unsigned count = 0;
+                        auto     cp    = [&](double jd) {
+                            ++count;
+                            return profile->computePos(jd, h);
+                        };
+
+                        bool success = brentZhangStage(cp,
+                                                       left,
+                                                       right,
+                                                       leftSep,
+                                                       rightSep,
+                                                       minJD);
+                        if (success) {
+                            profile->computePos(minJD, h);
+                            minSep = PlanetProfile::computeDelta((*profile)[0],
+                                                                 (*profile)[1],
+                                                                 h)
+                                         .first;
+                            if (!st_quiet) {
+                                qDebug()
+                                    << "brentZhangStage found minJD="
+                                    << dtToString(dateTimeFromJulian(minJD))
+                                    << "sep=" << minSep << "(" << count
+                                    << "iterations)";
+                            }
+                        } else {
+                            minSep = qreal(); // Signal failure for
+                                              // brentGlobalMin fallback
+                        }
+                    }
+                }
+
+                // No sign change was found - use brent_find_minima to find
+                // closest approach
+                if (!foundSignChange) {
+                    std::tie(minJD, minSep) =
+                        brent_find_minima(csprd, left, right, digits);
+                    if (!st_quiet) {
+                        qDebug()
+                            << "Closest approach for"
+                            << QString("H%1 %2").arg(h).arg(
+                                   ps.names().join("="))
+                            << "in [" << dtToString(dateTimeFromJulian(left))
+                            << "-" << dtToString(dateTimeFromJulian(right))
+                            << "]:" << minSep << "at"
+                            << dtToString(dateTimeFromJulian(minJD))
+                            << "(1 iters)";
+                    }
+                }
+                if (minSep == qreal()) {
+                    qDebug() << "Unable to find closest using brentZhangStage "
+                             << QString("H%1 %2: bracket [%3 - %4] (%5 iters)")
+                                    .arg(h)
+                                    .arg(ps.names().join("="))
+                                    .arg(dtToString(dateTimeFromJulian(left)))
+                                    .arg(dtToString(dateTimeFromJulian(right)))
+                                    .arg(iters)
+                                    .toStdString()
+                                    .c_str();
+                    // Last resort: use global min with narrowed bracket
+                    brentGlobalMin(csprd,
+                                   left,
+                                   right,
+                                   (left + right) / 2,
+                                   1 /*m*/,
+                                   1e-7,
+                                   1e-8,
+                                   minJD);
+                }
+                if (minJD == r.first || minJD == r.second) {
+                    qDebug() << "Unable to find closest (at original boundary)"
+                             << QString("H%1 %2: bracket [%3 - %4] (%5 iters)")
+                                    .arg(h)
+                                    .arg(ps.names().join("="))
+                                    .arg(dtToString(dateTimeFromJulian(left)))
+                                    .arg(dtToString(dateTimeFromJulian(right)))
+                                    .arg(iters)
+                                    .toStdString()
+                                    .c_str();
+                    continue; // Skip this bracket, try next one
+                }
+
+                if (!any) {
+                    qDebug() << "Ranges with no precise hits:";
+                    any = true;
+                }
+
+                // Collect the planet positions at minJD
+                minSep = profile->computePos(minJD, h);
+
+                qDebug()
+                    << QString(
+                           "Closest approach for H%1 %2 in [%3 - %4]: " "%5 at "
+                                                                        "%6 "
+                                                                        "(%7 "
+                                                                        "iters"
+                                                                        ")")
+                           .arg(h)
+                           .arg(ps.names().join("="))
+                           .arg(dtToString(dateTimeFromJulian(r.first)))
+                           .arg(dtToString(dateTimeFromJulian(r.second)))
+                           .arg(minSep)
+                           .arg(dtToString(dateTimeFromJulian(minJD)))
+                           .arg(iters)
+                           .toStdString()
+                           .c_str();
+
+                PlanetRangeBySpeed plr;
+                for (auto loc : *profile) {
+                    if (auto ploc = dynamic_cast<PlanetLoc*>(loc)) {
+                        plr.emplace(*ploc);
+                    }
+                }
+
+                ADateTimeRange range { dateTimeFromJulian(r.first),
+                                       dateTimeFromJulian(r.second) };
+
+                QMutexLocker ml(_evs.mutex());
+
+                bool perfect = usedNewtonRaphson
+                               || (std::abs(minSep) < goodSeparationThreshold);
+                auto& ev = _evs.emplace_back(dateTimeFromJulian(minJD),
+                                             hps.eventType,
+                                             h,
+                                             std::move(plr),
+                                             perfect ? qreal() : minSep);
+                ev.setRange(range);
+            } // end for each perfection bracket
+
+            delete profile;
+        }
+    }
+
+    for (const auto& hpc : state.starts) {
+        for (const auto& pso : hpc.second) {
+            if (pso.second.when == qreal()) continue;
+            qDebug() << QString("Pending pattern H%1 %2 started at %3")
+                            .arg(hpc.first)
+                            .arg(pso.first.names().join("="))
+                            .arg(
+                                dtToString(dateTimeFromJulian(pso.second.when)))
+                            .toStdString()
+                            .c_str();
+        }
+    }
+}
+
+void
 AspectFinder::findAspectsAndPatterns()
 {
     if (_alist.empty()) return;
@@ -5208,6 +5723,7 @@ AspectFinder::findAspectsAndPatterns()
         state.skipAllNatalOnly = true;
     }
     state.showPatterns = showTransitAspectPatterns() || !state.nats.empty();
+    state.onlyProgressedAndNatal = false; // Track if only slow-moving aspects remain
 
     const auto& start = _range.first;
     auto        end   = _range.second;
@@ -5449,6 +5965,18 @@ AspectFinder::findAspectsAndPatterns()
                              << state.b.size() << "planets";
                 }
                 delete wp;
+                
+                // Check if only progressed/natal planets remain (no transits)
+                state.onlyProgressedAndNatal = true;
+                for (const auto& pmid : ws) {
+                    if (pmid.mode() == plmTransit) {
+                        state.onlyProgressedAndNatal = false;
+                        break;
+                    }
+                }
+                if (!st_quiet) {
+                    qDebug() << "After pruning: onlyProgressedAndNatal =" << state.onlyProgressedAndNatal;
+                }
             }
         }
 
@@ -5612,9 +6140,20 @@ AspectFinder::findAspectsAndPatterns()
 
         state.d  = state.nd;
         if (collectingStrays) {
-            // In collectingStrays mode, use a much larger time step (30 days)
-            // to quickly advance time until slow-moving outer planets go out of orb
-            state.nd = state.d.addDays(30);
+            // Use time step based on planet types remaining
+            if (state.onlyProgressedAndNatal) {
+                // Only slow-moving progressed/natal aspects remain - use large step
+                state.nd = state.d.addDays(30);
+                if (!st_quiet) {
+                    qDebug() << "collectingStrays: only progressed/natal aspects remain, using 30-day increment";
+                }
+            } else {
+                // Transit aspects still present - use normal increment for accuracy
+                state.nd = state.d.addDays(state.ndays).addSecs(state.nsecs);
+                if (!st_quiet) {
+                    qDebug() << "collectingStrays: transit aspects present, using normal increment of" << state.useRate << "days";
+                }
+            }
         } else {
             state.nd = state.d.addDays(state.ndays).addSecs(state.nsecs);
         }
@@ -5663,163 +6202,8 @@ AspectFinder::findAspectsAndPatterns()
         }
     }
 
-    if (_state != cancelRequestedState) {
-        bool any = false;
-        for (auto hpsit = state.proximityLog.begin();
-             hpsit != state.proximityLog.end();
-             ++hpsit)
-        {
-            const auto& hps = hpsit->first;
-            const auto& rm  = hpsit->second;
-            for (auto rit = rm.begin(); rit != rm.end(); ++rit) {
-                const auto& r    = rit->first;
-                const auto& stat = rit->second;
-                if (stat) continue;
-                auto   h  = hps.harmonic;
-                auto&& ps = hps.planets;
-                if (ps.size() != 2) {
-                    continue; // Only for pairs
-                }
-                auto desc = QString("[%1 - %2]")
-                                .arg(dtToString(dateTimeFromJulian(r.first)),
-                                     dtToString(dateTimeFromJulian(r.second)));
-                if (skipByDuration != SkipNone) {
-                    double duration  = r.second - r.first;
-                    double threshold = 0.0;
-                    switch (skipByDuration) {
-                    case SkipLessThanDay:   threshold = 1.0; break;
-                    case SkipLessThanWeek:  threshold = 7.0; break;
-                    case SkipLessThanMonth: threshold = 30.0; break;
-                    default:                threshold = 0.0; break;
-                    }
-                    if (duration < threshold) {
-                        if (!st_quiet) {
-                            qDebug() << "Skipping exact aspect search for pair"
-                                     << ps.names().join("=") << "harmonic" << h
-                                     << "duration" << duration
-                                     << "days (threshold:" << threshold << ")";
-                        }
-                        continue;
-                    }
-                }
-                if (ps.begin()->samePlanet({ Planet_Moon })
-                    || ps.rbegin()->samePlanet({ Planet_Moon }))
-                {
-#if 0
-                    qDebug() << "Skipping straggler "
-                             << QString("H%1 %2: %3")
-                                    .arg(h)
-                                    .arg(ps.names().join("="))
-                                    .arg(desc)
-                                    .toStdString()
-                                    .c_str();
-#endif
-                    continue;
-                }
-
-                // Find the corresponding InputData for each planet
-                auto     profile = _alist.profile(ps);
-                unsigned iters   = 0;
-
-                // Define the function to minimize: aspect separation at jd
-                auto csprd = [&](double jd) {
-                    ++iters;
-                    return profile->computePos(jd, h);
-                };
-
-                double               minJD, minSep;
-                static constexpr int digits =
-                    std::numeric_limits<float>::digits;
-                std::tie(minJD, minSep) =
-                    brent_find_minima(csprd, r.first, r.second, digits);
-                if (minSep == qreal()) {
-                    qDebug()
-                        << "Unable to find closest using brent_find_minima "
-                        << QString("H%1 %2: %3 (%4 iters)")
-                               .arg(h)
-                               .arg(ps.names().join("="))
-                               .arg(desc)
-                               .arg(iters)
-                               .toStdString()
-                               .c_str();
-                    brentGlobalMin(csprd,
-                                   r.first,
-                                   r.second,
-                                   (r.first + r.second) / 2,
-                                   1 /*m*/,
-                                   1e-7,
-                                   1e-8,
-                                   minJD);
-                }
-                if (minJD == r.first || minJD == r.second) {
-                    qDebug() << "Unable to find closest "
-                             << QString("H%1 %2: %3 (%4 iters)")
-                                    .arg(h)
-                                    .arg(ps.names().join("="))
-                                    .arg(desc)
-                                    .arg(iters)
-                                    .toStdString()
-                                    .c_str();
-                    delete profile;
-                    continue;
-                }
-
-                if (!any) {
-                    qDebug() << "Ranges with no precise hits:";
-                    any = true;
-                }
-
-                // Collect the planet positions at minJD
-                minSep = profile->computePos(minJD, h);
-
-                qDebug()
-                    << QString(
-                           "Closest approach for H%1 %2 in [%3 - %4]: " "%5 at " "%6 " "(%7 " "iters)")
-                           .arg(h)
-                           .arg(ps.names().join("="))
-                           .arg(dtToString(dateTimeFromJulian(r.first)))
-                           .arg(dtToString(dateTimeFromJulian(r.second)))
-                           .arg(minSep)
-                           .arg(dtToString(dateTimeFromJulian(minJD)))
-                           .arg(iters)
-                           .toStdString()
-                           .c_str();
-
-                PlanetRangeBySpeed plr;
-                for (auto loc : *profile) {
-                    if (auto ploc = dynamic_cast<PlanetLoc*>(loc)) {
-                        plr.emplace(*ploc);
-                    }
-                }
-
-                ADateTimeRange range { dateTimeFromJulian(r.first),
-                                       dateTimeFromJulian(r.second) };
-
-                QMutexLocker ml(_evs.mutex());
-
-                auto& ev = _evs.emplace_back(dateTimeFromJulian(minJD),
-                                             hps.eventType,
-                                             h,
-                                             std::move(plr),
-                                             minSep);
-                ev.setRange(range);
-                delete profile;
-            }
-        }
-
-        for (const auto& hpc : state.starts) {
-            for (const auto& pso : hpc.second) {
-                if (pso.second.when == qreal()) continue;
-                qDebug() << QString("Pending pattern H%1 %2 started at %3")
-                                .arg(hpc.first)
-                                .arg(pso.first.names().join("="))
-                                .arg(dtToString(
-                                    dateTimeFromJulian(pso.second.when)))
-                                .toStdString()
-                                .c_str();
-            }
-        }
-    }
+    // Process inexact aspects (those that never perfected during the main loop)
+    findRemainingAspects(state);
 
     bool cleared = false;
     int  active(_numTasks);

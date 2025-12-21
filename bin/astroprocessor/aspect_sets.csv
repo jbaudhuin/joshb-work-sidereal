@@ -1,10 +1,10 @@
 ﻿id;name;name_ru
 0;Basic aspects;Простые аспекты
-1;Reasonable;Простые reasonable аспекты
-2;Harmonic;Простые harmonic аспекты
-3;Harmonic w/ minor;Простые harmonic-more аспекты
-4;Harmonic w/ very minor;Простые harmonic-all аспекты
-5;Dynamic aspects;Dynamic аспекты
+1;Reasonable;Разумные аспекты
+2;Harmonic;Гармонические аспекты
+3;Harmonic w/ minor;Гармонические с минорными аспекты
+4;Harmonic w/ very minor;Гармонические со всеми минорными аспекты
+5;Dynamic aspects;Динамические аспекты
 10;Aspects for I initiation;Аспекты I посвящения
 11;Aspects for II initiation;Аспекты II посвящения
 12;Aspects for III initiation;Аспекты III посвящения
