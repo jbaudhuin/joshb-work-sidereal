@@ -16,8 +16,18 @@ $BinDir = Join-Path $ProjectRoot "bin"
 $NSISDir = Join-Path $ProjectRoot "nsis"
 $InstallerScript = Join-Path $NSISDir "zodiac.nsi"
 
+# Extract version from NSIS script
+$Version = "unknown"
+if (Test-Path $InstallerScript) {
+    $nsisContent = Get-Content $InstallerScript -Raw
+    if ($nsisContent -match "!define VERSION '([^']+)'") {
+        $Version = $matches[1]
+    }
+}
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Zodiac Sidereal - Installer Build Tool" -ForegroundColor Cyan
+Write-Host "Version: $Version" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -378,15 +388,16 @@ if (-not $SkipBuild) {
             Write-Host "✓ Installer built successfully!" -ForegroundColor Green
             
             # Find the installer file
-            $installerPattern = "Zodiac-*-installer.exe"
+            $installerPattern = "Zodiac-$Version-installer.exe"
             $installer = Get-ChildItem -Path $NSISDir -Filter $installerPattern | Select-Object -First 1
             
             if ($installer) {
                 Write-Host ""
-                Write-Host "Installer location:" -ForegroundColor Cyan
-                Write-Host "  $($installer.FullName)" -ForegroundColor White
-                Write-Host ""
-                Write-Host "Installer size: $([math]::Round($installer.Length / 1MB, 2)) MB" -ForegroundColor Gray
+                Write-Host "Installer created:" -ForegroundColor Cyan
+                Write-Host "  File: $($installer.Name)" -ForegroundColor White
+                Write-Host "  Version: $Version" -ForegroundColor White
+                Write-Host "  Location: $($installer.DirectoryName)" -ForegroundColor Gray
+                Write-Host "  Size: $([math]::Round($installer.Length / 1MB, 2)) MB" -ForegroundColor Gray
             }
         } else {
             Write-Host ""
