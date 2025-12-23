@@ -78,7 +78,7 @@ zodOutputHandler(QtMsgType                 type,
         case QtCriticalMsg: logMsg = "[CRIT] "; break;
         case QtFatalMsg:    logMsg = "[FATAL] "; break;
         }
-        logMsg += msg + "\n";
+        logMsg += QString("%1\t%2:%3\n").arg(msg).arg(cxt.file).arg(cxt.line);
         g_logFile->write(logMsg.toUtf8());
         g_logFile->flush();
     }

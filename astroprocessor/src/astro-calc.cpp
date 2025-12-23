@@ -3577,13 +3577,34 @@ formatPlanetsEtc(const planetsEtc& pe,
 }
 
 /// The intent is to build _staff which comprises the aspect search and _alist
-/// which comprises the planets to be used in the aspect pattern search.
+/// Overloaded constructor that accepts EventOptions to apply before processing
+OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
+                             const ADateRange&    range,
+                             const uintSSet&      hset,
+                             const AstroFileList& files,
+                             const EventOptions&  options,
+                             const EventTypeSet&  exclude /*={}*/) :
+    AspectFinder(evs, range, hset, exclude, afcFindStuff)
+{
+    // Apply event options BEFORE processing files
+    static_cast<EventOptions&>(*this) = options;
+    
+    // Continue with normal initialization
+    initializeFromFiles(files);
+}
+
+/// Original constructor for backwards compatibility
 OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
                              const ADateRange&    range,
                              const uintSSet&      hset,
                              const AstroFileList& files,
                              const EventTypeSet&  exclude /*={}*/) :
     AspectFinder(evs, range, hset, exclude, afcFindStuff)
+{
+    initializeFromFiles(files);
+}
+
+void OmnibusFinder::initializeFromFiles(const AstroFileList& files)
 {
     // This ugly jumble intends to generate the appropriate planet listings,
     // and then create the T-T T-N P-P P-N pairings. And the ingresses, etc.
@@ -3976,7 +3997,7 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
         }
     }
 
-#if 0
+#if 1
     for (const auto& pe : _staff) {
         auto [i, j] = pe.planetPair;
         auto ai = dynamic_cast<PlanetLoc*>(_alist[i]);

@@ -209,6 +209,31 @@ class Transits : public AstroFileHandler {
     AChangeSignalFrame* _chs;
     
     QTimer* _progressSortTimer = nullptr;  // Debounces progress-triggered sorts
+    
+    // Per-tab event filter settings (initialized from global defaults)
+    A::EventOptions _tabEventOptions;
+    
+    // Toolbar actions for event filters
+    QAction* _actStations = nullptr;
+    QAction* _actReturns = nullptr;
+    QAction* _actTransitToTransit = nullptr;
+    QToolButton* _btnTransitToNatal = nullptr;  // Dropdown: T=N / OT=N
+    QAction* _actProgressedToProgressed = nullptr;
+    QToolButton* _btnProgressedToNatal = nullptr;  // Dropdown: IP=N / P=N
+    QAction* _actTransitAspectPatterns = nullptr;
+    QAction* _actTransitNatalAspectPatterns = nullptr;
+    QAction* _actSignIngress = nullptr;
+    QAction* _actHouseIngress = nullptr;
+    QAction* _actParanatellonta = nullptr;
+    QAction* _actParanatellontaToNatal = nullptr;
+    QAction* _actAutoRecalc = nullptr;
+    
+    bool _transitToNatalShowsOuter = false;  // Track T=N vs OT=N state
+    bool _progressedToNatalShowsInner = true;  // Track P=N vs IP=N state (default inner)
+    
+    void updateToolbarFromEventOptions();
+    void updateTransitToNatalButtonState();
+    void updateProgressedToNatalButtonState();
 };
 
 #endif // Harmonics_H

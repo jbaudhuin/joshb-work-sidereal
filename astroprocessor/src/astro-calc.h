@@ -489,6 +489,12 @@ struct EventOptions {
     bool showHeliacalEvents() const { return isEnabled(etcHeliacalEvents); }
     void setShowHeliacalEvents(bool b) { setEnabled(etcHeliacalEvents, b); }
 
+    bool showParanatellonta() const { return isEnabled(etcParanatellonta); }
+    void setShowParanatellonta(bool b) { setEnabled(etcParanatellonta, b); }
+
+    bool showParanatellontaToNatal() const { return isEnabled(etcParanatellontaToNatal); }
+    void setShowParanatellontaToNatal(bool b) { setEnabled(etcParanatellontaToNatal, b); }
+
     bool showPrimaryDirections() const
     {
         return isEnabled(etcPrimaryDirections);
@@ -718,11 +724,21 @@ class AspectFinder : public QObject, public EventOptions {
 };
 
 class OmnibusFinder : public AspectFinder {
+  private:
+    void initializeFromFiles(const AstroFileList& files);
+    
   public:
     OmnibusFinder(HarmonicEvents&      evs,
                   const ADateRange&    range,
                   const uintSSet&      hset,
                   const AstroFileList& files,
+                  const EventTypeSet&  exclude = {});
+    
+    OmnibusFinder(HarmonicEvents&      evs,
+                  const ADateRange&    range,
+                  const uintSSet&      hset,
+                  const AstroFileList& files,
+                  const EventOptions&  options,
                   const EventTypeSet&  exclude = {});
 };
 

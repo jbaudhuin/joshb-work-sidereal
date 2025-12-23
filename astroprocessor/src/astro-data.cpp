@@ -551,6 +551,9 @@ ChartPlanetId::glyph() const
         if (_pid >= Ingresses_Start && _pid < Ingresses_End) {
             return QString(QChar(Data::getSignGlyph(_pid)));
         }
+        if (_pid >= Houses_Start && _pid < Houses_End) {
+            return QString("%1H").arg(_pid - Houses_Start + 1);
+        }
 
         auto&& var = Data::getPlanet(_pid).userData["fontChar"];
 
