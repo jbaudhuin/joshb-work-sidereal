@@ -354,7 +354,7 @@ public:
     struct SessionInfo {
         QString filename;      // e.g., "session-1734124800.ini"
         QDateTime timestamp;
-        int chartCount;
+        int tabCount;
         QString name;          // Optional user-defined name
         
         // Format session info for display
@@ -448,7 +448,7 @@ class MainWindow : public QMainWindow, public Customizable {
     struct SessionInfo {
         QString key;           // Settings key (e.g., "Session_1234567890")
         QDateTime timestamp;
-        int chartCount;
+        int tabCount;
         QString name;          // Optional user-defined name (future feature)
     };
     QList<SessionInfo> listRecentSessions();

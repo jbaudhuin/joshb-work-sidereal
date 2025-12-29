@@ -52,6 +52,21 @@ using namespace std::chrono;
 
 namespace
 {
+// Helper functions for event type strings
+inline 
+QString
+eventTypeBrief(A::EventType et)
+{
+    return A::EventTypeManager::eventTypeToBrief(et);
+}
+
+inline 
+QString
+eventTypeDesc(A::EventType et)
+{
+    return A::EventTypeManager::eventTypeToString(et);
+}
+
 #if 0
 typedef QList<QStandardItem*> itemListBase;
 
@@ -1282,7 +1297,7 @@ Transits::Transits(QWidget* parent) :
     _evm(nullptr),
     _ddelta(A::EventOptions::current().defaultTimespan),
     _chs(nullptr),
-    _tabEventOptions(A::EventOptions::current())  // Initialize from global defaults
+    _tabEventOptions(A::EventOptions::current().enabledEvents)  // Initialize from global defaults
 {
     // Enable tooltips even when parent window doesn't have focus
     this->setAttribute(Qt::WA_AlwaysShowToolTips, true);
@@ -1425,6 +1440,19 @@ Transits::Transits(QWidget* parent) :
     
     toolbar->addSeparator();
     
+    // Helper to save event options and trigger recalc
+    auto saveEventOptionsAndRecalc = [this]() {
+        // Save to file(0) immediately so it persists when switching files
+        if (filesCount() > 0 && file(0)) {
+            file(0)->setTransitEventOptions(_tabEventOptions);
+        }
+        // Mark events for recalc since event filter changed
+        for (int i = 0, n = filesCount(); i < n; ++i) {
+            file(i)->markEventsForRecalc();
+        }
+        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+    };
+    
     // Stations button
     _actStations = toolbar->addAction("S");
     _actStations->setCheckable(true);
@@ -1432,13 +1460,13 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actStations))) {
         btn->setStyleSheet("QToolButton { min-width: 20px !important; }");
     }
-    connect(_actStations, &QAction::triggered, this, [this](bool checked) {
-        _tabEventOptions.setShowStations(checked);
-        // Mark events for recalc since EventOptions changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+    connect(_actStations, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
+        qDebug() << "[STATIONS] Button toggled to:" << checked << "in tab" << (void*)this;
+        if (checked) _tabEventOptions.insert(A::etcStation);
+        else _tabEventOptions.erase(A::etcStation);
+        qDebug() << "  _tabEventOptions now has" << _tabEventOptions.size() << "event types";
+        
+        saveEventOptionsAndRecalc();
     });
     
     // Returns button (controls all return types)
@@ -1448,13 +1476,17 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actReturns))) {
         btn->setStyleSheet("QToolButton { min-width: 20px !important; }");
     }
-    connect(_actReturns, &QAction::triggered, this, [this](bool checked) {
-        _tabEventOptions.setShowReturns(checked);
-        // Mark events for recalc since EventOptions changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
+    connect(_actReturns, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
+        if (checked) {
+            _tabEventOptions.insert(A::etcReturn);
+            _tabEventOptions.insert(A::etcSolarReturn);
+            _tabEventOptions.insert(A::etcLunarReturn);
+        } else {
+            _tabEventOptions.erase(A::etcReturn);
+            _tabEventOptions.erase(A::etcSolarReturn);
+            _tabEventOptions.erase(A::etcLunarReturn);
         }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+        saveEventOptionsAndRecalc();
     });
     
     toolbar->addSeparator();
@@ -1468,10 +1500,10 @@ Transits::Transits(QWidget* parent) :
     }
     connect(_actTransitToTransit, &QAction::triggered, this, [this](bool checked) {
         qDebug() << "T=T button toggled:" << checked;
-        _tabEventOptions.setShowTransitsToTransits(checked);
-        qDebug() << "  showTransitsToTransits:" << _tabEventOptions.showTransitsToTransits();
+        if (checked) _tabEventOptions.insert(A::etcTransitToTransit);
+        else _tabEventOptions.erase(A::etcTransitToTransit);
         qDebug() << "  _actAutoRecalc:" << _actAutoRecalc << "isChecked:" << (_actAutoRecalc ? _actAutoRecalc->isChecked() : false);
-        // Mark events for recalc since EventOptions changed
+        // Mark events for recalc since event filter changed
         for (int i = 0, n = filesCount(); i < n; ++i) {
             file(i)->markEventsForRecalc();
         }
@@ -1490,64 +1522,82 @@ Transits::Transits(QWidget* parent) :
     _btnTransitToNatal->setStyleSheet("QToolButton { min-width: 48px !important; }");
     
     auto* transitNatalMenu = new QMenu(_btnTransitToNatal);
-    auto* transitNatalGroup = new QActionGroup(transitNatalMenu);
-    auto* actAllTransits = transitNatalMenu->addAction("T=N (All Transits)");
-    actAllTransits->setCheckable(true);
-    actAllTransits->setChecked(true);
-    transitNatalGroup->addAction(actAllTransits);
     
-    auto* actOuterTransits = transitNatalMenu->addAction("OT=N (Outer Transits Only)");
-    actOuterTransits->setCheckable(true);
-    transitNatalGroup->addAction(actOuterTransits);
+    // Radio button group for mode selection (which mode is the "default")
+    auto* transitNatalGroup = new QActionGroup(transitNatalMenu);
+    transitNatalGroup->setExclusive(true);  // Makes them behave like radio buttons
+    
+    _actTransitToNatal = transitNatalMenu->addAction(eventTypeBrief(A::etcTransitToNatal));
+    _actTransitToNatal->setCheckable(true);
+    _actTransitToNatal->setChecked(true);  // Default mode
+    _actTransitToNatal->setToolTip(eventTypeDesc(A::etcTransitToNatal));
+    transitNatalGroup->addAction(_actTransitToNatal);
+    
+    _actOuterTransitToNatal = transitNatalMenu->addAction(eventTypeBrief(A::etcOuterTransitToNatal));
+    _actOuterTransitToNatal->setCheckable(true);
+    _actOuterTransitToNatal->setToolTip(eventTypeDesc(A::etcOuterTransitToNatal));
+    transitNatalGroup->addAction(_actOuterTransitToNatal);
+    
+    // Separator
+    transitNatalMenu->addSeparator();
+    
+    // Independent checkbox for angles (store as member variable so we can restore state)
+    _actIncludeAngles = transitNatalMenu->addAction(eventTypeBrief(A::etcTransitToNatalAngles));
+    _actIncludeAngles->setCheckable(true);
+    _actIncludeAngles->setChecked(true);  // Default to including angles
+    _actIncludeAngles->setToolTip(eventTypeDesc(A::etcTransitToNatalAngles));
     
     _btnTransitToNatal->setMenu(transitNatalMenu);
     
-    // Menu selection changes the mode
-    connect(_btnTransitToNatal, &QToolButton::triggered, this, [this](QAction* action) {
+    // Menu selection changes the mode (which is the "default", doesn't enable/disable)
+    connect(transitNatalGroup, &QActionGroup::triggered, this, [this, saveEventOptionsAndRecalc](QAction* action) {
         if (action->text().contains("OT=N")) {
             _transitToNatalShowsOuter = true;
-            _tabEventOptions.includeOnlyOuterTransitsToNatal = true;
             _btnTransitToNatal->setText("OT=N");
         } else {
             _transitToNatalShowsOuter = false;
-            _tabEventOptions.includeOnlyOuterTransitsToNatal = false;
             _btnTransitToNatal->setText("T=N");
         }
+        // Don't change enabled state, just update which mode would be enabled if button is on
         if (_btnTransitToNatal->isChecked()) {
-            _tabEventOptions.setShowTransitsToNatalPlanets(true);
-            // Mark events for recalc since EventOptions changed
-            for (int i = 0, n = filesCount(); i < n; ++i) {
-                file(i)->markEventsForRecalc();
+            // Button is already on, so switch modes
+            if (_transitToNatalShowsOuter) {
+                _tabEventOptions.insert(A::etcOuterTransitToNatal);
+                _tabEventOptions.erase(A::etcTransitToNatal);
+            } else {
+                _tabEventOptions.insert(A::etcTransitToNatal);
+                _tabEventOptions.erase(A::etcOuterTransitToNatal);
             }
-            if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+            saveEventOptionsAndRecalc();
         }
     });
     
+    // Angles checkbox toggles independently
+    connect(_actIncludeAngles, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
+        if (checked) {
+            _tabEventOptions.insert(A::etcTransitToNatalAngles);
+        } else {
+            _tabEventOptions.erase(A::etcTransitToNatalAngles);
+        }
+        saveEventOptionsAndRecalc();
+    });
+    
     // Button toggle changes the on/off state for the current mode
-    connect(_btnTransitToNatal, &QToolButton::toggled, this, [this](bool checked) {
+    connect(_btnTransitToNatal, &QToolButton::toggled, this, [this, saveEventOptionsAndRecalc](bool checked) {
         qDebug() << "T=N button toggled:" << checked << "outer mode:" << _transitToNatalShowsOuter;
         if (checked) {
-            _tabEventOptions.setShowTransitsToNatalPlanets(true);
             if (_transitToNatalShowsOuter) {
-                _tabEventOptions.includeOnlyOuterTransitsToNatal = true;
+                _tabEventOptions.insert(A::etcOuterTransitToNatal);
+                _tabEventOptions.erase(A::etcTransitToNatal);
             } else {
-                _tabEventOptions.includeOnlyOuterTransitsToNatal = false;
+                _tabEventOptions.insert(A::etcTransitToNatal);
+                _tabEventOptions.erase(A::etcOuterTransitToNatal);
             }
         } else {
-            _tabEventOptions.setShowTransitsToNatalPlanets(false);
-            _tabEventOptions.includeOnlyOuterTransitsToNatal = false;
+            _tabEventOptions.erase(A::etcTransitToNatal);
+            _tabEventOptions.erase(A::etcOuterTransitToNatal);
         }
-        qDebug() << "  showTransitsToNatal:" << _tabEventOptions.showTransitsToNatalPlanets()
-                 << "includeOnlyOuter:" << _tabEventOptions.includeOnlyOuterTransitsToNatal;
-        qDebug() << "  _actAutoRecalc:" << _actAutoRecalc << "isChecked:" << (_actAutoRecalc ? _actAutoRecalc->isChecked() : false);
-        // Mark events for recalc since EventOptions changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
-            qDebug() << "  Calling updateTransits()";
-            updateTransits();
-        }
+        saveEventOptionsAndRecalc();
     });
     
     toolbar->addWidget(_btnTransitToNatal);
@@ -1559,8 +1609,9 @@ Transits::Transits(QWidget* parent) :
         btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
     }
     connect(_actProgressedToProgressed, &QAction::triggered, this, [this](bool checked) {
-        _tabEventOptions.setShowProgressionsToProgressions(checked);
-        // Mark events for recalc since EventOptions changed
+        if (checked) _tabEventOptions.insert(A::etcProgressedToProgressed);
+        else _tabEventOptions.erase(A::etcProgressedToProgressed);
+        // Mark events for recalc since event filter changed
         for (int i = 0, n = filesCount(); i < n; ++i) {
             file(i)->markEventsForRecalc();
         }
@@ -1576,62 +1627,63 @@ Transits::Transits(QWidget* parent) :
     _btnProgressedToNatal->setStyleSheet("QToolButton { min-width: 52px !important; }");
     
     auto* progressedNatalMenu = new QMenu(_btnProgressedToNatal);
-    auto* progressedNatalGroup = new QActionGroup(progressedNatalMenu);
-    auto* actInnerProgressed = progressedNatalMenu->addAction("IP=N (Inner Progressed Only)");
-    actInnerProgressed->setCheckable(true);
-    actInnerProgressed->setChecked(true);
-    progressedNatalGroup->addAction(actInnerProgressed);
     
-    auto* actAllProgressed = progressedNatalMenu->addAction("P=N (All Progressed)");
-    actAllProgressed->setCheckable(true);
-    progressedNatalGroup->addAction(actAllProgressed);
+    // Radio button group for mode selection
+    auto* progressedNatalGroup = new QActionGroup(progressedNatalMenu);
+    progressedNatalGroup->setExclusive(true);  // Makes them behave like radio buttons
+    
+    _actInnerProgressedToNatal = progressedNatalMenu->addAction(eventTypeBrief(A::etcInnerProgressedToNatal));
+    _actInnerProgressedToNatal->setCheckable(true);
+    _actInnerProgressedToNatal->setChecked(true);  // Default mode
+    _actInnerProgressedToNatal->setToolTip(eventTypeDesc(A::etcInnerProgressedToNatal));
+    progressedNatalGroup->addAction(_actInnerProgressedToNatal);
+    
+    _actAllProgressedToNatal = progressedNatalMenu->addAction(eventTypeBrief(A::etcProgressedToNatal));
+    _actAllProgressedToNatal->setCheckable(true);
+    _actAllProgressedToNatal->setToolTip(eventTypeDesc(A::etcProgressedToNatal));
+    progressedNatalGroup->addAction(_actAllProgressedToNatal);
     
     _btnProgressedToNatal->setMenu(progressedNatalMenu);
     
-    // Menu selection changes the mode
-    connect(_btnProgressedToNatal, &QToolButton::triggered, this, [this](QAction* action) {
+    // Menu selection changes the mode (which is the "default", doesn't enable/disable)
+    connect(progressedNatalGroup, &QActionGroup::triggered, this, [this, saveEventOptionsAndRecalc](QAction* action) {
         if (action->text().contains("IP=N")) {
             _progressedToNatalShowsInner = true;
-            _tabEventOptions.includeOnlyInnerProgressionsToNatal = true;
             _btnProgressedToNatal->setText("IP=N");
         } else {
             _progressedToNatalShowsInner = false;
-            _tabEventOptions.includeOnlyInnerProgressionsToNatal = false;
             _btnProgressedToNatal->setText("P=N");
         }
+        // Don't change enabled state, just update which mode would be enabled if button is on
         if (_btnProgressedToNatal->isChecked()) {
-            _tabEventOptions.setShowProgressionsToNatal(true);
-            // Mark events for recalc since EventOptions changed
-            for (int i = 0, n = filesCount(); i < n; ++i) {
-                file(i)->markEventsForRecalc();
+            // Button is already on, so switch modes
+            if (_progressedToNatalShowsInner) {
+                _tabEventOptions.insert(A::etcInnerProgressedToNatal);
+                _tabEventOptions.erase(A::etcProgressedToNatal);
+            } else {
+                _tabEventOptions.insert(A::etcProgressedToNatal);
+                _tabEventOptions.erase(A::etcInnerProgressedToNatal);
             }
-            if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+            saveEventOptionsAndRecalc();
         }
     });
     
     // Button toggle changes the on/off state for the current mode
-    connect(_btnProgressedToNatal, &QToolButton::toggled, this, [this](bool checked) {
+    connect(_btnProgressedToNatal, &QToolButton::toggled, this, [this, saveEventOptionsAndRecalc](bool checked) {
         qDebug() << "IP=N/P=N button toggled:" << checked << "inner mode:" << _progressedToNatalShowsInner;
         if (checked) {
-            _tabEventOptions.setShowProgressionsToNatal(true);
             if (_progressedToNatalShowsInner) {
-                _tabEventOptions.includeOnlyInnerProgressionsToNatal = true;
+                _tabEventOptions.insert(A::etcInnerProgressedToNatal);
+                _tabEventOptions.erase(A::etcProgressedToNatal);
             } else {
-                _tabEventOptions.includeOnlyInnerProgressionsToNatal = false;
+                _tabEventOptions.insert(A::etcProgressedToNatal);
+                _tabEventOptions.erase(A::etcInnerProgressedToNatal);
             }
         } else {
-            _tabEventOptions.setShowProgressionsToNatal(false);
-            _tabEventOptions.includeOnlyInnerProgressionsToNatal = false;
+            _tabEventOptions.erase(A::etcProgressedToNatal);
+            _tabEventOptions.erase(A::etcInnerProgressedToNatal);
         }
-        qDebug() << "  _actAutoRecalc:" << _actAutoRecalc << "isChecked:" << (_actAutoRecalc ? _actAutoRecalc->isChecked() : false);
-        // Mark events for recalc since EventOptions changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
-            qDebug() << "  Calling updateTransits()";
-            updateTransits();
-        }
+        saveEventOptionsAndRecalc();
     });
     
     toolbar->addWidget(_btnProgressedToNatal);
@@ -1643,8 +1695,9 @@ Transits::Transits(QWidget* parent) :
         btn->setStyleSheet("QToolButton { min-width: 28px !important; }");
     }
     connect(_actTransitAspectPatterns, &QAction::triggered, this, [this](bool checked) {
-        _tabEventOptions.setShowTransitAspectPatterns(checked);
-        // Mark events for recalc since EventOptions changed
+        if (checked) _tabEventOptions.insert(A::etcTransitAspectPattern);
+        else _tabEventOptions.erase(A::etcTransitAspectPattern);
+        // Mark events for recalc since event filter changed
         for (int i = 0, n = filesCount(); i < n; ++i) {
             file(i)->markEventsForRecalc();
         }
@@ -1658,8 +1711,9 @@ Transits::Transits(QWidget* parent) :
         btn->setStyleSheet("QToolButton { min-width: 36px !important; }");
     }
     connect(_actTransitNatalAspectPatterns, &QAction::triggered, this, [this](bool checked) {
-        _tabEventOptions.setShowTransitNatalAspectPatterns(checked);
-        // Mark events for recalc since EventOptions changed
+        if (checked) _tabEventOptions.insert(A::etcTransitNatalAspectPattern);
+        else _tabEventOptions.erase(A::etcTransitNatalAspectPattern);
+        // Mark events for recalc since event filter changed
         for (int i = 0, n = filesCount(); i < n; ++i) {
             file(i)->markEventsForRecalc();
         }
@@ -1674,8 +1728,9 @@ Transits::Transits(QWidget* parent) :
         btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
     }
     connect(_actSignIngress, &QAction::triggered, this, [this](bool checked) {
-        _tabEventOptions.setShowIngresses(checked);
-        // Mark events for recalc since EventOptions changed
+        if (checked) _tabEventOptions.insert(A::etcSignIngress);
+        else _tabEventOptions.erase(A::etcSignIngress);
+        // Mark events for recalc since event filter changed
         for (int i = 0, n = filesCount(); i < n; ++i) {
             file(i)->markEventsForRecalc();
         }
@@ -1690,8 +1745,9 @@ Transits::Transits(QWidget* parent) :
         btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
     }
     connect(_actHouseIngress, &QAction::triggered, this, [this](bool checked) {
-        _tabEventOptions.setShowTransitsToHouseCusps(checked);
-        // Mark events for recalc since EventOptions changed
+        if (checked) _tabEventOptions.insert(A::etcHouseIngress);
+        else _tabEventOptions.erase(A::etcHouseIngress);
+        // Mark events for recalc since event filter changed
         for (int i = 0, n = filesCount(); i < n; ++i) {
             file(i)->markEventsForRecalc();
         }
@@ -1706,8 +1762,9 @@ Transits::Transits(QWidget* parent) :
         btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
     }
     connect(_actParanatellonta, &QAction::triggered, this, [this](bool checked) {
-        _tabEventOptions.setShowParanatellonta(checked);
-        // Mark events for recalc since EventOptions changed
+        if (checked) _tabEventOptions.insert(A::etcParanatellonta);
+        else _tabEventOptions.erase(A::etcParanatellonta);
+        // Mark events for recalc since event filter changed
         for (int i = 0, n = filesCount(); i < n; ++i) {
             file(i)->markEventsForRecalc();
         }
@@ -1722,8 +1779,9 @@ Transits::Transits(QWidget* parent) :
         btn->setStyleSheet("QToolButton { min-width: 48px !important; }");
     }
     connect(_actParanatellontaToNatal, &QAction::triggered, this, [this](bool checked) {
-        _tabEventOptions.setShowParanatellontaToNatal(checked);
-        // Mark events for recalc since EventOptions changed
+        if (checked) _tabEventOptions.insert(A::etcParanatellontaToNatal);
+        else _tabEventOptions.erase(A::etcParanatellontaToNatal);
+        // Mark events for recalc since event filter changed
         for (int i = 0, n = filesCount(); i < n; ++i) {
             file(i)->markEventsForRecalc();
         }
@@ -2198,18 +2256,28 @@ Transits::updateTransits()
         qDebug() << "[UPDATE TRANSITS] transitsAF() name:" << transitsAF()->getName() << "type:" << transitsAF()->getType();
         if (type != TypeOther) {
             qDebug() << "[UPDATE TRANSITS] Creating OmnibusFinder with file(0) and transitsAF()";
-            qDebug() << "[UPDATE TRANSITS] EventOptions: T=T:" << _tabEventOptions.showTransitsToTransits()
-                     << "T=N:" << _tabEventOptions.showTransitsToNatalPlanets()
-                     << "OT only:" << _tabEventOptions.includeOnlyOuterTransitsToNatal;
-            af = new A::OmnibusFinder(evs, r, hs, { file(0), transitsAF() }, _tabEventOptions);
+            // Create EventOptions with global settings but tab-specific event filter
+            A::EventOptions opts = A::EventOptions::current();
+            opts.enabledEvents = _tabEventOptions;
+            qDebug() << "[UPDATE TRANSITS] EventOptions: T=T:" << (opts.enabledEvents.count(A::etcTransitToTransit) > 0)
+                     << "T=N:" << (opts.enabledEvents.count(A::etcTransitToNatal) > 0)
+                     << "OT=N:" << (opts.enabledEvents.count(A::etcOuterTransitToNatal) > 0)
+                     << "T=I:" << (opts.enabledEvents.count(A::etcSignIngress) > 0)
+                     << "enabledEvents.size():" << opts.enabledEvents.size();
+            af = new A::OmnibusFinder(evs, r, hs, { file(0), transitsAF() }, opts);
         }
     }
     if (!af && filesCount() >= 1) {
         qDebug() << "[UPDATE TRANSITS] Creating OmnibusFinder with files()";
-        qDebug() << "[UPDATE TRANSITS] EventOptions: T=T:" << _tabEventOptions.showTransitsToTransits()
-                 << "T=N:" << _tabEventOptions.showTransitsToNatalPlanets()
-                 << "OT only:" << _tabEventOptions.includeOnlyOuterTransitsToNatal;
-        af = new A::OmnibusFinder(evs, r, hs, files(), _tabEventOptions);
+        // Create EventOptions with global settings but tab-specific event filter
+        A::EventOptions opts = A::EventOptions::current();
+        opts.enabledEvents = _tabEventOptions;
+        qDebug() << "[UPDATE TRANSITS] EventOptions: T=T:" << (opts.enabledEvents.count(A::etcTransitToTransit) > 0)
+                 << "T=N:" << (opts.enabledEvents.count(A::etcTransitToNatal) > 0)
+                 << "OT=N:" << (opts.enabledEvents.count(A::etcOuterTransitToNatal) > 0)
+                 << "T=I:" << (opts.enabledEvents.count(A::etcSignIngress) > 0)
+                 << "enabledEvents.size():" << opts.enabledEvents.size();
+        af = new A::OmnibusFinder(evs, r, hs, files(), opts);
     }
 #else
     if (filesCount() == 1) {
@@ -2224,7 +2292,6 @@ Transits::updateTransits()
 #endif
     if (!af) return;
     
-    // EventOptions are now applied during construction
     qDebug() << "[UPDATE TRANSITS] OmnibusFinder created with EventOptions:";
     qDebug() << "  showTransitsToTransits:" << af->showTransitsToTransits();
     qDebug() << "  showTransitsToNatalPlanets:" << af->showTransitsToNatalPlanets();
@@ -3121,6 +3188,31 @@ Transits::filesUpdated(MembersList m)
         clear();
         return;
     }
+    
+    // Save current event options to previous file(0) if it exists
+    static AstroFile* previousFile = nullptr;
+    if (previousFile && previousFile != file(0)) {
+        qDebug() << "[FILES UPDATED] Saving event options from previous file" << previousFile->getName();
+        previousFile->setTransitEventOptions(_tabEventOptions);
+    }
+    
+    // Load event options from new file(0)
+    if (file(0)) {
+        qDebug() << "[FILES UPDATED] Loading event options for file" << file(0)->getName();
+        _tabEventOptions = file(0)->getTransitEventOptions();
+        
+        // If file has no saved options (empty set), initialize from global defaults
+        if (_tabEventOptions.empty()) {
+            qDebug() << "  No saved options, using global defaults";
+            _tabEventOptions = A::EventOptions::current().enabledEvents;
+            file(0)->setTransitEventOptions(_tabEventOptions);
+        }
+        
+        // Update toolbar to reflect the loaded event options
+        updateToolbarFromEventOptions();
+        
+        previousFile = file(0);
+    }
 
 #if 0
     // XXX need a better division of in-process update and final update
@@ -3160,17 +3252,20 @@ Transits::filesUpdated(MembersList m)
     int  f   = 0;
     for (auto ml : m) {
         FileType type = file(f)->getType();
-        if (type >= TypeSearch) continue;
+        if (type < TypeSearch) {
+            if (f == 0 ? (type <= TypeReturn)
+                       : (type == TypeMale || type == TypeFemale
+                          || type == TypeEvent))
+            {
+                // For natal/event charts (file 0), check GMT and Location
+                // changes
+                any |= (ml & (AstroFile::GMT | AstroFile::Location));
+            }
 
-        if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
-            // For natal/event charts (file 0), check GMT and Location changes
-            any |= (ml & (AstroFile::GMT | AstroFile::Location));
+            any |= (ml
+                    & (AstroFile::Timezone | AstroFile::Zodiac
+                       | AstroFile::AspectSet | AstroFile::AspectMode));
         }
-
-        any |= (ml
-                & (AstroFile::Timezone | AstroFile::Zodiac
-                   | AstroFile::AspectSet | AstroFile::AspectMode));
-        
         f++;
     }
     if (any) {
@@ -3198,6 +3293,22 @@ Transits::filesUpdated(MembersList m)
     }
 }
 
+void
+Transits::showEvent(QShowEvent* e)
+{
+    // Call base class implementation first (handles resumeUpdate)
+    AstroFileHandler::showEvent(e);
+    
+    qDebug() << "[SHOW EVENT] Tab becoming visible, restoring toolbar";
+    qDebug() << "  _tabEventOptions has" << _tabEventOptions.size() << "event types";
+    qDebug() << "  T=T:" << (_tabEventOptions.count(A::etcTransitToTransit) > 0);
+    qDebug() << "  T=N:" << (_tabEventOptions.count(A::etcTransitToNatal) > 0);
+    qDebug() << "  Stations:" << (_tabEventOptions.count(A::etcStation) > 0);
+    
+    // Restore toolbar to match this tab's event options when becoming visible
+    updateToolbarFromEventOptions();
+}
+
 AppSettings
 Transits::defaultSettings()
 {
@@ -3207,14 +3318,18 @@ Transits::defaultSettings()
 AppSettings
 Transits::currentSettings()
 {
-    return _tabEventOptions.toMap();
+    // Get global settings and replace event types with tab-specific ones
+    A::EventOptions opts = A::EventOptions::current();
+    opts.enabledEvents = _tabEventOptions;
+    return opts.toMap();
 }
 
 void
 Transits::applySettings(const AppSettings& s)
 {
-    // Update per-tab event options from settings
-    _tabEventOptions = A::EventOptions(s.values());
+    // Extract event types from restored settings
+    A::EventOptions opts(s.values());
+    _tabEventOptions = opts.enabledEvents;
     
     // Update toolbar to reflect restored settings
     updateToolbarFromEventOptions();
@@ -3393,33 +3508,66 @@ Transits::updateToolbarFromEventOptions()
                           _actTransitNatalAspectPatterns, _actSignIngress, 
                           _actHouseIngress, _actParanatellonta, _actParanatellontaToNatal});
     
-    _actStations->setChecked(_tabEventOptions.showStations());
-    _actReturns->setChecked(_tabEventOptions.showReturns());
-    _actTransitToTransit->setChecked(_tabEventOptions.showTransitsToTransits());
-    _actProgressedToProgressed->setChecked(_tabEventOptions.showProgressionsToProgressions());
-    _actTransitAspectPatterns->setChecked(_tabEventOptions.showTransitAspectPatterns());
-    _actTransitNatalAspectPatterns->setChecked(_tabEventOptions.showTransitNatalAspectPatterns());
-    _actSignIngress->setChecked(_tabEventOptions.showIngresses());
-    _actHouseIngress->setChecked(_tabEventOptions.showTransitsToHouseCusps());
-    _actParanatellonta->setChecked(_tabEventOptions.showParanatellonta());
-    _actParanatellontaToNatal->setChecked(_tabEventOptions.showParanatellontaToNatal());
+    _actStations->setChecked(_tabEventOptions.count(A::etcStation) > 0);
+    _actReturns->setChecked(_tabEventOptions.count(A::etcReturn) > 0 ||
+                            _tabEventOptions.count(A::etcSolarReturn) > 0 ||
+                            _tabEventOptions.count(A::etcLunarReturn) > 0);
+    _actTransitToTransit->setChecked(_tabEventOptions.count(A::etcTransitToTransit) > 0);
+    _actProgressedToProgressed->setChecked(_tabEventOptions.count(A::etcProgressedToProgressed) > 0);
+    _actTransitAspectPatterns->setChecked(_tabEventOptions.count(A::etcTransitAspectPattern) > 0);
+    _actTransitNatalAspectPatterns->setChecked(_tabEventOptions.count(A::etcTransitNatalAspectPattern) > 0);
+    _actSignIngress->setChecked(_tabEventOptions.count(A::etcSignIngress) > 0);
+    _actHouseIngress->setChecked(_tabEventOptions.count(A::etcHouseIngress) > 0);
+    _actParanatellonta->setChecked(_tabEventOptions.count(A::etcParanatellonta) > 0);
+    _actParanatellontaToNatal->setChecked(_tabEventOptions.count(A::etcParanatellontaToNatal) > 0);
     
     // Update dropdown button states
+    bool hasTransitToNatal = _tabEventOptions.count(A::etcTransitToNatal) > 0 ||
+                             _tabEventOptions.count(A::etcOuterTransitToNatal) > 0 ||
+                             _tabEventOptions.count(A::etcTransitToNatalAngles) > 0;
     if (_btnTransitToNatal) {
         _btnTransitToNatal->blockSignals(true);
-        _btnTransitToNatal->setChecked(_tabEventOptions.showTransitsToNatalPlanets());
+        _btnTransitToNatal->setChecked(hasTransitToNatal);
         _btnTransitToNatal->blockSignals(false);
     }
     
+    // Update angles checkbox state
+    if (_actIncludeAngles) {
+        _actIncludeAngles->blockSignals(true);
+        _actIncludeAngles->setChecked(_tabEventOptions.count(A::etcTransitToNatalAngles) > 0);
+        _actIncludeAngles->blockSignals(false);
+    }
+    
+    bool hasProgressedToNatal = _tabEventOptions.count(A::etcProgressedToNatal) > 0 ||
+                                _tabEventOptions.count(A::etcInnerProgressedToNatal) > 0;
     if (_btnProgressedToNatal) {
         _btnProgressedToNatal->blockSignals(true);
-        _btnProgressedToNatal->setChecked(_tabEventOptions.showProgressionsToNatal());
+        _btnProgressedToNatal->setChecked(hasProgressedToNatal);
         _btnProgressedToNatal->blockSignals(false);
     }
     
-    // Update alternating button states
-    _transitToNatalShowsOuter = _tabEventOptions.includeOnlyOuterTransitsToNatal;
-    _progressedToNatalShowsInner = _tabEventOptions.includeOnlyInnerProgressionsToNatal;
+    // Update alternating button states based on which event types are present
+    _transitToNatalShowsOuter = _tabEventOptions.count(A::etcOuterTransitToNatal) > 0;
+    _progressedToNatalShowsInner = _tabEventOptions.count(A::etcInnerProgressedToNatal) > 0;
+    
+    // Update radio button states in menus
+    if (_actTransitToNatal && _actOuterTransitToNatal) {
+        _actTransitToNatal->blockSignals(true);
+        _actOuterTransitToNatal->blockSignals(true);
+        _actTransitToNatal->setChecked(!_transitToNatalShowsOuter);
+        _actOuterTransitToNatal->setChecked(_transitToNatalShowsOuter);
+        _actTransitToNatal->blockSignals(false);
+        _actOuterTransitToNatal->blockSignals(false);
+    }
+    
+    if (_actInnerProgressedToNatal && _actAllProgressedToNatal) {
+        _actInnerProgressedToNatal->blockSignals(true);
+        _actAllProgressedToNatal->blockSignals(true);
+        _actInnerProgressedToNatal->setChecked(_progressedToNatalShowsInner);
+        _actAllProgressedToNatal->setChecked(!_progressedToNatalShowsInner);
+        _actInnerProgressedToNatal->blockSignals(false);
+        _actAllProgressedToNatal->blockSignals(false);
+    }
     
     updateTransitToNatalButtonState();
     updateProgressedToNatalButtonState();

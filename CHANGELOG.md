@@ -2,6 +2,26 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.3] - 2025-12-29
+
+### Added
+- **Event Filter Toolbar**: Comprehensive per-tab event filtering in Transits UI
+  - Toggle event types: T=T (Transiting to Transiting), T=N (Transiting to Natal), P=P (Progressed to Progressed)
+  - Dropdown controls for sub-modes including ingress and Paranatellonta events
+  - EventOptions now passed to OmnibusFinder for session-specific filtering
+  - Settings synchronized across tabs and saved in session files
+
+### Fixed
+- **Session Display**: Session listings in AstroDatabase now correctly show tab count instead of chart count
+  - Sessions display "N tabs" instead of previously showing total chart count
+  - Renamed internal `chartCount` to `tabCount` for clarity
+
+### Improved
+- **House Support**: Added house glyph support to event displays
+
+### Changed
+- Version bumped to 0.9.3
+
 ## [0.9.2] - 2025-12-15
 
 ### Added

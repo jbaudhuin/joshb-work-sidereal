@@ -725,6 +725,8 @@ Plain::applySettings(const AppSettings& s)
                 file(i)->calculate();
             }
         }
+        // Invalidate cached aspects since planets were recalculated
+        aspectsCached = false;
     }
 
     refresh();

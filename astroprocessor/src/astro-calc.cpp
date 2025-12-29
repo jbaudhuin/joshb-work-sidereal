@@ -3589,6 +3589,11 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     // Apply event options BEFORE processing files
     static_cast<EventOptions&>(*this) = options;
     
+    // Debug: verify enabledEvents was copied
+    qDebug() << "[OMNIBUS CONSTRUCTOR] After copy, enabledEvents.size():" << enabledEvents.size()
+             << "showIngresses():" << showIngresses()
+             << "isEnabled(etcSignIngress):" << isEnabled(etcSignIngress);
+    
     // Continue with normal initialization
     initializeFromFiles(files);
 }
@@ -3874,12 +3879,13 @@ void OmnibusFinder::initializeFromFiles(const AstroFileList& files)
             }
         }
 
-        if (showTransitsToNatalPlanets() || showTransitNatalAspectPatterns()
-            || showTransitsToHouseCusps() || showTransitsToNatalAngles()
+        if (anyEnabled(etcTransitToNatal, etcOuterTransitToNatal) || showTransitNatalAspectPatterns()
+            || showTransitsToHouseCusps() 
+            || showTransitsToNatalAngles()
             || showReturns())
         {
             QList<PlanetId> npl;
-            if (showTransitsToNatalPlanets()
+            if (anyEnabled(etcTransitToNatal, etcOuterTransitToNatal)
                 || showTransitNatalAspectPatterns())
                 npl << getPlanets();
 
@@ -3888,13 +3894,16 @@ void OmnibusFinder::initializeFromFiles(const AstroFileList& files)
                 ppn << getNatalPlanet(pid);
             }
 
-            if (!showTransitsToNatalPlanets()) ppn.clear();
+            if (!anyEnabled(etcTransitToNatal, etcOuterTransitToNatal)) ppn.clear();
 
-            if (showTransitsToNatalPlanets() || showTransitsToNatalAngles()
+            if (anyEnabled(etcTransitToNatal, etcOuterTransitToNatal) 
+                || (showTransitsToNatalAngles() && anyEnabled(etcTransitToNatal, etcOuterTransitToNatal))
                 || showTransitsToHouseCusps())
             {
                 QList<PlanetId> tpl;
-                if (includeOnlyOuterTransitsToNatal) {
+                // Determine which planets to include based on which event type is enabled
+                bool onlyOuter = isEnabled(etcOuterTransitToNatal) && !isEnabled(etcTransitToNatal);
+                if (onlyOuter) {
                     tpl = getOuterPlanets(includeCentaurs);
                 } else {
                     tpl = getPlanets(includeAsteroids, includeCentaurs);
@@ -3936,7 +3945,7 @@ void OmnibusFinder::initializeFromFiles(const AstroFileList& files)
                                                 conj,
                                                 etcHouseIngress);
                         }
-                    } else if (showTransitsToNatalAngles()) {
+                    } else if (showTransitsToNatalAngles() && anyEnabled(etcTransitToNatal, etcOuterTransitToNatal)) {
                         for (auto a : getAngles()) {
                             _staff.emplace_back(i,
                                                 getNatalPlanet(a),
@@ -3974,7 +3983,9 @@ void OmnibusFinder::initializeFromFiles(const AstroFileList& files)
 
         if (showProgressionsToNatal()) {
             QList<PlanetId> ppl;
-            if (includeOnlyInnerProgressionsToNatal)
+            // Determine which planets to include based on which event type is enabled
+            bool onlyInner = isEnabled(etcInnerProgressedToNatal) && !isEnabled(etcProgressedToNatal);
+            if (onlyInner)
                 ppl = getInnerPlanets(includeAsteroids);
             else
                 ppl = getPlanets(includeAsteroids, includeCentaurs);
@@ -4406,6 +4417,7 @@ AspectFinder::findStations()
 void
 AspectFinder::findPriorStarts(AspectSearchState& state)
 {
+    //modalize<bool> mum2(st_quiet, false);
     state.nd = state.d;
 
     // Performance optimization for progressed aspect searches:
@@ -4896,7 +4908,9 @@ AspectFinder::findTransitPairs(AspectSearchState& state)
         for (auto it = stuff.begin(); it != stuff.end();) {
             bool unsel = state.hs.count(state.h) == 0;
             if ((unsel && !filterLowerUnselectedHarmonics)
-                || (_hsets[it->hsid].count(state.h) == 0))
+                || (_hsets[it->hsid].count(state.h) == 0)
+                || it->et == etcSignIngress || it->et == etcHouseIngress
+                || it->et == etcTransitToStation)
             {
                 ++it;
                 continue;
@@ -5138,7 +5152,11 @@ AspectFinder::findAspects(AspectSearchState& state, modalize<bool>& mum)
                 }
             }
 
-            if (skipByDuration == SkipNone) {
+            if (skipByDuration == SkipNone
+                || (includeTransitRange
+                    && (et == etcSignIngress || et == etcHouseIngress
+                        || et == etcTransitToStation)))
+            {
                 localEnqueued++;
                 // enqueue it now if we know it would not be skipped
                 auto r = new PairAspectFinder(_alist[i],
@@ -5181,10 +5199,10 @@ AspectFinder::findAspects(AspectSearchState& state, modalize<bool>& mum)
 void
 AspectFinder::findRemainingAspects(AspectSearchState& state)
 {
-    // ~.7 arcsecond (true perfection)
+    // ~.7 arcsecond (close enough to true perfection)
     constexpr double goodSeparationThreshold = 0.0003;
 
-    modalize<bool> mum2(st_quiet, false);
+    //modalize<bool> mum2(st_quiet, false);
 
     bool any = false;
     for (auto hpsit = state.proximityLog.begin();
@@ -5873,10 +5891,14 @@ AspectFinder::findAspectsAndPatterns()
             int   i, j;
             qreal bd, bsp;
             for (auto it = state.stuff.begin(); it != state.stuff.end();) {
-                if (_hsets[it->hsid].count(state.h) == 0) {
+                if (_hsets[it->hsid].count(state.h) == 0
+                    || it->et == etcSignIngress || it->et == etcHouseIngress
+                    || it->et == etcTransitToStation)
+                {
                     ++it;
                     continue;
                 }
+
                 std::tie(i, j) = it->planetPair;
                 auto bi        = dynamic_cast<PlanetLoc*>((*state.useProf)[i]);
                 auto bj        = dynamic_cast<PlanetLoc*>((*state.useProf)[j]);

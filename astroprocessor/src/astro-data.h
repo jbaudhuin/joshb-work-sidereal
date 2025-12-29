@@ -1373,6 +1373,14 @@ struct PlanetLoc : public Loc {
         return ChartPlanetModeId(planet, mode()); 
     }
 
+    static bool aspectable(PlanetLoc* p1, PlanetLoc* p2)
+    {
+        if (!p1 || !p2) return false;
+        if (p1 == p2) return false;
+        if (p1->inMotion() && p2->inMotion()) return true;
+        return false;
+    }
+
     bool aspectable() const
     {
         return inMotion() || allowAspects <= aspOnlyConj

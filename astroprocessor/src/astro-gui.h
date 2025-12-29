@@ -90,6 +90,9 @@ class AstroFile : public QObject, public A::EventStore {
     void setTimezoneLocked(bool locked);
 
     void setFocalPlanets(const A::PlanetSet& fp = {}) { _focalPlanets = fp; }
+    
+    const A::EventTypeSet& getTransitEventOptions() const { return _transitEventOptions; }
+    void setTransitEventOptions(const A::EventTypeSet& opts);
 
     QString          getName() const { return _fileInfo.baseName(); }
     QString          getBaseName() const;
@@ -244,6 +247,9 @@ class AstroFile : public QObject, public A::EventStore {
     A::HarmonicEvents _evs;
     QAbstractItemModel* _evm = nullptr;
     bool _eventsNeedRecalc = false;
+    
+    // Per-file event type filter for Transits view
+    A::EventTypeSet _transitEventOptions;
     
     // PSSR (Progressed Sidereal Solar Return) cache
     A::PSSRContext _pssrContext;

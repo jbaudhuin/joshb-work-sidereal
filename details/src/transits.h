@@ -1,6 +1,7 @@
 #ifndef TRANSITS_H
 #define TRANSITS_H
 
+#include "astro-data.h"
 #include <QButtonGroup>
 #include <QDateEdit>
 #include <QLineEdit>
@@ -71,6 +72,7 @@ class Transits : public AstroFileHandler {
 
   protected: // AstroFileHandler implementation
     void filesUpdated(MembersList) override;
+    void showEvent(QShowEvent* e) override;
 
     AppSettings defaultSettings() override;
     AppSettings currentSettings() override;
@@ -210,16 +212,22 @@ class Transits : public AstroFileHandler {
     
     QTimer* _progressSortTimer = nullptr;  // Debounces progress-triggered sorts
     
-    // Per-tab event filter settings (initialized from global defaults)
-    A::EventOptions _tabEventOptions;
+    // Per-tab event filter settings (which event types are enabled)
+    // Global settings like orbs, skipByDuration come from EventOptions::current()
+    A::EventTypeSet _tabEventOptions;
     
     // Toolbar actions for event filters
     QAction* _actStations = nullptr;
     QAction* _actReturns = nullptr;
     QAction* _actTransitToTransit = nullptr;
     QToolButton* _btnTransitToNatal = nullptr;  // Dropdown: T=N / OT=N
+    QAction* _actTransitToNatal = nullptr;      // T=N radio button in menu
+    QAction* _actOuterTransitToNatal = nullptr; // OT=N radio button in menu
+    QAction* _actIncludeAngles = nullptr;       // Menu item in T=N dropdown
     QAction* _actProgressedToProgressed = nullptr;
     QToolButton* _btnProgressedToNatal = nullptr;  // Dropdown: IP=N / P=N
+    QAction* _actInnerProgressedToNatal = nullptr; // IP=N radio button in menu
+    QAction* _actAllProgressedToNatal = nullptr;   // P=N radio button in menu
     QAction* _actTransitAspectPatterns = nullptr;
     QAction* _actTransitNatalAspectPatterns = nullptr;
     QAction* _actSignIngress = nullptr;

@@ -228,7 +228,7 @@ SessionManager::getRecentSessions(int maxCount)
         
         // Read session metadata
         QSettings sessionSettings(filename, QSettings::IniFormat);
-        info.chartCount = sessionSettings.value(QStringLiteral("Session/tabCount"), 0).toInt();
+        info.tabCount = sessionSettings.value(QStringLiteral("Session/tabCount"), 0).toInt();
         info.name = sessionSettings.value(QStringLiteral("Session/name"), QString()).toString();
         
         // Prefer lastSaved from file, fall back to filename parsing
@@ -431,9 +431,9 @@ SessionManager::SessionInfo::displayName() const
         result = AFileInfo::decodeName(baseName);
     }
     
-    // Append chart count
-    if (chartCount > 0) {
-        result += QString(" - %1 %2").arg(chartCount).arg(chartCount == 1 ? "chart" : "charts");
+    // Append tab count
+    if (tabCount > 0) {
+        result += QString(" - %1 %2").arg(tabCount).arg(tabCount == 1 ? "tab" : "tabs");
     }
     
     return result;
@@ -1882,14 +1882,8 @@ AstroDatabase::updateList()
                 sessionInfo.name = sessionSettings.value("Session/name", "").toString();
                 sessionInfo.timestamp = sessionSettings.value("Session/lastSaved").toDateTime();
                 
-                // Calculate actual chart count by reading each tab's fileCount
-                int totalCharts = 0;
-                int tabCount = sessionSettings.value("Session/tabCount", 0).toInt();
-                for (int i = 0; i < tabCount; ++i) {
-                    QString tabGroup = QString("Tab%1").arg(i);
-                    totalCharts += sessionSettings.value(QString("%1/fileCount").arg(tabGroup), 0).toInt();
-                }
-                sessionInfo.chartCount = totalCharts;
+                // Read tab count
+                sessionInfo.tabCount = sessionSettings.value("Session/tabCount", 0).toInt();
                 
                 auto child = new QStandardItem(sessionInfo.displayName());
                 child->setData(sessionType, TypeRole);
@@ -4862,7 +4856,7 @@ MainWindow::showRestoreSessionDialog()
     
     for (const SessionManager::SessionInfo& info : sessions) {
         QString displayText = info.timestamp.toString("MMM dd, yyyy hh:mm AP");
-        displayText += QString(" - %1 chart%2").arg(info.chartCount).arg(info.chartCount == 1 ? "" : "s");
+        displayText += QString(" - %1 tab%2").arg(info.tabCount).arg(info.tabCount == 1 ? "" : "s");
         
         if (!info.name.isEmpty()) {
             displayText += QString(" (%1)").arg(info.name);
@@ -5324,6 +5318,16 @@ MainWindow::restoreSession()
                         af->setTransitDuration(settings.value(fileGroup + "transitDuration").toString());
                     }
                     
+                    // Restore per-file transit event options (toolbar state)
+                    if (settings.contains(fileGroup + "transitEventOptions")) {
+                        A::EventTypeSet eventOpts;
+                        auto vl = settings.value(fileGroup + "transitEventOptions").toList();
+                        for (const auto& v : vl) {
+                            eventOpts.insert(static_cast<A::EventType>(v.toInt()));
+                        }
+                        af->setTransitEventOptions(eventOpts);
+                    }
+                    
                     if (j == 0) {
                         filesBar->addFile(af);
                     } else {
@@ -5380,8 +5384,8 @@ MainWindow::listRecentSessions()
             qint64 timestamp = timestampStr.toLongLong();
             info.timestamp = QDateTime::fromSecsSinceEpoch(timestamp);
             
-            // Get chart count
-            info.chartCount = settings.value("tabCount", 0).toInt();
+            // Get tab count
+            info.tabCount = settings.value("tabCount", 0).toInt();
             
             // Get optional name (future feature)
             info.name = settings.value("sessionName", "").toString();
@@ -5723,6 +5727,18 @@ FilesBar::saveFilesToSession()
             }
             if (!af->getTransitDuration().isEmpty()) {
                 settings.setValue("transitDuration", af->getTransitDuration());
+            }
+            
+            // Save per-file transit event options (toolbar state)
+            const A::EventTypeSet& eventOpts = af->getTransitEventOptions();
+            if (!eventOpts.empty()) {
+                QVariantList vl;
+                for (const auto& et : eventOpts) {
+                    vl << static_cast<int>(et);
+                }
+                settings.setValue("transitEventOptions", vl);
+            } else {
+                settings.setValue("transitEventOptions", QVariant());
             }
             
             settings.endGroup(); // End File group

@@ -30,6 +30,7 @@ AstroFile::AstroFile(QObject* parent) : QObject(parent)
     _holdUpdate        = false;
     _holdUpdateMembers = None;
     _timezoneLocked    = false;
+    _transitEventOptions = A::EventOptions::current().enabledEvents;  // Initialize from global defaults
     qDebug() << "Created file" << getName();
 }
 
@@ -167,6 +168,17 @@ AstroFile::save()
     }
     //}
 
+    // Save per-file transit event options
+    if (_transitEventOptions.empty()) {
+        file.setValue("transitEventOptions", QVariant());
+    } else {
+        QVariantList vl;
+        for (const auto& et : std::as_const(_transitEventOptions)) {
+            vl << static_cast<int>(et);
+        }
+        file.setValue("transitEventOptions", vl);
+    }
+
     qDebug() << "Saved" << getName() << "to" << fileName();
 
     clearUnsavedState();
@@ -290,6 +302,18 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
     setDateRange(range);
     //}
 
+    // Load per-file transit event options
+    if (file.contains("transitEventOptions")) {
+        _transitEventOptions.clear();
+        auto vl = file.value("transitEventOptions").toList();
+        for (const auto& v : std::as_const(vl)) {
+            _transitEventOptions.insert(static_cast<A::EventType>(v.toInt()));
+        }
+    } else {
+        // Default to current global settings for files saved before this feature
+        _transitEventOptions = A::EventOptions::current().enabledEvents;
+    }
+
     clearUnsavedState();
     if (/*!recalculate*/ !isEmpty())
         resumeUpdate() /*holdUpdateMembers = None*/; // if empty file is just
@@ -321,6 +345,16 @@ AstroFile::resumeUpdate()
     _holdUpdate = false;
     change(_holdUpdateMembers, false);
     _holdUpdateMembers = None;
+}
+
+void
+AstroFile::setTransitEventOptions(const A::EventTypeSet& opts)
+{
+    if (_transitEventOptions != opts) {
+        _transitEventOptions = opts;
+        change(ChangedState, true);  // Mark as modified
+        save();  // Persist to disk immediately
+    }
 }
 
 void

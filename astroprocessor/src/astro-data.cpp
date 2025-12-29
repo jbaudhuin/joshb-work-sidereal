@@ -548,7 +548,9 @@ QString
 ChartPlanetId::glyph() const
 {
     if (!isMidpt()) {
-        if (_pid >= Ingresses_Start && _pid < Ingresses_End) {
+        // Check for both forward and retrograde ingresses
+        // Retrograde ingresses are stored at Ingresses_Start + sign_id + 12
+        if (_pid >= Ingresses_Start && _pid < Ingresses_End + 12) {
             return QString(QChar(Data::getSignGlyph(_pid)));
         }
         if (_pid >= Houses_Start && _pid < Houses_End) {
@@ -586,7 +588,9 @@ QString
 ChartPlanetId::name() const
 {
     if (!isMidpt()) {
-        if (_pid >= Ingresses_Start && _pid < Ingresses_End) {
+        // Check for both forward and retrograde ingresses
+        // Retrograde ingresses are stored at Ingresses_Start + sign_id + 12
+        if (_pid >= Ingresses_Start && _pid < Ingresses_End + 12) {
             return Data::getSignName(_pid);
         }
         return Data::getPlanet(_pid).name;
