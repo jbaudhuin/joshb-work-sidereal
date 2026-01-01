@@ -4063,6 +4063,28 @@ class TaskTracker {
     ~TaskTracker() { f->endTask(); }
 };
 
+// Shadow transit timing heuristics for calculating search windows
+struct ShadowTransitWindow {
+    double retrogradePeriod;  // Average days planet spends in retrograde
+    double arcCoverageTime;   // Average days to re-traverse the retrograde arc
+};
+
+// Get planet-specific shadow transit timing parameters
+ShadowTransitWindow getShadowWindow(PlanetId pid) {
+    switch (pid) {
+    case Planet_Mercury: return { 21.0, 24.0 };
+    case Planet_Venus:   return { 40.0, 50.0 };
+    case Planet_Mars:    return { 80.0, 70.0 };
+    case Planet_Jupiter: return { 120.0, 60.0 };
+    case Planet_Saturn:  return { 139.0, 70.0 };
+    case Planet_Uranus:  return { 151.0, 80.0 };
+    case Planet_Neptune: return { 158.0, 90.0 };
+    case Planet_Pluto:   return { 165.0, 100.0 };
+    case Planet_Chiron:  return { 145.0, 75.0 };
+    default:             return { 100.0, 60.0 }; // Default for asteroids/other
+    }
+}
+
 class PairAspectFinder : public EventFinderTask {
     Loc*            _a;
     Loc*            _b;
@@ -4076,10 +4098,9 @@ class PairAspectFinder : public EventFinderTask {
     bool            _beQuiet;
     AspectFinder*   _finder;
     HarmonicEvents& _evs;
-    // HarmonicEvent&  _ev;
-    bool       _useBZS;
-    JDateRange _useRange;
-    bool       _ran = false;
+    bool            _useBZS;
+    JDateRange      _useRange;
+    bool            _ran = false;
 
   public:
     PairAspectFinder(Loc*             a,
@@ -4346,14 +4367,85 @@ AspectFinder::findStations()
 
                     if (includeShadowTransits) {
                         // Add shadow-period transit lookup
-                        QMutexLocker mlb(&_ctm);
-                        auto         pj = new KnownPosition(ploc,
-                                                    tjd,
+                        auto kp = new KnownPosition(ploc, tjd,
                                                     wasRetro ? "IN" : "EX");
-                        pj->planet.setFileId(i);
-                        pj->allowAspects = PlanetLoc::aspOnlyDirect;
-                        pj->speed        = 0;
-                        stations.emplace_back(pj);
+                        kp->planet.setFileId(-1);
+                        kp->allowAspects = PlanetLoc::aspOnlyDirect;
+                        kp->speed        = 0;
+
+                        if (false) {
+                            QMutexLocker mlb(&_ctm);
+                            stations.emplace_back(kp);
+                        }
+
+                        // Create shadow transit search with time-bounded window
+                        auto pid = ploc->planet.planetId();
+                        auto window = getShadowWindow(pid);
+                        
+                        // Calculate search window that excludes station time
+                        double stationJd = tjd;
+                        JDateRange searchWindow;
+                        
+                        if (wasRetro) {
+                            // Direct station (planet was retro) -> Shadow ENTRY (backward in time)
+                            // Window: [T_rx - At*3/2, T_rx - At/2]
+                            double start = stationJd - window.retrogradePeriod - window.arcCoverageTime * 1.75;
+                            double end = stationJd - window.retrogradePeriod - window.arcCoverageTime * .5;
+                            searchWindow = JDateRange(start, end);
+                        } else {
+                            // Retrograde station (planet was direct) -> Shadow EXIT (forward in time)
+                            // Window: [T_d + At/2, T_d + At*3/2]
+                            double start = stationJd + window.retrogradePeriod + window.arcCoverageTime * .5;
+                            double end = stationJd + window.retrogradePeriod + window.arcCoverageTime * 1.75;
+                            searchWindow = JDateRange(start, end);
+                        }
+
+#if 0
+                        // Create KnownPosition for the shadow transit target
+                        auto* kp = new KnownPosition(ploc, tjd, wasRetro ? "EX" : "IN");
+                        kp->allowAspects = PlanetLoc::aspOnlyDirect;
+                        kp->speed = 0;
+#endif
+
+                        // Compute positions at window boundaries to get proper deltas
+                        auto transitClone = _alist[i]->clone();
+                        (*transitClone)(searchWindow.first, 1);
+                        qreal startSpd = transitClone->speed;
+                        auto [startDelta, startDeltaSpd] = PlanetProfile::computeDelta(transitClone, kp, 1);
+                        
+                        (*transitClone)(searchWindow.second, 1);
+                        qreal endSpd = transitClone->speed;
+                        auto [endDelta, endDeltaSpd] = PlanetProfile::computeDelta(transitClone, kp, 1);
+                        delete transitClone;
+                        
+                        qDebug() << "Starting shadow transit search for" 
+                                 << _alist[i]->description()
+                                 << (wasRetro ? "ENTRY" : "EXIT")
+                                 << "window:" << dtToString(dateTimeFromJulian(searchWindow.first))
+                                 << "to" << dtToString(dateTimeFromJulian(searchWindow.second))
+                                 << "deltas:" << startDelta << "to" << endDelta;
+                        
+                        // Run PairAspectFinder directly (we're already in a thread pool task)
+                        auto* task = new PairAspectFinder(
+                            _alist[i],
+                            kp,
+                            1, // harmonic (conjunction)
+                            searchWindow.first,
+                            searchWindow.second,
+                            startDelta,
+                            endDelta,
+                            startSpd,
+                            endSpd,
+                            dateTimeFromJulian(searchWindow.first),
+                            pj->description().toStdString()
+                                + (wasRetro ? " IN Shadow"
+                                            : " EX Shadow"),
+                            etcTransitToStation,
+                            st_quiet, // quiet mode
+                            this);
+
+                        task->run();
+                        delete task;
                     }
                 } else {
                     qDebug() << "Couldn't find station for"

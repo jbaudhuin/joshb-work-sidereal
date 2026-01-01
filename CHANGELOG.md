@@ -2,6 +2,10 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.4] - 
+
+- **Improved shadow period transit search**: Faster search for transit of stations to demarcate the shadow period entrance and exit using a more straightforward approach than adding the stations to the general transit search list.
+
 ## [0.9.3] - 2025-12-29
 
 ### Added

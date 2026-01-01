@@ -1370,7 +1370,8 @@ Transits::Transits(QWidget* parent) :
     auto l2 = new QVBoxLayout;
     l2->addItem(l1);
     l2->addWidget(_input, 0);
-    l2->setContentsMargins(QMargins(4, 4, 4, 4));
+    _input->setHidden(true);    // for now
+    l2->setContentsMargins(QMargins());
 
     QVBoxLayout* l3 = new QVBoxLayout;
     l3->setContentsMargins(QMargins(0, 0, 0, 0));
