@@ -3422,13 +3422,13 @@ Transits::applySettings(const AppSettings& s)
 void
 Transits::setupSettingsEditor(AppSettingsEditor* ed)
 {
-    ed->addTab(tr("Events I"));
+    ed->addTab(tr("Events"));
 
     ed->addLineEdit("Events/defaultTimespan", tr("Default timespan"));
     ed->addCheckBox("Events/showStations", tr("[Session] Show Stations"));
     ed->addCheckBox("Events/includeShadowTransits",
                     tr("Include retro shadow IN/EX"));
-    ed->addCheckBox("Events/showReturns", tr("[Session] Show Returns"));
+    ed->addCheckBox("Events/showIngresses", tr("[Session] Show Ingresses"));
     ed->addCheckBox("Events/showTransitsToTransits",
                     tr("[Session] Show Transits to Transits"));
     ed->addCheckBox("Events/showTransitsToNatalPlanets",
@@ -3437,7 +3437,17 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
                     tr("[Session] Show Transits to natal angles"));
     ed->addCheckBox("Events/includeOnlyOuterTransitsToNatal",
                     tr("[Session] Include only outer planet transits to natal"));
+    ed->addCheckBox("Events/showReturns", tr("[Session] Show Returns"));
+    ed->addCheckBox("Events/showTransitsToHouseCusps",
+                    tr("Show Transits to all house cusps"));
     ed->addCheckBox("Events/limitLunarTransits", tr("Default Limit Lunar Transits"));
+    ed->addCheckBox("Events/showProgressionsToProgressions",
+                    tr("[Session] Show Progressions to Progressions"));
+    ed->addCheckBox("Events/showProgressionsToNatal",
+                    tr("[Session] Show Progressions to Natal"));
+    ed->addCheckBox(
+        "Events/includeOnlyInnerProgressionsToNatal",
+        tr("[Session] Include only inner planet progressions to natal"));
 
     QVariantMap vals { { tr("Show all"), A::EventOptions::SkipNone },
                        { tr("Skip <1day"), A::EventOptions::SkipLessThanDay },
@@ -3448,9 +3458,7 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
 
     ed->addCheckBox("Events/includeAsteroids", tr("Include asteroids"));
     ed->addCheckBox("Events/includeCentaurs", tr("Include centaurs"));
-    ed->addCheckBox("Events/showTransitsToHouseCusps",
-                    tr("Show Transits to all house cusps"));
-    ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
+    //ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
     ed->addCheckBox("Events/showTransitAspectPatterns",
                     tr("[Session] Show Transit Aspect Patterns"));
     ed->addCheckBox("Events/showTransitNatalAspectPatterns",
@@ -3466,19 +3474,14 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
                          16.);
     ed->addCheckBox("Events/patternsRestrictMoon",
                     tr("Default Patterns Restrict Moon"));
-    ed->addCheckBox("Events/showIngresses", tr("[Session] Show Ingresses"));
-    ed->addCheckBox("Events/showProgressionsToProgressions",
-                    tr("[Session] Show Progressions to Progressions"));
-    ed->addCheckBox("Events/showProgressionsToNatal",
-                    tr("[Session] Show Progressions to Natal"));
-    ed->addCheckBox("Events/includeOnlyInnerProgressionsToNatal",
-                    tr("[Session] Include only inner planet progressions to natal"));
+#if 0
     ed->addCheckBox("Events/showLunations", tr("Show Lunations"));
     ed->addCheckBox("Events/showHeliacalEvents", tr("Show Heliacal Events"));
     ed->addCheckBox("Events/showPrimaryDirections",
                     tr("[Session] Show Primary Directions"));
     ed->addCheckBox("Events/showLifeEvents", tr("Default Show Life Events"));
     ed->addDoubleSpinBox("Events/secondaryOrb", tr("Secondary Orb"), .25, 16.);
+
 
     ed->addTab("Events II");
 
@@ -3496,6 +3499,7 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
                     tr("Expand to Show Return Aspects"));
     ed->addCheckBox("Events/expandShowTransitAspectsToReturnPlanet",
                     tr("Expand to Show Transit Aspects To Return Planet"));
+#endif
 }
 
 void

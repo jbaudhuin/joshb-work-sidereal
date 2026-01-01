@@ -4065,33 +4065,46 @@ class TaskTracker {
 
 // Shadow transit timing heuristics for calculating search windows
 struct ShadowTransitWindow {
-    double retrogradePeriod;  // Average days planet spends in retrograde
-    double arcCoverageTime;   // Average days to re-traverse the retrograde arc
+    std::pair<double, double> timing;  // {retrogradePeriod, arcCoverageTime}
+    
+    // Get planet-specific shadow transit timing parameters
+    ShadowTransitWindow(PlanetId pid)
+    {
+        switch (pid) {
+        case Planet_Mercury: timing = { 21.0, 24.0 }; return;
+        case Planet_Venus:   timing = { 40.0, 50.0 }; return;
+        case Planet_Mars:    timing = { 80.0, 70.0 }; return;
+        case Planet_Jupiter: timing = { 120.0, 60.0 }; return;
+        case Planet_Saturn:  timing = { 139.0, 70.0 }; return;
+        case Planet_Uranus:  timing = { 151.0, 80.0 }; return;
+        case Planet_Neptune: timing = { 158.0, 90.0 }; return;
+        case Planet_Pluto:   timing = { 165.0, 100.0 }; return;
+        case Planet_Chiron:  timing = { 145.0, 75.0 }; return;
+        default:
+            timing = { 100.0, 60.0 };
+            return; // Default for asteroids/other
+        }
+    }
+
+    JDateRange getSearchWindow(double jd, bool direct) const
+    {
+        if (direct) {
+            return { jd - timing.first - timing.second * 1.75,
+                     jd - timing.first - timing.second * 0.5 };
+        } else {
+            return { jd + timing.first + timing.second * 0.5,
+                     jd + timing.first + timing.second * 1.75 };
+        }
+    }
 };
 
-// Get planet-specific shadow transit timing parameters
-ShadowTransitWindow getShadowWindow(PlanetId pid) {
-    switch (pid) {
-    case Planet_Mercury: return { 21.0, 24.0 };
-    case Planet_Venus:   return { 40.0, 50.0 };
-    case Planet_Mars:    return { 80.0, 70.0 };
-    case Planet_Jupiter: return { 120.0, 60.0 };
-    case Planet_Saturn:  return { 139.0, 70.0 };
-    case Planet_Uranus:  return { 151.0, 80.0 };
-    case Planet_Neptune: return { 158.0, 90.0 };
-    case Planet_Pluto:   return { 165.0, 100.0 };
-    case Planet_Chiron:  return { 145.0, 75.0 };
-    default:             return { 100.0, 60.0 }; // Default for asteroids/other
-    }
-}
-
 class PairAspectFinder : public EventFinderTask {
-    Loc*            _a;
-    Loc*            _b;
+    Loc*            _loc1;
+    Loc*            _loc2;
     unsigned        _h;
-    double          _pjd, _jd;
-    qreal           _ad, _bd;
-    qreal           _ispd, _jspd;
+    double          _jdStart, _jdEnd;  // Julian date bracket [start, end]
+    qreal           _deltaStart, _deltaEnd;  // Angular delta at start/end
+    qreal           _speed1, _speed2;  // Planet speeds at bracket endpoints
     QDateTime       _d;
     std::string     _which;
     EventType       _et;
@@ -4103,46 +4116,89 @@ class PairAspectFinder : public EventFinderTask {
     bool            _ran = false;
 
   public:
-    PairAspectFinder(Loc*             a,
-                     Loc*             b,
+    // Full constructor with precomputed deltas and speeds
+    // - jdStart/jdEnd: Julian date bracket defining the search interval
+    // - deltaStart/deltaEnd: Angular delta between planets at bracket endpoints
+    // - speed1/speed2: Planet speeds at the bracket endpoints
+    PairAspectFinder(Loc*             loc1,
+                     Loc*             loc2,
                      unsigned         h,
-                     double           pjd,
-                     double           jd,
-                     qreal            ad,
-                     qreal            bd,
-                     qreal            ispd,
-                     qreal            jspd,
+                     double           jdStart,
+                     double           jdEnd,
+                     qreal            deltaStart,
+                     qreal            deltaEnd,
+                     qreal            speed1,
+                     qreal            speed2,
                      const QDateTime& d,
                      std::string      which,
                      EventType        et,
                      bool             quiet,
                      AspectFinder*    finder) :
-        _a(a->clone()),
-        _b(b->clone()),
+        _loc1(loc1->clone()),
+        _loc2(loc2->clone()),
         _h(h),
-        _pjd(pjd),
-        _jd(jd),
-        _ad(ad),
-        _bd(bd),
-        _ispd(ispd),
-        _jspd(jspd),
+        _jdStart(jdStart),
+        _jdEnd(jdEnd),
+        _deltaStart(deltaStart),
+        _deltaEnd(deltaEnd),
+        _speed1(speed1),
+        _speed2(speed2),
         _d(d),
         _which(std::move(which)),
         _et(et),
         _beQuiet(quiet),
         _finder(finder),
-        _evs(_finder->_evs) //,
-    //_ev(_evs.safe_emplace_back())
+        _evs(_finder->_evs)
     {
-        _useBZS = (a->inMotion() && ispd < .00001)
-                  || (b->inMotion() && jspd < .00001);
+        _useBZS = (loc1->inMotion() && speed1 < .00001)
+                  || (loc2->inMotion() && speed2 < .00001);
+    }
+    
+    // Simplified constructor that computes deltas and speeds from positions
+    PairAspectFinder(Loc*             loc1,
+                     Loc*             loc2,
+                     unsigned         h,
+                     double           jdStart,
+                     double           jdEnd,
+                     const QDateTime& d,
+                     std::string      which,
+                     EventType        et,
+                     bool             quiet,
+                     AspectFinder*    finder) :
+        _loc1(loc1->clone()),
+        _loc2(loc2->clone()),
+        _h(h),
+        _jdStart(jdStart),
+        _jdEnd(jdEnd),
+        _d(d),
+        _which(std::move(which)),
+        _et(et),
+        _beQuiet(quiet),
+        _finder(finder),
+        _evs(_finder->_evs)
+    {
+        PlanetProfile poses { _loc1->clone(), _loc2->clone() };
+
+        double speedA, speedB;
+        poses.computePos(jdStart, h);
+        std::tie(_deltaStart, speedA) =
+            PlanetProfile::computeDelta(poses[0], poses[1], h);
+        _speed1 = qAbs(poses[0]->speed / 2. + poses[1]->speed / 2.);
+
+        poses.computePos(jdEnd, h); // compute end pos/speed
+        std::tie(_deltaEnd, speedB) =
+            PlanetProfile::computeDelta(poses[0], poses[1], h);
+        _speed2 = qAbs(poses[0]->speed / 2. + poses[1]->speed / 2.);
+
+        _useBZS = (_loc1->inMotion() && _speed1 < .00001)
+                  || (_loc2->inMotion() && _speed2 < .00001);
     }
 
     ~PairAspectFinder()
     {
         if (!_ran) {
-            delete _a;
-            delete _b;
+            delete _loc1;
+            delete _loc2;
         }
     }
 
@@ -4155,7 +4211,7 @@ class PairAspectFinder : public EventFinderTask {
         TaskTracker tr(_finder);
 
         modalize<bool> mum(st_quiet, _beQuiet);
-        PlanetProfile  poses { _a, _b };
+        PlanetProfile  poses { _loc1, _loc2 };
         _ran = true; // otherwise we'll clean up stuff we don't want cleaned
 
         double    tjd {};
@@ -4183,16 +4239,16 @@ class PairAspectFinder : public EventFinderTask {
                     std::numeric_limits<double>::digits;
 
                 double guess;
-                if (_a && _a->inMotion() && _b && _b->inMotion()) {
-                    guess = _pjd + (fabs(_ad) / (fabs(_ad) + fabs(_bd)));
+                if (_loc1 && _loc1->inMotion() && _loc2 && _loc2->inMotion()) {
+                    guess = _jdStart + (fabs(_deltaStart) / (fabs(_deltaStart) + fabs(_deltaEnd)));
                 } else {
-                    guess = _pjd + .5;
+                    guess = _jdStart + .5;
                 }
                 try {
                     tjd = newton_raphson_iterate(cps,
                                                  guess,
-                                                 _pjd,
-                                                 _jd,
+                                                 _jdStart,
+                                                 _jdEnd,
                                                  digits,
                                                  iter);
                 }
@@ -4214,7 +4270,7 @@ class PairAspectFinder : public EventFinderTask {
                 qDebug() << QString(cancelled ? "Cancelled" : "Failed")
                          << _d.date().toString() << _which.c_str() << "after"
                          << iter << "iteration(s) newton_raphson";
-                qDebug() << "speed" << _ispd << _jspd << "respectively";
+                qDebug() << "speed" << _speed1 << _speed2 << "respectively";
             }
         }
         if (!done && !cancelled) {
@@ -4233,7 +4289,7 @@ class PairAspectFinder : public EventFinderTask {
                 return pos;
             };
             try {
-                done = brentZhangStage(cp, _pjd, _jd, _ad, _bd, tjd);
+                done = brentZhangStage(cp, _jdStart, _jdEnd, _deltaStart, _deltaEnd, tjd);
             }
             catch (int) {
                 return;
@@ -4369,73 +4425,36 @@ AspectFinder::findStations()
                         // Add shadow-period transit lookup
                         auto kp = new KnownPosition(ploc, tjd,
                                                     wasRetro ? "IN" : "EX");
-                        kp->planet.setFileId(-1);
+                        kp->planet.setFileId(-1); // hides position in events table
                         kp->allowAspects = PlanetLoc::aspOnlyDirect;
                         kp->speed        = 0;
 
-                        if (false) {
+                        if (false) { // the old way started here
                             QMutexLocker mlb(&_ctm);
                             stations.emplace_back(kp);
                         }
 
                         // Create shadow transit search with time-bounded window
                         auto pid = ploc->planet.planetId();
-                        auto window = getShadowWindow(pid);
+                        ShadowTransitWindow window(pid);
                         
                         // Calculate search window that excludes station time
                         double stationJd = tjd;
-                        JDateRange searchWindow;
-                        
-                        if (wasRetro) {
-                            // Direct station (planet was retro) -> Shadow ENTRY (backward in time)
-                            // Window: [T_rx - At*3/2, T_rx - At/2]
-                            double start = stationJd - window.retrogradePeriod - window.arcCoverageTime * 1.75;
-                            double end = stationJd - window.retrogradePeriod - window.arcCoverageTime * .5;
-                            searchWindow = JDateRange(start, end);
-                        } else {
-                            // Retrograde station (planet was direct) -> Shadow EXIT (forward in time)
-                            // Window: [T_d + At/2, T_d + At*3/2]
-                            double start = stationJd + window.retrogradePeriod + window.arcCoverageTime * .5;
-                            double end = stationJd + window.retrogradePeriod + window.arcCoverageTime * 1.75;
-                            searchWindow = JDateRange(start, end);
-                        }
-
-#if 0
-                        // Create KnownPosition for the shadow transit target
-                        auto* kp = new KnownPosition(ploc, tjd, wasRetro ? "EX" : "IN");
-                        kp->allowAspects = PlanetLoc::aspOnlyDirect;
-                        kp->speed = 0;
-#endif
-
-                        // Compute positions at window boundaries to get proper deltas
-                        auto transitClone = _alist[i]->clone();
-                        (*transitClone)(searchWindow.first, 1);
-                        qreal startSpd = transitClone->speed;
-                        auto [startDelta, startDeltaSpd] = PlanetProfile::computeDelta(transitClone, kp, 1);
-                        
-                        (*transitClone)(searchWindow.second, 1);
-                        qreal endSpd = transitClone->speed;
-                        auto [endDelta, endDeltaSpd] = PlanetProfile::computeDelta(transitClone, kp, 1);
-                        delete transitClone;
+                        JDateRange searchWindow = window.getSearchWindow(stationJd, wasRetro);
                         
                         qDebug() << "Starting shadow transit search for" 
                                  << _alist[i]->description()
                                  << (wasRetro ? "ENTRY" : "EXIT")
                                  << "window:" << dtToString(dateTimeFromJulian(searchWindow.first))
-                                 << "to" << dtToString(dateTimeFromJulian(searchWindow.second))
-                                 << "deltas:" << startDelta << "to" << endDelta;
+                                 << "to" << dtToString(dateTimeFromJulian(searchWindow.second));
                         
-                        // Run PairAspectFinder directly (we're already in a thread pool task)
+                        // Use simplified constructor that computes deltas/speeds internally
                         auto* task = new PairAspectFinder(
                             _alist[i],
                             kp,
                             1, // harmonic (conjunction)
                             searchWindow.first,
                             searchWindow.second,
-                            startDelta,
-                            endDelta,
-                            startSpd,
-                            endSpd,
                             dateTimeFromJulian(searchWindow.first),
                             pj->description().toStdString()
                                 + (wasRetro ? " IN Shadow"
@@ -5156,13 +5175,14 @@ AspectFinder::findAspects(AspectSearchState& state, modalize<bool>& mum)
                     continue;
                 }
             }
-            qreal ispd =
-                qAbs(_alist[i]->speed / 2. + state.b[i]->speed / 2.);
-            qreal jspd =
-                qAbs(_alist[j]->speed / 2. + state.b[j]->speed / 2.);
+            qreal ispdSigned = _alist[i]->speed / 2. + state.b[i]->speed / 2.;
+            qreal jspdSigned = _alist[j]->speed / 2. + state.b[j]->speed / 2.;
+            qreal ispd = qAbs(ispdSigned);
+            qreal jspd = qAbs(jspdSigned);
             if (ispd > jspd) {
                 std::swap(i, j);
                 std::swap(ispd, jspd);
+                std::swap(ispdSigned, jspdSigned);
             }
 
             std::tie(ad, asp) =
@@ -5182,10 +5202,9 @@ AspectFinder::findAspects(AspectSearchState& state, modalize<bool>& mum)
 #if 1
             auto pi = dynamic_cast<PlanetLoc*>(_alist[i]);
             if (pi && pi->allowAspects > PlanetLoc::aspOnlyConj) {
-                qreal spd = _alist[j]->speed / 2. + state.b[j]->speed / 2.;
                 if (pi->allowAspects
-                    != ((spd < 0) ? PlanetLoc::aspOnlyRetro
-                                  : PlanetLoc::aspOnlyDirect))
+                    != ((jspdSigned < 0) ? PlanetLoc::aspOnlyRetro
+                                         : PlanetLoc::aspOnlyDirect))
                 {
                     qDebug() << "skipping wrong-way" << what().c_str();
                     stuff.erase(it++);
