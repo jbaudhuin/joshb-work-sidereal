@@ -1,4 +1,5 @@
 ﻿#include "plain.h"
+#include "../../zodiac/src/thememanager.h"
 #include <Astroprocessor/Output>
 #include <QCheckBox>
 #include <QComboBox>
@@ -123,9 +124,10 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
         refresh();
     });
 
-    QFile cssfile("plain/style.css");
-    cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
-    setStyleSheet(cssfile.readAll());
+    // Component-specific CSS loading disabled - now using global theme system
+    // QFile cssfile("plain/style.css");
+    // cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
+    // setStyleSheet(cssfile.readAll());
 }
 
 void
@@ -255,32 +257,30 @@ Plain::refresh()
                    | (A::Article_Speculum * describeSpeculum->isChecked())
                    | (A::Article_FixedStars * includeFixedStars);
 
+    // Get theme-appropriate colors
+    QString textColor = ThemeManager::instance().getTextColor();
+    QString headingColor = ThemeManager::instance().getHeadingColor();
+
     // Build the HTML content with custom aspect sort order
     QString html = "<!DOCTYPE html><html><head>";
     html += "<meta charset='utf-8'>";
     html += "<style>";
-    html +=
-        "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu " "San" "s " "Mon" "o'," "'Lu" "cid" "a " "Con" "sol" "e';" " ma" "rgi" "n: " "10p" "x; " "col" "or:" " #" "b5b" "fdf" "; " "background-color: transparent; }";
-    html +=
-        "h1, h2, h3 { color: #e9e9e4; margin-top: 20px; margin-bottom: 10px; }";
+    html += "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu "
+            "Sans Mono', 'Lucida Console'; margin: 10px; color: " + textColor + "; "
+            "background-color: transparent; }";
+    html += "h1, h2, h3 { color: " + headingColor + "; margin-top: 20px; margin-bottom: 10px; }";
     html += "h1 { font-size: 1.4em; }";
     html += "h2 { font-size: 1.2em; }";
     html += "h3 { font-size: 1.1em; }";
-    html += "h4 { color: #e9e9e4; font-size: 1.0em; margin-top: 12px; " "margin"
-                                                                        "-" "bo"
-                                                                            "tt"
-                                                                            "om"
-                                                                            ": " "4px; }";
-    html +=
-        "table { margin: 10px 0; border-collapse: collapse; " "background-" "co"
-                                                                            "lo"
-                                                                            "r:"
-                                                                            " " "transparent; }";
+    html += "h4 { color: " + headingColor + "; font-size: 1.0em; margin-top: 12px; "
+            "margin-bottom: 4px; }";
+    html += "table { margin: 10px 0; border-collapse: collapse; "
+            "background-color: transparent; }";
     html += "tr { background-color: transparent; }";
-    html +=
-        "th { background-color: rgba(255,255,255,0.1); font-weight: bold; " "co" "lo" "r:" " #" "e9" "e9" "e4" "; " "bo" "rd" "er" ": " "1p" "x " "so" "li" "d " "#5" "55" "; " "}";
+    html += "th { background-color: rgba(255,255,255,0.1); font-weight: bold; "
+            "color: " + headingColor + "; border: 1px solid #555; }";
     html += "li { margin: 1px 0; line-height: 1.2; }";
-    html += "strong { color: #e9e9e4; }";
+    html += "strong { color: " + headingColor + "; }";
     html += ".dignity-list { margin: 4px 0; }";
     html += ".dignity-list p { margin: 1px 0; padding: 0; line-height: 1.1; }";
     html += "</style>";

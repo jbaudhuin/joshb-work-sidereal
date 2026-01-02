@@ -1,4 +1,5 @@
 ﻿#include "chart.h"
+#include "../../zodiac/src/thememanager.h"
 #include "qregularexpression.h"
 #include <Astroprocessor/Calc>
 #include <Astroprocessor/Output>
@@ -192,13 +193,14 @@ Chart::createScene()
     qDebug() << "Create scene";
     QGraphicsScene* s = view->scene();
 
-    QBrush background(QColor(8, 103, 192, 50));
-    QPen   penZodiac(QColor(31, 52, 93), zodiacWidth());
-    QPen   penBorder(QColor(50, 145, 240));
-    QPen   penCircle(QColor(227, 214, 202), 1);
+    ThemeManager& theme = ThemeManager::instance();
+    QBrush background(theme.getChartBackgroundColor());
+    QPen   penZodiac(theme.getChartZodiacColor(), zodiacWidth());
+    QPen   penBorder(theme.getChartBorderColor());
+    QPen   penCircle(theme.getChartCircleColor(), 1);
     QFont  zodiacFont("Almagest", 15 * zoom, QFont::Bold);
-    QColor signFillColor  = Qt::black;
-    QColor signShapeColor = "#6d6d6d";
+    QColor signFillColor  = Qt::black;          // Restored: original hardcoded value
+    QColor signShapeColor = QColor(109, 109, 109); // Restored: original hardcoded value
 
     if (coloredZodiac) {
         QConicalGradient grad1(chartRect().center(), 180);
@@ -770,10 +772,11 @@ Chart::drawStars(int fileIndex)
 void
 Chart::drawCuspides(int fileIndex)
 {
-    static QPen  penCusp(QColor(227, 214, 202), 2);
-    static QPen  penCusp1(QColor(250, 90, 58), 3);
-    static QPen  penCusp10(QColor(210, 195, 150), 3);
-    static QFont font("Times New Roman", 13, QFont::Bold);
+    ThemeManager& theme = ThemeManager::instance();
+    QPen  penCusp(theme.getChartCuspColor(), 2);
+    QPen  penCusp1(theme.getChartAscendantColor(), 3);
+    QPen  penCusp10(theme.getChartMCColor(), 3);
+    QFont font("Times New Roman", 13, QFont::Bold);
 
     QGraphicsScene*    s = view->scene();
     QGraphicsLineItem* l;
@@ -789,7 +792,7 @@ Chart::drawCuspides(int fileIndex)
         else
             pen = penCusp;
 
-        if (filesCount() > 1 && fileIndex == 1) pen.setColor(QColor("#00C0FF"));
+        if (filesCount() > 1 && fileIndex == 1) pen.setColor(theme.getChartPlanetMarkerColor(1));
 
         if (filesCount() > 1 && fileIndex == 0) {
             l       = s->addLine(-innerRadius(0), 0, -innerRadius(1), 0, pen);
@@ -813,8 +816,7 @@ Chart::drawCuspides(int fileIndex)
         cuspides[fileIndex][i] = l;
 
         QGraphicsSimpleTextItem* t = s->addSimpleText(A::houseTag(i + 1), font);
-        t->setBrush(QColor((filesCount() > 1 && fileIndex == 1) ? "#00C0FF"
-                                                                : "#FFFFFF"));
+        t->setBrush(theme.getChartCuspLabelColor(fileIndex));
         t->setOpacity(0.6);
         t->setParentItem(l);
         t->moveBy(endPointX + 5, 5);
@@ -858,10 +860,12 @@ const QPen&
 Chart::planetMarkerPen(const A::Planet& /*p*/, int fileIndex)
 {
     static QList<QPen> pens;
-    if (pens.isEmpty()) {
-        pens << QPen(QColor("#cee1f2"), 2);
-        pens << QPen(QColor("#00C0FF"), 2);
-    }
+    ThemeManager& theme = ThemeManager::instance();
+    
+    // Rebuild pens based on current theme
+    pens.clear();
+    pens << QPen(theme.getChartPlanetMarkerColor(0), 2);
+    pens << QPen(theme.getChartPlanetMarkerColor(1), 2);
 
     return pens[qMin(fileIndex, pens.count() - 1)];
 }
@@ -872,9 +876,7 @@ Chart::planetColor(const A::Planet& p, int fileIndex)
     QColor color(p.userData["color"].toString());
 
     if (filesCount() > 1 || !color.isValid()) {
-        if (fileIndex == 0) return "#cee1f2";
-        else
-            return "#00C0FF";
+        return ThemeManager::instance().getChartPlanetColor(fileIndex);
     }
 
     return color;
@@ -886,9 +888,7 @@ Chart::planetShapeColor(const A::Planet& p, int fileIndex)
     QColor shapeColor(p.userData["shapeColor"].toString());
 
     if (filesCount() > 1 || !shapeColor.isValid()) {
-        if (fileIndex == 0) return "#48401d";
-        else
-            return "#412631";
+        return ThemeManager::instance().getChartPlanetShapeColor(fileIndex);
     }
 
     return shapeColor;

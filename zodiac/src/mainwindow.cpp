@@ -37,6 +37,7 @@
 #include "../plain/src/plain.h"
 #include "../planets/src/planets.h"
 #include "mainwindow.h"
+#include "thememanager.h"
 #include <QApplication>
 #include <QComboBox>
 #include <QDebug>
@@ -57,6 +58,42 @@
 #include <QStandardPaths>
 #include <QWidget>
 #include <math.h>
+
+/* =========================== THEMED MESSAGE BOX HELPERS =================== */
+
+namespace {
+    // Helper to create a themed message box
+    int showThemedMessageBox(QWidget* parent, QMessageBox::Icon icon, 
+                            const QString& title, const QString& text,
+                            QMessageBox::StandardButtons buttons = QMessageBox::Ok,
+                            QMessageBox::StandardButton defaultButton = QMessageBox::NoButton)
+    {
+        QMessageBox msgBox(icon, title, text, buttons, parent);
+        if (defaultButton != QMessageBox::NoButton) {
+            msgBox.setDefaultButton(defaultButton);
+        }
+        ThemeManager::instance().propagateThemeProperty(&msgBox);
+        return msgBox.exec();
+    }
+
+    void showThemedWarning(QWidget* parent, const QString& title, const QString& text) {
+        showThemedMessageBox(parent, QMessageBox::Warning, title, text);
+    }
+
+    void showThemedInformation(QWidget* parent, const QString& title, const QString& text) {
+        showThemedMessageBox(parent, QMessageBox::Information, title, text);
+    }
+
+    void showThemedCritical(QWidget* parent, const QString& title, const QString& text) {
+        showThemedMessageBox(parent, QMessageBox::Critical, title, text);
+    }
+
+    int showThemedQuestion(QWidget* parent, const QString& title, const QString& text,
+                          QMessageBox::StandardButtons buttons = QMessageBox::Yes | QMessageBox::No,
+                          QMessageBox::StandardButton defaultButton = QMessageBox::No) {
+        return showThemedMessageBox(parent, QMessageBox::Question, title, text, buttons, defaultButton);
+    }
+}
 
 /* =========================== SESSION MANAGER ============================== */
 
@@ -2037,6 +2074,7 @@ AstroDatabase::deleteSelected()
     QMessageBox msgBox;
     msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
     msgBox.setDefaultButton(QMessageBox::Save);
+    ThemeManager::instance().propagateThemeProperty(&msgBox);
 
     if (count == 1)
         msgBox.setText(
@@ -2133,7 +2171,7 @@ AstroDatabase::openSessionInNewWindow()
                             .arg(QCoreApplication::applicationFilePath())
                             .arg(sessionFile)
                             .arg(args.join(" "));
-        QMessageBox::warning(const_cast<AstroDatabase*>(this),
+        showThemedWarning(const_cast<AstroDatabase*>(this),
             tr("Launch Failed"),
             errorMsg);
     }
@@ -2241,7 +2279,7 @@ AstroDatabase::renameSession()
     
     // Check if target already exists
     if (QFile::exists(newSessionFile) && newSessionFile != oldSessionFile) {
-        QMessageBox::warning(this, 
+        showThemedWarning(this, 
             tr("Rename Failed"), 
             tr("A session with the name '%1' already exists.").arg(newName));
         return;
@@ -2259,7 +2297,7 @@ AstroDatabase::renameSession()
         
         updateList();
     } else {
-        QMessageBox::warning(this, 
+        showThemedWarning(this, 
             tr("Rename Failed"), 
             tr("Failed to rename session file."));
     }
@@ -2290,6 +2328,7 @@ AstroDatabase::deleteSessions()
     QMessageBox msgBox;
     msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
     msgBox.setDefaultButton(QMessageBox::Cancel);
+    ThemeManager::instance().propagateThemeProperty(&msgBox);
     
     if (sessionFilesToDelete.count() == 1) {
         msgBox.setText(tr("Delete session '%1'?").arg(QFileInfo(sessionFilesToDelete.first()).completeBaseName()));
@@ -2311,7 +2350,7 @@ AstroDatabase::deleteSessions()
     }
     
     if (deletingCurrentSession) {
-        QMessageBox::warning(this,
+        showThemedWarning(this,
             tr("Cannot Delete Current Session"),
             tr("The current session cannot be deleted. Please switch to a different session first."));
     }
@@ -2358,7 +2397,7 @@ AstroDatabase::openSelected()
                 // Close this instance
                 QTimer::singleShot(100, qApp, &QApplication::quit);
             } else {
-                QMessageBox::critical(nullptr, tr("Error"), 
+                showThemedCritical(nullptr, tr("Error"), 
                     tr("Failed to start new instance with session: %1").arg(sessionFile));
             }
         }
@@ -2639,7 +2678,7 @@ AstroDatabase::saveCurrent(const QModelIndex& qmi)
 
     // Don't allow saving to Sample Charts
     if (targetDir.contains("sampleCharts/") || targetDir.endsWith("sampleCharts")) {
-        QMessageBox::information(
+        showThemedInformation(
             this,
             tr("Save Failed"),
             tr("Cannot save charts to the Sample Charts folder."));
@@ -2692,7 +2731,7 @@ AstroDatabase::newDirectory(const QModelIndex& qmi)
 
     // Don't allow creating directories in Sample Charts
     if (parentDir.contains("user/") || parentDir.endsWith("user")) {
-        QMessageBox::information(
+        showThemedInformation(
             this,
             tr("New Directory"),
             tr("Cannot create directories in the Sample Charts folder."));
@@ -2722,7 +2761,7 @@ AstroDatabase::newDirectory(const QModelIndex& qmi)
     }
 
     if (!dir.mkdir(uniqueName)) {
-        QMessageBox::warning(
+        showThemedWarning(
             this,
             tr("New Directory Failed"),
             tr("Could not create directory."));
@@ -2751,7 +2790,7 @@ AstroDatabase::deleteDirectory(const QModelIndex& qmi)
     
     // Don't allow deleting Sample Charts directories
     if (dirPath.contains("user/") || dirPath.endsWith("user")) {
-        QMessageBox::information(
+        showThemedInformation(
             this,
             tr("Delete Directory"),
             tr("Cannot delete Sample Charts folders."));
@@ -2769,7 +2808,7 @@ AstroDatabase::deleteDirectory(const QModelIndex& qmi)
     // Check for subdirectories
     for (const QFileInfo& entry : entries) {
         if (entry.isDir()) {
-            QMessageBox::warning(
+            showThemedWarning(
                 this,
                 tr("Cannot Delete Directory"),
                 tr("The folder contains subdirectories and cannot be deleted."));
@@ -2780,7 +2819,7 @@ AstroDatabase::deleteDirectory(const QModelIndex& qmi)
     // Check for chart files
     QStringList chartFiles = dir.entryList(AFileInfo::wildcard(), QDir::Files);
     if (!chartFiles.isEmpty()) {
-        QMessageBox::warning(
+        showThemedWarning(
             this,
             tr("Cannot Delete Directory"),
             tr("The folder contains chart files and cannot be deleted."));
@@ -2798,7 +2837,7 @@ AstroDatabase::deleteDirectory(const QModelIndex& qmi)
                      .arg(entries.count());
     }
     
-    auto reply = QMessageBox::question(
+    auto reply = showThemedQuestion(
         this,
         tr("Delete Folder"),
         message,
@@ -2858,7 +2897,7 @@ AstroDatabase::deleteDirectory(const QModelIndex& qmi)
     }
     
     if (!success) {
-        QMessageBox::warning(
+        showThemedWarning(
             this,
             tr("Delete Failed"),
             tr("Could not delete the folder: %1\n\nThe folder may be in use or you may not have permission.").arg(dirPath));
@@ -2894,7 +2933,7 @@ AstroDatabase::setTypeForSelected()
     }
     
     if (filePaths.isEmpty()) {
-        QMessageBox::information(this, tr("Set Type"), 
+        showThemedInformation(this, tr("Set Type"), 
             tr("No chart files selected."));
         return;
     }
@@ -2903,6 +2942,9 @@ AstroDatabase::setTypeForSelected()
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Set Chart Type"));
     dialog.setModal(true);
+    
+    // Apply theme to dialog
+    ThemeManager::instance().propagateThemeProperty(&dialog);
     
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     
@@ -2951,7 +2993,7 @@ AstroDatabase::setTypeForSelected()
         successCount++;
     }
     
-    QMessageBox::information(this, tr("Set Type"), 
+    showThemedInformation(this, tr("Set Type"), 
         tr("Updated type for %n chart(s).", "", successCount));
 }
 
@@ -3015,6 +3057,9 @@ AstroDatabase::moveToFolder()
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Move to Folder"));
     dialog.setModal(true);
+    
+    // Apply theme to dialog
+    ThemeManager::instance().propagateThemeProperty(&dialog);
     
     QVBoxLayout* layout = new QVBoxLayout(&dialog);
     
@@ -3104,7 +3149,7 @@ AstroDatabase::moveToFolder()
     
     auto selected = treeView->selectionModel()->selectedIndexes();
     if (selected.isEmpty()) {
-        QMessageBox::information(this, tr("Move to Folder"), tr("No folder selected."));
+        showThemedInformation(this, tr("Move to Folder"), tr("No folder selected."));
         return;
     }
     
@@ -3116,7 +3161,7 @@ AstroDatabase::moveToFolder()
     
     // Check if target is Sample Charts
     if (targetDir.contains("user/") || targetDir.endsWith("user")) {
-        QMessageBox::warning(
+        showThemedWarning(
             this,
             tr("Move to Folder"),
             tr("Cannot move files to Sample Charts folder."));
@@ -3170,7 +3215,7 @@ AstroDatabase::handleItemRenamed(QStandardItem* item)
     
     // Check if target already exists
     if (newFileInfo.exists()) {
-        QMessageBox::warning(
+        showThemedWarning(
             this,
             tr("Rename Failed"),
             tr("A file named '%1' already exists.").arg(newName));
@@ -3190,7 +3235,7 @@ AstroDatabase::handleItemRenamed(QStandardItem* item)
     
     // Perform the rename
     if (!QFile::rename(oldFileInfo.filePath(), newFileInfo.filePath())) {
-        QMessageBox::warning(
+        showThemedWarning(
             this,
             tr("Rename Failed"),
             tr("Could not rename file."));
@@ -3314,7 +3359,7 @@ AstroDatabase::performMove(const QString& targetDir)
 {
     // Check one more time if target is Sample Charts (for the error message)
     if (targetDir.contains("user/") || targetDir.endsWith("user")) {
-        QMessageBox::information(
+        showThemedInformation(
             this,
             tr("Move Failed"),
             tr("Cannot move files to the Sample Charts folder."));
@@ -3329,7 +3374,7 @@ AstroDatabase::performCopy(const QString& targetDir)
 {
     // Check one more time if target is Sample Charts (for the error message)
     if (targetDir.contains("user/") || targetDir.endsWith("user")) {
-        QMessageBox::information(
+        showThemedInformation(
             this,
             tr("Copy Failed"),
             tr("Cannot copy files to the Sample Charts folder."));
@@ -3369,7 +3414,7 @@ AstroDatabase::moveSelected(const QString& targetDir)
         if (sourceDir.isEmpty()) {
             sourceDir = dir;
         } else if (sourceDir != dir) {
-            QMessageBox::warning(
+            showThemedWarning(
                 this,
                 tr("Move Failed"),
                 tr("Cannot move files from multiple directories at once."));
@@ -3420,7 +3465,7 @@ AstroDatabase::moveSelected(const QString& targetDir)
 
         // Check if target exists
         if (newFileInfo.exists()) {
-            QMessageBox::warning(
+            showThemedWarning(
                 this,
                 tr("Move Failed"),
                 tr("A file named '%1' already exists in the target directory.").arg(fileName));
@@ -3435,7 +3480,7 @@ AstroDatabase::moveSelected(const QString& targetDir)
 
         // Move the file
         if (!QFile::rename(oldFileInfo.filePath(), newFileInfo.filePath())) {
-            QMessageBox::warning(
+            showThemedWarning(
                 this,
                 tr("Move Failed"),
                 tr("Could not move file '%1'.").arg(fileName));
@@ -3488,7 +3533,7 @@ AstroDatabase::copySelected(const QString& targetDir)
             sourceDir = dir;
         } else if (sourceDir != dir) {
             // Mixed source directories - skip for simplicity
-            QMessageBox::warning(
+            showThemedWarning(
                 this,
                 tr("Copy Failed"),
                 tr("Cannot copy files from multiple directories at once."));
@@ -3567,7 +3612,7 @@ AstroDatabase::copySelected(const QString& targetDir)
 
         // Check if target exists (shouldn't happen with our naming scheme for same dir)
         if (targetFileInfo.exists() && sourceDir != targetDir) {
-            QMessageBox::warning(
+            showThemedWarning(
                 this,
                 tr("Copy Failed"),
                 tr("A file named '%1' already exists in the target directory.").arg(targetFileName));
@@ -3576,7 +3621,7 @@ AstroDatabase::copySelected(const QString& targetDir)
 
         // Copy the file
         if (!QFile::copy(sourceFileInfo.filePath(), targetFileInfo.filePath())) {
-            QMessageBox::warning(
+            showThemedWarning(
                 this,
                 tr("Copy Failed"),
                 tr("Could not copy file '%1'.").arg(fileName));
@@ -4569,6 +4614,7 @@ MainWindow::defaultSettings()
     s.setValue("Window/State", 0);
     s.setValue("askToSave", false);
     s.setValue("Key", "");
+    s.setValue("theme", "dark");
     return s;
 }
 
@@ -4583,6 +4629,7 @@ MainWindow::currentSettings()
     // Populate API key from APIKey.ini for display in settings dialog only
     // This value is never saved to settings.ini
     s.setValue("Key", SessionManager::readAPIKey());
+    s.setValue("theme", ThemeManager::instance().currentThemeName());
     return s;
 }
 
@@ -4593,6 +4640,13 @@ MainWindow::applySettings(const AppSettings& s)
     this->restoreGeometry(s.value("Window/Geometry").toByteArray());
     this->restoreState(s.value("Window/State").toByteArray());
     askToSave = s.value("askToSave").toBool();
+    
+    // Apply theme
+    if (s.contains("theme")) {
+        QString themeName = s.value("theme").toString();
+        ThemeManager& tm = ThemeManager::instance();
+        tm.setTheme(themeName, true);  // Apply to all widgets
+    }
     
     // Handle API key - only save to APIKey.ini if changed via settings dialog
     // Note: Key should only be processed when coming from the settings dialog with a non-empty value
@@ -4631,6 +4685,13 @@ MainWindow::saveSettings(const QString& iniFile)
 void
 MainWindow::setupSettingsEditor(AppSettingsEditor* ed)
 {
+    // Add theme selector
+    QMap<QString, QVariant> themes;
+    themes[tr("Dark")] = "dark";
+    themes[tr("Light")] = "light";
+    themes[tr("Printable")] = "printable";
+    ed->addComboBox("theme", tr("Theme"), themes);
+    
     ed->addControl("askToSave", tr("Ask about unsaved files"));
     ed->addControl("Key", "Timezone and Geography API");
     astroWidget->setupSettingsEditor(ed);
@@ -4675,8 +4736,16 @@ MainWindow::paintEvent(QPaintEvent* event)
     // Create a radial gradient centered in the window
     // The radius is 70% of the larger dimension to ensure good coverage
     QRadialGradient gradient(rect().center(), qMax(width(), height()) * 0.7);
-    gradient.setColorAt(0, QColor(32, 32, 32));    // Lighter center
-    gradient.setColorAt(1, QColor(80, 80, 80));    // Darker edges
+    
+    // Theme-aware colors
+    ThemeManager& tm = ThemeManager::instance();
+    if (tm.currentTheme() == ThemeManager::Theme::Light) {
+        gradient.setColorAt(0, QColor(250, 250, 250));  // Very light center
+        gradient.setColorAt(1, QColor(220, 220, 220));  // Slightly darker edges
+    } else {
+        gradient.setColorAt(0, QColor(32, 32, 32));     // Lighter center
+        gradient.setColorAt(1, QColor(80, 80, 80));     // Darker edges
+    }
     
     painter.fillRect(rect(), gradient);
 }
@@ -4694,7 +4763,7 @@ MainWindow::handleSaveToDirectory(const QString& directory)
     // Get the current file
     auto files = filesBar->currentFiles();
     if (files.isEmpty() || !files[0]) {
-        QMessageBox::warning(this,
+        showThemedWarning(this,
                              tr("No Chart Open"),
                              tr("Please open a chart before saving to a directory."));
         return;
@@ -4744,7 +4813,7 @@ MainWindow::handleChartDroppedOnSlides(const QString& filePath)
         // Force tab update to show new chart name
         filesBar->updateTab(filesBar->currentIndex());
     } else {
-        QMessageBox::warning(this,
+        showThemedWarning(this,
                              tr("File Not Found"),
                              tr("Could not find chart file: %1").arg(decodedPath));
     }
@@ -4762,7 +4831,7 @@ MainWindow::handleChartDroppedOnInputWidget(const QString& filePath, int targetI
     // AFileInfo constructor intelligently handles paths that already end with .dat
     AFileInfo fi(decodedPath);
     if (!fi.exists()) {
-        QMessageBox::warning(this,
+        showThemedWarning(this,
                              tr("File Not Found"),
                              tr("Could not find chart file: %1").arg(decodedPath));
         return;
@@ -4833,7 +4902,7 @@ MainWindow::showRestoreSessionDialog()
     QList<SessionManager::SessionInfo> sessions = SessionManager::getRecentSessions();
     
     if (sessions.isEmpty()) {
-        QMessageBox::information(this,
+        showThemedInformation(this,
                                  tr("No Saved Sessions"),
                                  tr("There are no saved sessions to restore."));
         return;
@@ -4976,7 +5045,7 @@ MainWindow::saveSessionAs()
     
     // Check if target already exists
     if (QFile::exists(newSessionFile) && newSessionFile != currentSessionFile) {
-        QMessageBox::StandardButton reply = QMessageBox::question(
+        int reply = showThemedQuestion(
             this,
             tr("Overwrite Session"),
             tr("A session with this name already exists. Overwrite it?"),
@@ -5008,17 +5077,17 @@ MainWindow::saveSessionAs()
             // Update window title with new session name
             updateWindowTitle();
             
-            QMessageBox::information(this,
+            showThemedInformation(this,
                                    tr("Session Saved"),
                                    tr("Session saved as: %1").arg(newName));
         } else {
-            QMessageBox::warning(this,
+            showThemedWarning(this,
                                tr("Save Failed"),
                                tr("Failed to save session as: %1").arg(newName));
         }
     } else {
         qDebug() << "Session already has this name";
-        QMessageBox::information(this,
+        showThemedInformation(this,
                                tr("Session Saved"),
                                tr("Session saved: %1").arg(newName));
     }

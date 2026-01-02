@@ -90,9 +90,10 @@ Planets :: Planets(QWidget *parent) : AstroFileHandler(parent)
   connect(view,           SIGNAL(requestHelp(QString)), this, SIGNAL(requestHelp(QString)));  //  pass signal through
   //connect(planetViewer,   SIGNAL(planetChanged(A::PlanetId)), this, SLOT(highlightPlanet(A::PlanetId)));
 
-  QFile cssfile ( "planets/style.css" );
-  cssfile.open  ( QIODevice::ReadOnly | QIODevice::Text );
-  setStyleSheet  ( cssfile.readAll() );
+  // Component-specific CSS loading disabled - now using global theme system
+  // QFile cssfile ( "planets/style.css" );
+  // cssfile.open  ( QIODevice::ReadOnly | QIODevice::Text );
+  // setStyleSheet  ( cssfile.readAll() );
  }
 
 void

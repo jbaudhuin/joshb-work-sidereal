@@ -131,6 +131,7 @@ set(ZODIAC_SOURCES
     zodiac/src/mainwindow.cpp
     zodiac/src/help.cpp
     zodiac/src/slidewidget.cpp
+    zodiac/src/thememanager.cpp
 )
 
 set(ZODIAC_HEADERS
@@ -138,6 +139,7 @@ set(ZODIAC_HEADERS
     zodiac/src/mainwindow.h
     zodiac/src/help.h
     zodiac/src/slidewidget.h
+    zodiac/src/thememanager.h
 )
 
 # Create the executable with all sources
@@ -295,4 +297,10 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/bin/
     PATTERN "zodiac.exe" EXCLUDE # already installed as target
     PATTERN "zodiac.pdb" EXCLUDE # already installed above
     PATTERN "*.ini" EXCLUDE
+)
+
+# Install themes directory
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/themes/
+    DESTINATION ${CMAKE_INSTALL_BINDIR}/themes
+    FILES_MATCHING PATTERN "*.qss" PATTERN "*.css"
 )

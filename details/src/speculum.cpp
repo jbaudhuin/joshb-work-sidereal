@@ -1,4 +1,5 @@
 #include "speculum.h"
+#include "../../zodiac/src/thememanager.h"
 #include "../../astroprocessor/src/astro-data.h"
 #include "../../zodiac/src/mainwindow.h"
 #include <Astroprocessor/Calc>
@@ -514,11 +515,9 @@ Speculum::onCellClicked(int row, int column)
                     _radixBtn->setChecked(false);
 
                     // Highlight the clicked cell with a distinct color
-                    item->setBackground(
-                        QColor(255,
-                               215,
-                               0,
-                               180)); // Gold color for clicked cell
+                    QColor goldColor = ThemeManager::instance().getGoldColor(false);
+                    goldColor.setAlpha(180);
+                    item->setBackground(goldColor); // Theme-aware gold
                     item->setData(Qt::UserRole + 1,
                                   true); // Mark as clicked cell
 
@@ -575,11 +574,9 @@ Speculum::highlightFilteredRows()
                     rowMatches = true;
                     // Use different colors for clicked cell vs matching cells
                     if (isClickedCell) {
-                        item->setBackground(
-                            QColor(255,
-                                   215,
-                                   0,
-                                   200)); // Stronger gold for clicked cell
+                        QColor goldColor = ThemeManager::instance().getGoldColor(false);
+                        goldColor.setAlpha(200);
+                        item->setBackground(goldColor); // Theme-aware gold
                         item->setForeground(
                             QColor(0, 0, 0)); // Dark text for contrast
                     } else {

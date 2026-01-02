@@ -1,0 +1,213 @@
+/* ============================================================================
+   PRINTABLE THEME OVERRIDES - Zodiac Sidereal Astrology Application
+   
+   These overrides are applied ON TOP OF the light theme to optimize for
+   printing (ink saving, transparency, improved contrast).
+   Applied when theme="printable"
+   ============================================================================ */
+
+/* =========================== Ink-Saving Backgrounds ======================== */
+
+/* Make backgrounds transparent or white to save ink */
+MainWindow,
+AstroWidget,
+AstroDatabase,
+Transits,
+Details,
+QScrollArea,
+QWidget#backSite,
+AstroFileInfo QPushButton {
+	background: transparent;
+}
+
+QTreeView,
+QListWidget,
+QTableWidget {
+	background-color: transparent;
+}
+
+/* =========================== Simplified Borders ============================ */
+
+/* Minimize ink usage on borders - use thin, light borders */
+QLineEdit,
+QDateTimeEdit,
+QComboBox,
+QTableWidget,
+QWidget#backSite {
+	border: 1px solid #CCCCCC;
+}
+
+QPushButton[radixButton="true"],
+QPushButton[chartButton="true"] {
+	border: 1px solid #CCCCCC;
+}
+
+/* Remove gradients from dock titles and tabs */
+QDockWidget::title {
+	background: #FFFFFF;
+	border: 1px solid #CCCCCC;
+	color: #000000;
+}
+
+QTabBar::tab {
+	background: #FFFFFF;
+	border: 1px solid #CCCCCC;
+	color: #000000;
+}
+
+QTabBar::tab:selected {
+	background: #FAFAFA;
+	border: 1px solid #000000;
+	font-weight: bold;
+}
+
+/* =========================== Toolbar & Status Bar ========================== */
+
+QToolBar {
+	background: transparent;
+	border: none;
+}
+
+QToolButton {
+	background: #FAFAFA;
+	border: 1px solid #CCCCCC;
+	color: #000000;
+}
+
+QToolButton:hover,
+QToolButton:pressed,
+QToolButton:checked {
+	background: #E8E8E8;
+	border: 1px solid #A0A0A0;
+}
+
+QStatusBar {
+	background: transparent;
+	border-top: 1px solid #CCCCCC;
+	color: #000000;
+}
+
+QStatusBar::item {
+	border-right: 1px solid #CCCCCC;
+}
+
+/* =========================== Form Controls ================================= */
+
+/* Simplify form control styling for print */
+QLineEdit:hover,
+QDateTimeEdit:hover,
+QComboBox:hover {
+	background: #FFFFFF;
+	border-color: #A0A0A0;
+}
+
+QDateTimeEdit:on,
+QComboBox:on {
+	background: #FAFAFA;
+}
+
+/* =========================== Tables ======================================== */
+
+/* High contrast, minimal ink for tables */
+QTableWidget {
+	border: 1px solid #CCCCCC;
+	gridline-color: #E0E0E0;
+}
+
+QTableWidget::item:alternate {
+	background-color: rgba(0, 0, 0, 0.02);
+}
+
+QHeaderView::section {
+	background-color: #F0F0F0;
+	color: #000000;
+	border: 1px solid #CCCCCC;
+}
+
+/* =========================== Selection & Hover ============================= */
+
+/* Make selection visible but not distracting for print */
+QTreeView::item:hover,
+QTreeView::item:selected,
+QListWidget::item:hover,
+QListWidget::item:selected {
+	color: #000000;
+	background-color: #E8E8E8;
+	font-weight: normal;
+}
+
+QTableWidget::item:selected {
+	background-color: #E8E8E8;
+	color: #000000;
+}
+
+QTableWidget::item:hover {
+	background-color: #F0F0F0 !important;
+	color: #000000 !important;
+}
+
+/* =========================== Buttons ======================================= */
+
+/* Simplified button styling for print clarity */
+QPushButton[radixButton="true"]:hover {
+	background-color: #F0F0F0;
+}
+
+QPushButton[radixButton="true"]:checked {
+	background-color: #E8E8E8;
+	color: #000000;
+	border: 2px solid #000000;
+}
+
+QPushButton[chartButton="true"] {
+	background-color: #FFFFFF;
+	border: 1px solid #CCCCCC;
+}
+
+QPushButton[chartButton="true"]:hover,
+QPushButton[chartButton="true"]:pressed,
+QPushButton[chartButton="true"]:checked {
+	background-color: #E8E8E8;
+	border: 1px solid #A0A0A0;
+	color: #000000;
+}
+
+/* =========================== About Dialog ================================== */
+
+QDialog#about {
+	background: #FFFFFF;
+}
+
+QDialog#about QPushButton {
+	background-color: #E8E8E8;
+	border: 1px solid #CCCCCC;
+	color: #000000;
+}
+
+QDialog#about QPushButton:pressed {
+	background-color: #D0D0D0;
+}
+
+/* =========================== Tooltips ====================================== */
+
+QToolTip {
+	background: #FFFACD;
+	border: 1px solid #CCCCCC;
+	color: #000000;
+}
+
+/* =========================== Remove Background Images ====================== */
+
+/* Remove decorative images that waste ink */
+AstroDatabase QLineEdit {
+	background-image: none;
+}
+
+HelpWidget QPushButton {
+	background-image: none;
+	padding-left: 7px;
+}
+
+QStatusBar {
+	background-image: none;
+}

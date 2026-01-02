@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "thememanager.h"
 #include <QApplication>
 #include <QMessageBox>
 #include <QDebug>
@@ -8,6 +9,7 @@
 #include <QTextCodec>
 #include <QThreadPool>
 #include <QTranslator>
+#include <QSettings>
 #include <memory>
 
 #include <QSslSocket>
@@ -214,7 +216,7 @@ main(int argc, char* argv[])
     setbuf(stderr, nullptr);
 #endif
     a.setApplicationName("Zodiac");
-    a.setApplicationVersion("v0.9.3 (build 2025-12-29)");
+    a.setApplicationVersion("v0.9.4 (build 2026-01-02)");
 
     // Debug: Show current working directory and application path
     auto cwd        = QDir::currentPath();
@@ -340,15 +342,19 @@ main(int argc, char* argv[])
         });
     }
 
-    QFile cssfile("style/style.css");
-    if (cssfile.open(QIODeviceBase::ReadOnly | QIODeviceBase::Text)) {
-        w.setStyleSheet(cssfile.readAll());
-    } else {
-        // Show message box and exit with failure
-        QMessageBox::critical(nullptr, "Error", "Could not open style file: " + cssfile.fileName());
-        qDebug() << "Could not open style file:" << cssfile.fileName();
-        return 1;
-    }
+    // Initialize and apply theme using ThemeManager
+    ThemeManager& themeManager = ThemeManager::instance();
+    
+    // Load theme preference from settings
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "Astroprocessor", "Zodiac");
+    QString savedTheme = settings.value("theme", "dark").toString();
+    themeManager.setTheme(savedTheme, false);
+    
+    // Apply theme to application
+    themeManager.applyToApplication(&a);
+    
+    // Propagate theme to main window
+    themeManager.propagateThemeProperty(&w);
 
     w.show();
     int result = a.exec();

@@ -394,9 +394,10 @@ GeoSearchWidget::GeoSearchWidget(bool vbox /*=true*/,
         layout->setStretch(0,1);
     }
 
-    QFile cssfile ( "fileeditor/style.css" );
-    cssfile.open  ( QIODevice::ReadOnly | QIODevice::Text );
-    setStyleSheet  ( cssfile.readAll() );
+    // Component-specific CSS loading disabled - now using global theme system
+    // QFile cssfile ( "fileeditor/style.css" );
+    // cssfile.open  ( QIODevice::ReadOnly | QIODevice::Text );
+    // setStyleSheet  ( cssfile.readAll() );
 
     foreach (QAction* act, acts->actions())
         act->setCheckable(true);

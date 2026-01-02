@@ -1,5 +1,6 @@
 ﻿#include "astro-output.h"
 #include "astro-calc.h"
+#include "../../zodiac/src/thememanager.h"
 #include <QObject>
 #include <QRegularExpression>
 #include <QStringList>
@@ -299,7 +300,7 @@ describeHouses(const Houses&    houses,
     for (int i = 0; i < 12; i++) {
         ret += "<tr>";
         ret += "<td style='padding: " + cellPadding
-               + " 8px; text-align: right; font-weight: bold; color: #e9e9e4;'>"
+               + " 8px; text-align: right; font-weight: bold; color: " + ThemeManager::instance().getHeadingColor() + ";'>"
                + houseTag(i + 1) + "</td>";
         ret += "<td style='padding: " + cellPadding + " 8px;'>-</td>";
         ret +=
@@ -514,7 +515,7 @@ describePlanet(const Planet& planet, const Zodiac& zodiac)
 
     // Planet name
     ret += "<td style='padding: " + cellPadding
-           + " 8px; font-weight: bold; color: #e9e9e4;'>" + planet.name
+           + " 8px; font-weight: bold; color: " + ThemeManager::instance().getHeadingColor() + ";'>" + planet.name
            + "</td>";
 
     // Position
@@ -969,7 +970,7 @@ struct event {
 
         // Planet name with color emphasis for planets
         if (planet) {
-            ret += "<td style='" + nameCellStyle + " color: #e9e9e4;'>"
+            ret += "<td style='" + nameCellStyle + " color: " + ThemeManager::instance().getHeadingColor() + ";'>"
                    + planetName + "</td>";
         } else {
             ret += "<td style='" + nameCellStyle + "'>" + planetName + "</td>";
@@ -1267,7 +1268,7 @@ describeSpeculum(const Horoscope&    scope,
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         ret += "<tr>";
         ret +=
-            "<td style='padding: 0px 8px; font-weight: bold; color: #e9e9e4;'>"
+            "<td style='padding: 0px 8px; font-weight: bold; color: " + ThemeManager::instance().getHeadingColor() + ";'>"
             + p.name + "</td>";
         for (int i : QList<int>({ 0, 2, 1, 3 })) {
             QString timeStr;
@@ -1322,32 +1323,36 @@ describe(AstroFileList&& scopes,
          Articles        article /*=All*/,
          double          paranOrb /*=1.0*/)
 {
+    // Get theme-appropriate colors
+    QString textColor = ThemeManager::instance().getTextColor();
+    QString headingColor = ThemeManager::instance().getHeadingColor();
+    
     QString ret;
     ret += "<!DOCTYPE html><html><head>";
     ret += "<meta charset='utf-8'>";
     ret += "<style>";
     ret += "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu "
-           "Sans Mono', 'Lucida Console'; margin: 10px; color: #b5bfdf; "
+           "Sans Mono', 'Lucida Console'; margin: 10px; color: " + textColor + "; "
            "background-color: transparent; }";
     ret +=
-        "h1, h2, h3 { color: #e9e9e4; margin-top: 20px; margin-bottom: 10px; }";
+        "h1, h2, h3 { color: " + headingColor + "; margin-top: 20px; margin-bottom: 10px; }";
     ret += "h1 { font-size: 1.4em; }";
     ret += "h2 { font-size: 1.2em; }";
     ret += "h3 { font-size: 1.1em; }";
-    ret += "h4 { color: #e9e9e4; font-size: 1.0em; margin-top: 12px; "
+    ret += "h4 { color: " + headingColor + "; font-size: 1.0em; margin-top: 12px; "
            "margin-bottom: 4px; }";
     ret += "table { margin: 10px 0; border-collapse: collapse; "
            "background-color: transparent; }";
     ret += "th { background-color: rgba(255,255,255,0.1); font-weight: bold; "
-           "color: #e9e9e4; border: 1px solid #555; }";
-    ret += "td { border: 1px solid #555; color: #b5bfdf; }";
+           "color: " + headingColor + "; border: 1px solid #555; }";
+    ret += "td { border: 1px solid #555; color: " + textColor + "; }";
     ret += "tr:nth-child(even) { background-color: rgba(255,255,255,0.05); }";
     ret +=
-        ".planets-table td:first-child { font-weight: bold; color: #e9e9e4; }";
-    ret += "p { color: #b5bfdf; margin: 2px 0; line-height: 1.2; }";
-    ret += "ul { color: #b5bfdf; margin: 4px 0; }";
+        ".planets-table td:first-child { font-weight: bold; color: " + headingColor + "; }";
+    ret += "p { color: " + textColor + "; margin: 2px 0; line-height: 1.2; }";
+    ret += "ul { color: " + textColor + "; margin: 4px 0; }";
     ret += "li { margin: 1px 0; line-height: 1.2; }";
-    ret += "strong { color: #e9e9e4; }";
+    ret += "strong { color: " + headingColor + "; }";
     ret += ".dignity-list { margin: 4px 0; }";
     ret += ".dignity-list p { margin: 1px 0; padding: 0; line-height: 1.1; }";
     ret += "</style>";

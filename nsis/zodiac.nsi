@@ -1,9 +1,10 @@
 !define PRODUCT 'Zodiac'
-!define VERSION '0.9.3'
+!define VERSION '0.9.4'
 
 !include WinMessages.nsh
 !include FontReg.nsh
 !include FontName.nsh
+!include nsDialogs.nsh
 
 Name ${Product}
 
@@ -30,6 +31,14 @@ RequestExecutionLevel admin
 !define MUI_FINISHPAGE_RUN "$INSTDIR\zodiac.exe"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
 !define MUI_FINISHPAGE_RUN_TEXT "Run application"
+
+; Custom page for API key
+Var Dialog
+Var ApiKeyLabel
+Var ApiKeyText
+Var ApiKeyValue
+
+Page custom APIKeyPage APIKeyPageLeave
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "license.txt"
@@ -126,6 +135,12 @@ Section "Essential files" SecMain
   
   SetOutPath "$INSTDIR\style"
   File ..\bin\style\*
+  
+  SetOutPath "$INSTDIR\themes"
+  File ..\themes\*.qss
+  
+  SetOutPath "$INSTDIR\themes\html-export"
+  File ..\themes\html-export\*.css
   
   SetOutPath "$INSTDIR\swe"
   File ..\bin\swe\*
@@ -276,6 +291,53 @@ Function .onInit
     SectionSetFlags ${SecSettings} ${SF_RO}
     SectionSetText ${SecSettings} "Author's curated settings (already configured)"
   settings_check_done:
+FunctionEnd
+
+;--------------------------------
+; API Key Custom Page Functions
+
+Function APIKeyPage
+  ; Check if APIKey.ini already exists - skip this page if it does
+  IfFileExists "$INSTDIR\APIKey.ini" 0 show_page
+    Abort
+  show_page:
+  
+  nsDialogs::Create 1018
+  Pop $Dialog
+  
+  ${If} $Dialog == error
+    Abort
+  ${EndIf}
+  
+  ${NSD_CreateLabel} 0 0 100% 24u "Google Maps API Key Setup (Optional)"
+  Pop $0
+  
+  ${NSD_CreateLabel} 0 30u 100% 48u "To enable location search functionality, please enter your Google Maps API key below. You can get a free key from Google Cloud Console.$\r$\n$\r$\nYou can skip this and configure it later by creating APIKey.ini in the installation folder."
+  Pop $0
+  
+  ${NSD_CreateLabel} 0 85u 100% 12u "Google Maps API Key:"
+  Pop $ApiKeyLabel
+  
+  ${NSD_CreateText} 0 100u 100% 12u ""
+  Pop $ApiKeyText
+  
+  nsDialogs::Show
+FunctionEnd
+
+Function APIKeyPageLeave
+  ; Get the entered API key value
+  ${NSD_GetText} $ApiKeyText $ApiKeyValue
+  
+  ; Only create the file if user entered something
+  StrCmp $ApiKeyValue "" skip_key_creation 0
+  
+  ; Create APIKey.ini with the entered key
+  FileOpen $0 "$INSTDIR\APIKey.ini" w
+  FileWrite $0 "[%General]$\r$\n"
+  FileWrite $0 "Key=$ApiKeyValue$\r$\n"
+  FileClose $0
+  
+  skip_key_creation:
 FunctionEnd
 
 ;--------------------------------

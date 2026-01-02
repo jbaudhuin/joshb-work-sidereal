@@ -2,9 +2,32 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
-## [0.9.4] - 
+## [0.9.4] - 2026-01-02
 
-- **Improved shadow period transit search**: Faster search for transit of stations to demarcate the shadow period entrance and exit using a more straightforward approach than adding the stations to the general transit search list.
+### Added
+- **Theme System**: Comprehensive Dark/Light/Printable theme support
+  - ThemeManager singleton with property-based theme selectors
+  - Dark theme (default): Optimized for comfortable nighttime viewing
+  - Light theme: Clean, high-contrast interface for daytime use
+  - Printable theme: Ink-saving black/gray variant based on light theme
+  - Theme persistence via QSettings across sessions
+  - Themed QMessageBox helpers replacing static calls
+  - Component CSS migration (geosearch, plain, planets, transits)
+  - Theme-aware HTML output for Plain and Details views
+  - Theme-aware chart rendering (QGraphicsScene colors)
+  - Gold color contrast optimization (#FFD700 dark, #B8860B light)
+  - 13 chart-specific color methods for wheel rendering
+
+### Improved
+- **Shadow Period Transit Search**: Faster search for transit of stations to demarcate shadow period entrance and exit using a more straightforward approach
+- **Installer Experience**: Added optional API key configuration during installation to reduce setup confusion
+
+### Fixed
+- **Chart Theming**: Sign glyphs excluded from theming (use original colors), planet glyph backgrounds now light for Light theme
+- **Transits Table**: Natal planet text color now uses theme-aware gold for better contrast
+
+### Changed
+- Version bumped to 0.9.4
 
 ## [0.9.3] - 2025-12-29
 

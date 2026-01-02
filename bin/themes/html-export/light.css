@@ -1,0 +1,120 @@
+/* ============================================================================
+   HTML EXPORT - LIGHT THEME
+   CSS for exported HTML reports with light color scheme
+   ============================================================================ */
+
+body {
+	font-family: 'Consolas', 'Courier New', courier, 'DejaVu Sans Mono', 'Lucida Console';
+	margin: 10px;
+	color: #2C2C2C;
+	background-color: #FFFFFF;
+}
+
+h1, h2, h3 {
+	color: #1A1A1A;
+	margin-top: 20px;
+	margin-bottom: 10px;
+}
+
+h1 {
+	font-size: 1.4em;
+}
+
+h2 {
+	font-size: 1.2em;
+}
+
+h3 {
+	font-size: 1.1em;
+}
+
+h4 {
+	color: #1A1A1A;
+	font-size: 1.0em;
+	margin-top: 12px;
+	margin-bottom: 4px;
+}
+
+table {
+	margin: 10px 0;
+	border-collapse: collapse;
+	background-color: #FFFFFF;
+}
+
+th {
+	background-color: #5A6A7A;
+	font-weight: bold;
+	color: #FFFFFF;
+	border: 1px solid #A0A0A0;
+	padding: 4px 8px;
+}
+
+td {
+	border: 1px solid #D0D0D0;
+	color: #2C2C2C;
+	padding: 2px 8px;
+}
+
+tr:nth-child(even) {
+	background-color: rgba(0,0,0,0.03);
+}
+
+.planets-table td:first-child {
+	font-weight: bold;
+	color: #1A1A1A;
+}
+
+p {
+	color: #2C2C2C;
+	margin: 2px 0;
+	line-height: 1.2;
+}
+
+ul {
+	color: #2C2C2C;
+	margin: 4px 0;
+}
+
+li {
+	margin: 1px 0;
+	line-height: 1.2;
+}
+
+strong {
+	color: #1A1A1A;
+}
+
+.dignity-list {
+	margin: 4px 0;
+}
+
+.dignity-list p {
+	margin: 1px 0;
+	padding: 0;
+	line-height: 1.1;
+}
+
+/* Aspect status colors - applying/separating (darker for light theme) */
+.aspect-applying {
+	color: #2E7AB8;
+}
+
+.aspect-separating {
+	color: #B85D3A;
+}
+
+/* Retrograde indicator */
+.retrograde {
+	color: #CC3333;
+}
+
+/* Power/dignity indicators */
+.power-positive {
+	color: #2E7AB8;
+	font-weight: bold;
+}
+
+.power-negative {
+	color: #B85D3A;
+	font-weight: bold;
+}

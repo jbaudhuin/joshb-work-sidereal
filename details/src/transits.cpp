@@ -2,6 +2,7 @@
 #include "transits.h"
 #include "../../astroprocessor/src/astro-data.h"
 #include "../../zodiac/src/mainwindow.h"
+#include "../../zodiac/src/thememanager.h"
 #include "geosearch.h"
 #include <Astroprocessor/Calc>
 #include <Astroprocessor/Output>
@@ -789,7 +790,7 @@ class EventsTableModel : public QAbstractItemModel {
 
         case natalTransitBodyCol:
             if (role == Qt::ForegroundRole) {
-                if (mixedMode(asp.planets())) return QColor("gold");
+                if (mixedMode(asp.planets())) return ThemeManager::instance().getGoldColor();
                 // else falls through to default return
                 break;
             }
@@ -1837,10 +1838,11 @@ Transits::Transits(QWidget* parent) :
 
     setLayout(l3);
 
-    QFile cssfile("Details/style.css");
-    cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
-    setStyleSheet(cssfile.readAll());
-    cssfile.close();
+    // Component-specific CSS loading disabled - now using global theme system
+    // QFile cssfile("Details/style.css");
+    // cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
+    // setStyleSheet(cssfile.readAll());
+    // cssfile.close();
 
 #if 0
     QTimer::singleShot(0, [this]() {
