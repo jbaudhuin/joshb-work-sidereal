@@ -65,7 +65,7 @@ QDialog QSpinBox, QDialog QDoubleSpinBox, QDialog QComboBox {
 QTextBrowser {
 	font-family: "Consolas", "Courier New", courier, "DejaVu Sans Mono", "Lucida Console";
 	font-size: 9pt;
-	color: #3A4A5A;
+	color: #000000;
 	background-color: #FFFFFF;
 	margin: 10px 0 0 10px;
 	border: 1px solid #D0D0D0;
@@ -625,8 +625,8 @@ QTableWidget::item:selected {
 }
 
 QTableWidget::item:hover {
-	background-color: rgba(218, 165, 32, 80) !important;
-	color: #000000 !important;
+	background-color: rgba(218, 165, 32, 80);
+	color: #000000;
 }
 
 QTableWidget::item:alternate {
@@ -634,8 +634,8 @@ QTableWidget::item:alternate {
 }
 
 QTableWidget::item:alternate:hover {
-	background-color: rgba(218, 165, 32, 80) !important;
-	color: #000000 !important;
+	background-color: rgba(218, 165, 32, 80);
+	color: #000000;
 }
 
 QHeaderView::section {
@@ -646,7 +646,91 @@ QHeaderView::section {
 	border: none;
 }
 
+/* =========================== Spin Boxes ==================================== */
+
+QSpinBox, QDoubleSpinBox {
+	border: 1px solid #A0A0A0;
+	border-radius: 3px;
+	padding: 2px 4px;
+	color: #000000;
+	background: #FFFFFF;
+	font: 8pt;
+	min-width: 60px;
+}
+
+QSpinBox:hover, QDoubleSpinBox:hover {
+	background: #F5F5F5;
+	border-color: #2E7AB8;
+}
+
+QSpinBox:focus, QDoubleSpinBox:focus {
+	border-color: #2E7AB8;
+	background: #F5F5F5;
+}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+	subcontrol-origin: border;
+	subcontrol-position: top right;
+	width: 16px;
+	border-left: 1px solid #A0A0A0;
+	background: #E8E8E8;
+	border-top-right-radius: 2px;
+}
+
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+	subcontrol-origin: border;
+	subcontrol-position: bottom right;
+	width: 16px;
+	border-left: 1px solid #A0A0A0;
+	background: #E8E8E8;
+	border-bottom-right-radius: 2px;
+}
+
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+	background: #D0D0D0;
+}
+
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+	image: url(details/arrow-up.png);
+	width: 7px;
+	height: 7px;
+}
+
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+	image: url(details/arrow-down.png);
+	width: 7px;
+	height: 7px;
+}
+
 /* =========================== Custom Buttons ================================ */
+
+/* General QPushButton styling */
+QPushButton {
+	background-color: #E8E8E8;
+	color: #2C2C2C;
+	border: 1px solid #A0A0A0;
+	border-radius: 3px;
+	padding: 4px 12px;
+	font: 8pt;
+}
+
+QPushButton:hover {
+	background-color: #D0D0D0;
+	border-color: #2E7AB8;
+}
+
+QPushButton:pressed {
+	background-color: #4A90CA;
+	border-color: #2E7AB8;
+	color: #FFFFFF;
+}
+
+QPushButton:disabled {
+	background-color: #F0F0F0;
+	color: #AAAAAA;
+	border-color: #C0C0C0;
+}
 
 /* Radix filter button */
 QPushButton[radixButton="true"] {

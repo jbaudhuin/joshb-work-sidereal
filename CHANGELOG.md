@@ -2,6 +2,24 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.4.1] - 2026-01-03
+
+### Added
+- **Speculum Display Mode Synchronization**: Display mode changes (Local Time/Sidereal Time/Right Ascension) in Text view now automatically update the Speculum dock widget
+  - Plain widget emits `displayModeChanged` signal when combo box selection changes
+  - Speculum widget receives signal via `setDisplayMode` slot and refreshes display
+  - Radix button now displays appropriate format based on current display mode
+
+### Improved
+- **Speculum Theme Support**: Enhanced theme integration for light and dark styles
+  - Custom `SpeculumDelegate` for direct cell painting with theme-aware colors
+  - Cell highlighting now visible in both themes (gold for clicked cell, blue for matches)
+  - Fixed stylesheet precedence issues that were overriding programmatic colors
+  - Connected to `ThemeManager::themeChanged` signal for dynamic theme switching
+
+### Changed
+- Version bumped to 0.9.4.1
+
 ## [0.9.4] - 2026-01-02
 
 ### Added

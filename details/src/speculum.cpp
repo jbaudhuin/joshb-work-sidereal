@@ -14,6 +14,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QPainter>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSettings>
@@ -21,6 +22,51 @@
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QVBoxLayout>
+
+// Custom delegate implementation
+void SpeculumDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
+                              const QModelIndex& index) const
+{
+    // Check if this cell has highlighting
+    int highlightType = index.data(Speculum::CellHighlightRole).toInt();
+    
+    if (highlightType == Speculum::ClickedHighlight || highlightType == Speculum::MatchedHighlight) {
+        painter->save();
+        
+        QColor bgColor;
+        QColor textColor;
+        
+        if (highlightType == Speculum::ClickedHighlight) {
+            // Gold highlight for clicked cell
+            bgColor = ThemeManager::instance().getGoldColor(false);
+            bgColor.setAlpha(200);
+            textColor = QColor(0, 0, 0);
+        } else {
+            // Theme-aware blue highlight for matched cells
+            bgColor = ThemeManager::instance().getTableHighlightColor();
+            textColor = ThemeManager::instance().getTableHighlightTextColor();
+        }
+        
+        // Paint the background
+        painter->fillRect(option.rect, bgColor);
+        
+        // Set up text options
+        QStyleOptionViewItem opt = option;
+        opt.palette.setColor(QPalette::Text, textColor);
+        opt.palette.setColor(QPalette::HighlightedText, textColor);
+        
+        // Paint the text/content on top
+        QStyledItemDelegate::paint(painter, opt, index);
+        
+        painter->restore();
+    } else {
+        // Normal cell - use default painting
+        QStyledItemDelegate::paint(painter, option, index);
+    }
+}
+
+// Custom role for cell highlighting
+const int CellHighlightRole = Qt::UserRole + 2;
 
 Speculum::Speculum(QWidget* parent) :
     AstroFileHandler(parent),
@@ -44,13 +90,11 @@ Speculum::Speculum(QWidget* parent) :
     _table->setAlternatingRowColors(true);
     _table->verticalHeader()->setVisible(false); // Hide row numbers
     _table->setShowGrid(false);                  // No grid lines needed
+    
+    // Install custom delegate for painting highlighted cells
+    _table->setItemDelegate(new SpeculumDelegate(this));
 
-    // Load stylesheet from CSS file
-    QFile cssfile("details/style.css");
-    if (cssfile.open(QIODevice::ReadOnly)) {
-        setStyleSheet(cssfile.readAll());
-        cssfile.close();
-    }
+    // Theme will be applied through the global stylesheet - no local CSS needed
 
     // Create filter controls
     _filterLabel = new QLabel(tr("Filter inactive"));
@@ -158,6 +202,12 @@ Speculum::Speculum(QWidget* parent) :
         onChartButtonClicked(1);
     });
 
+    // Connect to theme changes to refresh colors dynamically
+    connect(&ThemeManager::instance(),
+            &ThemeManager::themeChanged,
+            this,
+            &Speculum::onThemeChanged);
+
     // Setup table headers
     setupTableHeaders();
 }
@@ -236,9 +286,23 @@ Speculum::updateSpeculumDisplay()
         qWarning() << "Invalid day of week:" << dayOfWeek << "for date:" << localRadixTime;
         dayOfWeek = 1; // Default to Monday
     }
-    QString   radixTimeStr = QString("%1 %2")
-                               .arg(dow[dayOfWeek - 1])
-                               .arg(localRadixTime.time().toString("hh:mm"));
+    
+    // Format radix button text based on display mode
+    QString radixTimeStr;
+    if (_displayMode == A::DisplaySiderealTime) {
+        // Show sidereal time (RAMC)
+        double radixRA = scope.houses.RAMC;
+        radixTimeStr = A::siderealTimeToString(radixRA, A::HighPrecision);
+    } else if (_displayMode == A::DisplayRightAscension) {
+        // Show Right Ascension
+        double radixRA = scope.houses.RAMC;
+        radixTimeStr = A::raToString(radixRA, A::HighPrecision);
+    } else {
+        // Show local time (default)
+        radixTimeStr = QString("%1 %2")
+                           .arg(dow[dayOfWeek - 1])
+                           .arg(localRadixTime.time().toString("hh:mm"));
+    }
     _radixBtn->setText(radixTimeStr);
 
     populateSpeculumTable();
@@ -514,10 +578,8 @@ Speculum::onCellClicked(int row, int column)
                     // Uncheck radix button if it was checked
                     _radixBtn->setChecked(false);
 
-                    // Highlight the clicked cell with a distinct color
-                    QColor goldColor = ThemeManager::instance().getGoldColor(false);
-                    goldColor.setAlpha(180);
-                    item->setBackground(goldColor); // Theme-aware gold
+                    // Mark the clicked cell with highlight
+                    item->setData(CellHighlightRole, ClickedHighlight);
                     item->setData(Qt::UserRole + 1,
                                   true); // Mark as clicked cell
 
@@ -572,26 +634,15 @@ Speculum::highlightFilteredRows()
                                        _filterOrbMinutes))
                 {
                     rowMatches = true;
-                    // Use different colors for clicked cell vs matching cells
+                    // Mark cells with appropriate highlight type
                     if (isClickedCell) {
-                        QColor goldColor = ThemeManager::instance().getGoldColor(false);
-                        goldColor.setAlpha(200);
-                        item->setBackground(goldColor); // Theme-aware gold
-                        item->setForeground(
-                            QColor(0, 0, 0)); // Dark text for contrast
+                        item->setData(CellHighlightRole, ClickedHighlight);
                     } else {
-                        item->setBackground(
-                            QColor(113,
-                                   174,
-                                   236,
-                                   160)); // Stronger blue for matching cells
-                        item->setForeground(
-                            QColor(255, 255, 255)); // White text for contrast
+                        item->setData(CellHighlightRole, MatchedHighlight);
                     }
                 } else if (!isClickedCell) {
                     // Clear highlight only if not the clicked cell
-                    item->setBackground(QBrush());
-                    item->setForeground(QBrush()); // Reset text color too
+                    item->setData(CellHighlightRole, NoHighlight);
                 }
             }
         }
@@ -664,8 +715,7 @@ Speculum::onClearFilter()
         for (int col = 1; col <= 4; col++) {
             QTableWidgetItem* item = _table->item(row, col);
             if (item) {
-                item->setBackground(QBrush());
-                item->setForeground(QBrush()); // Also reset text color
+                item->setData(CellHighlightRole, NoHighlight);
             }
         }
     }
@@ -766,5 +816,46 @@ Speculum::applySettings(const AppSettings& s)
 
     _orbSpinBox->setValue(_filterOrbMinutes);
 
+    updateSpeculumDisplay();
+}
+
+void
+Speculum::onThemeChanged()
+{
+    // When theme changes, refresh highlights to use new theme colors
+    if (_filterActive) {
+        highlightFilteredRows();
+    }
+}
+
+void
+Speculum::setDisplayMode(A::SpeculumDisplayMode mode)
+{
+    if (_displayMode == mode) {
+        return; // No change needed
+    }
+    
+    _displayMode = mode;
+    
+    // Update orb spinbox units based on display mode
+    if (_displayMode == A::DisplayRightAscension) {
+        // RA mode uses degrees
+        double orbDegrees = _filterOrbMinutes; // Already in degrees in RA mode
+        _orbSpinBox->setSuffix(tr(" deg"));
+        _orbSpinBox->setRange(0.25, 15.0);
+        _orbSpinBox->blockSignals(true);
+        _orbSpinBox->setValue(orbDegrees);
+        _orbSpinBox->blockSignals(false);
+    } else {
+        // Local/Sidereal time modes use minutes
+        double orbMinutes = _filterOrbMinutes; // Already in minutes in time modes
+        _orbSpinBox->setSuffix(tr(" min"));
+        _orbSpinBox->setRange(1.0, 60.0);
+        _orbSpinBox->blockSignals(true);
+        _orbSpinBox->setValue(orbMinutes);
+        _orbSpinBox->blockSignals(false);
+    }
+    
+    // Refresh the table to show times in the new mode
     updateSpeculumDisplay();
 }

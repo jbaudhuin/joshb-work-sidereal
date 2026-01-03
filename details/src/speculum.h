@@ -4,6 +4,7 @@
 #include <Astroprocessor/Gui>
 #include <QDateTime>
 #include <QModelIndex>
+#include <QStyledItemDelegate>
 
 class QTableWidget;
 class QTableWidgetItem;
@@ -11,10 +12,30 @@ class QLabel;
 class QDoubleSpinBox;
 class QPushButton;
 
+// Custom delegate for painting highlighted cells
+class SpeculumDelegate : public QStyledItemDelegate
+{
+    Q_OBJECT
+public:
+    explicit SpeculumDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
+    
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override;
+};
+
 class Speculum : public AstroFileHandler {
     Q_OBJECT
 
   public:
+    // Custom data roles for cell highlighting
+    static const int CellHighlightRole = Qt::UserRole + 2;
+    
+    enum CellHighlight {
+        NoHighlight = 0,
+        ClickedHighlight = 1,
+        MatchedHighlight = 2
+    };
+
     Speculum(QWidget* parent = nullptr);
     ~Speculum() { }
 
@@ -35,6 +56,9 @@ class Speculum : public AstroFileHandler {
     void timeSelected(const QDateTime& time);
     void orbSettingChanged(double orbDegrees);
 
+  public slots:
+    void setDisplayMode(A::SpeculumDisplayMode mode);
+
   protected slots:
     void onCellClicked(int row, int column);
     void onFilterOrbChanged();
@@ -42,6 +66,7 @@ class Speculum : public AstroFileHandler {
     void onRadixButtonClicked(bool checked);
     void onChartButtonClicked(int chartIndex);
     void refreshSpeculum();
+    void onThemeChanged();
 
   public slots:
     void setCurrentPlanet(A::PlanetId, int);

@@ -1,8 +1,10 @@
 **Zodiac** is an Astrological software for personal use.
 
-This sidereal branch was to experiment with certain feature ideas in sidereal and harmonic practice.
+**Current Version**: 0.9.4.1 (January 3, 2026)
 
-**Download the latest version**: [**Windows**](http://sourceforge.net/projects/zodiac-app/files/Zodiac-0.7.1-installer.exe/download) | [**Linux64**](http://sourceforge.net/projects/zodiac-app/files/zodiac-0.7.1.tar.gz/download)
+**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.4/Zodiac-0.9.4.1-installer.exe)
+
+This sidereal branch was to experiment with certain feature ideas in sidereal and harmonic practice.
 
 Features:
 =========
@@ -37,6 +39,15 @@ to-transits, transits-to-natal, returns-to-natal, and stations. For all harmonic
 * Chart-wheel now shows aspect intensity by thickening the aspect line.
 * Improved glyph layout in chart-wheel. Still not perfect, but I think it's better.
 
+* **Speculum Display Synchronization (v0.9.4.1)**: Display mode changes in Text view now propagate to Speculum dock widget
+  - **Display Modes**: Local Time, Sidereal Time, and Right Ascension modes now synchronized
+  - **Radix Button**: Shows time in selected display mode format
+  - **Theme Support**: Fixes to speculum dock widget and Text slide widget
+  - **Cell Highlighting**: Visible gold (clicked) and blue (matched) cell backgrounds in both themes
+* **Theme System (v0.9.4)**: Comprehensive Dark/Light/Printable theme support
+  - **Dark/Light/Printable themes**: Complete UI theming with persistence
+  - **Theme-aware colors**: HTML output, chart rendering, and table displays
+  - **ThemeManager singleton**: Centralized theme management with signals
 * **Event toolbar (v0.9.3)**: Added per-tab toolbar event control
   - **Toolbar**: Now it's easier to make the event selection specific to a particular tab.
   - **Miscellaneous**: cleaned up session management: count tabs not charts.

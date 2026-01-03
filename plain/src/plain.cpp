@@ -121,8 +121,16 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     connect(chart1Btn, &QPushButton::clicked, this, &Plain::refresh);
     connect(chart2Btn, &QPushButton::clicked, this, &Plain::refresh);
     connect(displayModeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+        A::SpeculumDisplayMode mode = A::SpeculumDisplayMode(displayModeSelector->currentData().toInt());
+        emit displayModeChanged(mode);
         refresh();
     });
+
+    // Connect to theme changes to regenerate HTML with theme-appropriate inline colors
+    connect(&ThemeManager::instance(),
+            &ThemeManager::themeChanged,
+            this,
+            &Plain::refresh);
 
     // Component-specific CSS loading disabled - now using global theme system
     // QFile cssfile("plain/style.css");
@@ -257,30 +265,33 @@ Plain::refresh()
                    | (A::Article_Speculum * describeSpeculum->isChecked())
                    | (A::Article_FixedStars * includeFixedStars);
 
-    // Get theme-appropriate colors
-    QString textColor = ThemeManager::instance().getTextColor();
-    QString headingColor = ThemeManager::instance().getHeadingColor();
+    // Get theme-appropriate row highlight color (subtle overlay for alternating rows/headers)
+    QString rowHighlightColor;
+    if (ThemeManager::instance().currentTheme() == ThemeManager::Theme::Dark) {
+        rowHighlightColor = "rgba(255,255,255,0.08)"; // Subtle white overlay for dark theme
+    } else {
+        rowHighlightColor = "rgba(0,0,0,0.08)"; // Subtle black overlay for light theme
+    }
 
-    // Build the HTML content with custom aspect sort order
+    // Build the HTML content - colors inherit from QTextBrowser stylesheet
     QString html = "<!DOCTYPE html><html><head>";
     html += "<meta charset='utf-8'>";
     html += "<style>";
     html += "body { font-family: 'Consolas', 'Courier New', courier, 'DejaVu "
-            "Sans Mono', 'Lucida Console'; margin: 10px; color: " + textColor + "; "
-            "background-color: transparent; }";
-    html += "h1, h2, h3 { color: " + headingColor + "; margin-top: 20px; margin-bottom: 10px; }";
+            "Sans Mono', 'Lucida Console'; margin: 10px; background-color: transparent; }";
+    html += "h1, h2, h3 { font-weight: bold; margin-top: 20px; margin-bottom: 10px; }";
     html += "h1 { font-size: 1.4em; }";
     html += "h2 { font-size: 1.2em; }";
     html += "h3 { font-size: 1.1em; }";
-    html += "h4 { color: " + headingColor + "; font-size: 1.0em; margin-top: 12px; "
+    html += "h4 { font-weight: bold; font-size: 1.0em; margin-top: 12px; "
             "margin-bottom: 4px; }";
     html += "table { margin: 10px 0; border-collapse: collapse; "
             "background-color: transparent; }";
     html += "tr { background-color: transparent; }";
-    html += "th { background-color: rgba(255,255,255,0.1); font-weight: bold; "
-            "color: " + headingColor + "; border: 1px solid #555; }";
+    html += "th { background-color: " + rowHighlightColor + "; font-weight: bold; "
+            "border: 1px solid #555; }";
     html += "li { margin: 1px 0; line-height: 1.2; }";
-    html += "strong { color: " + headingColor + "; }";
+    html += "strong { font-weight: bold; }";
     html += ".dignity-list { margin: 4px 0; }";
     html += ".dignity-list p { margin: 1px 0; padding: 0; line-height: 1.1; }";
     html += "</style>";
@@ -318,7 +329,7 @@ Plain::refresh()
             html += "<h2>" + QObject::tr("Planets") + "</h2>";
             html +=
                 "<table class='planets-table' style='border-collapse: " "collap" "se; " "width:" " 100%;" "'>";
-            html += "<tr style='background-color: rgba(255,255,255,0.1);'>";
+            html += "<tr style='background-color: " + rowHighlightColor + ";'>";
             html += "<th style='padding: 4px 8px; text-align: left;'>"
                     + QObject::tr("Planet") + "</th>";
             html += "<th style='padding: 4px 8px; text-align: right;'>"
@@ -354,7 +365,7 @@ Plain::refresh()
                                                                          "colla"
                                                                          "pse; " "width: 100%;'>";
                     html +=
-                        "<tr style='background-color: rgba(255,255,255,0.1);'>";
+                        "<tr style='background-color: " + rowHighlightColor + ";'>";
                     html += "<th style='padding: 4px 8px; text-align: left;'>"
                             + QObject::tr("Planet") + "</th>";
                     html += "<th style='padding: 4px 8px; text-align: right;'>"
@@ -392,7 +403,7 @@ Plain::refresh()
                                                                          "colla"
                                                                          "pse; " "width: 100%;'>";
                     html +=
-                        "<tr style='background-color: rgba(255,255,255,0.1);'>";
+                        "<tr style='background-color: " + rowHighlightColor + ";'>";
                     html += "<th style='padding: 4px 8px; text-align: left;'>"
                             + QObject::tr("Planet") + "</th>";
                     html += "<th style='padding: 4px 8px; text-align: right;'>"

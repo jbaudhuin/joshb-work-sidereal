@@ -46,6 +46,9 @@ class Plain : public AstroFileHandler {
 
     void updateAspectsCache();
 
+  signals:
+    void displayModeChanged(A::SpeculumDisplayMode mode);
+
   private slots:
     void refresh();
 

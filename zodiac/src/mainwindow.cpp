@@ -710,6 +710,11 @@ AstroWidget::AstroWidget(QWidget* parent) : QWidget(parent)
                                                   Qt::QueuedConnection,
                                                   Q_ARG(double, orbDegrees));
                     });
+            // Connect Plain display mode changes to Speculum widget
+            connect(plain,
+                    &Plain::displayModeChanged,
+                    speculum,
+                    &Speculum::setDisplayMode);
         }
     }
 

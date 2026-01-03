@@ -96,6 +96,18 @@ public:
     QColor getGoldColor(bool forPrint = false) const;
 
     /**
+     * @brief Get table cell highlight color for matching/filtered cells
+     * @return Background color for highlighted table cells
+     */
+    QColor getTableHighlightColor() const;
+
+    /**
+     * @brief Get text color for highlighted table cells
+     * @return Foreground/text color for highlighted cells
+     */
+    QColor getTableHighlightTextColor() const;
+
+    /**
      * @brief Get theme-appropriate text color for HTML output
      * @return Text color hex string (e.g., "#b5bfdf" for dark, "#3A4A5A" for light)
      */

@@ -176,18 +176,48 @@ QColor ThemeManager::getGoldColor(bool forPrint) const
     }
 }
 
+QColor ThemeManager::getTableHighlightColor() const
+{
+    switch (m_currentTheme) {
+    case Theme::Light:
+    case Theme::Printable:
+        // Lighter, more visible blue for light theme
+        return QColor(173, 216, 230, 180); // Light blue with good opacity
+        
+    case Theme::Dark:
+    default:
+        // Light blue for dark theme - increase opacity for better visibility
+        return QColor(113, 174, 236, 200);
+    }
+}
+
+QColor ThemeManager::getTableHighlightTextColor() const
+{
+    switch (m_currentTheme) {
+    case Theme::Light:
+    case Theme::Printable:
+        // Black text on medium-blue background for light theme
+        return QColor(0, 0, 0);
+        
+    case Theme::Dark:
+    default:
+        // Dark text on light blue background
+        return QColor(0, 0, 0);
+    }
+}
+
 QString ThemeManager::getTextColor() const
 {
     switch (m_currentTheme) {
     case Theme::Light:
-        return "#3A4A5A"; // Darker blue-gray for readability on white
+        return "#000000"; // Pure black for maximum readability on white
         
     case Theme::Printable:
-        return "#1A1A1A"; // Very dark for printing
+        return "#000000"; // Pure black for printing
         
     case Theme::Dark:
     default:
-        return "#b5bfdf"; // Light blue-gray for dark backgrounds
+        return "#E0E0E0"; // Light gray for dark backgrounds
     }
 }
 
@@ -196,11 +226,11 @@ QString ThemeManager::getHeadingColor() const
     switch (m_currentTheme) {
     case Theme::Light:
     case Theme::Printable:
-        return "#1A1A1A"; // Very dark for light backgrounds
+        return "#000000"; // Pure black for light backgrounds
         
     case Theme::Dark:
     default:
-        return "#e9e9e4"; // Light for dark backgrounds
+        return "#FFFFFF"; // Pure white for dark backgrounds
     }
 }
 
