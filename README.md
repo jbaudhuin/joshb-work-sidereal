@@ -1,8 +1,8 @@
 **Zodiac** is an Astrological software for personal use.
 
-**Current Version**: 0.9.4.1 (January 3, 2026)
+**Current Version**: 0.9.4.2 (January 3, 2026)
 
-**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.4/Zodiac-0.9.4.1-installer.exe)
+**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.4.2/Zodiac-0.9.4.2-installer.exe)
 
 This sidereal branch was to experiment with certain feature ideas in sidereal and harmonic practice.
 
@@ -39,6 +39,7 @@ to-transits, transits-to-natal, returns-to-natal, and stations. For all harmonic
 * Chart-wheel now shows aspect intensity by thickening the aspect line.
 * Improved glyph layout in chart-wheel. Still not perfect, but I think it's better.
 
+* **Font Installation Fix (v0.9.4.2)**: Fixed installer font installation that was failing to install required fonts
 * **Speculum Display Synchronization (v0.9.4.1)**: Display mode changes in Text view now propagate to Speculum dock widget
   - **Display Modes**: Local Time, Sidereal Time, and Right Ascension modes now synchronized
   - **Radix Button**: Shows time in selected display mode format

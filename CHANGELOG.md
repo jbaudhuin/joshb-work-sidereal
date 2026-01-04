@@ -2,6 +2,18 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.4.2] - 2026-01-03
+
+### Fixed
+- **Font Installation**: Fixed installer font installation that was failing to install required fonts (Almagest, DejaVu Sans, DejaVu Sans Condensed, DejaVu Serif)
+  - Removed complex custom font installation logic that was not properly packaging fonts into installer
+  - Replaced with direct `File` command to copy fonts to Windows Fonts directory
+  - Fonts now correctly registered in Windows registry and installed to `C:\Windows\Fonts`
+  - Added proper registry entries for each font with Windows font change notification
+
+### Changed
+- Version bumped to 0.9.4.2
+
 ## [0.9.4.1] - 2026-01-03
 
 ### Added

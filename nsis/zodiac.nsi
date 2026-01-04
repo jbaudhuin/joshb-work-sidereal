@@ -1,5 +1,5 @@
 !define PRODUCT 'Zodiac'
-!define VERSION '0.9.4.1'
+!define VERSION '0.9.4.2'
 
 !include WinMessages.nsh
 !include FontReg.nsh
@@ -187,11 +187,39 @@ Section "Essential files" SecMain
 SectionEnd
 
 Section "Fonts" SecFonts
+  SectionIn RO
+  
+  ; Copy font files directly to Windows Fonts directory
   SetOutPath "$FONTS"
-  !insertmacro InstallTTFFont 'fonts\Almagest.ttf'
-  !insertmacro InstallTTFFont 'fonts\DejaVuSans.ttf'
-  !insertmacro InstallTTFFont 'fonts\DejaVuSansCondensed.ttf'
-  !insertmacro InstallTTFFont 'fonts\DejaVuSerif.ttf'
+  
+  ; Check and install Almagest
+  IfFileExists "$FONTS\Almagest.ttf" 0 +2
+    Delete "$FONTS\Almagest.ttf"
+  File 'fonts\Almagest.ttf'
+  WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "Almagest (TrueType)" "Almagest.ttf"
+  
+  ; Check and install DejaVu Sans
+  IfFileExists "$FONTS\DejaVuSans.ttf" 0 +2
+    Delete "$FONTS\DejaVuSans.ttf"
+  File 'fonts\DejaVuSans.ttf'
+  WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "DejaVu Sans (TrueType)" "DejaVuSans.ttf"
+  
+  ; Check and install DejaVu Sans Condensed
+  IfFileExists "$FONTS\DejaVuSansCondensed.ttf" 0 +2
+    Delete "$FONTS\DejaVuSansCondensed.ttf"
+  File 'fonts\DejaVuSansCondensed.ttf'
+  WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "DejaVu Sans Condensed (TrueType)" "DejaVuSansCondensed.ttf"
+  
+  ; Check and install DejaVu Serif
+  IfFileExists "$FONTS\DejaVuSerif.ttf" 0 +2
+    Delete "$FONTS\DejaVuSerif.ttf"
+  File 'fonts\DejaVuSerif.ttf'
+  WriteRegStr HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "DejaVu Serif (TrueType)" "DejaVuSerif.ttf"
+  
+  ; Notify Windows that fonts have changed
+  SendMessage ${HWND_BROADCAST} ${WM_FONTCHANGE} 0 0 /TIMEOUT=5000
+  
+  DetailPrint "Fonts installed to $FONTS"
 SectionEnd
 
 ; Optional section - curated default settings (only for new installations)
