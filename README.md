@@ -1,8 +1,8 @@
 **Zodiac** is an Astrological software for personal use.
 
-**Current Version**: 0.9.4.2 (January 3, 2026)
+**Current Version**: 0.9.4.3 (January 17, 2026)
 
-**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.4.2/Zodiac-0.9.4.2-installer.exe)
+**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.4.3/Zodiac-0.9.4.3-installer.exe)
 
 This sidereal branch was to experiment with certain feature ideas in sidereal and harmonic practice.
 
@@ -106,56 +106,54 @@ Content of subdirs:
 * ***nsis/*** - files for Nullsoft Scriptable Install System
 
 
-Build instructions:
+Build Instructions:
 ===================
 
-Requirement: Qt > 4.8 (works in Qt 4.8.2 and in Qt 5.3 as well). [See sidereal version notes below.]
+Requirements
+------------
 
-Method 1: automatic bundle build
----------------------------------
+* **Qt 6.10.x** (recommended) - Qt 5.15.x should be supported
+* **Boost C++ Libraries** - Install at same directory level as project root (used for chart and event search algorithms)
+* **CMake 3.15+** or Qt Creator with qmake support
+* **C++17 compiler** - MSVC 2019+, GCC, or Clang/LLVM
 
-This method will produce a single executable file with integrated project libraries.
+Building
+--------
 
-Open **zodiac/zodiac_bundle.pro** in Qt Creator, select a build configuration (Debug or Release) then build (Ctrl+B).
+**Recommended: CMake Build**
+```bash
+mkdir build && cd build
+cmake ..
+cmake --build . --config Release
+```
 
-Method 2: automatic separate build (Windows only)
------------------------------------
+**Alternative: Qt Creator (qmake)**
 
-Open **all.pro** in Qt Creator, and build it as usual. It will produce a main executable (zodiac) with a few dynamic libraries.
+Open **zodiac/zodiac_bundle.pro** in Qt Creator, select Release configuration, and build (Ctrl+B). This produces a single executable with integrated libraries.
 
-Method 3: manual build
------------------------
+**Note**: Only use `zodiac_bundle.pro` - other build methods are deprecated.
 
-This is a variation of 'method 2' that supposes manual building of all subprojects.
-Open projects in QtCreator and build them manually in the following order:
+Deployment
+----------
 
-    1. swe/swe.pro
-    2. astroprocessor/astroprocessor.pro
-    3. chart/chart.pro
-    fileeditor/fileeditor.pro
-    plain/plain.pro
-    planets/planets.pro
-	planets/details.pro
-    4. zodiac/zodiac.pro
+Use the NSIS installer script in `nsis/` directory to create a Windows installer:
+```powershell
+cd nsis
+.\build-installer.ps1
+```
 
-[Sidereal version build notes:
-I've been building with 5.15.x. I've used MSVS19 and g++. I have made updates to support Qt 6, however I encountered strange redraw effects, and I haven't investigated what could be wrong. I am also requiring the boost library as well, installed in a directory at the same level as the root directory of this project, because it has some of the algorithms used in the chart and event searches.
-N.B. **Only use zodiac_bundle.**]
+The installer packages all required Qt DLLs, resources, fonts, and ephemeris data.
 
-Additional note: the original google and yandex geo lookup used http: protocol, however, these are not actually supported any longer. You have to use https. I joined the google developer program and created an API key, and perhaps you should to! Not sure about the yandex (russian) service -- I didn't bother with that. 
+Google Maps API Key
+-------------------
 
-
-Run on Windows:
-===============
-
-To run application on Windows after build, put following Qt libraries into app directory:
-
-	imageformats/qgif.dll
-	imageformats/qico.dll
-	imageformats/qjpeg.dll
-	platforms/qwindows.dll
-
-In Qt 5.2, they are located in ***C:\Qt\5.2.1\mingw48_32\plugins***.
+The installer prompts for an optional Google Maps API key during installation. To enable location search, obtain a free API key from [Google Cloud Console](https://console.cloud.google.com/) and either:
+- Enter it during installation, or
+- Manually create `APIKey.ini` in the installation directory:
+  ```ini
+  [%General]
+  Key=YOUR_API_KEY_HERE
+  ```
 
 
 External links:

@@ -2,6 +2,22 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.4.3] - 2026-01-17
+
+### Fixed
+- **Event Recalculation**: Fixed redundant event calculations when switching tabs; proper cache validation and invalidation
+- **File Type Detection**: Corrected progression vs return vs transit type handling; proper base chart relationships for all derived chart types
+- **Event Options Persistence**: Per-tab event filter settings now saved/restored correctly when switching tabs or closing/reopening app
+- **Chart Theme Refresh**: Chart wheel now immediately updates when theme is changed
+- **File Editor**: File type dropdown now shows all types including "Other"; basis chart selector recursively finds charts in subdirectories
+- **Session/Settings**: API key no longer saved to settings.ini (kept only in APIKey.ini); event options stored as readable strings instead of integers
+
+### Changed
+- Version bumped to 0.9.4.3
+
+### Updated
+- README.md build instructions/notes
+
 ## [0.9.4.2] - 2026-01-03
 
 ### Fixed

@@ -4185,9 +4185,13 @@ FilesBar::openFileReturn(const AFileInfo& fi, const QString& body)
                                      native->data(),
                                      planetReturn->data(),
                                      native->getHarmonic());
+    
+    // Set base chart to the natal chart for return calculations
+    QDateTime natalGMT = native->getGMT();
     delete native;
 
     planetReturn->setGMT(dt);
+    planetReturn->setBaseChart(natalGMT);
 
     planetReturn->setName(QString("%1 %2 Return %3")
                               .arg(fi.baseName())
@@ -4225,6 +4229,9 @@ FilesBar::openFileInNewTabWithReturn(const AFileInfo& fi, const QString& body)
                                      planetReturn->data(),
                                      native->getHarmonic());
     planetReturn->setGMT(dt);
+    
+    // Set base chart to the natal chart for return calculations
+    planetReturn->setBaseChart(native->getGMT());
 
     planetReturn->setName(QString("%1 %2 Return %3")
                               .arg(fi.baseName())
@@ -5395,9 +5402,24 @@ MainWindow::restoreSession()
                     // Restore per-file transit event options (toolbar state)
                     if (settings.contains(fileGroup + "transitEventOptions")) {
                         A::EventTypeSet eventOpts;
-                        auto vl = settings.value(fileGroup + "transitEventOptions").toList();
-                        for (const auto& v : vl) {
-                            eventOpts.insert(static_cast<A::EventType>(v.toInt()));
+                        QVariant vopt = settings.value(fileGroup + "transitEventOptions");
+                        
+                        // Handle both old format (QVariantList of ints) and new format (QStringList)
+                        if (vopt.canConvert<QStringList>()) {
+                            // New format: strings using event brief names
+                            QStringList sl = vopt.toStringList();
+                            for (const auto& s : sl) {
+                                A::EventType et = A::EventTypeManager::briefToEventType(s);
+                                if (et != A::etcUnknownEvent) {
+                                    eventOpts.insert(et);
+                                }
+                            }
+                        } else {
+                            // Old format: integers (for backward compatibility)
+                            auto vl = vopt.toList();
+                            for (const auto& v : vl) {
+                                eventOpts.insert(static_cast<A::EventType>(v.toInt()));
+                            }
                         }
                         af->setTransitEventOptions(eventOpts);
                     }
@@ -5803,14 +5825,14 @@ FilesBar::saveFilesToSession()
                 settings.setValue("transitDuration", af->getTransitDuration());
             }
             
-            // Save per-file transit event options (toolbar state)
+            // Save per-file transit event options (toolbar state) using brief strings
             const A::EventTypeSet& eventOpts = af->getTransitEventOptions();
             if (!eventOpts.empty()) {
-                QVariantList vl;
+                QStringList sl;
                 for (const auto& et : eventOpts) {
-                    vl << static_cast<int>(et);
+                    sl << A::EventTypeManager::eventTypeToBrief(et);
                 }
-                settings.setValue("transitEventOptions", vl);
+                settings.setValue("transitEventOptions", sl);
             } else {
                 settings.setValue("transitEventOptions", QVariant());
             }

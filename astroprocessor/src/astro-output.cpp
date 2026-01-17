@@ -1078,9 +1078,13 @@ describeParans(const AstroFileList& scopes,
     event::_isProgressed = false;
     AstroFile* file = scopes.first();
     
-    // Check if it's a progressed chart (skip date calculations)
-    if (file && file->hasBaseChart() && file->getType() != TypeReturn) {
-        event::_isProgressed = true;
+    // Check if it's a progressed chart based on the file TYPE, not just presence of base chart
+    // Base chart is just metadata about natal relationship - doesn't mean it's progressed
+    if (file && file->hasBaseChart()) {
+        FileType ftype = file->getType();
+        if (ftype == TypeDerivedProg || ftype == TypeDerivedSA || ftype == TypeDerivedPD) {
+            event::_isProgressed = true;
+        }
     }
     
     if (file && file->getType() == TypeReturn) {

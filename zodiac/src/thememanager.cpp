@@ -512,7 +512,7 @@ bool ThemeManager::eventFilter(QObject* obj, QEvent* event)
         if (QWidget* widget = qobject_cast<QWidget*>(obj)) {
             // Check if this is a top-level window (dialog, popup, etc.)
             if (widget->isWindow() && !widget->property("theme").isValid()) {
-                qDebug() << "ThemeManager: Auto-applying theme to" << widget->metaObject()->className();
+                //qDebug() << "ThemeManager: Auto-applying theme to" << widget->metaObject()->className();
                 propagateThemeProperty(widget);
             }
         }

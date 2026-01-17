@@ -177,6 +177,12 @@ Chart::Chart(QWidget* parent) : AstroFileHandler(parent)
     QVBoxLayout* layout = new QVBoxLayout(this);
     layout->setContentsMargins(QMargins(0, 0, 0, 0));
     layout->addWidget(view);
+    
+    // Connect to theme changes to refresh chart colors
+    connect(&ThemeManager::instance(),
+            &ThemeManager::themeChanged,
+            this,
+            &Chart::refreshAll);
 }
 
 void

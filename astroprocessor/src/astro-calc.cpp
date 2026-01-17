@@ -3173,7 +3173,9 @@ calculateAll(const InputData& input)
     const InputData* calcInput = &input;
     InputData        progInput; // Will be used if this is a progressed chart
 
-    if (input.hasBaseChart()) {
+    // Check if this should be calculated as a progressed chart
+    // Note: base chart is also used for returns and transits, so we check the progression flag
+    if (input.hasBaseChart() && input.isProgressed()) {
         double baseJd    = getJulianDate(input.baseGMT());
         double yearsDiff = (jd - baseJd) / 365.25;
         double progJd    = baseJd + yearsDiff; // 1 day per year

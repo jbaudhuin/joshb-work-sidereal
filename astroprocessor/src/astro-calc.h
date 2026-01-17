@@ -769,6 +769,11 @@ class EventTypeManager {
         return std::get<1>(singleton()._eventIdToString.value(et));
     }
 
+    static EventType briefToEventType(const QString& brief)
+    {
+        return static_cast<EventType>(singleton()._eventStringToId.value(brief, etcUnknownEvent));
+    }
+
   private:
     unsigned                      _numEvents = etcUserEventStart;
     QMap<unsigned, eventTypeInfo> _eventIdToString;

@@ -168,15 +168,15 @@ AstroFile::save()
     }
     //}
 
-    // Save per-file transit event options
+    // Save per-file transit event options using brief strings for readability
     if (_transitEventOptions.empty()) {
         file.setValue("transitEventOptions", QVariant());
     } else {
-        QVariantList vl;
+        QStringList sl;
         for (const auto& et : std::as_const(_transitEventOptions)) {
-            vl << static_cast<int>(et);
+            sl << A::EventTypeManager::eventTypeToBrief(et);
         }
-        file.setValue("transitEventOptions", vl);
+        file.setValue("transitEventOptions", sl);
     }
 
     qDebug() << "Saved" << getName() << "to" << fileName();
@@ -302,12 +302,27 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
     setDateRange(range);
     //}
 
-    // Load per-file transit event options
+    // Load per-file transit event options (handle both old int and new string formats)
     if (file.contains("transitEventOptions")) {
         _transitEventOptions.clear();
-        auto vl = file.value("transitEventOptions").toList();
-        for (const auto& v : std::as_const(vl)) {
-            _transitEventOptions.insert(static_cast<A::EventType>(v.toInt()));
+        QVariant vopt = file.value("transitEventOptions");
+        
+        // Handle both old format (QVariantList of ints) and new format (QStringList)
+        if (vopt.canConvert<QStringList>()) {
+            // New format: strings using event brief names (e.g., "TA", "P=P")
+            QStringList sl = vopt.toStringList();
+            for (const auto& s : std::as_const(sl)) {
+                A::EventType et = A::EventTypeManager::briefToEventType(s);
+                if (et != A::etcUnknownEvent) {
+                    _transitEventOptions.insert(et);
+                }
+            }
+        } else {
+            // Old format: integers (for backward compatibility)
+            auto vl = vopt.toList();
+            for (const auto& v : std::as_const(vl)) {
+                _transitEventOptions.insert(static_cast<A::EventType>(v.toInt()));
+            }
         }
     } else {
         // Default to current global settings for files saved before this feature
@@ -406,7 +421,14 @@ void
 AstroFile::setType(const FileType type)
 {
     if (this->type != type) {
+        qDebug() << "[PERF] setType for file" << getName() << "from" << this->type << "to" << type;
         this->type = type;
+        
+        // Set progression flag based on type
+        // This must be done here so InputData state is stable for caching
+        bool shouldProgress = (type == TypeDerivedProg || type == TypeDerivedSA || type == TypeDerivedPD);
+        scope.inputData.setProgressed(shouldProgress);
+        
         change(Type);
     }
 }
@@ -592,9 +614,10 @@ AstroFile::clearEventsModel()
 void
 AstroFile::recalculate()
 {
-    qDebug() << "Calculating file" << getName() << "...";
+    qDebug() << "[PERF] Calculating file" << getName() << "type=" << type << "isProgressed=" << scope.inputData.isProgressed();
     clearPSSRContext(); // Clear cached PSSR context when chart is recalculated
     scope = A::calculateAll(scope.inputData);
+    qDebug() << "[PERF] Calculation complete for" << getName();
 }
 
 void

@@ -947,13 +947,17 @@ class EventsTableModel : public QAbstractItemModel {
         for (auto lievit = _evls.begin(); lievit != _evls.end(); ++lievit) {
             if (evs != lievit->second) continue;
 
+            // Emit aboutToChange BEFORE any model modification so that
+            // saveScrollPos() can safely access the model in its current state
+            if (!_changeRef) emit aboutToChange();
+            
             _evls.erase(lievit++);
-            AChangeSignalFrame chs(this);
-
             beginResetModel();
             rebuild();
             sort();
             endResetModel();
+            
+            if (!_changeRef) emit changeDone();
 
             break;
         }
@@ -1950,6 +1954,12 @@ Transits::Transits(QWidget* parent) :
 }
 
 Transits::~Transits() { 
+    // Save current event options to file(0) before destruction
+    if (filesCount() > 0 && file(0)) {
+        qDebug() << "[DESTRUCTOR] Saving event options to file" << file(0)->getName();
+        file(0)->setTransitEventOptions(_tabEventOptions);
+    }
+    
     // Disconnect scroll bar signals to prevent crashes during destruction
     if (_tview && _tview->verticalScrollBar()) {
         disconnect(_tview->verticalScrollBar(), nullptr, this, nullptr);
@@ -2199,13 +2209,34 @@ Transits::updateTransits()
     bool hasEvents = !evs.empty();
     bool needsRecalc = file(0)->needsEventsRecalc();
     
+    qDebug() << "[UPDATE TRANSITS] file(0):" << file(0)->getName() 
+             << "hasEvents:" << hasEvents << "evs.size():" << evs.size()
+             << "needsRecalc:" << needsRecalc;
+    
     if (hasEvents && !needsRecalc) {
-        // Events already cached, nothing more to do
-        qDebug() << "Using cached events for file" << file(0)->getName();
+        // Events already cached - repopulate the model and we're done
+        qDebug() << "[UPDATE TRANSITS] Using cached events for file" << file(0)->getName();
+        
+        // Update model settings to match current file
+        const A::Horoscope& scope(file()->horoscope());
+        const auto& ida(transitsOnly() ? file()->horoscope().inputData
+                                       : transitsAF()->horoscope().inputData);
+        _evm->setZodiac(scope.zodiac);
+        _evm->setTimezone(transitsAF()->getTimezone());
+        
+        // Repopulate model with cached events
+        _evm->clearAllEvents();
+        _evm->addEvents(evs);
+        _evm->sort();
+        
         return;
     }
     
-    qDebug() << "Recalculating events for file" << file(0)->getName();
+    qDebug() << "[UPDATE TRANSITS] Recalculating events for file" << file(0)->getName();
+    
+    // Clear the recalc flag NOW, before starting calculation
+    // This prevents redundant recalculations if we switch tabs before completion
+    file(0)->clearEventsRecalcFlag();
 
     if (!_active) {
         saveScrollPos();
@@ -2237,7 +2268,9 @@ Transits::updateTransits()
     auto       hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
 
-    _evm->removeEvents(evs);
+    // Clear both the model AND the file's cached events before recalculating
+    // (evs is a reference to file(0)->_evs)
+    _evm->clearAllEvents();
     evs.clear();
 
 #if 0
@@ -2693,24 +2726,28 @@ Transits::clickedCell(QModelIndex inx)
         transitsAF()->setFocalPlanets(focal);
         transitsAF()->setName(desc);
         transitsAF()->setGMT(dt);
-        // Set file type to Return for return events
-        if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
+        // Set file type and base chart based on event type
+        // Base chart stores the natal chart relationship for all event types
+        if (et == A::etcSolarReturn || et == A::etcLunarReturn
+            || et == A::etcReturn)
+        {
             transitsAF()->setType(TypeReturn);
-            transitsAF()->clearBaseChart();
-        } else if (et == A::etcProgressedToProgressed 
-            || et == A::etcProgressedToNatal
-            || et == A::etcInnerProgressedToNatal
-            || et == A::etcTransitToProgressed) {
+            transitsAF()->setBaseChart(file()->getGMT());
+        } else if (et == A::etcProgressedToProgressed
+                   || et == A::etcProgressedToNatal
+                   || et == A::etcInnerProgressedToNatal
+                   || et == A::etcTransitToProgressed)
+        {
             transitsAF()->setType(TypeDerivedProg);
-            // Set the natal chart as the base for progressions
             transitsAF()->setBaseChart(file()->getGMT());
         } else {
-            // For transit events, reset to TypeOther and clear base chart
+            // For transit events (T=T, T=N, patterns, ingresses, etc.)
+            // Set base chart to track natal relationship, but use TypeOther
             transitsAF()->setType(TypeOther);
-            transitsAF()->clearBaseChart();
+            transitsAF()->setBaseChart(file()->getGMT());
         }
         transitsAF()->resumeUpdate();
-        
+
         // Clear unsaved state since this is a generated chart from an event
         transitsAF()->clearUnsavedState();
         
@@ -2752,17 +2789,26 @@ Transits::doubleClickedCell(QModelIndex inx)
     }
     af->setGMT(dt);
     
-    // Set file type to Return for return events
+    // Set file type and base chart based on event type
     if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
         af->setType(TypeReturn);
-        af->clearBaseChart();
+        // Set the natal chart as the base for return calculations
+        if (!transitsOnly()) {
+            af->setBaseChart(file()->getGMT());
+        } else {
+            af->clearBaseChart();
+        }
     } else if (et == A::etcProgressedToProgressed 
         || et == A::etcProgressedToNatal
         || et == A::etcInnerProgressedToNatal
         || et == A::etcTransitToProgressed) {
         af->setType(TypeDerivedProg);
         // Set the natal chart as the base for progressions
-        af->setBaseChart(file()->getGMT());
+        if (!transitsOnly()) {
+            af->setBaseChart(file()->getGMT());
+        } else {
+            af->clearBaseChart();
+        }
     }
     af->resumeUpdate();
     
@@ -3185,6 +3231,21 @@ Transits::onDurationChanged()
 void
 Transits::filesUpdated(MembersList m)
 {
+    qDebug() << "========================================";
+    qDebug() << "[TRANSITS filesUpdated] Called with" << m.size() << "files";
+    for (int i = 0; i < m.size() && i < filesCount(); ++i) {
+        auto ml = m[i];
+        qDebug() << "  File" << i << "members:" << QString::number(ml, 16);
+        if (ml & AstroFile::AspectMode) qDebug() << "    - AspectMode changed";
+        if (ml & AstroFile::AspectSet) qDebug() << "    - AspectSet changed";
+        if (ml & AstroFile::Zodiac) qDebug() << "    - Zodiac changed";
+        if (ml & AstroFile::HouseSystem) qDebug() << "    - HouseSystem changed";
+        if (ml & AstroFile::GMT) qDebug() << "    - GMT changed";
+        if (ml & AstroFile::Location) qDebug() << "    - Location changed";
+        if (ml & AstroFile::Harmonic) qDebug() << "    - Harmonic changed";
+    }
+    qDebug() << "========================================";
+    
     if (!isVisible()) return;
     if (_inhibitUpdate) return;
     if (!filesCount()) {
@@ -3194,6 +3255,8 @@ Transits::filesUpdated(MembersList m)
     
     // Save current event options to previous file(0) if it exists
     static AstroFile* previousFile = nullptr;
+    bool fileChanged = (previousFile != file(0));
+    
     if (previousFile && previousFile != file(0)) {
         qDebug() << "[FILES UPDATED] Saving event options from previous file" << previousFile->getName();
         previousFile->setTransitEventOptions(_tabEventOptions);
@@ -3252,6 +3315,7 @@ Transits::filesUpdated(MembersList m)
     while (m.size() < filesCount()) m.append(AstroFile::Member());
 
     bool any = false;
+    bool needsRecalc = false;
     int  f   = 0;
     for (auto ml : m) {
         FileType type = file(f)->getType();
@@ -3263,14 +3327,26 @@ Transits::filesUpdated(MembersList m)
                 // For natal/event charts (file 0), check GMT and Location
                 // changes
                 any |= (ml & (AstroFile::GMT | AstroFile::Location));
+                // These changes require recalculation
+                needsRecalc |= (ml & (AstroFile::GMT | AstroFile::Location));
             }
 
+            // These settings affect event calculation and require recalc
             any |= (ml
                     & (AstroFile::Timezone | AstroFile::Zodiac
-                       | AstroFile::AspectSet | AstroFile::AspectMode));
+                       | AstroFile::AspectSet | AstroFile::AspectMode
+                       | AstroFile::HouseSystem));
+            
+            auto recalcMembers = (ml & (AstroFile::Zodiac | AstroFile::AspectSet
+                               | AstroFile::AspectMode | AstroFile::HouseSystem));
+            if (recalcMembers) {
+                qDebug() << "[TRANSITS filesUpdated] file" << f << "has recalc-triggering members:" << recalcMembers;
+            }
+            needsRecalc |= recalcMembers;
         }
         f++;
     }
+    qDebug() << "[TRANSITS filesUpdated] any=" << any << "needsRecalc=" << needsRecalc;
     if (any) {
 #if OLDMODEL
         auto zap = _tm;
@@ -3281,10 +3357,26 @@ Transits::filesUpdated(MembersList m)
         auto* evm = ensureEventsModel();
         if (!evm) return;
         
-        // Only mark for recalc if we don't already have valid cached events
-        // This prevents unnecessary recalc when just switching tabs
-        if (filesCount() > 0 && file(0)->events().empty()) {
+        // Mark for recalc if:
+        // 1. Events are empty (new file or first time), OR
+        // 2. Settings changed that affect event calculation AND we're not just switching files
+        // Note: When switching files, needsRecalc will be true due to differences between old and new file,
+        //       but we shouldn't mark for recalc - each file maintains its own event cache
+        bool shouldRecalc = file(0)->events().empty() || (needsRecalc && !fileChanged);
+        
+        if (filesCount() > 0 && shouldRecalc) {
+            if (needsRecalc && !fileChanged) {
+                qDebug() << "[FILES UPDATED] Marking for recalc due to settings change";
+            } else if (file(0)->events().empty()) {
+                qDebug() << "[FILES UPDATED] Marking for recalc due to empty events cache";
+            }
             file(0)->markEventsForRecalc();
+            
+            // If auto-recalc is enabled, trigger recalculation now
+            if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
+                qDebug() << "[FILES UPDATED] Auto-recalc enabled, triggering updateTransits()";
+                updateTransits();
+            }
         }
         
         if (!_chs) _chs = new AChangeSignalFrame(evm);
@@ -3310,6 +3402,21 @@ Transits::showEvent(QShowEvent* e)
     
     // Restore toolbar to match this tab's event options when becoming visible
     updateToolbarFromEventOptions();
+}
+
+void
+Transits::hideEvent(QHideEvent* e)
+{
+    // Save current event options to file(0) before tab becomes invisible
+    // This ensures state is persisted when app closes or tab is switched
+    if (filesCount() > 0 && file(0)) {
+        qDebug() << "[HIDE EVENT] Tab becoming invisible, saving event options to file" << file(0)->getName();
+        qDebug() << "  _tabEventOptions has" << _tabEventOptions.size() << "event types";
+        file(0)->setTransitEventOptions(_tabEventOptions);
+    }
+    
+    // Call base class implementation
+    AstroFileHandler::hideEvent(e);
 }
 
 AppSettings

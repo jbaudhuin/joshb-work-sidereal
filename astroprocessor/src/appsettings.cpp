@@ -426,6 +426,9 @@ void AppSettingsEditor::saveSettingsAsDefaults()
         settings.setValue(i.key(), value);
     }
     
+    // Never save API key to settings.ini - it should only be in APIKey.ini
+    settings.values().remove("Key");
+    
     // Save to settings.ini template file in user's chart directory
     QString settingsPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) 
                            + "/zodiac-charts/settings.ini";

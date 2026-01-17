@@ -340,6 +340,7 @@ class InputData {
     QDateTime     _GMT; // greenwich time & date
     QDateTime     _baseGMT; // natal chart GMT for progressed charts
     bool          _hasBaseChart; // true if this is a progressed/derived chart
+    bool          _isProgressed; // true if planet positions should be progressed
     QVector3D     _location; // x & y - long & lat (deg), z - height (meters)
     HouseSystemId _houseSystem;
     ZodiacId      _zodiac;
@@ -356,6 +357,7 @@ class InputData {
         _baseGMT.setTimeZone(QTimeZone::UTC);
         _baseGMT.setSecsSinceEpoch(0);
         _hasBaseChart = false;
+        _isProgressed = false;
         _location    = QVector3D(0, 0, 0);
         _houseSystem = Housesystem_Placidus;
         _zodiac      = Zodiac_Tropical;
@@ -372,6 +374,7 @@ class InputData {
               AspectSetId      asid = AspectSet_Default) :
         _GMT(gmt),
         _hasBaseChart(false),
+        _isProgressed(false),
         _location(loc),
         _houseSystem(hsys),
         _zodiac(zid),
@@ -403,6 +406,16 @@ class InputData {
     {
         _baseGMT.setSecsSinceEpoch(0);
         _hasBaseChart = false;
+    }
+    
+    // Progression flag - indicates if planet positions should be calculated as progressed
+    // This is separate from hasBaseChart because base chart is also used for returns and transits
+    bool isProgressed() const { return _isProgressed; }
+    void setProgressed(bool prog) { 
+        if (_isProgressed != prog) {
+            qDebug() << "[PERF] setProgressed changing from" << _isProgressed << "to" << prog;
+        }
+        _isProgressed = prog; 
     }
 
     QDateTime getEffectiveDateTime() const

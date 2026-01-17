@@ -20,6 +20,7 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QDir>
+#include <QDirIterator>
 #include <QSettings>
 
 #include "geosearch.h"
@@ -86,7 +87,8 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     tabs     -> setMovable(true);
     addFileBtn -> setMaximumWidth(32);
 
-    for (unsigned i = TypeEvent, n = TypeCount;
+    // Populate type combo box with all file types (starting from TypeOther = 0)
+    for (unsigned i = TypeOther, n = TypeCount;
          i < n; ++i)
     {
         type->addItem(tr(AstroFile::typeToString(i).toLatin1().constData()), i);
@@ -274,6 +276,8 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
             bool isEventSearch = (i == TypeSearch);
             bool isProgressed = (i == TypeDerivedProg || i == TypeDerivedSA || 
                                 i == TypeDerivedPD);
+            bool isReturn = (i == TypeReturn);
+            bool showBasis = (isProgressed || isReturn);
             
             startDateLbl->setVisible(isEventSearch);
             startDate->setVisible(isEventSearch);
@@ -283,8 +287,8 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
             lblw->setHidden(isEventSearch);
             fndlblw->setVisible(isEventSearch);
             hits->setVisible(isEventSearch);
-            basis->setVisible(isProgressed);
-            basisLbl->setVisible(isProgressed);
+            basis->setVisible(showBasis);
+            basisLbl->setVisible(showBasis);
             
             if (isEventSearch) {
                 auto rev = new QRegularExpressionValidator(_re, this);
@@ -298,7 +302,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
             }
             
             // Trigger update to populate basis combo when type changes
-            if (isProgressed && !_inUpdate) {
+            if (showBasis && !_inUpdate) {
                 update(AstroFile::Type);
             }
         });
@@ -417,12 +421,12 @@ void AstroFileEditor::update(AstroFile::Members m)
     _userEditedTime = false;
 
     A::modalize<bool> inUpdate(_inUpdate,true);
-    if (m & AstroFile::Type) {
-        // Find the combo box index that has this enum value
-        int idx = type->findData(source->getType());
-        if (idx >= 0) {
-            type->setCurrentIndex(idx);
-        }
+    
+    // Always update the type combo to match the current file type
+    // (it may have been changed programmatically even if Type member flag isn't set)
+    int idx = type->findData(source->getType());
+    if (idx >= 0) {
+        type->setCurrentIndex(idx);
     }
 
     // Show only the base name (without ", loc: City" suffix) in the name field
@@ -465,20 +469,37 @@ void AstroFileEditor::update(AstroFile::Members m)
     
     FileType curType = source->getType();
     bool showBasis = (curType == TypeDerivedProg || curType == TypeDerivedSA || 
-                     curType == TypeDerivedPD);
+                     curType == TypeDerivedPD || curType == TypeReturn);
     
+    // Always populate basis combo for types that need it, even during _inUpdate
+    // (because user might be changing the type manually)
     if (showBasis) {
-        // Get all chart files from the chart directory
+        // Get all chart files from the chart directory (including subdirectories)
         QString chartDir = AstroFile::fixedChartDir();
         QDir dir(chartDir);
         QStringList filters;
         filters << "*.dat";
-        QFileInfoList files = dir.entryInfoList(filters, QDir::Files);
+        
+        // Recursively find all .dat files in subdirectories
+        QFileInfoList files;
+        QDirIterator it(chartDir, filters, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            it.next();
+            files.append(it.fileInfo());
+        }
         
         int selectedIndex = 0;
         for (int i = 0; i < files.size(); ++i) {
             QFileInfo fi = files.at(i);
-            basis->addItem(fi.baseName(), fi.absoluteFilePath());
+            // Show relative path from chart directory for files in subdirectories
+            QString displayName = dir.relativeFilePath(fi.absoluteFilePath());
+            if (displayName.contains('/') || displayName.contains('\\')) {
+                // File is in a subdirectory, show the path
+                basis->addItem(displayName.replace('\\', '/'), fi.absoluteFilePath());
+            } else {
+                // File is in root directory, just show basename
+                basis->addItem(fi.baseName(), fi.absoluteFilePath());
+            }
             
             // Check if this is the current base chart
             if (source->hasBaseChart()) {
@@ -630,8 +651,10 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     FileType curType = dst->getType();
     bool isProgressed = (curType == TypeDerivedProg || curType == TypeDerivedSA || 
                         curType == TypeDerivedPD);
+    bool isReturn = (curType == TypeReturn);
+    bool needsBaseChart = (isProgressed || isReturn);
     
-    if (isProgressed && basis->currentIndex() > 0) {
+    if (needsBaseChart && basis->currentIndex() > 0) {
         // A base chart is selected (not "(None)")
         QString baseFilePath = basis->currentData().toString();
         if (!baseFilePath.isEmpty()) {
