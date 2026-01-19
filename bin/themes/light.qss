@@ -252,6 +252,24 @@ QToolButton:checked {
 	color: #FFF;
 }
 
+QToolButton::menu-arrow {
+	image: url(details/arrow-down.png);
+	width: 10px;
+	height: 10px;
+}
+
+QToolButton::menu-indicator {
+	image: url(details/arrow-down.png);
+	width: 10px;
+	height: 10px;
+}
+
+QToolButton::menu-button {
+	width: 16px;
+	border: none;
+	background: transparent;
+}
+
 /* Special QToolButton variants */
 QToolButton.transit-btn,
 QToolButton[objectName="transitBtn"] {

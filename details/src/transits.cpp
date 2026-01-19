@@ -2201,6 +2201,10 @@ Transits::updateTransits()
         }
     }
 
+    // Process pending UI events (repaints, etc.) before doing heavy work
+    // This ensures the chart and UI update before we start calculating events
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+
     // Now check cache before doing any heavy calculation work
     ensureEventsModel();
     if (!_evm) return;

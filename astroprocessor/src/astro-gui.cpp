@@ -368,7 +368,8 @@ AstroFile::setTransitEventOptions(const A::EventTypeSet& opts)
     if (_transitEventOptions != opts) {
         _transitEventOptions = opts;
         change(ChangedState, true);  // Mark as modified
-        save();  // Persist to disk immediately
+        // Don't save automatically - only save when user explicitly saves the chart
+        // Transit event options are preserved via session state
     }
 }
 
