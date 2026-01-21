@@ -708,10 +708,11 @@ Harmonics::setupSettingsEditor(AppSettingsEditor* ed)
 {
     ed->addTab(tr("Harmonics"));
 
-    QMap<QString, QVariant> values;
-    values[tr("Harmonic")] = A::hscByHarmonic;
-    values[tr("Planets")]  = A::hscByPlanets;
-    values[tr("Orb")]      = A::hscByOrb;
+    QKeyValueList values {
+        { tr("Harmonic"), A::hscByHarmonic },
+        { tr("Planets"), A::hscByPlanets },
+        { tr("Orb"), A::hscByOrb }
+    };
 
     ed->addComboBox("Harmonics/order", tr("Sort by"), values);
     ed->addCheckBox("Harmonics/includeAscMC", tr("Include Asc & MC"));

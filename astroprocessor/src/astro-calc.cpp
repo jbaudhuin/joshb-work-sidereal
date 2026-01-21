@@ -3322,7 +3322,22 @@ calculateAll(const InputData& input)
 /*static*/ EventOptions::DisplayMode EventOptions::s_natalTransitBodyColMode =
     EventOptions::DisplayGlyphs;
 
-EventOptions::EventOptions() = default;
+EventOptions::EventOptions()
+{
+    // Set reasonable defaults for which event types are enabled
+    // These serve as defaults for new chart tabs
+    enabledEvents = {
+        etcStation,
+        etcSignIngress,
+        etcTransitToNatal,
+        etcTransitToNatalAngles,
+        etcReturn,
+        etcSolarReturn,
+        etcLunarReturn,
+        etcProgressedToNatal,
+        etcTransitNatalAspectPattern
+    };
+}
 
 EventOptions::EventOptions(const QVariantMap& map)
 {
@@ -3365,6 +3380,11 @@ EventOptions::EventOptions(const QVariantMap& map)
     setShowHeliacalEvents(map.value("Events/showHeliacalEvents").toBool());
     setShowPrimaryDirections(
         map.value("Events/showPrimaryDirections").toBool());
+    
+    // NOTE: The above event type setters are kept for backward compatibility
+    // when loading old settings files, but these settings are no longer saved
+    // to new files (not in dialog) - event visibility is per-chart via toolbar
+    
     // showLifeEvents is computed from enabledEvents >= etcUserEventStart, not
     // loaded directly
     expandShowAspectPatterns =
@@ -3470,33 +3490,20 @@ EventOptions::toMap()
     ret.insert("Events/patternsSpreadOrb", patternsSpreadOrb);
     ret.insert("Events/patternsRestrictMoon", patternsRestrictMoon);
     ret.insert("Events/includeMidpoints", includeMidpoints);
-    ret.insert("Events/showStations", showStations());
+    
+    // Event type visibility settings (showStations, showTransitsToTransits, etc.)
+    // are NOT saved here - they are managed per-chart via toolbar and saved per-file
+    // Only global calculation settings are saved to the settings file
+    
     ret.insert("Events/includeShadowTransits", includeShadowTransits);
-    ret.insert("Events/showTransitsToTransits", showTransitsToTransits());
     ret.insert("Events/limitLunarTransits", limitLunarTransits);
     ret.insert("Events/skipByDuration", skipByDuration);
-    ret.insert("Events/showTransitsToNatalPlanets",
-               showTransitsToNatalPlanets());
     ret.insert("Events/includeOnlyOuterTransitsToNatal",
                includeOnlyOuterTransitsToNatal);
     ret.insert("Events/includeAsteroids", includeAsteroids);
     ret.insert("Events/includeCentaurs", includeCentaurs);
-    ret.insert("Events/showTransitsToNatalAngles", showTransitsToNatalAngles());
-    ret.insert("Events/showTransitsToHouseCusps", showTransitsToHouseCusps());
-    ret.insert("Events/showReturns", showReturns());
-    ret.insert("Events/showProgressionsToProgressions",
-               showProgressionsToProgressions());
-    ret.insert("Events/showProgressionsToNatal", showProgressionsToNatal());
     ret.insert("Events/includeOnlyInnerProgressionsToNatal",
                includeOnlyInnerProgressionsToNatal);
-    ret.insert("Events/showTransitAspectPatterns", showTransitAspectPatterns());
-    ret.insert("Events/showTransitNatalAspectPatterns",
-               showTransitNatalAspectPatterns());
-    ret.insert("Events/showIngresses", showIngresses());
-    ret.insert("Events/showLunations", showLunations());
-    ret.insert("Events/showHeliacalEvents", showHeliacalEvents());
-    ret.insert("Events/showPrimaryDirections", showPrimaryDirections());
-    ret.insert("Events/showLifeEvents", showLifeEvents());
 
     ret.insert("Events/expandShowAspectPatterns", expandShowAspectPatterns);
     ret.insert("Events/expandShowHousePlacementsOfTransits",

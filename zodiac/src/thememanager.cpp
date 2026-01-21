@@ -499,7 +499,7 @@ ThemeManager::Theme ThemeManager::stringToTheme(const QString& themeName)
     if (lower == "light") {
         return Theme::Light;
     } else if (lower == "printable" || lower == "print") {
-        return Theme::Printable;ch
+        return Theme::Printable;
     } else {
         return Theme::Dark; // Default
     }

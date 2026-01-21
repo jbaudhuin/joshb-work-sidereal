@@ -30,7 +30,7 @@ AstroFile::AstroFile(QObject* parent) : QObject(parent)
     _holdUpdate        = false;
     _holdUpdateMembers = None;
     _timezoneLocked    = false;
-    _transitEventOptions = A::EventOptions::current().enabledEvents;  // Initialize from global defaults
+    _transitEventOptions = A::EventOptions::globalDefaults();  // Initialize new file from global defaults
     qDebug() << "Created file" << getName();
 }
 
@@ -326,7 +326,7 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
         }
     } else {
         // Default to current global settings for files saved before this feature
-        _transitEventOptions = A::EventOptions::current().enabledEvents;
+        _transitEventOptions = A::EventOptions::globalDefaults();
     }
 
     clearUnsavedState();

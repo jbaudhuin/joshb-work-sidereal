@@ -515,10 +515,19 @@ struct EventOptions {
 
     QVariantMap toMap();
 
+    // Global settings singleton (orbs, durations, expand options, etc.)
+    // Used for reading/writing persistent settings and as template for new tabs
     static EventOptions& current()
     {
         static EventOptions s_;
         return s_;
+    }
+
+    // Global defaults for event types, used when initializing new chart tabs
+    // This controls which events are enabled by default in newly opened charts
+    static EventTypeSet& globalDefaults()
+    {
+        return current().enabledEvents;
     }
 };
 

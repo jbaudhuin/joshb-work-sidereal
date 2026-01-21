@@ -307,9 +307,9 @@ AppSettingsEditor::addDoubleSpinBox(const QString& valueName,
 }
 
 QComboBox*
-AppSettingsEditor::addComboBox(const QString&          valueName,
-                               const QString&          label,
-                               QMap<QString, QVariant> values)
+AppSettingsEditor::addComboBox(const QString&  valueName,
+                               const QString&  label,
+                               QKeyValueList   values)
 {
     if (valueName.isEmpty()) return nullptr;
     QVariant s = settings.value(valueName);
@@ -320,10 +320,10 @@ AppSettingsEditor::addComboBox(const QString&          valueName,
     edit->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
 
     int i = 0;
-    for (const QString& str : values.keys())
+    for (const auto& pair : values)
     {
-        edit->addItem(str, values[str]);
-        if (values[str] == s) edit->setCurrentIndex(i);
+        edit->addItem(pair.first, pair.second);
+        if (pair.second == s) edit->setCurrentIndex(i);
         i++;
     }
 

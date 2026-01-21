@@ -24,9 +24,14 @@
 #define APPSETTINGS_H
 
 #include <QMap>
+#include <QList>
+#include <QPair>
 #include <QString>
 #include <QVariant>
 #include <QDialog>
+
+// Convenient typedef for combo box key-value pairs that preserves insertion order
+using QKeyValueList = QList<QPair<QString, QVariant>>;
 
 class QTabWidget;
 class Customizable;
@@ -119,7 +124,7 @@ public:
     QCheckBox* addCheckBox(const QString& valueName, const QString& label);
     QSpinBox* addSpinBox(const QString& valueName, const QString& label, int minValue, int MaxValue);
     QDoubleSpinBox* addDoubleSpinBox(const QString& valueName, const QString& label, double minValue, double maxValue, double step = 0.1);
-    QComboBox* addComboBox(const QString& valueName, const QString& label, QMap<QString, QVariant> values);
+    QComboBox* addComboBox(const QString& valueName, const QString& label, QKeyValueList values);
     void addLabel(const QString& label);
 
     void setObject(Customizable* obj);

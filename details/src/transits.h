@@ -213,8 +213,10 @@ class Transits : public AstroFileHandler {
     
     QTimer* _progressSortTimer = nullptr;  // Debounces progress-triggered sorts
     
-    // Per-tab event filter settings (which event types are enabled)
-    // Global settings like orbs, skipByDuration come from EventOptions::current()
+    // Per-tab event visibility state (which event types are enabled in THIS specific tab)
+    // Managed exclusively by toolbar actions - options dialog does NOT modify this
+    // Options dialog only sets EventOptions::globalDefaults() for newly opened tabs
+    // Global settings (orbs, skipByDuration, etc.) are read from EventOptions::current()
     A::EventTypeSet _tabEventOptions;
     
     // Toolbar actions for event filters
@@ -239,6 +241,7 @@ class Transits : public AstroFileHandler {
     
     bool _transitToNatalShowsOuter = false;  // Track T=N vs OT=N state
     bool _progressedToNatalShowsInner = true;  // Track P=N vs IP=N state (default inner)
+    bool _transitToNatalAnglesWasChecked = true;  // Cache angles checkbox state when button is off
     
     void updateToolbarFromEventOptions();
     void updateTransitToNatalButtonState();

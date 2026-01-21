@@ -1351,8 +1351,10 @@ Transits::Transits(QWidget* parent) :
 
     _back = new QPushButton("«");
     _back->setMaximumWidth(20);
+    _back->setProperty("navButton", true);
     _forth = new QPushButton("»");
     _forth->setMaximumWidth(20);
+    _forth->setProperty("navButton", true);
 
     _grp = new QButtonGroup(this);
     _grp->addButton(_duraRB, 0);
@@ -1557,6 +1559,12 @@ Transits::Transits(QWidget* parent) :
     
     // Menu selection changes the mode (which is the "default", doesn't enable/disable)
     connect(transitNatalGroup, &QActionGroup::triggered, this, [this, saveEventOptionsAndRecalc](QAction* action) {
+        // Just update the mode preference, don't change enabled state
+        bool wasOuter = _transitToNatalShowsOuter;
+        
+        // Block signals to prevent button toggle from being triggered
+        QSignalBlocker blocker(_btnTransitToNatal);
+        
         if (action->text().contains("OT=N")) {
             _transitToNatalShowsOuter = true;
             _btnTransitToNatal->setText("OT=N");
@@ -1564,9 +1572,12 @@ Transits::Transits(QWidget* parent) :
             _transitToNatalShowsOuter = false;
             _btnTransitToNatal->setText("T=N");
         }
-        // Don't change enabled state, just update which mode would be enabled if button is on
-        if (_btnTransitToNatal->isChecked()) {
-            // Button is already on, so switch modes
+        
+        blocker.unblock();
+        
+        // Only recalc if button is currently checked AND mode actually changed
+        if (_btnTransitToNatal->isChecked() && wasOuter != _transitToNatalShowsOuter) {
+            // Button is on, so actually switch the active mode
             if (_transitToNatalShowsOuter) {
                 _tabEventOptions.insert(A::etcOuterTransitToNatal);
                 _tabEventOptions.erase(A::etcTransitToNatal);
@@ -1588,10 +1599,15 @@ Transits::Transits(QWidget* parent) :
         saveEventOptionsAndRecalc();
     });
     
-    // Button toggle changes the on/off state for the current mode
-    connect(_btnTransitToNatal, &QToolButton::toggled, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        qDebug() << "T=N button toggled:" << checked << "outer mode:" << _transitToNatalShowsOuter;
-        if (checked) {
+    // Button click toggles the on/off state for the current mode
+    connect(_btnTransitToNatal, &QToolButton::clicked, this, [this, saveEventOptionsAndRecalc]() {
+        // isChecked() already reflects the new state after auto-toggle
+        bool newState = _btnTransitToNatal->isChecked();
+        
+        qDebug() << "T=N button clicked, new state:" << newState << "outer mode:" << _transitToNatalShowsOuter;
+        
+        if (newState) {
+            // Turning ON - restore the mode that was selected
             if (_transitToNatalShowsOuter) {
                 _tabEventOptions.insert(A::etcOuterTransitToNatal);
                 _tabEventOptions.erase(A::etcTransitToNatal);
@@ -1599,10 +1615,20 @@ Transits::Transits(QWidget* parent) :
                 _tabEventOptions.insert(A::etcTransitToNatal);
                 _tabEventOptions.erase(A::etcOuterTransitToNatal);
             }
+            // Restore angles if it was checked before
+            if (_transitToNatalAnglesWasChecked) {
+                _tabEventOptions.insert(A::etcTransitToNatalAngles);
+            }
         } else {
+            // Turning OFF - cache whether angles was checked
+            _transitToNatalAnglesWasChecked = _tabEventOptions.count(A::etcTransitToNatalAngles) > 0;
+            // Remove all three event types
             _tabEventOptions.erase(A::etcTransitToNatal);
             _tabEventOptions.erase(A::etcOuterTransitToNatal);
+            _tabEventOptions.erase(A::etcTransitToNatalAngles);
         }
+        qDebug() << "After T=N click: hasTransitToNatal=" << (_tabEventOptions.count(A::etcTransitToNatal) > 0)
+                 << "hasOuter=" << (_tabEventOptions.count(A::etcOuterTransitToNatal) > 0);
         saveEventOptionsAndRecalc();
     });
     
@@ -1653,6 +1679,12 @@ Transits::Transits(QWidget* parent) :
     
     // Menu selection changes the mode (which is the "default", doesn't enable/disable)
     connect(progressedNatalGroup, &QActionGroup::triggered, this, [this, saveEventOptionsAndRecalc](QAction* action) {
+        // Just update the mode preference, don't change enabled state
+        bool wasInner = _progressedToNatalShowsInner;
+        
+        // Block signals to prevent button toggle from being triggered
+        QSignalBlocker blocker(_btnProgressedToNatal);
+        
         if (action->text().contains("IP=N")) {
             _progressedToNatalShowsInner = true;
             _btnProgressedToNatal->setText("IP=N");
@@ -1660,9 +1692,12 @@ Transits::Transits(QWidget* parent) :
             _progressedToNatalShowsInner = false;
             _btnProgressedToNatal->setText("P=N");
         }
-        // Don't change enabled state, just update which mode would be enabled if button is on
-        if (_btnProgressedToNatal->isChecked()) {
-            // Button is already on, so switch modes
+        
+        blocker.unblock();
+        
+        // Only recalc if button is currently checked AND mode actually changed
+        if (_btnProgressedToNatal->isChecked() && wasInner != _progressedToNatalShowsInner) {
+            // Button is on, so actually switch the active mode
             if (_progressedToNatalShowsInner) {
                 _tabEventOptions.insert(A::etcInnerProgressedToNatal);
                 _tabEventOptions.erase(A::etcProgressedToNatal);
@@ -1674,10 +1709,14 @@ Transits::Transits(QWidget* parent) :
         }
     });
     
-    // Button toggle changes the on/off state for the current mode
-    connect(_btnProgressedToNatal, &QToolButton::toggled, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        qDebug() << "IP=N/P=N button toggled:" << checked << "inner mode:" << _progressedToNatalShowsInner;
-        if (checked) {
+    // Button click toggles the on/off state for the current mode
+    connect(_btnProgressedToNatal, &QToolButton::clicked, this, [this, saveEventOptionsAndRecalc]() {
+        // isChecked() already reflects the new state after auto-toggle
+        bool newState = _btnProgressedToNatal->isChecked();
+        
+        qDebug() << "IP=N/P=N button clicked, new state:" << newState << "inner mode:" << _progressedToNatalShowsInner;
+        
+        if (newState) {
             if (_progressedToNatalShowsInner) {
                 _tabEventOptions.insert(A::etcInnerProgressedToNatal);
                 _tabEventOptions.erase(A::etcProgressedToNatal);
@@ -3274,7 +3313,7 @@ Transits::filesUpdated(MembersList m)
         // If file has no saved options (empty set), initialize from global defaults
         if (_tabEventOptions.empty()) {
             qDebug() << "  No saved options, using global defaults";
-            _tabEventOptions = A::EventOptions::current().enabledEvents;
+            _tabEventOptions = A::EventOptions::globalDefaults();
             file(0)->setTransitEventOptions(_tabEventOptions);
         }
         
@@ -3441,16 +3480,15 @@ Transits::currentSettings()
 void
 Transits::applySettings(const AppSettings& s)
 {
-    // Extract event types from restored settings
+    qDebug() << "[APPLY SETTINGS] Applying global event calculation settings";
+    
+    // Extract settings from dialog (no event type settings anymore)
     A::EventOptions opts(s.values());
-    _tabEventOptions = opts.enabledEvents;
     
-    // Update toolbar to reflect restored settings
-    updateToolbarFromEventOptions();
-    
-    // Also update global defaults for comparison
+    // Get reference to global settings singleton
     A::EventOptions& curr(A::EventOptions::current());
 
+    // Check if any settings changed that would require recalculation
     bool changed =
         (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
          || s.value("Events/patternsSpreadOrb").toDouble()
@@ -3459,44 +3497,18 @@ Transits::applySettings(const AppSettings& s)
          || s.value("Events/patternsRestrictMoon").toBool()
                 != curr.patternsRestrictMoon
          || s.value("Events/includeMidpoints").toBool() != curr.includeMidpoints
-         || s.value("Events/showStations").toBool() != curr.showStations()
          || s.value("Events/includeShadowTransits").toBool()
                 != curr.includeShadowTransits
-         || s.value("Events/showTransitsToTransits").toBool()
-                != curr.showTransitsToTransits()
          || s.value("Events/includeOnlyOuterTransitsToNatal").toBool()
                 != curr.includeOnlyOuterTransitsToNatal
          || s.value("Events/limitLunarTransits").toBool()
                 != curr.limitLunarTransits
          || A::EventOptions::skipper(s.value("Events/skipByDuration").toUInt())
                 != curr.skipByDuration
-         || s.value("Events/showTransitsToNatalPlanets").toBool()
-                != curr.showTransitsToNatalPlanets()
-         || s.value("Events/showTransitsToNatalAngles").toBool()
-                != curr.showTransitsToNatalAngles()
          || s.value("Events/includeAsteroids").toBool() != curr.includeAsteroids
          || s.value("Events/includeCentaurs").toBool() != curr.includeCentaurs
-         || s.value("Events/showTransitsToHouseCusps").toBool()
-                != curr.showTransitsToHouseCusps()
-         || s.value("Events/showReturns").toBool() != curr.showReturns()
-         || s.value("Events/showProgressionsToProgressions").toBool()
-                != curr.showProgressionsToProgressions()
-         || s.value("Events/showProgressionsToNatal").toBool()
-                != curr.showProgressionsToNatal()
          || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
-                != curr.includeOnlyInnerProgressionsToNatal
-         || s.value("Events/showTransitAspectPatterns").toBool()
-                != curr.showTransitAspectPatterns()
-         || s.value("Events/showTransitNatalAspectPatterns").toBool()
-                != curr.showTransitNatalAspectPatterns()
-         || s.value("Events/showIngresses").toBool() != curr.showIngresses()
-         || s.value("Events/showLunations").toBool() != curr.showLunations()
-         || s.value("Events/showHeliacalEvents").toBool()
-                != curr.showHeliacalEvents()
-         || s.value("Events/showPrimaryDirections").toBool()
-                != curr.showPrimaryDirections()
-         || s.value("Events/showLifeEvents").toBool() != curr.showLifeEvents()
-         || s.value("Events/showHarmonicDividend").toBool() != curr.showHarmonicDividend);
+                != curr.includeOnlyInnerProgressionsToNatal);
     bool changedExpanded =
         (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
          || s.value("Events/expandShowAspectPatterns").toBool()
@@ -3520,8 +3532,11 @@ Transits::applySettings(const AppSettings& s)
         _ddelta = ADateDelta::fromString(tsp);
     }
 
+    // Update global settings singleton with new values from dialog
+    qDebug() << "  Updating global settings";
     curr = A::EventOptions(s.values());
 
+    // If calculation settings changed, recalculate events for THIS tab
     if (changed) {
         if (filesCount() > 0) {
             file(0)->markEventsForRecalc();
@@ -3537,45 +3552,27 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
 {
     ed->addTab(tr("Events"));
 
+    // Note: Event type visibility (which events to show) is controlled per-chart via toolbar
+    // This dialog only contains global settings that apply to event calculation
+    ed->addLabel(tr("<b>Event visibility</b> (which event types to display)<br/>"
+                    "is controlled by the toolbar in each chart tab and saved per-chart."));
+
     ed->addLineEdit("Events/defaultTimespan", tr("Default timespan"));
-    ed->addCheckBox("Events/showStations", tr("[Session] Show Stations"));
     ed->addCheckBox("Events/includeShadowTransits",
                     tr("Include retro shadow IN/EX"));
-    ed->addCheckBox("Events/showIngresses", tr("[Session] Show Ingresses"));
-    ed->addCheckBox("Events/showTransitsToTransits",
-                    tr("[Session] Show Transits to Transits"));
-    ed->addCheckBox("Events/showTransitsToNatalPlanets",
-                    tr("[Session] Show Transits to Natal"));
-    ed->addCheckBox("Events/showTransitsToNatalAngles",
-                    tr("[Session] Show Transits to natal angles"));
-    ed->addCheckBox("Events/includeOnlyOuterTransitsToNatal",
-                    tr("[Session] Include only outer planet transits to natal"));
-    ed->addCheckBox("Events/showReturns", tr("[Session] Show Returns"));
-    ed->addCheckBox("Events/showTransitsToHouseCusps",
-                    tr("Show Transits to all house cusps"));
-    ed->addCheckBox("Events/limitLunarTransits", tr("Default Limit Lunar Transits"));
-    ed->addCheckBox("Events/showProgressionsToProgressions",
-                    tr("[Session] Show Progressions to Progressions"));
-    ed->addCheckBox("Events/showProgressionsToNatal",
-                    tr("[Session] Show Progressions to Natal"));
-    ed->addCheckBox(
-        "Events/includeOnlyInnerProgressionsToNatal",
-        tr("[Session] Include only inner planet progressions to natal"));
+    ed->addCheckBox("Events/limitLunarTransits", tr("Limit Lunar Transits"));
 
-    QVariantMap vals { { tr("Show all"), A::EventOptions::SkipNone },
-                       { tr("Skip <1day"), A::EventOptions::SkipLessThanDay },
-                       { tr("Skip <1wk"), A::EventOptions::SkipLessThanWeek },
-                       { tr("Skip <1mo"),
-                         A::EventOptions::SkipLessThanMonth } };
+    QKeyValueList vals {
+        { tr("Show all"), A::EventOptions::SkipNone },
+        { tr("Skip <1day"), A::EventOptions::SkipLessThanDay },
+        { tr("Skip <1wk"), A::EventOptions::SkipLessThanWeek },
+        { tr("Skip <1mo"), A::EventOptions::SkipLessThanMonth }
+    };
     ed->addComboBox("Events/skipByDuration", "Skip by duration", vals);
 
     ed->addCheckBox("Events/includeAsteroids", tr("Include asteroids"));
     ed->addCheckBox("Events/includeCentaurs", tr("Include centaurs"));
     //ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
-    ed->addCheckBox("Events/showTransitAspectPatterns",
-                    tr("[Session] Show Transit Aspect Patterns"));
-    ed->addCheckBox("Events/showTransitNatalAspectPatterns",
-                    tr("[Session] Show Transit Natal Aspect Patterns"));
     ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"), 2, 6);
     ed->addDoubleSpinBox("Events/patternsSpreadOrb",
                          tr("Patterns Spread Orb"),
@@ -3586,7 +3583,7 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
                          0.1,
                          16.);
     ed->addCheckBox("Events/patternsRestrictMoon",
-                    tr("Default Patterns Restrict Moon"));
+                    tr("Patterns Restrict Moon"));
 #if 0
     ed->addCheckBox("Events/showLunations", tr("Show Lunations"));
     ed->addCheckBox("Events/showHeliacalEvents", tr("Show Heliacal Events"));
@@ -3665,8 +3662,21 @@ Transits::updateToolbarFromEventOptions()
     }
     
     // Update alternating button states based on which event types are present
-    _transitToNatalShowsOuter = _tabEventOptions.count(A::etcOuterTransitToNatal) > 0;
-    _progressedToNatalShowsInner = _tabEventOptions.count(A::etcInnerProgressedToNatal) > 0;
+    // Only update the mode flag if that mode's event type is actually in the set
+    // Don't change the flag just because both are absent (button is off)
+    if (_tabEventOptions.count(A::etcOuterTransitToNatal) > 0) {
+        _transitToNatalShowsOuter = true;
+    } else if (_tabEventOptions.count(A::etcTransitToNatal) > 0) {
+        _transitToNatalShowsOuter = false;
+    }
+    // Otherwise leave _transitToNatalShowsOuter unchanged (preserves user's last selection)
+    
+    if (_tabEventOptions.count(A::etcInnerProgressedToNatal) > 0) {
+        _progressedToNatalShowsInner = true;
+    } else if (_tabEventOptions.count(A::etcProgressedToNatal) > 0) {
+        _progressedToNatalShowsInner = false;
+    }
+    // Otherwise leave _progressedToNatalShowsInner unchanged
     
     // Update radio button states in menus
     if (_actTransitToNatal && _actOuterTransitToNatal) {
@@ -3678,6 +3688,11 @@ Transits::updateToolbarFromEventOptions()
         _actOuterTransitToNatal->blockSignals(false);
     }
     
+    // Update button text to match current mode
+    if (_btnTransitToNatal) {
+        _btnTransitToNatal->setText(_transitToNatalShowsOuter ? "OT=N" : "T=N");
+    }
+    
     if (_actInnerProgressedToNatal && _actAllProgressedToNatal) {
         _actInnerProgressedToNatal->blockSignals(true);
         _actAllProgressedToNatal->blockSignals(true);
@@ -3685,6 +3700,11 @@ Transits::updateToolbarFromEventOptions()
         _actAllProgressedToNatal->setChecked(!_progressedToNatalShowsInner);
         _actInnerProgressedToNatal->blockSignals(false);
         _actAllProgressedToNatal->blockSignals(false);
+    }
+    
+    // Update button text to match current mode
+    if (_btnProgressedToNatal) {
+        _btnProgressedToNatal->setText(_progressedToNatalShowsInner ? "IP=N" : "P=N");
     }
     
     updateTransitToNatalButtonState();

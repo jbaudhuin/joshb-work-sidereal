@@ -795,6 +795,29 @@ QPushButton[chartButton="true"]:checked {
 	font-weight: bold;
 }
 
+/* Date range navigation arrow buttons */
+QPushButton[navButton="true"] {
+	background-color: #424242;
+	color: #d8e4f4;
+	border: 1px solid #585F6A;
+	border-radius: 3px;
+	padding: 2px 4px;
+	font-size: 12pt;
+	font-weight: bold;
+}
+
+QPushButton[navButton="true"]:hover {
+	background-color: #4d4d50;
+	border-color: #71aeec;
+	color: #EEEEEE;
+}
+
+QPushButton[navButton="true"]:pressed {
+	background-color: #5399CA;
+	border-color: #73B9EA;
+	color: #FFFFFF;
+}
+
 /* =========================== AstroWidget =================================== */
 
 AstroWidget QFrame {

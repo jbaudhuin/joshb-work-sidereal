@@ -46,6 +46,10 @@ GeoSuggestCompletion::GeoSuggestCompletion(GeoSearchBox *parent) :
     popup->setFrameStyle(QFrame::Box | QFrame::Plain);
     popup->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     popup->header()->hide();
+    
+    // Ensure popup inherits application palette for proper theme colors
+    popup->setPalette(parent->palette());
+    popup->setAutoFillBackground(true);
 
     popup->installEventFilter(this);
 
@@ -122,8 +126,12 @@ GeoSuggestCompletion::showCompletion(const QStringList &cities,
 
     if (!count) return;
 
+    // Refresh popup palette to match current theme
+    popup->setPalette(editor->palette());
+    
     const QPalette &pal = editor->palette();
-    QColor color = pal.color(QPalette::Disabled, QPalette::WindowText);
+    QColor primaryColor = pal.color(QPalette::Active, QPalette::Text);
+    QColor secondaryColor = pal.color(QPalette::Active, QPalette::WindowText);
 
     popup->setUpdatesEnabled(false);
     popup->clear();
@@ -135,7 +143,8 @@ GeoSuggestCompletion::showCompletion(const QStringList &cities,
         item->setText(0, cities[i]);
         item->setText(1, descr[i]);
 
-        item->setForeground(1, color);
+        item->setForeground(0, primaryColor);
+        item->setForeground(1, secondaryColor);
 
         // Format coordinates nicely for tooltip
         QString coordStr = pos[i];

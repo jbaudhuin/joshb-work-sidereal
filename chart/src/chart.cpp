@@ -1066,10 +1066,11 @@ Chart::setupSettingsEditor(AppSettingsEditor* ed)
 {
     ed->addTab(tr("Chart"));
 
-    QMap<QString, QVariant> values;
-    values[tr("Ascendant")]                = Start_Ascendent;
-    values[tr("Ascendant (prefer outer)")] = Start_Outer_Ascendant;
-    values[tr("0 Aries")]                  = Start_ZeroDegree;
+    QKeyValueList values {
+        { tr("Ascendant"), Start_Ascendent },
+        { tr("Ascendant (prefer outer)"), Start_Outer_Ascendant },
+        { tr("0 Aries"), Start_ZeroDegree }
+    };
     ed->addComboBox("Circle/circleStart", tr("Circle start:"), values);
 
     ed->addCheckBox("Circle/clockwise", tr("Clockwise circle"));

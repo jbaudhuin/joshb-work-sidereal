@@ -4698,10 +4698,11 @@ void
 MainWindow::setupSettingsEditor(AppSettingsEditor* ed)
 {
     // Add theme selector
-    QMap<QString, QVariant> themes;
-    themes[tr("Dark")] = "dark";
-    themes[tr("Light")] = "light";
-    themes[tr("Printable")] = "printable";
+    QKeyValueList themes {
+        { tr("Dark"), "dark" },
+        { tr("Light"), "light" },
+        { tr("Printable"), "printable" }
+    };
     ed->addComboBox("theme", tr("Theme"), themes);
     
     ed->addControl("askToSave", tr("Ask about unsaved files"));
