@@ -60,6 +60,77 @@ QDialog QSpinBox, QDialog QDoubleSpinBox, QDialog QComboBox {
 	padding: 3px;
 }
 
+/* =========================== AstroFileEditor =============================== */
+
+AstroFileEditor {
+	background-color: #202020;
+	color: #b5bfdf;
+}
+
+AstroFileEditor QLabel {
+	color: #d8e4f4;
+	background: transparent;
+}
+
+AstroFileEditor QPushButton {
+	background-color: #424242;
+	color: #d8e4f4;
+	border: 1px solid #585F6A;
+	border-radius: 3px;
+	padding: 5px 15px;
+	min-width: 60px;
+}
+
+AstroFileEditor QPushButton:hover {
+	background-color: #717b88;
+	border-color: #71aeec;
+}
+
+AstroFileEditor QPushButton:pressed {
+	background-color: #585F6A;
+}
+
+AstroFileEditor QLineEdit, AstroFileEditor QTextEdit, AstroFileEditor QPlainTextEdit,
+AstroFileEditor QSpinBox, AstroFileEditor QDoubleSpinBox, AstroFileEditor QComboBox {
+	background-color: #424242;
+	color: #d8e4f4;
+	border: 1px solid #585F6A;
+	border-radius: 2px;
+	padding: 3px;
+}
+
+AstroFileEditor QPlainTextEdit {
+	background-color: #2d2d30;
+	color: #d8e4f4;
+	border: 1px solid #585F6A;
+	padding: 5px;
+	font-family: "Segoe UI", "DejaVu Sans", Arial, sans-serif;
+}
+
+AstroFileEditor QDateEdit, AstroFileEditor QDateTimeEdit {
+	background-color: #424242;
+	color: #d8e4f4;
+	border: 1px solid #585F6A;
+	border-radius: 2px;
+	padding: 3px;
+}
+
+AstroFileEditor QListWidget {
+	background-color: #2d2d30;
+	color: #d8e4f4;
+	border: 1px solid #585F6A;
+	alternate-background-color: #323235;
+}
+
+AstroFileEditor QListWidget::item:selected {
+	background-color: #5399CA;
+	color: #FFFFFF;
+}
+
+AstroFileEditor QListWidget::item:hover {
+	background-color: #4d4d50;
+}
+
 /* =========================== QTabWidget ==================================== */
 
 QTextBrowser {

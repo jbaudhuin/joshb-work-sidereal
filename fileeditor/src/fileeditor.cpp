@@ -552,7 +552,13 @@ void AstroFileEditor::update(AstroFile::Members m)
 void AstroFileEditor::currentTabChanged(int index)
 {
     if (currentFile == index || index==-1) return;
+    
+    // Save current file's data before switching tabs to preserve user edits
     int oldFile = currentFile;
+    currentFile = oldFile;  // Temporarily keep currentFile pointing to old file
+    applyToFile(false, false);  // Save without setting needsSave flag or resuming update
+    
+    // Now switch to the new file
     currentFile = index;
     update(file(index)->diff(file(oldFile)));
 }
