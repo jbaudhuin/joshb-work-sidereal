@@ -190,6 +190,14 @@ extern aspectModeType aspectMode;
 
 enum PrimDirMode { prdMundane, prdZodiacal, prdActive };
 extern PrimDirMode primDirMode;
+extern bool        useApparentSun;
+
+bool
+isSolarReturn(const QString& chartName);
+bool
+isSolarIngress(const QString& chartName);
+bool
+isSolarBasedChart(const QString& chartName);
 
 double
 getJulianDate(QDateTime GMT, bool ephemerisTime = false);
@@ -934,8 +942,7 @@ calculatePSSRRAMC(const Houses&    returnHouses,
 
 // Calculate PSSR context for a return chart (caches anniversary second)
 PSSRContext
-calculatePSSRContext(const Horoscope& returnChart,
-                     bool             useMeanSun = true);
+calculatePSSRContext(const Horoscope& returnChart, bool useApparentSun = true);
 
 // Unified function to calculate angular dates using either PD or PSSR
 // If pssrCtx is null or invalid, uses Primary Direction (Naibod rate: 1°/day)

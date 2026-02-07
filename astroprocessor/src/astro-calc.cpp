@@ -1,5 +1,6 @@
 #include "astro-data.h"
 #include <QDebug>
+#include <QRegularExpression>
 #include <QtConcurrent/QtConcurrent>
 
 #undef MSDOS // undef macros made by SWE library
@@ -70,6 +71,27 @@ aspectModeType::current()
 }
 
 PrimDirMode primDirMode = prdMundane;
+bool useApparentSun = true;
+
+bool
+isSolarReturn(const QString& chartName)
+{
+    return chartName.contains("Sun-r=Sun");
+}
+
+bool
+isSolarIngress(const QString& chartName)
+{
+    // Match patterns like "Ari=Sun", "Can=Sun", "Lib=Sun", "Cap=Sun", etc.
+    static QRegularExpression rx("(Ari|Tau|Gem|Can|Leo|Vir|Lib|Sco|Sag|Cap|Aqu|Pis)=Sun");
+    return rx.match(chartName).hasMatch();
+}
+
+bool
+isSolarBasedChart(const QString& chartName)
+{
+    return isSolarReturn(chartName) || isSolarIngress(chartName);
+}
 
 double
 getJulianDate(QDateTime GMT, bool ephemerisTime /*=false*/)

@@ -1506,19 +1506,11 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actTransitToTransit))) {
         btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
     }
-    connect(_actTransitToTransit, &QAction::triggered, this, [this](bool checked) {
+    connect(_actTransitToTransit, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         qDebug() << "T=T button toggled:" << checked;
         if (checked) _tabEventOptions.insert(A::etcTransitToTransit);
         else _tabEventOptions.erase(A::etcTransitToTransit);
-        qDebug() << "  _actAutoRecalc:" << _actAutoRecalc << "isChecked:" << (_actAutoRecalc ? _actAutoRecalc->isChecked() : false);
-        // Mark events for recalc since event filter changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
-            qDebug() << "  Calling updateTransits()";
-            updateTransits();
-        }
+        saveEventOptionsAndRecalc();
     });
     
     // T=N dropdown button with menu
@@ -1640,14 +1632,10 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actProgressedToProgressed))) {
         btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
     }
-    connect(_actProgressedToProgressed, &QAction::triggered, this, [this](bool checked) {
+    connect(_actProgressedToProgressed, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcProgressedToProgressed);
         else _tabEventOptions.erase(A::etcProgressedToProgressed);
-        // Mark events for recalc since event filter changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+        saveEventOptionsAndRecalc();
     });
     
     // IP=N/P=N dropdown button with menu
@@ -1739,14 +1727,10 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actTransitAspectPatterns))) {
         btn->setStyleSheet("QToolButton { min-width: 28px !important; }");
     }
-    connect(_actTransitAspectPatterns, &QAction::triggered, this, [this](bool checked) {
+    connect(_actTransitAspectPatterns, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcTransitAspectPattern);
         else _tabEventOptions.erase(A::etcTransitAspectPattern);
-        // Mark events for recalc since event filter changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+        saveEventOptionsAndRecalc();
     });
     
     _actTransitNatalAspectPatterns = toolbar->addAction("TNA");
@@ -1755,14 +1739,10 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actTransitNatalAspectPatterns))) {
         btn->setStyleSheet("QToolButton { min-width: 36px !important; }");
     }
-    connect(_actTransitNatalAspectPatterns, &QAction::triggered, this, [this](bool checked) {
+    connect(_actTransitNatalAspectPatterns, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcTransitNatalAspectPattern);
         else _tabEventOptions.erase(A::etcTransitNatalAspectPattern);
-        // Mark events for recalc since event filter changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+        saveEventOptionsAndRecalc();
     });
     
     // Sign Ingress button
@@ -1772,14 +1752,10 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actSignIngress))) {
         btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
     }
-    connect(_actSignIngress, &QAction::triggered, this, [this](bool checked) {
+    connect(_actSignIngress, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcSignIngress);
         else _tabEventOptions.erase(A::etcSignIngress);
-        // Mark events for recalc since event filter changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+        saveEventOptionsAndRecalc();
     });
     
     // House Ingress button
@@ -1789,14 +1765,10 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actHouseIngress))) {
         btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
     }
-    connect(_actHouseIngress, &QAction::triggered, this, [this](bool checked) {
+    connect(_actHouseIngress, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcHouseIngress);
         else _tabEventOptions.erase(A::etcHouseIngress);
-        // Mark events for recalc since event filter changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+        saveEventOptionsAndRecalc();
     });
     
     // Paranatellonta button
@@ -1806,14 +1778,10 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actParanatellonta))) {
         btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
     }
-    connect(_actParanatellonta, &QAction::triggered, this, [this](bool checked) {
+    connect(_actParanatellonta, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcParanatellonta);
         else _tabEventOptions.erase(A::etcParanatellonta);
-        // Mark events for recalc since event filter changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+        saveEventOptionsAndRecalc();
     });
     
     // Paranatellonta to Natal button
@@ -1823,14 +1791,10 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actParanatellontaToNatal))) {
         btn->setStyleSheet("QToolButton { min-width: 48px !important; }");
     }
-    connect(_actParanatellontaToNatal, &QAction::triggered, this, [this](bool checked) {
+    connect(_actParanatellontaToNatal, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcParanatellontaToNatal);
         else _tabEventOptions.erase(A::etcParanatellontaToNatal);
-        // Mark events for recalc since event filter changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
-        }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+        saveEventOptionsAndRecalc();
     });
     
     // Initialize toolbar state from tab event options

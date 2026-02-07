@@ -362,28 +362,23 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
     nameItem->setFont(nameFont);
     _table->setItem(row, 0, nameItem);
 
-    // Get PSSR context if this is chart 2 and it's a return chart
+    // Get PSSR/NeoSQ context if this is a solar-based chart (solar return or solar ingress)
     const A::PSSRContext* pssrCtx = nullptr;
+    bool isSolarReturn = false;
+    bool isSolarIngress = false;
     AstroFile* currentFile = file(_selectedChartIndex);
-    if (_selectedChartIndex == 1 && currentFile && filesCount() > 1) {
-        // Check if chart 2 is a return type or has "Sun-r=Sun" pattern
-        bool isReturn = currentFile->getType() == TypeReturn;
-        
-        if (!isReturn) {
-            // Check for return pattern in filename (H# Sun-r=Sun)
-            QString name = currentFile->getName();
-            QRegularExpression returnPattern(R"(H\d+\s+Sun-r=Sun)");
-            isReturn = returnPattern.match(name).hasMatch();
-        }
-        
-        if (isReturn) {
-            // Try to get cached PSSR context, or calculate if needed
+    if (currentFile) {
+        // Check if this is a solar-based chart (solar return or solar ingress)
+        if (A::isSolarBasedChart(currentFile->getName())) {
+            // Try to get cached PSSR/NeoSQ context, or calculate if needed
             if (!currentFile->hasPSSRContext()) {
-                auto ctx = A::calculatePSSRContext(currentFile->horoscope());
+                auto ctx = A::calculatePSSRContext(currentFile->horoscope(), A::useApparentSun);
                 currentFile->setPSSRContext(ctx);
             }
             if (currentFile->hasPSSRContext()) {
                 pssrCtx = &currentFile->pssrContext();
+                isSolarReturn = A::isSolarReturn(currentFile->getName());
+                isSolarIngress = A::isSolarIngress(currentFile->getName());
             }
         }
     }
@@ -436,8 +431,12 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
             QDateTime angularDate = angularDateGMT.toTimeZone(timeZone);
             
             QString direction = (transitTime < _radixTime) ? "Con" : "Dir";
-            QString method = pssrCtx ? "PSSR" : "PD";
-            QString dateFormat = pssrCtx ? "ddd yyyy-MM-dd hh:mm" : "yyyy/MM/dd";
+            QString method = "PD"; // Default to Primary Directions
+            QString dateFormat = "yyyy/MM/dd";
+            if (pssrCtx) {
+                method = isSolarReturn ? "PSSR" : "NeoSQ";
+                dateFormat = "ddd yyyy-MM-dd hh:mm";
+            }
             QString tooltip = QString("%1: %2 %3")
                                   .arg(method)
                                   .arg(angularDate.toString(dateFormat))
@@ -458,28 +457,23 @@ Speculum::addStarRow(const A::Star& star, int row)
     nameItem->setData(Qt::UserRole, -1); // Use -1 for stars
     _table->setItem(row, 0, nameItem);
 
-    // Get PSSR context if this is chart 2 and it's a return chart
+    // Get PSSR/NeoSQ context if this is a solar-based chart (solar return or solar ingress)
     const A::PSSRContext* pssrCtx = nullptr;
+    bool isSolarReturn = false;
+    bool isSolarIngress = false;
     AstroFile* currentFile = file(_selectedChartIndex);
-    if (_selectedChartIndex == 1 && currentFile && filesCount() > 1) {
-        // Check if chart 2 is a return type or has "Sun-r=Sun" pattern
-        bool isReturn = currentFile->getType() == TypeReturn;
-        
-        if (!isReturn) {
-            // Check for return pattern in filename (H# Sun-r=Sun)
-            QString name = currentFile->getName();
-            QRegularExpression returnPattern(R"(H\d+\s+Sun-r=Sun)");
-            isReturn = returnPattern.match(name).hasMatch();
-        }
-        
-        if (isReturn) {
-            // Try to get cached PSSR context, or calculate if needed
+    if (currentFile) {
+        // Check if this is a solar-based chart (solar return or solar ingress)
+        if (A::isSolarBasedChart(currentFile->getName())) {
+            // Try to get cached PSSR/NeoSQ context, or calculate if needed
             if (!currentFile->hasPSSRContext()) {
-                auto ctx = A::calculatePSSRContext(currentFile->horoscope());
+                auto ctx = A::calculatePSSRContext(currentFile->horoscope(), A::useApparentSun);
                 currentFile->setPSSRContext(ctx);
             }
             if (currentFile->hasPSSRContext()) {
                 pssrCtx = &currentFile->pssrContext();
+                isSolarReturn = A::isSolarReturn(currentFile->getName());
+                isSolarIngress = A::isSolarIngress(currentFile->getName());
             }
         }
     }
@@ -532,8 +526,12 @@ Speculum::addStarRow(const A::Star& star, int row)
             QDateTime angularDate = angularDateGMT.toTimeZone(timeZone);
             
             QString direction = (transitTime < _radixTime) ? "Con" : "Dir";
-            QString method = pssrCtx ? "PSSR" : "PD";
-            QString dateFormat = pssrCtx ? "ddd yyyy-MM-dd hh:mm" : "yyyy/MM/dd";
+            QString method = "PD"; // Default to Primary Directions
+            QString dateFormat = "yyyy/MM/dd";
+            if (pssrCtx) {
+                method = isSolarReturn ? "PSSR" : "NeoSQ";
+                dateFormat = "ddd yyyy-MM-dd hh:mm";
+            }
             QString tooltip = QString("%1: %2 %3")
                                   .arg(method)
                                   .arg(angularDate.toString(dateFormat))

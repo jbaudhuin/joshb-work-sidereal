@@ -900,6 +900,8 @@ struct event {
     static double    _radixRA; // Radix Local Sidereal Time in RA degrees
     static const PSSRContext* _pssrCtx; // PSSR context for return charts
     static bool      _isProgressed; // Skip date calculations for progressed charts
+    static bool      _isSolarReturn; // Is this a solar return chart?
+    static bool      _isSolarIngress; // Is this a solar ingress chart?
 
     event() : _star(NULL), _pivot(0) { }
 
@@ -1031,8 +1033,12 @@ struct event {
             double angleRA = _star->angleTransitRA[_pivot];
             
             QDateTime angularDateGMT = calculateAngularDate(_radix, _dt, planetRA, angleRA, _pssrCtx);
-            QString method = _pssrCtx ? "PSSR" : "PD";
-            QString dateFormat = _pssrCtx ? "ddd yyyy-MM-dd hh:mm" : "yyyy/MM/dd";
+            QString method = "PD"; // Default to Primary Directions
+            QString dateFormat = "yyyy/MM/dd";
+            if (_pssrCtx) {
+                method = _isSolarReturn ? "PSSR" : "NeoSQ";
+                dateFormat = "ddd yyyy-MM-dd hh:mm";
+            }
             
             // Convert to local time using proper timezone offset
             int offsetSeconds = tz * 3600;
@@ -1056,6 +1062,8 @@ QDateTime event::_radix;
 double    event::_radixRA = 0.0;
 const PSSRContext* event::_pssrCtx = nullptr;
 bool      event::_isProgressed = false;
+bool      event::_isSolarReturn = false;
+bool      event::_isSolarIngress = false;
 } // namespace
 
 QString
@@ -1076,6 +1084,8 @@ describeParans(const AstroFileList& scopes,
     // Check if this is a return chart and get PSSR context
     event::_pssrCtx = nullptr;
     event::_isProgressed = false;
+    event::_isSolarReturn = false;
+    event::_isSolarIngress = false;
     AstroFile* file = scopes.first();
     
     // Check if it's a progressed chart based on the file TYPE, not just presence of base chart
@@ -1087,14 +1097,17 @@ describeParans(const AstroFileList& scopes,
         }
     }
     
-    if (file && file->getType() == TypeReturn) {
-        // It's a return chart (solar return, demi-return, etc.), try to get or calculate PSSR context
+    // Check if it's a solar-based chart (solar return or solar ingress)
+    if (file && isSolarBasedChart(file->getName())) {
+        // It's a solar-based chart - try to get or calculate PSSR/NeoSQ context
         if (!file->hasPSSRContext()) {
-            auto ctx = calculatePSSRContext(file->horoscope());
+            auto ctx = calculatePSSRContext(file->horoscope(), useApparentSun);
             file->setPSSRContext(ctx);
         }
         if (file->hasPSSRContext()) {
             event::_pssrCtx = &file->pssrContext();
+            event::_isSolarReturn = isSolarReturn(file->getName());
+            event::_isSolarIngress = isSolarIngress(file->getName());
         }
     }
 

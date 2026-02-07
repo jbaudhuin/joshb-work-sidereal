@@ -666,6 +666,7 @@ Plain::defaultSettings()
     s.setValue("Mundane/showAllDiurnalEvents", false);
     s.setValue("Mundane/paranOrb", 1.0);
     s.setValue("Mundane/includeFixedStars", true);
+    s.setValue("Mundane/useApparentSun", true);
     s.setValue("Text/aspectSortOrder", unsigned(A::SortByPlanets));
     return s;
 }
@@ -689,6 +690,7 @@ Plain::currentSettings()
     s.setValue("Mundane/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Mundane/paranOrb", paranOrb);
     s.setValue("Mundane/includeFixedStars", includeFixedStars);
+    s.setValue("Mundane/useApparentSun", A::useApparentSun);
     s.setValue("Text/aspectSortOrder", unsigned(aspectSortOrder));
     return s;
 }
@@ -728,6 +730,20 @@ Plain::applySettings(const AppSettings& s)
     includeFixedStars    = s.value("Mundane/includeFixedStars").toBool();
     aspectSortOrder =
         A::AspectSortOrder(s.value("Text/aspectSortOrder").toUInt());
+
+    // Check if useApparentSun changed
+    bool newUseApparentSun = s.value("Mundane/useApparentSun").toBool();
+    bool useApparentSunChanged = (A::useApparentSun != newUseApparentSun);
+    A::useApparentSun = newUseApparentSun;
+
+    // If useApparentSun changed, recalculate only solar-based charts
+    if (useApparentSunChanged) {
+        for (int i = 0; i < filesCount(); i++) {
+            if (file(i) && A::isSolarBasedChart(file(i)->getName())) {
+                file(i)->clearPSSRContext();
+            }
+        }
+    }
 
     // If primDirMode changed, recalculate all files to update transit times
     if (primDirModeChanged) {
