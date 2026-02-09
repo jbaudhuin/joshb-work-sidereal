@@ -3243,13 +3243,8 @@ Transits::filesUpdated(MembersList m)
     for (int i = 0; i < m.size() && i < filesCount(); ++i) {
         auto ml = m[i];
         qDebug() << "  File" << i << "members:" << QString::number(ml, 16);
-        if (ml & AstroFile::AspectMode) qDebug() << "    - AspectMode changed";
-        if (ml & AstroFile::AspectSet) qDebug() << "    - AspectSet changed";
-        if (ml & AstroFile::Zodiac) qDebug() << "    - Zodiac changed";
-        if (ml & AstroFile::HouseSystem) qDebug() << "    - HouseSystem changed";
         if (ml & AstroFile::GMT) qDebug() << "    - GMT changed";
         if (ml & AstroFile::Location) qDebug() << "    - Location changed";
-        if (ml & AstroFile::Harmonic) qDebug() << "    - Harmonic changed";
     }
     qDebug() << "========================================";
     
@@ -3332,24 +3327,12 @@ Transits::filesUpdated(MembersList m)
                           || type == TypeEvent))
             {
                 // For natal/event charts (file 0), check GMT and Location
-                // changes
                 any |= (ml & (AstroFile::GMT | AstroFile::Location));
-                // These changes require recalculation
                 needsRecalc |= (ml & (AstroFile::GMT | AstroFile::Location));
             }
 
-            // These settings affect event calculation and require recalc
-            any |= (ml
-                    & (AstroFile::Timezone | AstroFile::Zodiac
-                       | AstroFile::AspectSet | AstroFile::AspectMode
-                       | AstroFile::HouseSystem));
-            
-            auto recalcMembers = (ml & (AstroFile::Zodiac | AstroFile::AspectSet
-                               | AstroFile::AspectMode | AstroFile::HouseSystem));
-            if (recalcMembers) {
-                qDebug() << "[TRANSITS filesUpdated] file" << f << "has recalc-triggering members:" << recalcMembers;
-            }
-            needsRecalc |= recalcMembers;
+            // Timezone is file-data that affects display
+            any |= (ml & AstroFile::Timezone);
         }
         f++;
     }
@@ -3364,22 +3347,16 @@ Transits::filesUpdated(MembersList m)
         auto* evm = ensureEventsModel();
         if (!evm) return;
         
-        // Mark for recalc if:
-        // 1. Events are empty (new file or first time), OR
-        // 2. Settings changed that affect event calculation AND we're not just switching files
-        // Note: When switching files, needsRecalc will be true due to differences between old and new file,
-        //       but we shouldn't mark for recalc - each file maintains its own event cache
         bool shouldRecalc = file(0)->events().empty() || (needsRecalc && !fileChanged);
         
         if (filesCount() > 0 && shouldRecalc) {
             if (needsRecalc && !fileChanged) {
-                qDebug() << "[FILES UPDATED] Marking for recalc due to settings change";
+                qDebug() << "[FILES UPDATED] Marking for recalc due to data change";
             } else if (file(0)->events().empty()) {
                 qDebug() << "[FILES UPDATED] Marking for recalc due to empty events cache";
             }
             file(0)->markEventsForRecalc();
             
-            // If auto-recalc is enabled, trigger recalculation now
             if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
                 qDebug() << "[FILES UPDATED] Auto-recalc enabled, triggering updateTransits()";
                 updateTransits();
@@ -3388,9 +3365,61 @@ Transits::filesUpdated(MembersList m)
         
         if (!_chs) _chs = new AChangeSignalFrame(evm);
         evm->setAspectSet(file()->getAspectSetId());
-        // Don't clear events here - they're stored in file(0) now
-        // evm->clearAllEvents();
 #endif
+        describePlanet();
+    }
+}
+
+void
+Transits::viewSettingsUpdated(MembersList m)
+{
+    qDebug() << "========================================";
+    qDebug() << "[TRANSITS viewSettingsUpdated] Called";
+    for (int i = 0; i < m.size() && i < filesCount(); ++i) {
+        auto ml = m[i];
+        qDebug() << "  File" << i << "view flags:" << QString::number(ml, 16);
+        if (ml & AstroFile::AspectMode) qDebug() << "    - AspectMode changed";
+        if (ml & AstroFile::AspectSet) qDebug() << "    - AspectSet changed";
+        if (ml & AstroFile::Zodiac) qDebug() << "    - Zodiac changed";
+        if (ml & AstroFile::HouseSystem) qDebug() << "    - HouseSystem changed";
+        if (ml & AstroFile::Harmonic) qDebug() << "    - Harmonic changed";
+    }
+    qDebug() << "========================================";
+
+    if (!isVisible()) return;
+    if (_inhibitUpdate) return;
+    if (!filesCount()) return;
+
+    while (m.size() < filesCount()) m.append(AstroFile::Member());
+
+    // View settings that affect event calculation and require recalc
+    bool any = false;
+    bool needsRecalc = false;
+    for (int fi = 0; fi < filesCount(); ++fi) {
+        auto ml = m[fi];
+        any |= (ml & (AstroFile::Zodiac | AstroFile::AspectSet
+                      | AstroFile::AspectMode | AstroFile::HouseSystem));
+        needsRecalc |= (ml & (AstroFile::Zodiac | AstroFile::AspectSet
+                              | AstroFile::AspectMode | AstroFile::HouseSystem));
+    }
+
+    qDebug() << "[TRANSITS viewSettingsUpdated] any=" << any << "needsRecalc=" << needsRecalc;
+    if (any) {
+        auto* evm = ensureEventsModel();
+        if (!evm) return;
+
+        if (filesCount() > 0 && needsRecalc) {
+            qDebug() << "[VIEW SETTINGS] Marking for recalc due to settings change";
+            file(0)->markEventsForRecalc();
+
+            if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
+                qDebug() << "[VIEW SETTINGS] Auto-recalc enabled, triggering updateTransits()";
+                updateTransits();
+            }
+        }
+
+        if (!_chs) _chs = new AChangeSignalFrame(evm);
+        evm->setAspectSet(file()->getAspectSetId());
         describePlanet();
     }
 }

@@ -72,6 +72,7 @@ class Transits : public AstroFileHandler {
 
   protected: // AstroFileHandler implementation
     void filesUpdated(MembersList) override;
+    void viewSettingsUpdated(MembersList) override;
     void showEvent(QShowEvent* e) override;
     void hideEvent(QHideEvent* e) override;
 

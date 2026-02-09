@@ -18,6 +18,58 @@ using A::ADateRange;
 
 Q_DECLARE_METATYPE(ADateRange)
 
+/* ========================= DISPLAY SETTINGS ============================== */
+
+/// Singleton that owns the global view/toolbar state: house system, zodiac,
+/// aspect set, and aspect mode.  These settings apply to all open charts
+/// simultaneously and are NOT persisted inside chart files.
+///
+/// Harmonic is intentionally excluded — it is genuine per-file state.
+
+class DisplaySettings : public QObject {
+    Q_OBJECT
+
+  public:
+    /// Access the singleton.  Created on first call.
+    static DisplaySettings& instance();
+
+    // --- getters ---
+    A::HouseSystemId houseSystem() const { return _houseSystem; }
+    A::ZodiacId      zodiac()      const { return _zodiac; }
+    A::AspectSetId   aspectSet()   const { return _aspectSet; }
+    A::aspectModeEnum aspectMode() const { return A::aspectMode; }
+
+    // --- setters (emit changed() when value differs) ---
+    void setHouseSystem(A::HouseSystemId);
+    void setZodiac(A::ZodiacId);
+    void setAspectSet(A::AspectSetId, bool force = false);
+    void setAspectMode(A::aspectModeEnum);
+
+    /// Batch-update: set all four at once, emit a single changed() signal
+    /// with the union of flags.  Used by toolbar / setupFile.
+    void apply(A::HouseSystemId hsys,
+               A::ZodiacId     zod,
+               A::AspectSetId  aset,
+               A::aspectModeEnum mode,
+               bool forceAspect = false);
+
+  signals:
+    /// Emitted after one or more settings changed.
+    /// The Members mask uses AstroFile::HouseSystem / Zodiac /
+    /// AspectSet / AspectMode flags so handlers can test efficiently.
+    void changed(int flags);   // int instead of Members to avoid
+                               // forward-decl issues
+
+  private:
+    DisplaySettings();
+    Q_DISABLE_COPY(DisplaySettings)
+
+    A::HouseSystemId  _houseSystem;
+    A::ZodiacId       _zodiac;
+    A::AspectSetId    _aspectSet;
+    // AspectMode lives in the existing global A::aspectMode
+};
+
 /* =========================== ASTRO FILE ================================== */
 
 class AstroFile : public QObject, public A::EventStore {
@@ -26,6 +78,8 @@ class AstroFile : public QObject, public A::EventStore {
   public:
     enum Member {
         None         = 0x0,
+
+        // --- File data (persisted per chart) ---
         Name         = 0x1,
         Type         = 0x2,
         GMT          = 0x4,
@@ -33,18 +87,23 @@ class AstroFile : public QObject, public A::EventStore {
         Location     = 0x10,
         LocationName = 0x20,
         Comment      = 0x40,
+
+        // --- View settings (toolbar/UI state, not saved with file) ---
         HouseSystem  = 0x80,
         Zodiac       = 0x100,
         AspectSet    = 0x200,
         AspectMode   = 0x400,
         Harmonic     = 0x800,
-        HarmonicOpts = 0x1000,
-        EventList    = 0x2000,
-        DateRange    = 0x4000,
-        ChangedState = 0x8000,
-        BaseChart    = 0x10000,
-        TimezoneLocked = 0x20000,
-        All          = 0xFFFF
+
+        // --- Meta ---
+        ChangedState = 0x1000,
+
+        // --- Group masks ---
+        FileData     = Name | Type | GMT | Timezone | Location
+                       | LocationName | Comment,
+        ViewSettings = HouseSystem | Zodiac | AspectSet | AspectMode
+                       | Harmonic,
+        All          = 0x1FFF
     };
 
     Q_DECLARE_FLAGS(Members, Member)
@@ -82,6 +141,11 @@ class AstroFile : public QObject, public A::EventStore {
     void setZodiac(A::ZodiacId zod);
     void setAspectSet(A::AspectSetId set, bool force = false);
     void setAspectMode(const A::aspectModeType& mode);
+
+    /// Copy current DisplaySettings into InputData and recalculate if needed.
+    /// Returns the Members mask of what actually changed.
+    /// Does NOT call change() — the caller decides how to notify.
+    Members stampDisplaySettings();
     void setEventList(const QList<QDateTime>& evl);
     void setDateRange(const ADateRange& startEnd) { _dateRange = startEnd; }
     void setHarmonic(double harmonic);
@@ -274,18 +338,30 @@ class AstroFileHandler : public QWidget, public Customizable {
   private:
     AstroFileList f;
     bool          delayUpdate;
-    MembersList   delayMembers;
+    MembersList   delayMembers;     // accumulated data flags
+    MembersList   delayViewMembers; // accumulated view-setting flags
 
     MembersList blankMembers();
     bool        isAnyFileSuspended(); // returns true if any file has
                                       // isSuspendedUpdate() == true
+    void dispatchUpdate(const MembersList& dataFlags,
+                        const MembersList& viewFlags);
 
   private slots:
     void fileUpdatedSlot(AstroFile::Members);
     void fileDestroyedSlot();
+    void displaySettingsSlot(int flags);
 
   protected:
     virtual void filesUpdated(MembersList members) = 0;
+
+    /// Override to handle view-setting changes separately from file-data
+    /// changes. Default implementation merges into filesUpdated() for
+    /// backward compatibility.
+    virtual void viewSettingsUpdated(MembersList members)
+    {
+        filesUpdated(members);
+    }
 
     virtual void showEvent(QShowEvent* e)
     {

@@ -19,6 +19,7 @@ public:
 
 protected:                            // AstroFileHandler implementation
     void filesUpdated(MembersList);
+    void viewSettingsUpdated(MembersList) override { } // ignores view settings
 
     AppSettings defaultSettings();
     AppSettings currentSettings();

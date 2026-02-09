@@ -39,6 +39,7 @@ class AstroFileInfo : public AstroFileHandler {
 
   protected:
     void filesUpdated(MembersList members); // AstroFileHandler implementations
+    void viewSettingsUpdated(MembersList) override { } // only cares about file data
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
     void dropEvent(QDropEvent* event) override;

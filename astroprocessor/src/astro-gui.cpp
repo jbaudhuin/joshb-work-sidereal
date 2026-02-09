@@ -15,6 +15,75 @@
 #include "astro-gui.h"
 #include <Astroprocessor/Zodiac>
 
+/* =================== DISPLAY SETTINGS ========================== */
+
+DisplaySettings::DisplaySettings()
+    : QObject(nullptr),
+      _houseSystem(A::Housesystem_Placidus),
+      _zodiac(A::Zodiac_Tropical),
+      _aspectSet(A::AspectSet_Default)
+{
+}
+
+/*static*/ DisplaySettings&
+DisplaySettings::instance()
+{
+    static DisplaySettings s;
+    return s;
+}
+
+void
+DisplaySettings::setHouseSystem(A::HouseSystemId h)
+{
+    if (_houseSystem != h) {
+        _houseSystem = h;
+        emit changed(AstroFile::HouseSystem);
+    }
+}
+
+void
+DisplaySettings::setZodiac(A::ZodiacId z)
+{
+    if (_zodiac != z) {
+        _zodiac = z;
+        emit changed(AstroFile::Zodiac);
+    }
+}
+
+void
+DisplaySettings::setAspectSet(A::AspectSetId s, bool force)
+{
+    if (_aspectSet != s || force) {
+        _aspectSet = s;
+        emit changed(AstroFile::AspectSet);
+    }
+}
+
+void
+DisplaySettings::setAspectMode(A::aspectModeEnum m)
+{
+    if (A::aspectMode != m) {
+        A::aspectMode = m;
+        emit changed(AstroFile::AspectMode);
+    }
+}
+
+void
+DisplaySettings::apply(A::HouseSystemId hsys,
+                       A::ZodiacId      zod,
+                       A::AspectSetId   aset,
+                       A::aspectModeEnum mode,
+                       bool forceAspect)
+{
+    int flags = 0;
+    if (_houseSystem != hsys) { _houseSystem = hsys; flags |= AstroFile::HouseSystem; }
+    if (_zodiac != zod)       { _zodiac = zod;       flags |= AstroFile::Zodiac; }
+    if (_aspectSet != aset || forceAspect)
+                              { _aspectSet = aset;   flags |= AstroFile::AspectSet; }
+    if (A::aspectMode != mode){ A::aspectMode = mode; flags |= AstroFile::AspectMode; }
+    if (flags) emit changed(flags);
+}
+
 /* ====================== ASTRO FILE ============================= */
 
 /*static*/ int AstroFile::counter = 0;
@@ -88,10 +157,9 @@ AstroFile::diff(AstroFile* other) const
     if (getLocation() != other->getLocation()) flags |= Location;
     if (getLocationName() != other->getLocationName()) flags |= LocationName;
     if (getComment() != other->getComment()) flags |= Comment;
-    if (getHouseSystem() != other->getHouseSystem()) flags |= HouseSystem;
-    if (getZodiac() != other->getZodiac()) flags |= Zodiac;
-    if (getAspectSet().id != other->getAspectSet().id) flags |= AspectSet;
-    if (getEventList() != other->getEventList()) flags |= EventList;
+    // HouseSystem, Zodiac, AspectSet, AspectMode are global (DisplaySettings),
+    // not per-file, so they don't appear in diff.
+    if (getHarmonic() != other->getHarmonic()) flags |= Harmonic;
     if (hasUnsavedChanges() != other->hasUnsavedChanges())
         flags |= ChangedState;
     // lastChangedMembers = flags;
@@ -383,13 +451,14 @@ AstroFile::change(AstroFile::Members members, bool affectChangedState)
     if (unsavedBefore != _unsavedChanges) members |= ChangedState;
 
     if (!_holdUpdate) {
-        if (members
-            & (Type | GMT | Location | HouseSystem | Zodiac | AspectSet
-               | AspectMode | BaseChart))
+        // Recalculate for file-data changes that affect ephemeris
+        if (members & (Type | GMT | Location))
             recalculate();
-        else if (members & Harmonic) {
+        // Harmonic is per-file and triggers a cheaper recalc
+        else if (members & Harmonic)
             recalculateBaseChart();
-        }
+        // HouseSystem/Zodiac/AspectSet/AspectMode recalc is handled
+        // by DisplaySettings → stampDisplaySettings()
 
         emit changed(members);
     } else {
@@ -503,7 +572,8 @@ AstroFile::setBaseChart(const QDateTime& baseGmt)
     if (!scope.inputData.hasBaseChart() || 
         scope.inputData.baseGMT() != baseGmt) {
         scope.inputData.setBaseChart(baseGmt);
-        change(BaseChart);
+        recalculate();
+        change(ChangedState);
     }
 }
 
@@ -512,7 +582,8 @@ AstroFile::clearBaseChart()
 {
     if (scope.inputData.hasBaseChart()) {
         scope.inputData.clearBaseChart();
-        change(BaseChart);
+        recalculate();
+        change(ChangedState);
     }
 }
 
@@ -521,7 +592,7 @@ AstroFile::setTimezoneLocked(bool locked)
 {
     if (_timezoneLocked == locked) return;
     _timezoneLocked = locked;
-    change(TimezoneLocked);
+    change(ChangedState);
 }
 
 QString
@@ -566,6 +637,36 @@ AstroFile::setAspectMode(const A::aspectModeType& mode)
     }
 }
 
+AstroFile::Members
+AstroFile::stampDisplaySettings()
+{
+    auto& ds = DisplaySettings::instance();
+    Members flags = None;
+
+    if (getHouseSystem() != ds.houseSystem()) {
+        scope.inputData.setHouseSystem(ds.houseSystem());
+        flags |= HouseSystem;
+    }
+    if (getZodiac() != ds.zodiac()) {
+        scope.inputData.setZodiac(ds.zodiac());
+        flags |= Zodiac;
+    }
+    if (getAspectSetId() != ds.aspectSet()) {
+        scope.inputData.setAspectSet(ds.aspectSet());
+        flags |= AspectSet;
+    }
+    // AspectMode is already global (A::aspectMode), no per-file copy needed
+    // but we track the flag so handlers can react
+    // (the actual value was already set by DisplaySettings::setAspectMode)
+
+    if (flags & (HouseSystem | Zodiac))
+        recalculate();              // full recalc for calculation-affecting settings
+    else if (flags & AspectSet)
+        recalculateBaseChart();     // cheaper path for aspect-only changes
+
+    return flags;
+}
+
 void
 AstroFile::setHarmonic(double harmonic)
 {
@@ -580,7 +681,7 @@ AstroFile::setEventList(const QList<QDateTime>& evl)
 {
     if (getEventList() != evl) {
         _eventList = evl;
-        change(EventList);
+        change(ChangedState);
     }
 }
 
@@ -663,6 +764,10 @@ AstroFileHandler::AstroFileHandler(QWidget* parent) :
     Customizable()
 {
     delayUpdate = false;
+    connect(&DisplaySettings::instance(),
+            SIGNAL(changed(int)),
+            this,
+            SLOT(displaySettingsSlot(int)));
 }
 
 void
@@ -704,12 +809,21 @@ AstroFileHandler::setFiles(const AstroFileList& files)
 
     f = files;
 
+    // Split the accumulated diff flags into data vs view
+    MembersList dataFlags, viewFlags;
+    for (const auto& m : flags) {
+        dataFlags << (m & ~AstroFile::ViewSettings);
+        viewFlags << (m & AstroFile::ViewSettings);
+    }
+
     if (isVisible() && !isAnyFileSuspended()) {
-        delayMembers = blankMembers();
-        filesUpdated(flags);
+        delayMembers     = blankMembers();
+        delayViewMembers = blankMembers();
+        dispatchUpdate(dataFlags, viewFlags);
     } else {
-        delayMembers = flags;
-        delayUpdate  = true;
+        delayMembers     = dataFlags;
+        delayViewMembers = viewFlags;
+        delayUpdate      = true;
     }
 }
 
@@ -901,28 +1015,60 @@ AstroFileHandler::fileUpdatedSlot(AstroFile::Members m)
     int i = f.indexOf((AstroFile*) sender());
     if (i == -1) return; // file is not in set (yet?)
 
+    // Split incoming flags into data-only and view-only sets
+    AstroFile::Members dataFlags = m & ~AstroFile::ViewSettings;
+    AstroFile::Members viewFlags = m & AstroFile::ViewSettings;
+
     if (isVisible() && !isAnyFileSuspended()) {
-        MembersList mList;
+        MembersList dataList, viewList;
         if (delayUpdate) {
-            mList        = delayMembers;
-            delayMembers = blankMembers();
-            delayUpdate  = false;
+            dataList        = delayMembers;
+            viewList        = delayViewMembers;
+            delayMembers     = blankMembers();
+            delayViewMembers = blankMembers();
+            delayUpdate      = false;
         } else {
-            mList = blankMembers();
+            dataList = blankMembers();
+            viewList = blankMembers();
         }
 
-        while (mList.count() <= i) {
-            mList.append(AstroFile::Members());
-        }
-        mList[i] |= m;
-        filesUpdated(mList);
+        while (dataList.count() <= i)
+            dataList.append(AstroFile::Members());
+        while (viewList.count() <= i)
+            viewList.append(AstroFile::Members());
+
+        dataList[i] |= dataFlags;
+        viewList[i] |= viewFlags;
+
+        dispatchUpdate(dataList, viewList);
     } else {
         delayUpdate = true;
-        while (delayMembers.count() <= i) {
+        while (delayMembers.count() <= i)
             delayMembers.append(AstroFile::Members());
-        }
-        delayMembers[i] |= m;
+        while (delayViewMembers.count() <= i)
+            delayViewMembers.append(AstroFile::Members());
+        delayMembers[i] |= dataFlags;
+        delayViewMembers[i] |= viewFlags;
     }
+}
+
+void
+AstroFileHandler::dispatchUpdate(const MembersList& dataFlags,
+                                 const MembersList& viewFlags)
+{
+    // Always deliver data flags (includes ChangedState, Name, GMT, etc.)
+    bool hasData = false;
+    for (const auto& m : dataFlags)
+        if (m) { hasData = true; break; }
+    if (hasData)
+        filesUpdated(dataFlags);
+
+    // Deliver view-setting flags through the separate virtual
+    bool hasView = false;
+    for (const auto& m : viewFlags)
+        if (m) { hasView = true; break; }
+    if (hasView)
+        viewSettingsUpdated(viewFlags);
 }
 
 void
@@ -938,16 +1084,60 @@ AstroFileHandler::fileDestroyedSlot()
             f[i + 1]->diff(f[i]); // write difference with next file in list
     f.removeAt(i);
     mList.removeLast();
-    filesUpdated(mList);
+
+    // Split diff flags into data vs view
+    MembersList dataFlags, viewFlags;
+    for (const auto& m : mList) {
+        dataFlags << (m & ~AstroFile::ViewSettings);
+        viewFlags << (m & AstroFile::ViewSettings);
+    }
+    dispatchUpdate(dataFlags, viewFlags);
+}
+
+void
+AstroFileHandler::displaySettingsSlot(int flags)
+{
+    if (!filesCount()) return;
+
+    // Stamp the new settings into every file's InputData and recalculate
+    for (AstroFile* af : f) {
+        af->stampDisplaySettings();
+    }
+
+    // Build per-file Members list from the DisplaySettings flags
+    AstroFile::Members viewMembers = AstroFile::Members::fromInt(flags);
+    MembersList viewFlags;
+    for (int i = 0; i < filesCount(); ++i) {
+        viewFlags << viewMembers;
+    }
+
+    if (!isVisible() || isAnyFileSuspended()) {
+        // Accumulate for later delivery
+        while (delayViewMembers.size() < filesCount())
+            delayViewMembers << AstroFile::None;
+        for (int i = 0; i < filesCount(); ++i)
+            delayViewMembers[i] = delayViewMembers[i] | viewMembers;
+        delayUpdate = true;
+        return;
+    }
+
+    // Dispatch directly to viewSettingsUpdated() — no data flags
+    MembersList noData;
+    for (int i = 0; i < filesCount(); ++i)
+        noData << AstroFile::None;
+    dispatchUpdate(noData, viewFlags);
 }
 
 void
 AstroFileHandler::resumeUpdate()
 {
     if (delayUpdate) {
-        filesUpdated(delayMembers);
-        delayMembers = blankMembers();
-        delayUpdate  = false;
+        MembersList data = delayMembers;
+        MembersList view = delayViewMembers;
+        delayMembers     = blankMembers();
+        delayViewMembers = blankMembers();
+        delayUpdate      = false;
+        dispatchUpdate(data, view);
     }
 }
 

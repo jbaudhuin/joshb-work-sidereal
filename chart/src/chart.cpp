@@ -934,44 +934,37 @@ Chart::filesUpdated(MembersList m)
     while (m.size() < filesCount()) {
         m.append(AstroFile::Member());
     }
+
+    // File-data changes that require scene rebuild
     if (chartsCount
         && (chartsCount != filesCount()
             || (filesCount()
                 && (m[0]
-                    & (AstroFile::Zodiac | AstroFile::GMT | AstroFile::Location
-                       | AstroFile::Type | AstroFile::Name
-                       | AstroFile::HouseSystem)))))
+                    & (AstroFile::GMT | AstroFile::Location
+                       | AstroFile::Type | AstroFile::Name)))))
     {
-        // clear if charts count, zodiac, or major chart data has changed
         clearScene();
     }
 
     bool justCreated = false;
-    bool updAspects  = false;
     if (!chartsCount && filesCount()) {
         createScene();
         justCreated = true;
     }
 
-    AstroFile::Members updateFlags =
-        AstroFile::GMT | AstroFile::Timezone | AstroFile::Location
-        | AstroFile::HouseSystem | AstroFile::AspectSet | AstroFile::Zodiac
-        | AstroFile::Harmonic;
+    AstroFile::Members dataUpdateFlags =
+        AstroFile::GMT | AstroFile::Timezone | AstroFile::Location;
 
-    if (filesCount() && (justCreated || (m[0] & updateFlags))) {
-        updateScene();
-        for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
-        updAspects = true;
-    } else if (!updAspects && filesCount() && (m[0] & AstroFile::AspectMode)) {
-        // aspect mode changed
+    bool updAspects = false;
+    if (filesCount() && (justCreated || (m[0] & dataUpdateFlags))) {
         updateScene();
         for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
         updAspects = true;
     }
 
     if (filesCount() > 1
-        && (justCreated || (m[1] & updateFlags)
-            || ((m[0] & updateFlags) && startPoint() == Start_Ascendent)))
+        && (justCreated || (m[1] & dataUpdateFlags)
+            || ((m[0] & dataUpdateFlags) && startPoint() == Start_Ascendent)))
     {
         updateScene();
         for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
@@ -979,6 +972,35 @@ Chart::filesUpdated(MembersList m)
     }
 
     if (updAspects) updateAspects();
+}
+
+void
+Chart::viewSettingsUpdated(MembersList m)
+{
+    while (m.size() < filesCount()) {
+        m.append(AstroFile::Member());
+    }
+
+    // Zodiac change requires scene rebuild
+    if (chartsCount && filesCount() && (m[0] & AstroFile::Zodiac)) {
+        clearScene();
+    }
+
+    if (!chartsCount && filesCount()) {
+        createScene();
+    }
+
+    // Any view-setting change triggers full scene update
+    bool hasViewChange = false;
+    for (const auto& ml : m) {
+        if (ml) { hasViewChange = true; break; }
+    }
+
+    if (hasViewChange && filesCount()) {
+        updateScene();
+        for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
+        updateAspects();
+    }
 }
 
 bool

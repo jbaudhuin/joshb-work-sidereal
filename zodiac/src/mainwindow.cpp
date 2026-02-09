@@ -757,16 +757,10 @@ AstroWidget::setupFile(AstroFile* file, bool suspendUpdate)
         file->setLocationName(geoWdg->locationName());
     }
 
-    file->setZodiac(zodiacSelector->itemData(zodiacSelector->currentIndex())
-                        .toInt()); // set zodiac
-    file->setHouseSystem(
-        hsystemSelector->itemData(hsystemSelector->currentIndex())
-            .toInt()); // set house system
-    auto aset =
-        aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt();
-    file->setAspectSet(aset, _dynAspChange); // set aspect set
-    file->setAspectMode(
-        A::aspectModeEnum(aspectModeSelector->currentIndex())); // aspect mode
+    // Stamp global display settings into InputData (no signals)
+    file->stampDisplaySettings();
+
+    // Harmonic is per-file, set from toolbar for new files
     auto val = harmonicSelector->currentText();
     bool ok  = false;
     auto h   = val.toDouble(&ok);
@@ -1297,9 +1291,52 @@ AstroWidget::vectorFromString(const QString& str)
 void
 AstroWidget::horoscopeControlChanged()
 {
-    for (AstroFile* i : files()) setupFile(i, true);
+    // Update global display settings (HouseSystem, Zodiac, AspectSet, AspectMode)
+    auto& ds = DisplaySettings::instance();
+    auto aset = aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt();
+    // When _dynAspChange is set, the aspect set content changed (not its ID),
+    // so force the AspectSet notification even if the ID is unchanged
+    ds.apply(
+        hsystemSelector->itemData(hsystemSelector->currentIndex()).toInt(),
+        zodiacSelector->itemData(zodiacSelector->currentIndex()).toInt(),
+        aset,
+        A::aspectModeEnum(aspectModeSelector->currentIndex()),
+        _dynAspChange);
 
-    for (AstroFile* i : files()) i->resumeUpdate();
+    // Harmonic is per-file — parse from combo and apply to all current files
+    auto val = harmonicSelector->currentText();
+    bool ok  = false;
+    auto h   = val.toDouble(&ok);
+    if (!ok) {
+        auto ops = val.split(QRegularExpression("\\s*\\*\\s*"));
+        if (ops.size() >= 2) {
+            double v = 1;
+            for (auto m : ops) {
+                auto mv = m.toDouble(&ok);
+                if (ok) v *= mv;
+                else break;
+            }
+            if (ok) h = v;
+        } else {
+            ops = val.split(QRegularExpression("\\s*/\\s*"));
+            if (ops.size() >= 2) {
+                double v = ops.takeFirst().toDouble(&ok);
+                for (auto m : ops) {
+                    auto mv = m.toDouble(&ok);
+                    if (std::abs(mv) <= std::numeric_limits<double>::epsilon()) {
+                        ok = false; break;
+                    }
+                    if (ok) v /= mv;
+                    else break;
+                }
+                if (ok) h = v;
+            }
+        }
+    }
+    if (ok) {
+        for (AstroFile* f : files())
+            f->setHarmonic(h);
+    }
 }
 
 void

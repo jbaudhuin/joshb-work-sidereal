@@ -200,15 +200,10 @@ Plain::filesUpdated(MembersList m)
     // Show/hide chart 2 button based on number of files
     chart2Btn->setVisible(filesCount() > 1);
 
-    // Check if aspects need to be recalculated
-    // Invalidate cache if chart data, zodiac, or aspect settings changed
+    // File-data changes (GMT, Location) that affect aspect positions
     bool needsAspectUpdate = false;
     for (const auto& members : m) {
-        if (members
-            & (AstroFile::GMT | AstroFile::Location | AstroFile::HouseSystem
-               | AstroFile::Zodiac | AstroFile::AspectSet
-               | AstroFile::AspectMode))
-        {
+        if (members & (AstroFile::GMT | AstroFile::Location)) {
             needsAspectUpdate = true;
             break;
         }
@@ -220,6 +215,23 @@ Plain::filesUpdated(MembersList m)
 
     // If charts count changed or first member has changes, refresh
     if (chartsCountChanged || (m[0] != 0)) {
+        refresh();
+    }
+}
+
+void
+Plain::viewSettingsUpdated(MembersList m)
+{
+    if (!file()) return;
+
+    // View-setting changes always invalidate the aspect cache
+    bool needsAspectUpdate = false;
+    for (const auto& members : m) {
+        if (members) { needsAspectUpdate = true; break; }
+    }
+
+    if (needsAspectUpdate) {
+        aspectsCached = false;
         refresh();
     }
 }

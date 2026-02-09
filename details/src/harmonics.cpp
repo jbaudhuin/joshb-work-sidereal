@@ -595,14 +595,12 @@ Harmonics::filesUpdated(MembersList m)
         return;
     }
 
-    // XXX need a better division of in-process update and final update
-    // if (QApplication::mouseButtons() & Qt::LeftButton) return;
-
+    // View settings (Harmonic, AspectSet, HouseSystem) are handled
+    // by viewSettingsUpdated() which we override to ignore.
+    // Any file-data change triggers a full redraw.
     bool any = false;
     for (auto ml : m) {
-        any |= !!(ml
-                  & ~(AstroFile::Harmonic | AstroFile::AspectSet
-                      | AstroFile::HouseSystem));
+        if (ml) { any = true; break; }
     }
     if (any) describePlanet();
 }
