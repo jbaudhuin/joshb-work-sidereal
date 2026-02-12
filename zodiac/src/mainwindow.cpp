@@ -3877,6 +3877,13 @@ FilesBar::fileDestroyed() // called when AstroFile going to be destroyed
     files[tab].removeAt(index);
     updateTab(tab);
     file->deleteLater();
+
+    // When a secondary file is removed from the current tab, notify
+    // AstroWidget so it can call setFiles() — this hides fileView2nd
+    // and forces Chart / other handlers to fully rebuild.
+    if (tab == currentIndex() && index > 0 && !files[tab].isEmpty()) {
+        emit currentChanged(currentIndex());
+    }
 }
 
 void
@@ -3929,11 +3936,9 @@ FilesBar::closeSecondaryChart()
         transits->stopThreads();
     }
     
-    // Remove the secondary file - fileDestroyed() slot will handle removal from list
+    // Remove the secondary file — fileDestroyed() handles list removal,
+    // tab update, and emitting currentChanged to refresh all widgets.
     secondFile->destroy();
-    // Note: files[currentIndex()].removeAt(1) is handled by fileDestroyed() slot
-    updateTab(currentIndex());
-    emit currentChanged(currentIndex());
     
     return true;
 }

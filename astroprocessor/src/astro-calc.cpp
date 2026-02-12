@@ -590,6 +590,7 @@ calculatePlanet(PlanetId         planet,
         // From there we fudge a prime vertical coordinate.
         double housePos = swe_house_pos(RAMC, geopos[1], eps, 'C', xx, errStr);
         ret.pvPos       = (housePos - 1) / 12 * 360;
+        if (ret.id == Planet_SouthNode) ret.pvPos = swe_degnorm(ret.pvPos + 180.);
     }
 
     // calculate horizontal coordinates
@@ -901,6 +902,7 @@ PlanetLoc::compute(const ChartPlanetId& planet, const InputData& ida, double jd)
                                               xx,
                                               errStr);
                 pos           = (housePos - 1) / 12 * 360;
+                if (p.id == Planet_SouthNode) pos = swe_degnorm(pos + 180.);
             }
             break;
         }
@@ -1120,6 +1122,27 @@ calculateStar(const QString&   name,
         swe_azalt(jd, SE_ECL2HOR, geopos, 0, 0, xx, hor);
         ret.horizontalPos.setX(hor[0]);
         ret.horizontalPos.setY(hor[1]);
+
+        // Calculate prime vertical longitude from the Campanus house position,
+        // same method as calculatePlanet(). We need the tropical ecliptic
+        // longitude, so strip SEFLG_SIDEREAL.
+        {
+            double pvxx[6];
+            char   pvStarName[256];
+            strcpy(pvStarName, ret.name.toStdString().c_str());
+            if (swe_fixstar_ut(pvStarName,
+                               jd,
+                               (flags & ~SEFLG_SIDEREAL) | SEFLG_SWIEPH,
+                               pvxx,
+                               errStr)
+                    != ERR
+                && strlen(errStr) == 0)
+            {
+                double housePos =
+                    swe_house_pos(houses.RAMC, geopos[1], eps, 'C', pvxx, errStr);
+                ret.pvPos = (housePos - 1) / 12 * 360;
+            }
+        }
 
         if (primDirMode == prdActive) {
             double rettm;

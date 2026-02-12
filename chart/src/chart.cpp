@@ -335,9 +335,10 @@ Chart::updateScene()
     case Start_Ascendent:       {
         const auto& houses = file(useReturnAsc ? 1 : 0)->horoscope().houses;
         switch (A::aspectMode) {
-        case A::amcEquatorial: rotate = houses.RAAC; break;
+        case A::amcEquatorial:    rotate = houses.RAAC; break;
+        case A::amcPrimeVertical: rotate = 0; break;
         default:
-        case A::amcEcliptic:   rotate = houses.cusp[0]; break;
+        case A::amcEcliptic:      rotate = houses.cusp[0]; break;
         }
         break;
     }
@@ -537,8 +538,20 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         }
     } break;
 
-    case A::amcPrimeVertical:
-        // break;
+    case A::amcPrimeVertical: {
+        for (int i = 0; i < 12; ++i) {
+            cuspides[fileIndex][i]->setVisible(!(i % 3));
+        }
+        cuspate(0, 0);               // ASC = 0°
+        cuspate(180, 6);             // DESC = 180°
+        if (file(fileIndex)->getHarmonic() == 1) {
+            cuspate(270, 9);         // MC = 270°
+            cuspate(90, 3);          // IC = 90°
+        } else {
+            cuspides[fileIndex][3]->setVisible(false);
+            cuspides[fileIndex][9]->setVisible(false);
+        }
+    } break;
 
     default:
     case A::amcEcliptic:

@@ -1091,6 +1091,22 @@ AstroFileHandler::fileDestroyedSlot()
         dataFlags << (m & ~AstroFile::ViewSettings);
         viewFlags << (m & AstroFile::ViewSettings);
     }
+
+    // Always notify handlers when a file is removed, even if the diff flags
+    // for the remaining file(s) are empty.  The file *count* changed, so
+    // handlers like Chart need to rebuild their scene (e.g. 2-chart → 1-chart).
+    bool hasAny = false;
+    for (const auto& m : dataFlags)
+        if (m) { hasAny = true; break; }
+    if (!hasAny)
+        for (const auto& m : viewFlags)
+            if (m) { hasAny = true; break; }
+
+    if (!hasAny && !dataFlags.isEmpty()) {
+        // Force at least a minimal data notification so filesUpdated() fires
+        dataFlags[0] |= AstroFile::Name;
+    }
+
     dispatchUpdate(dataFlags, viewFlags);
 }
 
@@ -1102,6 +1118,14 @@ AstroFileHandler::displaySettingsSlot(int flags)
     // Stamp the new settings into every file's InputData and recalculate
     for (AstroFile* af : f) {
         af->stampDisplaySettings();
+    }
+
+    // AspectMode change requires a full recalculation so that positions
+    // computed at calc-time (e.g. fixed star pvPos) are up to date.
+    if (flags & AstroFile::AspectMode) {
+        for (AstroFile* af : f) {
+            af->calculate();
+        }
     }
 
     // Build per-file Members list from the DisplaySettings flags
