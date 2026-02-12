@@ -4518,6 +4518,13 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, QWidget* parent)
     
     // Update window title with session name if available
     updateWindowTitle();
+
+    // Force-refresh the active tab once the event loop starts.
+    // restoreSession() runs before the window is shown, so all handler
+    // updates are deferred (isVisible() == false).  This zero-timer fires
+    // after w.show() / a.exec(), guaranteeing every widget is visible and
+    // the deferred updates are properly dispatched.
+    QTimer::singleShot(0, this, SLOT(currentTabChanged()));
 }
 
 /*static*/
