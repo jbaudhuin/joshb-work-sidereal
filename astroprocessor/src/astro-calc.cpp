@@ -3663,7 +3663,23 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     initializeFromFiles(files);
 }
 
-void OmnibusFinder::initializeFromFiles(const AstroFileList& files)
+/// Constructor with pattern support
+OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
+                             const ADateRange&    range,
+                             const uintSSet&      hset,
+                             const AstroFileList& files,
+                             const QString&       pattern,
+                             const EventTypeSet&  exclude /*={}*/) :
+    AspectFinder(evs, range, hset, exclude, afcFindStuff)
+{
+    qDebug() << "[OMNIBUS CONSTRUCTOR] Pattern set to:" << pattern;
+
+    enabledEvents.clear();
+    initializeFromPattern(pattern, files);
+}
+
+void
+OmnibusFinder::initializeFromFiles(const AstroFileList& files)
 {
     // This ugly jumble intends to generate the appropriate planet listings,
     // and then create the T-T T-N P-P P-N pairings. And the ingresses, etc.
@@ -4082,6 +4098,322 @@ void OmnibusFinder::initializeFromFiles(const AstroFileList& files)
         qDebug() << formatPlanetsEtc(pe, _alist, _hsets).c_str();
     }
 #endif
+}
+
+void
+OmnibusFinder::initializeFromPattern(const QString&       pattern,
+                                     const AstroFileList& files)
+{
+    // Parse pattern; fall back to full initialization if invalid
+    if (pattern.isEmpty()) return;
+
+    QRegularExpressionMatch match = eventRE().match(pattern);
+    if (!match.hasMatch()) {
+        qDebug() << "[PATTERN] Invalid pattern, falling back to initializeFromFiles";
+        initializeFromFiles(files);
+        return;
+    }
+    qDebug() << "[PATTERN] matched:" << pattern;
+    qDebug() << "[PATTERN] captured groups:"
+             << "station=" << match.captured("station")
+             << "harmonic=" << match.captured("harmonic")
+             << "body=" << match.captured("body")
+             << "ingress=" << match.captured("ingress")
+             << "ret=" << match.captured("ret")
+             << "aspect=" << match.captured("aspect")
+             << "pos=" << match.captured("pos")
+             << "sign=" << match.captured("sign")
+             << "posa=" << match.captured("posa")
+             << "capturedLength=" << match.capturedLength()
+             << "patternLength=" << pattern.length();
+
+    enabledEvents.clear();
+
+    // --- Identify natal/transit files ---
+    bool natal = false, trans = false;
+    int  natus = -1, locus = -1;
+    for (int i = 0, n = files.count(); i < n; ++i) {
+        auto f = files.at(i);
+        _ids.push_back(f->horoscope().inputData);
+        auto type = f->getType();
+        if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
+            if (!natal) { natus = i; natal = true; }
+            else if (!trans) { locus = i; trans = true; }
+        } else {
+            locus = i; trans = true;
+        }
+    }
+    if (!trans && natal) { locus = natus; trans = true; }
+
+    // Use the base hset (index 0, passed to AspectFinder constructor) by default.
+    // Only override if the user specified H# in the pattern.
+    hsetId useHset = 0;
+
+    QString harmonicStr = match.captured("harmonic");
+    if (!harmonicStr.isEmpty()) {
+        unsigned h = harmonicStr.toUInt();
+        if (h >= 1) {
+            useHset = _hsets.size();
+            _hsets.emplace_back(uintSSet { h });
+        }
+    }
+
+    // --- Deduplicating planet getters ---
+    double njd = natal ? getJulianDate(_ids[natus].GMT()) : 0;
+    QMap<ChartPlanetId, unsigned> transitIndex, natalIndex, progressedIndex;
+
+    auto getTransitPlanet = [&](PlanetId pid) -> unsigned {
+        ChartPlanetId cpid(locus, pid, Planet_None);
+        if (!transitIndex.contains(cpid)) {
+            transitIndex[cpid] = _alist.size();
+            _alist.push_back(new TransitPosition(cpid, _ids[locus]));
+        }
+        return transitIndex.value(cpid);
+    };
+
+    auto getNatalPlanet = [&](PlanetId pid) -> unsigned {
+        ChartPlanetId cpid(natus, pid, Planet_None);
+        if (!natalIndex.contains(cpid)) {
+            natalIndex[cpid] = _alist.size();
+            _alist.push_back(new NatalPosition(cpid, _ids[natus], "r"));
+        }
+        return natalIndex.value(cpid);
+    };
+
+    auto getProgressedPlanet = [&](PlanetId pid) -> unsigned {
+        ChartPlanetId cpid(natus, pid, Planet_None);
+        if (!progressedIndex.contains(cpid)) {
+            progressedIndex[cpid] = _alist.size();
+            _alist.push_back(new ProgressedPosition(cpid, _ids[natus], njd));
+        }
+        return progressedIndex.value(cpid);
+    };
+
+    // Resolve "Planet", "Planet-t/-r/-p", or "Planet/Planet" (midpoint) to an
+    // _alist index. Returns {index, mode} where mode is 't', 'r', or 'p'.
+    // Midpoint tokens may be "Ura/Plu", "Moo-r/Jup-r", etc.
+    // We must check for '/' BEFORE splitting on '-', because a token like
+    // "Moo-r/Jup-r" split on '-' yields ["Moo","r/Jup","r"], losing the
+    // midpoint structure.
+    auto resolvePlanet = [&](const QString& tok,
+                             QChar defaultMode = 't')
+        -> std::pair<unsigned, QChar /*mode*/> {
+
+        // --- Midpoint notation (contains '/') ---
+        if (tok.contains('/')) {
+            auto mpls = tok.split('/');
+            if (mpls.size() != 2)
+                return { unsigned(-1), '\0' };
+
+            // Parse each half: "Moo-r" → name "Moo", suffix 'r'
+            auto parsePart = [](const QString& part)
+                -> std::pair<QString, QChar> {
+                auto dp = part.trimmed().split('-');
+                QString name = dp.first().trimmed();
+                QChar suf = (dp.size() > 1 && !dp[1].isEmpty())
+                                ? dp[1].at(0).toLower() : QChar('\0');
+                return { name, suf };
+            };
+
+            auto [name1, suf1] = parsePart(mpls[0]);
+            auto [name2, suf2] = parsePart(mpls[1]);
+
+            auto pid1 = getPlanetId(name1);
+            auto pid2 = getPlanetId(name2);
+            if (pid1 == Planet_None || pid2 == Planet_None)
+                return { unsigned(-1), '\0' };
+
+            // Mode: prefer first suffix, then second, then default
+            QChar suffix = (suf1 != '\0') ? suf1
+                         : (suf2 != '\0') ? suf2 : QChar('\0');
+            QChar mode = (suffix != '\0') ? suffix : defaultMode;
+
+            ChartPlanetId cpid(pid1, pid2);
+            if (mode == 'r' && natal) {
+                if (!natalIndex.contains(cpid)) {
+                    natalIndex[cpid] = _alist.size();
+                    _alist.push_back(new NatalPosition(
+                        ChartPlanetId(natus, pid1, pid2), _ids[natus], "r"));
+                }
+                return { natalIndex.value(cpid), 'r' };
+            }
+            if (mode == 'p' && natal) {
+                if (!progressedIndex.contains(cpid)) {
+                    progressedIndex[cpid] = _alist.size();
+                    _alist.push_back(new ProgressedPosition(
+                        ChartPlanetId(natus, pid1, pid2), _ids[natus], njd));
+                }
+                return { progressedIndex.value(cpid), 'p' };
+            }
+            if (trans) {
+                if (!transitIndex.contains(cpid)) {
+                    transitIndex[cpid] = _alist.size();
+                    _alist.push_back(new TransitPosition(
+                        ChartPlanetId(locus, pid1, pid2), _ids[locus]));
+                }
+                return { transitIndex.value(cpid), 't' };
+            }
+            return { unsigned(-1), '\0' };
+        }
+
+        // --- Simple planet (no '/') ---
+        auto parts = tok.split('-');
+        QString body = parts.first().trimmed();
+        QChar suffix = (parts.size() > 1 && !parts[1].isEmpty())
+                           ? parts[1].at(0).toLower() : QChar('\0');
+        QChar mode = (suffix != '\0') ? suffix : defaultMode;
+
+        auto pid = getPlanetId(body);
+        if (pid == Planet_None) return { unsigned(-1), '\0' };
+
+        if (mode == 'r' && natal)
+            return { getNatalPlanet(pid), 'r' };
+        if (mode == 'p' && natal)
+            return { getProgressedPlanet(pid), 'p' };
+        if (trans)
+            return { getTransitPlanet(pid), 't' };
+        return { unsigned(-1), '\0' };
+    };
+
+    // --- Extract pattern components ---
+    QString stationPat = match.captured("station");
+    QString bodyPat    = match.captured("body");
+    QString aspectPat  = match.captured("aspect");
+    bool    hasIngress = !match.captured("ingress").isEmpty();
+    bool    hasReturn  = !match.captured("ret").isEmpty();
+
+    // --- Dispatch by pattern type ---
+
+    if (!stationPat.isEmpty()) {
+        // "Mars station" → just put Mars in _alist; station finder scans it
+        enable(etcStation);
+        if (trans) {
+            auto pid = getPlanetId(stationPat);
+            if (pid != Planet_None) getTransitPlanet(pid);
+        }
+
+    } else if (!bodyPat.isEmpty() && hasIngress) {
+        // "Mars ingress Aries" → transit planet paired with fixed sign position
+        enable(etcSignIngress);
+        if (trans) {
+            auto pid = getPlanetId(bodyPat);
+            if (pid != Planet_None) {
+                unsigned ti = getTransitPlanet(pid);
+
+                ZodiacId zid = _ids[0].zodiac();
+                qreal signPos = getSignPos(zid,
+                                           match.captured("sign"),
+                                           match.captured("deg").trimmed().toUInt(),
+                                           match.captured("min").toUInt(),
+                                           match.captured("sec").toUInt());
+
+                // Forward ingress
+                unsigned ji = _alist.size();
+                auto pl = new PlanetLoc({-1, Ingresses_Start, Planet_None}, "I", signPos);
+                pl->allowAspects = PlanetLoc::aspOnlyDirect;
+                _alist.push_back(pl);
+                _staff.emplace_back(ti, ji, useHset, etcSignIngress);
+
+                // Retrograde ingress
+                unsigned ri = _alist.size();
+                auto plR = new PlanetLoc({-1, Ingresses_Start + 12, Planet_None}, "I", signPos);
+                plR->allowAspects = PlanetLoc::aspOnlyRetro;
+                _alist.push_back(plR);
+                _staff.emplace_back(ti, ri, useHset, etcSignIngress);
+            }
+        }
+
+    } else if (!bodyPat.isEmpty() && hasReturn) {
+        // "Sun return" → transit planet conjunct natal planet
+        enable(etcReturn);
+        if (trans && natal) {
+            auto pid = getPlanetId(bodyPat);
+            if (pid != Planet_None) {
+                unsigned ti = getTransitPlanet(pid);
+                unsigned ni = getNatalPlanet(pid);
+
+                EventType etype = etcReturn;
+                if (pid == Planet_Sun)       { etype = etcSolarReturn; enable(etcSolarReturn); }
+                else if (pid == Planet_Moon)  { etype = etcLunarReturn; enable(etcLunarReturn); }
+
+                _staff.emplace_back(ti, ni, useHset, etype);
+            }
+        }
+
+    } else if (!aspectPat.isEmpty()) {
+        // "Sun=Moon", "Sun-t=Moon-r", "H4 Sun=Moon=Mars"
+        // Split tokens, resolve each planet, pair all combinations
+        auto tokens = aspectPat.split("=");
+
+        // Determine default mode for untagged planets.
+        // If some tokens are explicitly tagged, untagged ones get the "other" role.
+        QChar defaultMode = 't';
+        bool anyR = false, anyT = false, anyP = false;
+        for (const auto& tok : std::as_const(tokens)) {
+            auto parts = tok.split('-');
+            if (parts.size() > 1 && !parts[1].isEmpty()) {
+                QChar m = parts[1].at(0).toLower();
+                if (m == 'r') anyR = true;
+                else if (m == 't') anyT = true;
+                else if (m == 'p') anyP = true;
+            }
+        }
+        if (anyT && !anyR && !anyP) defaultMode = 'r';
+
+        QVector<unsigned> indices;
+        bool hasNatal = false, hasTransit = false, hasProgressed = false;
+
+        for (const auto& tok : std::as_const(tokens)) {
+            // Skip zodiac position tokens (e.g. "15 Aries" appended by posa)
+            // Use anchored match so sign substrings don't false-positive
+            auto zpm = zposRE().match(tok);
+            if (zpm.hasMatch() && zpm.capturedLength() == tok.length()) {
+                qDebug() << "[PATTERN] skipping zpos token:" << tok;
+                continue;
+            }
+
+            auto [idx, mode] = resolvePlanet(tok, defaultMode);
+            qDebug() << "[PATTERN] token:" << tok << "→ idx:" << idx
+                     << "mode:" << mode << "natal:" << natal << "trans:" << trans;
+            if (idx == unsigned(-1)) continue;
+            indices << idx;
+            if (mode == 'r') hasNatal = true;
+            else if (mode == 'p') hasProgressed = true;
+            else hasTransit = true;
+        }
+
+        // Pick event type
+        bool hasSlowComponent = hasNatal || hasProgressed;
+        EventType etype;
+        if (indices.size() > 2) {
+            etype = hasSlowComponent ? etcTransitNatalAspectPattern
+                                    : etcTransitAspectPattern;
+        } else if (hasProgressed && hasNatal) {
+            etype = etcProgressedToNatal;
+        } else if (hasProgressed && hasTransit) {
+            etype = etcTransitToNatal;  // T=P uses same search as T=N
+        } else if (hasProgressed) {
+            etype = etcProgressedToProgressed;
+        } else if (hasSlowComponent && hasTransit) {
+            etype = etcTransitToNatal;
+        } else if (hasSlowComponent) {
+            etype = etcTransitToNatal;
+        } else {
+            etype = etcTransitToTransit;
+        }
+        enable(etype);
+
+        // Staff: pair all combinations
+        for (int i = 0; i < indices.size(); ++i)
+            for (int j = i + 1; j < indices.size(); ++j)
+                _staff.emplace_back(indices[i], indices[j], useHset, etype);
+    }
+
+    qDebug() << "[PATTERN] _alist:" << _alist.size()
+             << "_staff:" << _staff.size()
+             << "events:" << enabledEvents.size();
+    for (const auto& pe : _staff)
+        qDebug() << "[PATTERN]" << formatPlanetsEtc(pe, _alist, _hsets).c_str();
 }
 
 namespace

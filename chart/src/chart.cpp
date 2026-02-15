@@ -620,6 +620,150 @@ Chart::updateAspects()
 }
 
 void
+Chart::clearMidpointFigures()
+{
+    for (auto& mf : midpointFigures) {
+        if (mf.chordLine) view->scene()->removeItem(mf.chordLine);
+        if (mf.toALine)   view->scene()->removeItem(mf.toALine);
+        delete mf.chordLine;
+        delete mf.toALine;
+    }
+    midpointFigures.clear();
+}
+
+void
+Chart::drawMidpointFigures()
+{
+    clearMidpointFigures();
+
+    const auto& focalMPs = focalMidpoints();
+    if (focalMPs.isEmpty()) return;
+
+    QGraphicsScene* s = view->scene();
+    QColor midpointColor(255, 220, 50);
+    QPen chordPen(midpointColor, 1.5, Qt::DashLine);
+
+    // Helper: for bi-wheels (fid > 0), return the inner-circle child
+    // marker so lines draw to the inner wheel, matching aspect lines.
+    auto innerMarker = [&](int fi, A::PlanetId pid) -> QGraphicsItem* {
+        auto* m = planetMarkers.value(fi).value(pid);
+        if (!m) return nullptr;
+        if (fi > 0 && !m->childItems().isEmpty())
+            return m->childItems().first();
+        return m;
+    };
+
+    for (const auto& mpid : focalMPs) {
+        int fid = mpid.fileId();
+        if (fid < 0) fid = 0;
+        if (fid >= filesCount()) continue;
+
+        A::PlanetId pid1 = mpid.planetId();  // B
+        A::PlanetId pid2 = mpid.planetId2(); // C
+
+        // Locate markers for B and C on the inner wheel
+        QGraphicsItem* markerB = innerMarker(fid, pid1);
+        QGraphicsItem* markerC = innerMarker(fid, pid2);
+        if (!markerB || !markerC) continue;
+
+        QPointF posB = markerB->sceneBoundingRect().center();
+        QPointF posC = markerC->sceneBoundingRect().center();
+        QPointF chordCenter = (posB + posC) / 2.0;
+
+        // Draw chord line between B and C
+        MidpointFigure mf;
+        mf.chordLine = s->addLine(QLineF(posB, posC), chordPen);
+        mf.chordLine->setZValue(0.5);
+
+        // Find planet A geometrically: compute the midpoint angle of B/C,
+        // then look for a solo focal planet near that angle.
+        const auto& p1Data = file(fid)->horoscope().planets.value(pid1);
+        const auto& p2Data = file(fid)->horoscope().planets.value(pid2);
+
+        double posB_ecl = p1Data.eclipticPos.x();
+        double posC_ecl = p2Data.eclipticPos.x();
+        double diff = swe_difdeg2n(posC_ecl, posB_ecl);
+        double midAngle = swe_degnorm(posB_ecl + diff / 2.0);
+
+        qreal maxOrb = A::EventOptions::current().expandShowOrb;
+        if (maxOrb <= 0) maxOrb = 2.0;
+
+        // Search focal planets for the solo "A" planet closest to midAngle
+        const A::Planet* bestPlanet = nullptr;
+        int   bestFid = -1;
+        qreal bestOrb = 999;
+
+        for (int fi = 0; fi < filesCount(); ++fi) {
+            const auto& fp = file(fi)->focalPlanets();
+            for (const auto& cpid : fp) {
+                if (cpid.isMidpt()) continue;           // skip midpoint entries
+                A::PlanetId aPid = cpid.planetId();
+                if (aPid == pid1 || aPid == pid2) continue; // skip B and C
+                int cfid = cpid.fileId();
+                if (cfid < 0) cfid = fi;
+                const auto& aPlanet = file(cfid)->horoscope().planets.value(aPid);
+                double d = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
+                if (d < bestOrb) {
+                    bestOrb = d;
+                    bestPlanet = &aPlanet;
+                    bestFid = cfid;
+                }
+            }
+        }
+
+        // Also check the other file's focal planets if none were found above
+        // (the focal set is stored on file(1) for synastry)
+        if (!bestPlanet && filesCount() > 1) {
+            const auto& fp1 = file(1)->focalPlanets();
+            for (const auto& cpid : fp1) {
+                if (cpid.isMidpt()) continue;
+                A::PlanetId aPid = cpid.planetId();
+                if (aPid == pid1 || aPid == pid2) continue;
+                int cfid = cpid.fileId();
+                if (cfid < 0) cfid = 1;
+                const auto& aPlanet = file(cfid)->horoscope().planets.value(aPid);
+                double d = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
+                if (d < bestOrb) {
+                    bestOrb = d;
+                    bestPlanet = &aPlanet;
+                    bestFid = cfid;
+                }
+            }
+        }
+
+        if (bestPlanet && bestOrb <= maxOrb) {
+            QGraphicsItem* markerA = innerMarker(bestFid, bestPlanet->id);
+            if (markerA) {
+                QPointF posA = markerA->sceneBoundingRect().center();
+
+                // Orb-based thickness: 3px when exact, tapering to 0.5 at limit
+                qreal thick = (maxOrb > 0) ? 3.0 * (maxOrb - bestOrb) / maxOrb : 1.5;
+                if (thick < 0.5) thick = 0.5;
+
+                QPen toAPen(midpointColor, thick, Qt::SolidLine);
+                mf.toALine = s->addLine(QLineF(chordCenter, posA), toAPen);
+                mf.toALine->setZValue(0.5);
+
+                // Tooltip
+                QString tip = tr("%1 = %2/%3  orb %4")
+                    .arg(bestPlanet->name, p1Data.name, p2Data.name,
+                         A::degreeToString(bestOrb));
+                mf.chordLine->setToolTip(tip);
+                mf.toALine->setToolTip(tip);
+            }
+        }
+
+        // Tooltip fallback if no A-planet line drawn
+        if (!mf.toALine) {
+            mf.chordLine->setToolTip(
+                tr("Midpoint: %1/%2").arg(p1Data.name, p2Data.name));
+        }
+
+        midpointFigures.append(mf);
+    }
+}
+
+void
 Chart::clearScene()
 {
     qDebug() << "Clear scene";
@@ -632,6 +776,9 @@ Chart::clearScene()
     aspects.clear();
     // aspectMarkers.clear();
     signIcons.clear();
+    // scene()->clear() already deleted the items, just clear tracking lists
+    midpointFigures.clear();
+
 }
 
 QRect
@@ -939,6 +1086,7 @@ Chart::refreshAll()
     for (int i = 0; i < filesCount(); i++) updatePlanetsAndCusps(i);
 
     updateAspects();
+    drawMidpointFigures();
 }
 
 void
@@ -984,7 +1132,10 @@ Chart::filesUpdated(MembersList m)
         updAspects = true;
     }
 
-    if (updAspects) updateAspects();
+    if (updAspects) {
+        updateAspects();
+        drawMidpointFigures();
+    }
 }
 
 void
@@ -1013,6 +1164,7 @@ Chart::viewSettingsUpdated(MembersList m)
         updateScene();
         for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
         updateAspects();
+        drawMidpointFigures();
     }
 }
 

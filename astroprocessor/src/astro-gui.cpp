@@ -13,6 +13,7 @@
 
 #include "astro-calc.h"
 #include "astro-gui.h"
+#include <swephexp.h>
 #include <Astroprocessor/Zodiac>
 
 /* =================== DISPLAY SETTINGS ========================== */
@@ -843,6 +844,8 @@ AstroFileHandler::calculateAspects()
         }
     }
     if (!useFocal) {
+        _syntheticMidpointPlanets.clear();
+        _focalMidpoints.clear();
         scope.aspects = A::calculateAspects(A::getAspectSet(input.aspectSet()),
                                             scope.planets);
         return scope.aspects;
@@ -882,11 +885,39 @@ AstroFileHandler::calculateAspects()
         A::getAspectSet(aspset == -1 ? input.aspectSet() : aspset);
     A::ChartPlanetPtrMap planets;
     // A::setOrbFactor(curr.patternsSpreadOrb / A::harmonicsMaxQOrb());
+    _syntheticMidpointPlanets.clear();
+    _focalMidpoints.clear();
     for (const auto& cpid : fp) {
         auto fid = cpid.fileId();
         if (fid < 0) continue;
-        auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
-        planets.emplace(cpid, pp);
+        if (cpid.isMidpt()) {
+            // Create a synthetic Planet at the midpoint of the two constituents
+            auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
+            auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
+            if (p1 && p2) {
+                A::Planet synth;
+                synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
+                synth.name = p1->name + "/" + p2->name;
+                synth.isReal = false;
+                // Compute near midpoint in ecliptic
+                double diff = swe_difdeg2n(p2->eclipticPos.x(), p1->eclipticPos.x());
+                synth.eclipticPos.setX(swe_degnorm(p1->eclipticPos.x() + diff / 2.0));
+                synth.eclipticPos.setY((p1->eclipticPos.y() + p2->eclipticPos.y()) / 2.0);
+                // Compute near midpoint in equatorial
+                double raDiff = swe_difdeg2n(p2->equatorialPos.x(), p1->equatorialPos.x());
+                synth.equatorialPos.setX(swe_degnorm(p1->equatorialPos.x() + raDiff / 2.0));
+                synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
+                // Compute near midpoint in prime vertical
+                double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
+                synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
+                _syntheticMidpointPlanets.append(synth);
+                planets.emplace(cpid, &_syntheticMidpointPlanets.last());
+                _focalMidpoints.append(cpid);
+            }
+        } else {
+            auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
+            planets.emplace(cpid, pp);
+        }
     }
     auto alist = A::calculateAspects(asps, planets);
     A::setOrbFactor(1);
@@ -905,6 +936,8 @@ AstroFileHandler::calculateSynastryAspects()
         }
     }
     if (!useFocal) {
+        _syntheticMidpointPlanets.clear();
+        _focalMidpoints.clear();
         A::setOrbFactor(0.25);
         return A::calculateAspects(file(0)->getAspectSet(),
                                    file(0)->horoscope().planets,
@@ -941,6 +974,8 @@ AstroFileHandler::calculateSynastryAspects()
                               &file(1)->horoscope().planetsOrig };
         A::setOrbFactor(curr.expandShowOrb / A::harmonicsMaxQOrb());
         QList<A::Aspect> alist;
+        _syntheticMidpointPlanets.clear();
+        _focalMidpoints.clear();
         auto             hpc = A::findClusters(hs,
                                    pf,
                                    qMax(size_t(2), fp.size()),
@@ -964,12 +999,65 @@ AstroFileHandler::calculateSynastryAspects()
             for (const auto& cpid : ps) {
                 auto fid = cpid.fileId();
                 if (fid < 0) continue;
-                auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
-                planets.emplace(cpid, pp);
+                if (cpid.isMidpt()) {
+                    auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
+                    auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
+                    if (p1 && p2) {
+                        A::Planet synth;
+                        synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
+                        synth.name = p1->name + "/" + p2->name;
+                        synth.isReal = false;
+                        double diff = swe_difdeg2n(p2->eclipticPos.x(), p1->eclipticPos.x());
+                        synth.eclipticPos.setX(swe_degnorm(p1->eclipticPos.x() + diff / 2.0));
+                        synth.eclipticPos.setY((p1->eclipticPos.y() + p2->eclipticPos.y()) / 2.0);
+                        double raDiff = swe_difdeg2n(p2->equatorialPos.x(), p1->equatorialPos.x());
+                        synth.equatorialPos.setX(swe_degnorm(p1->equatorialPos.x() + raDiff / 2.0));
+                        synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
+                        double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
+                        synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
+                        _syntheticMidpointPlanets.append(synth);
+                        planets.emplace(cpid, &_syntheticMidpointPlanets.last());
+                        _focalMidpoints.append(cpid);
+                    }
+                } else {
+                    auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
+                    planets.emplace(cpid, pp);
+                }
             }
             const auto& asps = A::getAspectSet(A::topAspectSet().id + h);
             alist << A::calculateAspects(asps, planets);
         }
+
+        // findClusters doesn't know about midpoint ChartPlanetIds, so any
+        // midpoint cpids in the original focal set won't appear in the
+        // cluster results.  Walk the original fp and ensure every midpoint
+        // is represented in _focalMidpoints (needed by drawMidpointFigures).
+        for (const auto& cpid : fp) {
+            if (!cpid.isMidpt()) continue;
+            // Already added from a cluster result?
+            if (_focalMidpoints.contains(cpid)) continue;
+            auto fid = cpid.fileId();
+            if (fid < 0 || fid >= filesCount()) continue;
+            auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
+            auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
+            if (p1 && p2) {
+                A::Planet synth;
+                synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
+                synth.name = p1->name + "/" + p2->name;
+                synth.isReal = false;
+                double diff = swe_difdeg2n(p2->eclipticPos.x(), p1->eclipticPos.x());
+                synth.eclipticPos.setX(swe_degnorm(p1->eclipticPos.x() + diff / 2.0));
+                synth.eclipticPos.setY((p1->eclipticPos.y() + p2->eclipticPos.y()) / 2.0);
+                double raDiff = swe_difdeg2n(p2->equatorialPos.x(), p1->equatorialPos.x());
+                synth.equatorialPos.setX(swe_degnorm(p1->equatorialPos.x() + raDiff / 2.0));
+                synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
+                double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
+                synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
+                _syntheticMidpointPlanets.append(synth);
+                _focalMidpoints.append(cpid);
+            }
+        }
+
         A::setOrbFactor(1);
         return alist;
     } else {
@@ -982,11 +1070,35 @@ AstroFileHandler::calculateSynastryAspects()
     // const auto& asps = aspset != -1? A::getAspectSet(aspset) :
     // file(0)->getAspectSet();
     A::ChartPlanetPtrMap planets;
+    _syntheticMidpointPlanets.clear();
+    _focalMidpoints.clear();
     for (const auto& cpid : fp) {
         auto fid = cpid.fileId();
         if (fid < 0) continue;
-        auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
-        planets.emplace(cpid, pp);
+        if (cpid.isMidpt()) {
+            auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
+            auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
+            if (p1 && p2) {
+                A::Planet synth;
+                synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
+                synth.name = p1->name + "/" + p2->name;
+                synth.isReal = false;
+                double diff = swe_difdeg2n(p2->eclipticPos.x(), p1->eclipticPos.x());
+                synth.eclipticPos.setX(swe_degnorm(p1->eclipticPos.x() + diff / 2.0));
+                synth.eclipticPos.setY((p1->eclipticPos.y() + p2->eclipticPos.y()) / 2.0);
+                double raDiff = swe_difdeg2n(p2->equatorialPos.x(), p1->equatorialPos.x());
+                synth.equatorialPos.setX(swe_degnorm(p1->equatorialPos.x() + raDiff / 2.0));
+                synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
+                double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
+                synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
+                _syntheticMidpointPlanets.append(synth);
+                planets.emplace(cpid, &_syntheticMidpointPlanets.last());
+                _focalMidpoints.append(cpid);
+            }
+        } else {
+            auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
+            planets.emplace(cpid, pp);
+        }
     }
     auto alist = A::calculateAspects(asps, planets);
     A::setOrbFactor(1);

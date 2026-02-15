@@ -743,19 +743,27 @@ class AspectFinder : public QObject, public EventOptions {
 class OmnibusFinder : public AspectFinder {
   private:
     void initializeFromFiles(const AstroFileList& files);
-    
+    void initializeFromPattern(const QString& pattern, const AstroFileList& files);
+
   public:
     OmnibusFinder(HarmonicEvents&      evs,
                   const ADateRange&    range,
                   const uintSSet&      hset,
                   const AstroFileList& files,
                   const EventTypeSet&  exclude = {});
-    
+
     OmnibusFinder(HarmonicEvents&      evs,
                   const ADateRange&    range,
                   const uintSSet&      hset,
                   const AstroFileList& files,
                   const EventOptions&  options,
+                  const EventTypeSet&  exclude = {});
+
+    OmnibusFinder(HarmonicEvents&      evs,
+                  const ADateRange&    range,
+                  const uintSSet&      hset,
+                  const AstroFileList& files,
+                  const QString&       pattern,
                   const EventTypeSet&  exclude = {});
 };
 

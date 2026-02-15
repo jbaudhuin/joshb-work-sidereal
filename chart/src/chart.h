@@ -71,6 +71,13 @@ private:
     QList<QGraphicsLineItem*>         aspects;
     QList<QGraphicsItem*>             signIcons;
 
+    /// Midpoint visualization items: chord between B,C and line to A
+    struct MidpointFigure {
+        QGraphicsLineItem* chordLine = nullptr;    ///< dashed line between B and C
+        QGraphicsLineItem* toALine  = nullptr;     ///< orb-weighted line from chord center to A
+    };
+    QList<MidpointFigure>             midpointFigures;
+
     float zodiacWidth() { return l_zodiacWidth * zoom; }
     float innerRadius(int fileIndex = 0);
     int cuspideLength(int fileIndex, int cusp);
@@ -88,6 +95,8 @@ private:
     void drawCuspides(int fileIndex);
     void updatePlanetsAndCusps(int fileIndex);
     void updateAspects();
+    void drawMidpointFigures();
+    void clearMidpointFigures();
 
     void fitInView();
     void createScene();

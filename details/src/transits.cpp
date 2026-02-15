@@ -32,6 +32,7 @@
 #include <QNetworkReply>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QRegularExpressionValidator>
 #include <QScrollBar>
 #include <QStandardItem>
 #include <QStandardItemModel>
@@ -1373,11 +1374,13 @@ Transits::Transits(QWidget* parent) :
     l1->setSpacing(4);
 
     _input = new QLineEdit;
+    _input->setPlaceholderText(tr("Pattern (e.g. Sun=Moon, Mars ingress Aries, Saturn station)"));
+    _input->setValidator(new QRegularExpressionValidator(
+        A::EventOptions::eventRE(), _input));
 
     auto l2 = new QVBoxLayout;
     l2->addItem(l1);
     l2->addWidget(_input, 0);
-    _input->setHidden(true);    // for now
     l2->setContentsMargins(QMargins());
 
     QVBoxLayout* l3 = new QVBoxLayout;
@@ -1934,6 +1937,9 @@ Transits::Transits(QWidget* parent) :
             this,
             SLOT(onDurationChanged(const QString&)));
 
+    connect(_input, &QLineEdit::editingFinished,
+            this, [this]() { updateTransits(); });
+
     auto today        = QDate::currentDate();
     auto startOfMonth = QDate(today.year(), today.month(), 1);
     _start->setDate(startOfMonth);
@@ -2215,6 +2221,15 @@ Transits::updateTransits()
     auto& evs = file(0)->events();
     bool hasEvents = !evs.empty();
     bool needsRecalc = file(0)->needsEventsRecalc();
+
+    // Detect if the pattern text changed since last calculation
+    QString currentPattern = _input->text().trimmed();
+    if (currentPattern != _lastUsedPattern) {
+        needsRecalc = true;
+        qDebug() << "[UPDATE TRANSITS] Pattern changed from"
+                 << _lastUsedPattern << "to" << currentPattern
+                 << "- forcing recalc";
+    }
     
     qDebug() << "[UPDATE TRANSITS] file(0):" << file(0)->getName() 
              << "hasEvents:" << hasEvents << "evs.size():" << evs.size()
@@ -2288,8 +2303,24 @@ Transits::updateTransits()
 #endif
 
     A::AspectFinder* af = nullptr;
+
+    // If the pattern input has a valid, complete value, use pattern-based construction
+    QString pattern = _input->text().trimmed();
+    bool usePattern = !pattern.isEmpty() && _input->hasAcceptableInput();
+    _lastUsedPattern = pattern;   // remember for cache invalidation
+
 #if 1
-    if (filesCount() >= 1) {
+    if (usePattern && filesCount() >= 1) {
+        qDebug() << "[UPDATE TRANSITS] Using pattern:" << pattern;
+        auto type = file(0)->getType();
+        if (type != TypeOther) {
+            af = new A::OmnibusFinder(evs, r, hs,
+                                      { file(0), transitsAF() }, pattern);
+        } else {
+            af = new A::OmnibusFinder(evs, r, hs, files(), pattern);
+        }
+    }
+    if (!af && filesCount() >= 1) {
         auto type = file(0)->getType();
         qDebug() << "[UPDATE TRANSITS] filesCount:" << filesCount();
         qDebug() << "[UPDATE TRANSITS] file(0) name:" << file(0)->getName() << "type:" << type;
@@ -2705,6 +2736,15 @@ Transits::clickedCell(QModelIndex inx)
         desc =
             inx.siblingAtColumn(EventsTableModel::harmonicCol).data().toString()
             + " " + focal.describe();
+    }
+    qDebug() << "[MIDPT-NAME] clickedCell: focal.size()=" << focal.size()
+             << "desc=" << desc;
+    for (const auto& cpid : focal) {
+        qDebug() << "[MIDPT-NAME]   cpid: fid=" << cpid.fileId()
+                 << "pid=" << int(cpid.planetId())
+                 << "pid2=" << int(cpid.planetId2())
+                 << "isMidpt=" << cpid.isMidpt()
+                 << "name=" << cpid.name();
     }
     A::modalize<bool> noup(_inhibitUpdate);
     if (transitsOnly()) {

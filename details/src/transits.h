@@ -166,6 +166,7 @@ class Transits : public AstroFileHandler {
     QPointer<QThread> _active;
     QPointer<A::AspectFinder> _activeFinder;
     QLineEdit*        _input;
+    QString           _lastUsedPattern;   // pattern text used for cached events
     QDateEdit*        _start;
     QLineEdit*        _duration;
     QButtonGroup*     _grp;

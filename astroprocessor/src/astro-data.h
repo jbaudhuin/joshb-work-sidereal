@@ -1152,7 +1152,8 @@ class PlanetSet : public std::set<ChartPlanetModeId> {
         for (const auto& cpid : *this) ids[cpid.fileId()]++;
 
         for (const ChartPlanetModeId& cpid : *this) {
-            auto name = cpid.name().left(3);
+            auto name = cpid.isMidpt() ? cpid.name()
+                                       : cpid.name().left(3);
             if (cpid.fileId() == 0 && ids.size() > 1) res << name + "-r";
             else
                 res << name;

@@ -341,6 +341,12 @@ class AstroFileHandler : public QWidget, public Customizable {
     MembersList   delayMembers;     // accumulated data flags
     MembersList   delayViewMembers; // accumulated view-setting flags
 
+    /// Synthetic Planet objects for midpoints in focal aspect calculation.
+    /// Lifetime must span the aspect drawing cycle.
+    QList<A::Planet> _syntheticMidpointPlanets;
+    /// Midpoint ChartPlanetIds found in the current focal set.
+    QList<A::ChartPlanetId> _focalMidpoints;
+
     MembersList blankMembers();
     bool        isAnyFileSuspended(); // returns true if any file has
                                       // isSuspendedUpdate() == true
@@ -376,6 +382,10 @@ class AstroFileHandler : public QWidget, public Customizable {
     AstroFileHandler(QWidget* parent = nullptr);
     A::AspectList calculateAspects();
     A::AspectList calculateSynastryAspects();
+
+    /// Return the set of midpoint ChartPlanetIds in the current focal set
+    /// (populated after calculateAspects/calculateSynastryAspects).
+    const QList<A::ChartPlanetId>& focalMidpoints() const { return _focalMidpoints; }
 
     void resumeUpdate();
     void setFiles(const AstroFileList& files);
