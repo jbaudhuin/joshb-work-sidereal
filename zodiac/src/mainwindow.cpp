@@ -991,6 +991,29 @@ AstroWidget::setHarmonic(double h)
 }
 
 void
+AstroWidget::setHarmonicQuietly(double h)
+{
+    // Update the harmonic combo box without triggering horoscopeControlChanged.
+    // This avoids premature chart redraws when the caller will trigger a
+    // controlled update later (e.g., after setting focal planets).
+    QString ns = QString::number(h);
+    int     i  = harmonicSelector->findText(ns);
+    if (i == -1) {
+        harmonicSelector->addItem(ns);
+        i = harmonicSelector->findText(ns);
+    }
+    if (i != -1) {
+        harmonicSelector->blockSignals(true);
+        harmonicSelector->setCurrentIndex(i);
+        harmonicSelector->blockSignals(false);
+    }
+    // Apply harmonic directly to current files (recalculates positions
+    // without triggering ds.apply -> viewSettingsUpdated chart redraw)
+    for (AstroFile* f : files())
+        f->setHarmonic(h);
+}
+
+void
 AstroWidget::destroyingFile()
 {
     if (auto file = qobject_cast<AstroFile*>(sender())) {

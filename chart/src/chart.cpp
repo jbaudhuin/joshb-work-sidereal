@@ -653,6 +653,18 @@ Chart::drawMidpointFigures()
         return m;
     };
 
+    qreal maxOrb = A::EventOptions::current().expandShowOrb;
+    if (maxOrb <= 0) maxOrb = 2.0;
+
+    // Track chord info for midpoint-to-midpoint connections (A/B=C/D)
+    struct ChordInfo {
+        QPointF chordCenter;
+        double  midAngle;
+        int     figureIndex;   // index into midpointFigures
+        QString name;          // "B/C" for tooltip
+    };
+    QVector<ChordInfo> chords;
+
     for (const auto& mpid : focalMPs) {
         int fid = mpid.fileId();
         if (fid < 0) fid = 0;
@@ -684,11 +696,15 @@ Chart::drawMidpointFigures()
         double posC_ecl = p2Data.eclipticPos.x();
         double diff = swe_difdeg2n(posC_ecl, posB_ecl);
         double midAngle = swe_degnorm(posB_ecl + diff / 2.0);
+        double farAngle = swe_degnorm(midAngle + 180.0);
 
-        qreal maxOrb = A::EventOptions::current().expandShowOrb;
-        if (maxOrb <= 0) maxOrb = 2.0;
+        // Record for midpoint-to-midpoint pass
+        int figIdx = midpointFigures.size();
+        chords.append({ chordCenter, midAngle, figIdx,
+                        QString("%1/%2").arg(p1Data.name, p2Data.name) });
 
-        // Search focal planets for the solo "A" planet closest to midAngle
+        // Search focal planets for the solo "A" planet closest to the
+        // midpoint axis (check BOTH near and far midpoint = 180° opposite)
         const A::Planet* bestPlanet = nullptr;
         int   bestFid = -1;
         qreal bestOrb = 999;
@@ -702,7 +718,9 @@ Chart::drawMidpointFigures()
                 int cfid = cpid.fileId();
                 if (cfid < 0) cfid = fi;
                 const auto& aPlanet = file(cfid)->horoscope().planets.value(aPid);
-                double d = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
+                double dNear = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
+                double dFar  = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), farAngle));
+                double d = qMin(dNear, dFar);
                 if (d < bestOrb) {
                     bestOrb = d;
                     bestPlanet = &aPlanet;
@@ -722,7 +740,9 @@ Chart::drawMidpointFigures()
                 int cfid = cpid.fileId();
                 if (cfid < 0) cfid = 1;
                 const auto& aPlanet = file(cfid)->horoscope().planets.value(aPid);
-                double d = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
+                double dNear = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
+                double dFar  = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), farAngle));
+                double d = qMin(dNear, dFar);
                 if (d < bestOrb) {
                     bestOrb = d;
                     bestPlanet = &aPlanet;
@@ -760,6 +780,43 @@ Chart::drawMidpointFigures()
         }
 
         midpointFigures.append(mf);
+    }
+
+    // Second pass: connect chord centers for midpoint-to-midpoint patterns
+    // (A/B=C/D).  Check all pairs – both near and far midpoint axes.
+    for (int i = 0; i < chords.size(); ++i) {
+        for (int j = i + 1; j < chords.size(); ++j) {
+            double dNear = fabs(swe_difdeg2n(chords[i].midAngle,
+                                              chords[j].midAngle));
+            double dFar  = fabs(swe_difdeg2n(chords[i].midAngle,
+                                              swe_degnorm(chords[j].midAngle + 180)));
+            double d = qMin(dNear, dFar);
+            if (d > maxOrb) continue;
+
+            qreal thick = (maxOrb > 0) ? 3.0 * (maxOrb - d) / maxOrb : 1.5;
+            if (thick < 0.5) thick = 0.5;
+
+            QPen mpPen(midpointColor, thick, Qt::SolidLine);
+            auto* line = s->addLine(
+                QLineF(chords[i].chordCenter, chords[j].chordCenter), mpPen);
+            line->setZValue(0.5);
+
+            QString tip = tr("%1 = %2  orb %3")
+                .arg(chords[i].name, chords[j].name,
+                     A::degreeToString(d));
+            line->setToolTip(tip);
+
+            // Also update the chord tooltips to reflect the full equation
+            auto& mfI = midpointFigures[chords[i].figureIndex];
+            auto& mfJ = midpointFigures[chords[j].figureIndex];
+            mfI.chordLine->setToolTip(tip);
+            mfJ.chordLine->setToolTip(tip);
+
+            // Store as additional MidpointFigure for proper cleanup
+            MidpointFigure mfLink;
+            mfLink.toALine = line;   // chordLine stays nullptr
+            midpointFigures.append(mfLink);
+        }
     }
 }
 

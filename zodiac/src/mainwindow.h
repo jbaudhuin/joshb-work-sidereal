@@ -122,6 +122,7 @@ class AstroWidget : public QWidget {
   public slots:
     void openEditor();
     void setHarmonic(double);
+    void setHarmonicQuietly(double h);
 
   signals:
     void helpRequested(QString tag);

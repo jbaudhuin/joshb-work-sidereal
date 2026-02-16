@@ -2703,6 +2703,7 @@ Transits::clickedCell(QModelIndex inx)
         MainWindow::theAstroWidget()->overrideAspectSet(),
         -1);
     A::PlanetSet focal;
+    double clickHarmonic = 0;  // non-zero when we quietly set harmonic
     if (inx.column() == EventsTableModel::harmonicCol) {
         auto v = inx.data(EventsTableModel::RawRole);
         qDebug() << v;
@@ -2717,8 +2718,31 @@ Transits::clickedCell(QModelIndex inx)
                      .data(EventsTableModel::RawRole);
         focal = inx.data(EventsTableModel::RawRole).value<A::PlanetSet>();
         if (focal.size() > 1) {
-            aset = A::topAspectSet().id + v.toUInt();
+            unsigned h = v.toUInt();
+            // Check whether the focal set contains any midpoints (A=B/C).
+            bool hasMidpoint = std::any_of(focal.begin(), focal.end(),
+                [](const auto& cpid) { return cpid.isMidpt(); });
+            if (hasMidpoint) {
+                // Switch the chart wheel to the event's harmonic so that
+                // midpoint chords and harmonic aspect lines are naturally
+                // visible.  At H(h) positions the standard (H1) aspect set
+                // finds the conjunctions that represent the original H(h)
+                // pattern.
+                //
+                // Use setHarmonicQuietly to update the combo box and
+                // apply harmonic to current files WITHOUT triggering
+                // horoscopeControlChanged -> ds.apply -> premature chart
+                // redraw (which would fire before focal planets are set).
+                MainWindow::theAstroWidget()->setHarmonicQuietly(h);
+                clickHarmonic = h;
+                aset = A::topAspectSet().id + 1;
+            } else {
+                aset = A::topAspectSet().id + h;
+            }
         }
+    } else {
+        // Any other column (e.g., Event Type): revert to H1
+        emit updateHarmonics(1);
     }
 
     auto par = inx.parent();
@@ -2770,6 +2794,8 @@ Transits::clickedCell(QModelIndex inx)
         if (shift.size() == focal.size()) focal.swap(shift);
 
         transitsAF()->suspendUpdate();
+        if (clickHarmonic > 0)
+            transitsAF()->setHarmonic(clickHarmonic);
         transitsAF()->setFocalPlanets(focal);
         transitsAF()->setName(desc);
         transitsAF()->setGMT(dt);

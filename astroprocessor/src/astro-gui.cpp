@@ -673,7 +673,7 @@ AstroFile::setHarmonic(double harmonic)
 {
     if (getHarmonic() != harmonic) {
         scope.harmonic = harmonic;
-        change(Harmonic);
+        change(Harmonic, false);   // transient display property — never mark dirty
     }
 }
 
@@ -719,7 +719,12 @@ AstroFile::recalculate()
 {
     qDebug() << "[PERF] Calculating file" << getName() << "type=" << type << "isProgressed=" << scope.inputData.isProgressed();
     clearPSSRContext(); // Clear cached PSSR context when chart is recalculated
+    double h = scope.harmonic;          // preserve harmonic across full recalc
     scope = A::calculateAll(scope.inputData);
+    if (h != 1.0) {
+        scope.harmonic = h;
+        A::calculateBaseChartHarmonic(scope);   // re-apply harmonic positions
+    }
     qDebug() << "[PERF] Calculation complete for" << getName();
 }
 
