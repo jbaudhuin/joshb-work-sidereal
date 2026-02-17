@@ -3502,14 +3502,15 @@ EventOptions::eventPat()
         QString plmpeqre = plmpre + "(=" + plmpre + ")*" + "(=(?<posa>"
                            + zposrea.replace(">", "a>") + "))?";
         // e.g., sun=moon=mars
-        QString plmpzposre = "(?<body>" + plmpre + ") " + "("
-                             + "(?<ingress>ingress (?<pos>" + zposre + "))"
+        // Use \\s+ for whitespace leniency between tokens
+        QString plmpzposre = "(?<body>" + plmpre + ")\\s+" + "("
+                             + "(?<ingress>ingress\\s+(?<pos>" + zposre + "))"
                              + "|(?<ret>return)"
                              + ")"; // e.g., sun ingress capricorn, sun return
         QString asprestr  = "(?<aspect>" + plmpeqre + ")";
-        QString stationre = "((?<station>(" + AstroFileEditor::planets.join("|")
-                            + ")) station)";
-        s_pat = "(" + stationre + "|" + "(H(?<harmonic>\\d+(\\.\\d+)?) )?("
+        // Use generic plre so abbreviations like "Sat station" work
+        QString stationre = "((?<station>(" + plre + "))\\s+station)";
+        s_pat = "(" + stationre + "|" + "(H(?<harmonic>\\d+(\\.\\d+)?)\\s+)?(" 
                 + plmpzposre + "|" + asprestr + ")" + ")";
     }
     return s_pat;
@@ -3522,6 +3523,45 @@ EventOptions::eventRE()
     static QRegularExpression s_re(eventPat(),
                                    QRegularExpression::CaseInsensitiveOption);
     return s_re;
+}
+
+/*static*/
+const QString&
+EventOptions::eventMultiPat()
+{
+    static QString s_mpat;
+    if (s_mpat.isEmpty()) {
+        const QString& single = eventPat();
+        // Allow one or more patterns separated by ';' with optional whitespace
+        s_mpat = single + "(\\s*;\\s*" + single + ")*";
+    }
+    return s_mpat;
+}
+
+/*static*/
+const QRegularExpression&
+EventOptions::eventMultiRE()
+{
+    static QRegularExpression s_re(eventMultiPat(),
+                                   QRegularExpression::CaseInsensitiveOption);
+    return s_re;
+}
+
+/*static*/
+bool
+EventOptions::isValidPattern(const QString& text)
+{
+    QString t = text.trimmed();
+    if (t.isEmpty()) return false;
+    const auto& re = eventRE();
+    for (const auto& sp : t.split(';')) {
+        auto piece = sp.trimmed();
+        if (piece.isEmpty()) continue;
+        auto m = re.match(piece);
+        if (!m.hasMatch() || m.capturedLength() != piece.length())
+            return false;
+    }
+    return true;
 }
 
 QVariantMap
@@ -4107,29 +4147,26 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
     // Parse pattern; fall back to full initialization if invalid
     if (pattern.isEmpty()) return;
 
-    QRegularExpressionMatch match = eventRE().match(pattern);
-    if (!match.hasMatch()) {
-        qDebug() << "[PATTERN] Invalid pattern, falling back to initializeFromFiles";
-        initializeFromFiles(files);
-        return;
+    // Split on ';' to support multiple sub-patterns, trim whitespace
+    QStringList subPatterns;
+    for (const auto& sp : pattern.split(';'))
+        if (!sp.trimmed().isEmpty()) subPatterns << sp.trimmed();
+    if (subPatterns.isEmpty()) return;
+
+    // Validate every sub-pattern against eventRE before proceeding
+    for (const auto& sp : std::as_const(subPatterns)) {
+        QRegularExpressionMatch m = eventRE().match(sp);
+        if (!m.hasMatch() || m.capturedLength() != sp.length()) {
+            qDebug() << "[PATTERN] Invalid sub-pattern:" << sp
+                     << "falling back to initializeFromFiles";
+            initializeFromFiles(files);
+            return;
+        }
     }
-    qDebug() << "[PATTERN] matched:" << pattern;
-    qDebug() << "[PATTERN] captured groups:"
-             << "station=" << match.captured("station")
-             << "harmonic=" << match.captured("harmonic")
-             << "body=" << match.captured("body")
-             << "ingress=" << match.captured("ingress")
-             << "ret=" << match.captured("ret")
-             << "aspect=" << match.captured("aspect")
-             << "pos=" << match.captured("pos")
-             << "sign=" << match.captured("sign")
-             << "posa=" << match.captured("posa")
-             << "capturedLength=" << match.capturedLength()
-             << "patternLength=" << pattern.length();
 
     enabledEvents.clear();
 
-    // --- Identify natal/transit files ---
+    // --- Identify natal/transit files (shared across all sub-patterns) ---
     bool natal = false, trans = false;
     int  natus = -1, locus = -1;
     for (int i = 0, n = files.count(); i < n; ++i) {
@@ -4145,20 +4182,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
     }
     if (!trans && natal) { locus = natus; trans = true; }
 
-    // Use the base hset (index 0, passed to AspectFinder constructor) by default.
-    // Only override if the user specified H# in the pattern.
-    hsetId useHset = 0;
-
-    QString harmonicStr = match.captured("harmonic");
-    if (!harmonicStr.isEmpty()) {
-        unsigned h = harmonicStr.toUInt();
-        if (h >= 1) {
-            useHset = _hsets.size();
-            _hsets.emplace_back(uintSSet { h });
-        }
-    }
-
-    // --- Deduplicating planet getters ---
+    // --- Shared deduplicating planet getters ---
     double njd = natal ? getJulianDate(_ids[natus].GMT()) : 0;
     QMap<ChartPlanetId, unsigned> transitIndex, natalIndex, progressedIndex;
 
@@ -4275,6 +4299,38 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         return { unsigned(-1), '\0' };
     };
 
+    // --- Shared deduplication across all sub-patterns ---
+    QSet<QPair<unsigned,unsigned>> seen;
+
+    // ===== Process each sub-pattern =====
+    for (const auto& subPat : std::as_const(subPatterns)) {
+    QRegularExpressionMatch match = eventRE().match(subPat);
+    // Already validated above, but guard anyway
+    if (!match.hasMatch()) continue;
+
+    qDebug() << "[PATTERN] sub-pattern:" << subPat;
+    qDebug() << "[PATTERN] captured groups:"
+             << "station=" << match.captured("station")
+             << "harmonic=" << match.captured("harmonic")
+             << "body=" << match.captured("body")
+             << "ingress=" << match.captured("ingress")
+             << "ret=" << match.captured("ret")
+             << "aspect=" << match.captured("aspect")
+             << "pos=" << match.captured("pos")
+             << "sign=" << match.captured("sign")
+             << "posa=" << match.captured("posa");
+
+    // Per-sub-pattern harmonic: use base hset unless H# is specified
+    hsetId useHset = 0;
+    QString harmonicStr = match.captured("harmonic");
+    if (!harmonicStr.isEmpty()) {
+        unsigned h = harmonicStr.toUInt();
+        if (h >= 1) {
+            useHset = _hsets.size();
+            _hsets.emplace_back(uintSSet { h });
+        }
+    }
+
     // --- Extract pattern components ---
     QString stationPat = match.captured("station");
     QString bodyPat    = match.captured("body");
@@ -4342,52 +4398,135 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
 
     } else if (!aspectPat.isEmpty()) {
         // "Sun=Moon", "Sun-t=Moon-r", "H4 Sun=Moon=Mars"
-        // Split tokens, resolve each planet, pair all combinations
+        // Also supports group tokens: T (all transit), OT (outer transit),
+        // P (all progressed), IP (inner progressed), N (all natal).
+        // E.g. "OT=N" expands to all outer-transit × natal-planet pairs;
+        //      "OT=OT" gives triangular pairs among outer transits.
         auto tokens = aspectPat.split("=");
 
+        // --- Helper: resolve a group token to a planet list + implicit mode.
+        // Returns {planetIds, implicitMode} or empty list if not a group.
+        // Group tokens are exact, case-insensitive matches — checked BEFORE
+        // getPlanetId() which uses startsWith (so "N" would match Neptune).
+        auto resolveGroup = [&](const QString& body)
+            -> std::pair<QList<PlanetId>, QChar /*implicitMode*/> {
+            QString b = body.trimmed().toUpper();
+            if (b == "OT") return { getOuterPlanets(includeCentaurs), 't' };
+            if (b == "IP") return { getInnerPlanets(includeAsteroids), 'p' };
+            if (b == "T")  return { getPlanets(includeAsteroids, includeCentaurs), 't' };
+            if (b == "P")  return { getPlanets(includeAsteroids, includeCentaurs), 'p' };
+            if (b == "N")  return { getPlanets(includeAsteroids, includeCentaurs), 'r' };
+            return { {}, '\0' };
+        };
+
+        // --- Helper: parse a raw token into body + suffix.
+        // "Mars-t" → ("Mars", 't');  "OT" → ("OT", '\0')
+        auto parseToken = [](const QString& tok)
+            -> std::pair<QString, QChar> {
+            // Don't split midpoint tokens (contain '/') on '-'
+            if (tok.contains('/')) return { tok.trimmed(), QChar('\0') };
+            auto parts = tok.split('-');
+            QString body = parts.first().trimmed();
+            QChar suf = (parts.size() > 1 && !parts[1].isEmpty())
+                            ? parts[1].at(0).toLower() : QChar('\0');
+            return { body, suf };
+        };
+
         // Determine default mode for untagged planets.
-        // If some tokens are explicitly tagged, untagged ones get the "other" role.
+        // If some tokens are explicitly tagged (via suffix or group token),
+        // untagged ones get the "other" role.
         QChar defaultMode = 't';
         bool anyR = false, anyT = false, anyP = false;
         for (const auto& tok : std::as_const(tokens)) {
-            auto parts = tok.split('-');
-            if (parts.size() > 1 && !parts[1].isEmpty()) {
-                QChar m = parts[1].at(0).toLower();
-                if (m == 'r') anyR = true;
-                else if (m == 't') anyT = true;
-                else if (m == 'p') anyP = true;
+            auto [body, suf] = parseToken(tok);
+            QChar effectiveMode = suf;
+            if (effectiveMode == '\0') {
+                // Check if it's a group token with an implicit mode
+                auto [grpPlanets, grpMode] = resolveGroup(body);
+                if (!grpPlanets.isEmpty()) effectiveMode = grpMode;
             }
+            if (effectiveMode == 'r') anyR = true;
+            else if (effectiveMode == 't') anyT = true;
+            else if (effectiveMode == 'p') anyP = true;
         }
         if (anyT && !anyR && !anyP) defaultMode = 'r';
 
-        QVector<unsigned> indices;
+        // --- Resolve tokens into per-side index lists ---
+        // Each '=' separated token becomes one "side" with one or more indices.
+        QVector<QVector<unsigned>> sides;
         bool hasNatal = false, hasTransit = false, hasProgressed = false;
+        bool hasOT = false, hasIP = false;  // track specific group tokens
 
         for (const auto& tok : std::as_const(tokens)) {
             // Skip zodiac position tokens (e.g. "15 Aries" appended by posa)
-            // Use anchored match so sign substrings don't false-positive
             auto zpm = zposRE().match(tok);
             if (zpm.hasMatch() && zpm.capturedLength() == tok.length()) {
                 qDebug() << "[PATTERN] skipping zpos token:" << tok;
                 continue;
             }
 
-            auto [idx, mode] = resolvePlanet(tok, defaultMode);
-            qDebug() << "[PATTERN] token:" << tok << "→ idx:" << idx
-                     << "mode:" << mode << "natal:" << natal << "trans:" << trans;
-            if (idx == unsigned(-1)) continue;
-            indices << idx;
-            if (mode == 'r') hasNatal = true;
-            else if (mode == 'p') hasProgressed = true;
-            else hasTransit = true;
+            auto [body, suf] = parseToken(tok);
+            auto [grpPlanets, grpImplicitMode] = resolveGroup(body);
+
+            QVector<unsigned> sideIndices;
+
+            if (!grpPlanets.isEmpty()) {
+                // --- Group token: expand to multiple planets ---
+                QChar mode = (suf != '\0') ? suf : grpImplicitMode;
+                qDebug() << "[PATTERN] group token:" << body << "→"
+                         << grpPlanets.size() << "planets, mode:" << mode;
+
+                // Track which specific group was used
+                QString bu = body.trimmed().toUpper();
+                if (bu == "OT") hasOT = true;
+                if (bu == "IP") hasIP = true;
+
+                for (PlanetId pid : grpPlanets) {
+                    unsigned idx = unsigned(-1);
+                    if (mode == 'r' && natal)
+                        idx = getNatalPlanet(pid);
+                    else if (mode == 'p' && natal)
+                        idx = getProgressedPlanet(pid);
+                    else if (trans)
+                        idx = getTransitPlanet(pid);
+                    if (idx != unsigned(-1))
+                        sideIndices << idx;
+                }
+                if (mode == 'r') hasNatal = true;
+                else if (mode == 'p') hasProgressed = true;
+                else hasTransit = true;
+            } else {
+                // --- Single planet (or midpoint) token ---
+                auto [idx, mode] = resolvePlanet(tok, defaultMode);
+                qDebug() << "[PATTERN] token:" << tok << "→ idx:" << idx
+                         << "mode:" << mode << "natal:" << natal << "trans:" << trans;
+                if (idx != unsigned(-1)) {
+                    sideIndices << idx;
+                    if (mode == 'r') hasNatal = true;
+                    else if (mode == 'p') hasProgressed = true;
+                    else hasTransit = true;
+                }
+            }
+
+            if (!sideIndices.isEmpty())
+                sides << sideIndices;
         }
+
+        // Flatten all sides for total index count (used for event type logic)
+        QVector<unsigned> allIndices;
+        for (const auto& s : sides)
+            allIndices << s;
 
         // Pick event type
         bool hasSlowComponent = hasNatal || hasProgressed;
         EventType etype;
-        if (indices.size() > 2) {
+        if (allIndices.size() > 2 && sides.size() > 2) {
             etype = hasSlowComponent ? etcTransitNatalAspectPattern
                                     : etcTransitAspectPattern;
+        } else if (hasOT && hasNatal) {
+            etype = etcOuterTransitToNatal;
+        } else if (hasIP && hasNatal) {
+            etype = etcInnerProgressedToNatal;
         } else if (hasProgressed && hasNatal) {
             etype = etcProgressedToNatal;
         } else if (hasProgressed && hasTransit) {
@@ -4403,11 +4542,41 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         }
         enable(etype);
 
-        // Staff: pair all combinations
-        for (int i = 0; i < indices.size(); ++i)
-            for (int j = i + 1; j < indices.size(); ++j)
-                _staff.emplace_back(indices[i], indices[j], useHset, etype);
+        // --- Build staff pairs with deduplication ---
+        // Use the shared `seen` set of normalized (min,max) pairs to avoid
+        // duplicates across sub-patterns.
+        auto addPair = [&](unsigned a, unsigned b) {
+            if (a == b) return;                 // skip self-pairs
+            // Skip NNode↔SNode pairs: they are always in exact
+            // opposition and will never leave aspect, causing
+            // findPriorStarts to loop back to the epoch.
+            auto idA = static_cast<PlanetLoc*>(_alist[a])->planet.planetId();
+            auto idB = static_cast<PlanetLoc*>(_alist[b])->planet.planetId();
+            if ((idA == Planet_NorthNode && idB == Planet_SouthNode)
+                || (idA == Planet_SouthNode && idB == Planet_NorthNode))
+                return;
+            auto key = qMakePair(qMin(a, b), qMax(a, b));
+            if (seen.contains(key)) return;     // skip duplicates
+            seen.insert(key);
+            _staff.emplace_back(a, b, useHset, etype);
+        };
+
+        if (sides.size() == 2) {
+            // Cross-product between two sides.
+            // For same-group (e.g. OT=OT) the normalization in addPair
+            // naturally gives triangular (unique unordered) pairs.
+            for (unsigned a : sides[0])
+                for (unsigned b : sides[1])
+                    addPair(a, b);
+        } else {
+            // 1 side or 3+ sides: triangular all-pairs among all indices
+            for (int i = 0; i < allIndices.size(); ++i)
+                for (int j = i + 1; j < allIndices.size(); ++j)
+                    addPair(allIndices[i], allIndices[j]);
+        }
     }
+
+    } // end for each sub-pattern
 
     qDebug() << "[PATTERN] _alist:" << _alist.size()
              << "_staff:" << _staff.size()
@@ -4884,6 +5053,8 @@ AspectFinder::findStations()
             _tp->clear();
             cleared = true;
         }
+        // Emit progress so the UI can sort & display station events found so far
+        emit progress(-3.0);  // negative signals "waiting for stations" phase
         int now(_numTasks);
         if (now != active) {
             qDebug() << now << "activity/ies";
@@ -4943,6 +5114,11 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
         if (_state == pauseRequestedState) {
             QThread::usleep(100000);
             continue;
+        }
+
+        // Emit progress periodically so the UI can display events found so far
+        if (iterationCount % 20 == 0) {
+            emit progress(-4.0);  // negative signals "findPriorStarts" phase
         }
 
         // Build working set
@@ -5702,6 +5878,7 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
     //modalize<bool> mum2(st_quiet, false);
 
     bool any = false;
+    int remainingCount = 0;
     for (auto hpsit = state.proximityLog.begin();
          _state != cancelRequestedState && hpsit != state.proximityLog.end();
          ++hpsit)
@@ -5709,6 +5886,12 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
         const auto& hps = hpsit->first;
         const auto& rm  = hpsit->second;
         for (auto rit = rm.begin(); rit != rm.end(); ++rit) {
+            // Emit progress periodically so UI can update incrementally
+            if (++remainingCount % 10 == 0) {
+                emit progress(-1.0);  // negative signals "remaining aspects" phase
+                QCoreApplication::processEvents();
+                if (_state == cancelRequestedState) return;
+            }
             const auto& r    = rit->first;
             const auto& stat = rit->second;
             if (stat) continue;
@@ -6438,6 +6621,10 @@ AspectFinder::findAspectsAndPatterns()
             }
         }
 
+        // Emit progress before potentially slow backward search so the UI
+        // can display any events already found (e.g. stations).
+        emit progress(0.0);
+
         findPriorStarts(state);
     }
     if (_state == cancelRequestedState) return;
@@ -6754,6 +6941,8 @@ AspectFinder::findAspectsAndPatterns()
             _tp->clear();
             cleared = true;
         }
+        // Emit progress so the UI can sort & display events found so far
+        emit progress(-2.0);  // negative signals "waiting for pool" phase
         int now(_numTasks);
         if (now != active) {
             qDebug() << now << "activity/ies";

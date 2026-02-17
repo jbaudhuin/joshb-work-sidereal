@@ -165,6 +165,7 @@ class Transits : public AstroFileHandler {
 
     QPointer<QThread> _active;
     QPointer<A::AspectFinder> _activeFinder;
+    bool              _pendingRestart = false;  // Set when old thread is canceling and we need to restart
     QLineEdit*        _input;
     QString           _lastUsedPattern;   // pattern text used for cached events
     QDateEdit*        _start;

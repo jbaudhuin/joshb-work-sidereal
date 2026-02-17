@@ -1374,9 +1374,21 @@ Transits::Transits(QWidget* parent) :
     l1->setSpacing(4);
 
     _input = new QLineEdit;
-    _input->setPlaceholderText(tr("Pattern (e.g. Sun=Moon, Mars ingress Aries, Saturn station)"));
-    _input->setValidator(new QRegularExpressionValidator(
-        A::EventOptions::eventRE(), _input));
+    _input->setPlaceholderText(tr("Pattern (e.g. Sun=Moon; Mars ingress Aries; Saturn station)"));
+    // Live visual feedback instead of a blocking QRegularExpressionValidator.
+    // The validator rejected partial input (intermediate keystrokes) because
+    // the complex regex couldn't partially match incomplete tokens.
+    connect(_input, &QLineEdit::textChanged, this, [this](const QString& text) {
+        QString t = text.trimmed();
+        if (t.isEmpty()) {
+            _input->setStyleSheet(QString());           // neutral
+        } else {
+            bool ok = A::EventOptions::isValidPattern(t);
+            _input->setStyleSheet(
+                ok ? QStringLiteral("QLineEdit { border: 1px solid green; }")
+                   : QStringLiteral("QLineEdit { border: 1px solid red; }"));
+        }
+    });
 
     auto l2 = new QVBoxLayout;
     l2->addItem(l1);
@@ -1996,6 +2008,9 @@ Transits::describePlanet()
 void
 Transits::stopThreads()
 {
+    // Prevent any pending restart from firing during shutdown
+    _pendingRestart = false;
+    
     if (_progressSortTimer && _progressSortTimer->isActive()) {
         _progressSortTimer->stop();
     }
@@ -2177,6 +2192,13 @@ Transits::updateTransits()
     if (!isVisible()) return;
     if (transitsAF()->isSuspendedUpdate()) return;
 
+    // If we're already waiting for an old thread to finish before restarting,
+    // don't queue another computation — the pending restart will handle it.
+    if (_pendingRestart) {
+        qDebug() << "[UPDATE TRANSITS] Already pending restart from canceled thread, skipping";
+        return;
+    }
+
     // Restore location from the appropriate file FIRST (before cache check)
     // This ensures the location widget updates even when using cached events
     AstroFile* locFile = nullptr;
@@ -2266,18 +2288,39 @@ Transits::updateTransits()
         qDebug() << "========================================";
         qDebug() << "[CLEANUP OLD] Found existing finder thread" << _active << _active->objectName();
         qDebug() << "[CLEANUP OLD] AspectFinder:" << _activeFinder.data();
-        qDebug() << "[CLEANUP OLD] Disconnecting and canceling...";
+        qDebug() << "[CLEANUP OLD] Disconnecting and canceling (non-blocking)...";
         disconnect(_active, SIGNAL(finished()), this, SLOT(onCompleted()));
         if (_activeFinder) {
             _activeFinder->cancel();
+            _activeFinder->disconnect();  // Disconnect all signals FROM the finder
+            disconnect(_activeFinder.data());  // Disconnect all signals TO the finder
         }
-        if (_active) {
-            qDebug() << "[CLEANUP OLD] Waiting for thread" << _active;
-            _active->wait();
-            qDebug() << "[CLEANUP OLD] Thread finished and will be deleted";
+        if (_progressSortTimer && _progressSortTimer->isActive()) {
+            _progressSortTimer->stop();
         }
-        _active = nullptr;
+        // Don't block the main thread! Let the old thread finish asynchronously.
+        // When it finishes, it will clean itself up via deleteLater().
+        // We set _pendingRestart so the finished handler will call updateTransits().
+        // Keep _active pointing to the old thread so stopThreads() can still wait
+        // for it during destruction.
+        _pendingRestart = true;
+        connect(_active, &QThread::finished, this, [this]() {
+            qDebug() << "[CLEANUP OLD] Old thread finished, pendingRestart:" << _pendingRestart;
+            _active = nullptr;
+            _activeFinder = nullptr;
+            if (_pendingRestart) {
+                _pendingRestart = false;
+                updateTransits();
+            }
+        }, Qt::SingleShotConnection);
+        // Clear the finder reference (it will be deleted by the thread's finished handler)
+        _activeFinder = nullptr;
+        // Clean up the change signal frame from the old calculation
+        delete _chs;
+        _chs = nullptr;
+        qDebug() << "[CLEANUP OLD] Cancellation dispatched, will restart when old thread exits";
         qDebug() << "========================================";
+        return;
     }
 
     if (!_chs) {
@@ -2290,8 +2333,22 @@ Transits::updateTransits()
     auto       hs = A::dynAspState();
     ADateRange r { _start->date(), _end->date() };
 
-    // Clear both the model AND the file's cached events before recalculating
-    // (evs is a reference to file(0)->_evs)
+    // Validate pattern BEFORE clearing events so that an invalid pattern
+    // leaves the current event list intact (user can clear the field to
+    // get back to toolbar-based computation).
+    A::AspectFinder* af = nullptr;
+    QString pattern = _input->text().trimmed();
+    bool usePattern = false;
+    if (!pattern.isEmpty()) {
+        usePattern = A::EventOptions::isValidPattern(pattern);
+        if (!usePattern) {
+            qDebug() << "[UPDATE TRANSITS] Invalid pattern, skipping recomputation:" << pattern;
+            return;
+        }
+    }
+    _lastUsedPattern = pattern;
+
+    // Pattern is valid (or empty) — now safe to clear events
     _evm->clearAllEvents();
     evs.clear();
 
@@ -2301,13 +2358,6 @@ Transits::updateTransits()
     transitsAF()->setLocationName(_location->locationName());
     transitsAF()->resumeUpdate();
 #endif
-
-    A::AspectFinder* af = nullptr;
-
-    // If the pattern input has a valid, complete value, use pattern-based construction
-    QString pattern = _input->text().trimmed();
-    bool usePattern = !pattern.isEmpty() && _input->hasAcceptableInput();
-    _lastUsedPattern = pattern;   // remember for cache invalidation
 
 #if 1
     if (usePattern && filesCount() >= 1) {
@@ -2416,18 +2466,32 @@ Transits::updateTransits()
 void
 Transits::onProgress(double prog)
 {
-    // Debounce sort operations during progress updates to prevent
-    // runaway sorting when many progress signals are queued
+    // Throttle sort operations during progress updates.
+    // Uses a repeating timer so that the UI updates at a steady rate
+    // regardless of how fast progress signals arrive.  Previous approach
+    // used a single-shot "debounce" that restarted on every signal —
+    // in release builds the worker is fast enough that signals arrived
+    // faster than 100ms, so the timer never fired until computation ended.
     if (!_progressSortTimer) {
         _progressSortTimer = new QTimer(this);  // Parent ensures cleanup
-        _progressSortTimer->setSingleShot(true);
-        _progressSortTimer->setInterval(100); // 100ms debounce
-        connect(_progressSortTimer, &QTimer::timeout, [this]() {
-            _evm->sort();
-            if (_chs) restoreScrollPos();
+        _progressSortTimer->setInterval(250);   // Update UI ~4 times/sec
+        connect(_progressSortTimer, &QTimer::timeout, this, [this]() {
+            if (_evm) {
+                _evm->sort();
+                // NOTE: restoreScrollPos() is NOT called here because the
+                // model-reset signals (modelAboutToBeReset/modelReset) already
+                // handle save/restore.  Calling it again here would overwrite
+                // a user's active scroll position.
+            }
         });
     }
-    _progressSortTimer->start();  // Restarts timer if already running
+    if (!_progressSortTimer->isActive()) {
+        // Fire immediately on first progress signal, then every 250ms
+        if (_evm) {
+            _evm->sort();
+        }
+        _progressSortTimer->start();
+    }
 }
 
 void
@@ -2554,7 +2618,25 @@ Transits::saveScrollPos()
     int currentScrollValue = ttv()->verticalScrollBar()->value();
     bool isScrollEvent = (_lastScrollValue >= 0 && currentScrollValue != _lastScrollValue);
     
-    if (hasSelection && !isScrollEvent) {
+    // Check whether the current selection is visible in the viewport.
+    // If the user has scrolled the selection off-screen, we should NOT
+    // use a Selection anchor (which would jerk the view back to it on
+    // every progressive sort).  Instead fall through to the scroll-
+    // position anchor below.
+    bool selectionVisible = false;
+    if (hasSelection) {
+        QModelIndex topIndex  = ttv()->indexAt(ttv()->rect().topLeft());
+        QModelIndex botIndex  = ttv()->indexAt(ttv()->rect().bottomLeft());
+        if (topIndex.isValid() && botIndex.isValid()) {
+            selectionVisible = (cur.row() >= topIndex.row()
+                                && cur.row() <= botIndex.row());
+        } else if (topIndex.isValid()) {
+            // bottomLeft might be invalid if viewport is larger than model
+            selectionVisible = (cur.row() >= topIndex.row());
+        }
+    }
+
+    if (hasSelection && selectionVisible && !isScrollEvent) {
         // Selection anchor: preserve the selected row's position in viewport
         A::HarmonicEvent currentEvent = _evm->rowData(cur);
         
@@ -2779,8 +2861,6 @@ Transits::clickedCell(QModelIndex inx)
         if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
             file()->setType(TypeReturn);
         }
-        // Stop any active finder threads before updating the chart
-        stopThreads();
         emit updateFirst(file());
     } else {
         // Grr make transit planets be in fileId 1
@@ -2824,8 +2904,6 @@ Transits::clickedCell(QModelIndex inx)
         // Clear unsaved state since this is a generated chart from an event
         transitsAF()->clearUnsavedState();
         
-        // Stop any active finder threads before updating the chart
-        stopThreads();
         emit updateSecond(transitsAF());
         if (_trans && _trans->parent() != this) _trans = nullptr;
     }
@@ -3422,11 +3500,9 @@ Transits::filesUpdated(MembersList m)
                 qDebug() << "[FILES UPDATED] Marking for recalc due to empty events cache";
             }
             file(0)->markEventsForRecalc();
-            
-            if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
-                qDebug() << "[FILES UPDATED] Auto-recalc enabled, triggering updateTransits()";
-                updateTransits();
-            }
+            // Note: Don't call updateTransits() here — describePlanet() below
+            // will call it, avoiding a double-call that would block the main
+            // thread waiting for the first finder to finish.
         }
         
         if (!_chs) _chs = new AChangeSignalFrame(evm);
@@ -3477,11 +3553,9 @@ Transits::viewSettingsUpdated(MembersList m)
         if (filesCount() > 0 && needsRecalc) {
             qDebug() << "[VIEW SETTINGS] Marking for recalc due to settings change";
             file(0)->markEventsForRecalc();
-
-            if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
-                qDebug() << "[VIEW SETTINGS] Auto-recalc enabled, triggering updateTransits()";
-                updateTransits();
-            }
+            // Note: Don't call updateTransits() here — describePlanet() below
+            // will call it, avoiding a double-call that would block the main
+            // thread waiting for the first finder to finish.
         }
 
         if (!_chs) _chs = new AChangeSignalFrame(evm);

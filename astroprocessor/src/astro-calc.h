@@ -282,6 +282,9 @@ struct EventOptions {
     static const QRegularExpression& zposRE();
     static const QString&            eventPat();
     static const QRegularExpression& eventRE();
+    static const QString&            eventMultiPat();
+    static const QRegularExpression& eventMultiRE();
+    static bool                      isValidPattern(const QString& text);
 
     qreal    expandShowOrb     = 2.;
     unsigned patternsQuorum    = 3;
