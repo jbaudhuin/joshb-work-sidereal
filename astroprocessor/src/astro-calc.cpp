@@ -3137,22 +3137,17 @@ calculateAngularDate(const QDateTime&   radixTime,
     if (pssrCtx && pssrCtx->isValid) {
         // PSSR mode: Find when Sun reaches the RAMS needed for planet to hit angle
         
-        // Step 1: Calculate what RAMC is needed for planet to be on this angle
-        double targetRAMC = angleRA; // Simplified: angle RA is the target RAMC
-        
-        // Step 2: Calculate how much RAMC differs from return
-        // For converse (angleTime < radixTime), this will be negative (backwards)
-        // For direct (angleTime > radixTime), this will be positive (forwards)
-        double ramcDiff = swe_difdeg2n(targetRAMC, pssrCtx->returnRAMC);
-        
-        // For direct events, ensure we go forward
-        if (angleTime >= radixTime && ramcDiff < 0.0) {
-            ramcDiff += 360.0;
-        }
-        // For converse events, ensure we go backward
-        else if (angleTime < radixTime && ramcDiff > 0.0) {
-            ramcDiff -= 360.0;
-        }
+        // Compute the RAMC arc from the actual time difference between
+        // the radix moment and the angular transit moment. This is essential
+        // because angleTransitRA stores different values depending on the
+        // primary direction mode:
+        //   prdMundane/prdZodiacal: stores the RAMC at transit (correct for PSSR)
+        //   prdActive: stores the planet's own RA at transit (NOT the RAMC)
+        // Using the time difference works correctly in all modes, since the
+        // transit time always reflects the true RAMC advance.
+        // 240 solar seconds ≈ 1° of RAMC advance (same rate used by PD path).
+        double timeDiffSec = static_cast<double>(radixTime.secsTo(angleTime));
+        double ramcDiff = timeDiffSec / 240.0; // signed: positive=direct, negative=converse
         
         // Step 3: Calculate target RAMS using anniversary second
         // targetRAMS = returnRAMS + ramcDiff / anniversarySecond

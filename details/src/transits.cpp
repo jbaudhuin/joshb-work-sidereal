@@ -253,21 +253,31 @@ class EventsTableModel : public QAbstractItemModel {
         return (inx.parent().isValid()) ? inx.parent().row() : inx.row();
     }
 
-    QDateTime rowDate(int row) const { return _evs[row]->dateTime(); }
+    QDateTime rowDate(int row) const
+    {
+        if (row < 0 || row >= int(_evs.size())) return QDateTime();
+        return _evs[row]->dateTime();
+    }
 
     QDateTime rowDate(QModelIndex inx) const
     {
         auto par = inx.parent();
-        if (par.isValid()) return _evs[par.row()]->dateTime();
-        return _evs[inx.row()]->dateTime();
+        int r = par.isValid() ? par.row() : inx.row();
+        if (r < 0 || r >= int(_evs.size())) return QDateTime();
+        return _evs[r]->dateTime();
     }
 
-    A::HarmonicEvent rowData(int row) const { return *_evs[row]; }
+    A::HarmonicEvent rowData(int row) const
+    {
+        if (row < 0 || row >= int(_evs.size())) return A::HarmonicEvent();
+        return *_evs[row];
+    }
     A::HarmonicEvent rowData(QModelIndex inx) const
     {
         auto par = inx.parent();
-        if (par.isValid()) return *_evs[par.row()];
-        return *_evs[inx.row()];
+        int r = par.isValid() ? par.row() : inx.row();
+        if (r < 0 || r >= int(_evs.size())) return A::HarmonicEvent();
+        return *_evs[r];
     }
 
     int rowForData(const A::HarmonicEvent& haeda,
@@ -287,6 +297,7 @@ class EventsTableModel : public QAbstractItemModel {
 
     QString rowDesc(int row) const
     {
+        if (row < 0 || row >= int(_evs.size())) return QString();
         QString h = index(row, harmonicCol).data(SummaryRole).toString();
         QString t = index(row, transitBodyCol).data(SummaryRole).toString();
         QString n = index(row, natalTransitBodyCol).data(SummaryRole).toString();
@@ -2781,9 +2792,9 @@ Transits::clickedCell(QModelIndex inx)
     bool ctrl = (QApplication::keyboardModifiers() & Qt::ControlModifier);
     if (lbtn && ctrl) lbtn = false, mbtn = true;
 
-    A::modalize<A::AspectSetId> aset(
-        MainWindow::theAstroWidget()->overrideAspectSet(),
-        -1);
+    auto* aw = MainWindow::theAstroWidget();
+    if (!aw) return;
+    A::modalize<A::AspectSetId> aset(aw->overrideAspectSet(), -1);
     A::PlanetSet focal;
     double clickHarmonic = 0;  // non-zero when we quietly set harmonic
     if (inx.column() == EventsTableModel::harmonicCol) {
@@ -2833,7 +2844,12 @@ Transits::clickedCell(QModelIndex inx)
         doubleClickedCell(inx);
         return;
     }
+
+    // Re-validate row after potential model changes from signals above
+    if (inx.row() < 0 || inx.row() >= _evm->rowCount()) return;
+
     auto    dt = _evm->rowDate(inx.row());
+    if (!dt.isValid()) return;
     auto    ev = _evm->rowData(inx.row());
     auto    et = ev.eventType();
     QString desc;
@@ -2853,6 +2869,7 @@ Transits::clickedCell(QModelIndex inx)
                  << "name=" << cpid.name();
     }
     A::modalize<bool> noup(_inhibitUpdate);
+    if (!file()) return;  // guard against no file
     if (transitsOnly()) {
         file()->setFocalPlanets(focal);
         file()->setName(desc);
@@ -2863,6 +2880,8 @@ Transits::clickedCell(QModelIndex inx)
         }
         emit updateFirst(file());
     } else {
+        auto* taf = transitsAF();
+        if (!taf) return;
         // Grr make transit planets be in fileId 1
         A::PlanetSet shift;
         for (auto cpid : focal) {
@@ -2873,38 +2892,38 @@ Transits::clickedCell(QModelIndex inx)
         }
         if (shift.size() == focal.size()) focal.swap(shift);
 
-        transitsAF()->suspendUpdate();
+        taf->suspendUpdate();
         if (clickHarmonic > 0)
-            transitsAF()->setHarmonic(clickHarmonic);
-        transitsAF()->setFocalPlanets(focal);
-        transitsAF()->setName(desc);
-        transitsAF()->setGMT(dt);
+            taf->setHarmonic(clickHarmonic);
+        taf->setFocalPlanets(focal);
+        taf->setName(desc);
+        taf->setGMT(dt);
         // Set file type and base chart based on event type
         // Base chart stores the natal chart relationship for all event types
         if (et == A::etcSolarReturn || et == A::etcLunarReturn
             || et == A::etcReturn)
         {
-            transitsAF()->setType(TypeReturn);
-            transitsAF()->setBaseChart(file()->getGMT());
+            taf->setType(TypeReturn);
+            taf->setBaseChart(file()->getGMT());
         } else if (et == A::etcProgressedToProgressed
                    || et == A::etcProgressedToNatal
                    || et == A::etcInnerProgressedToNatal
                    || et == A::etcTransitToProgressed)
         {
-            transitsAF()->setType(TypeDerivedProg);
-            transitsAF()->setBaseChart(file()->getGMT());
+            taf->setType(TypeDerivedProg);
+            taf->setBaseChart(file()->getGMT());
         } else {
             // For transit events (T=T, T=N, patterns, ingresses, etc.)
             // Set base chart to track natal relationship, but use TypeOther
-            transitsAF()->setType(TypeOther);
-            transitsAF()->setBaseChart(file()->getGMT());
+            taf->setType(TypeOther);
+            taf->setBaseChart(file()->getGMT());
         }
-        transitsAF()->resumeUpdate();
+        taf->resumeUpdate();
 
         // Clear unsaved state since this is a generated chart from an event
-        transitsAF()->clearUnsavedState();
+        taf->clearUnsavedState();
         
-        emit updateSecond(transitsAF());
+        emit updateSecond(taf);
         if (_trans && _trans->parent() != this) _trans = nullptr;
     }
     ttv()->scrollTo(inx);
@@ -2923,17 +2942,22 @@ Transits::doubleClickedCell(QModelIndex inx)
 
     auto par = inx.parent();
     if (par.isValid()) inx = par;
-    auto              dt   = _evm->rowDate(inx.row());
-    auto              ev   = _evm->rowData(inx.row());
+    int row = inx.row();
+    if (row < 0 || row >= _evm->rowCount()) return;
+    auto              dt   = _evm->rowDate(row);
+    if (!dt.isValid()) return;
+    auto              ev   = _evm->rowData(row);
     auto              et   = ev.eventType();
-    auto              desc = _evm->rowDesc(inx.row());
+    auto              desc = _evm->rowDesc(row);
     A::modalize<bool> noup(_inhibitUpdate);
+    auto* aw = MainWindow::theAstroWidget();
+    if (!aw) return;
     AstroFile*        af = new AstroFile;
-    MainWindow::theAstroWidget()->setupFile(af);
+    aw->setupFile(af);
     af->suspendUpdate();
     af->setLocation(_location->location());
     af->setLocationName(_location->locationName());
-    if (!transitsOnly() && !shift) {
+    if (!transitsOnly() && file() && !shift) {
         af->setName(file()->getName() + " - " + desc);
     } else {
         af->setName(desc);
@@ -2944,7 +2968,7 @@ Transits::doubleClickedCell(QModelIndex inx)
     if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
         af->setType(TypeReturn);
         // Set the natal chart as the base for return calculations
-        if (!transitsOnly()) {
+        if (!transitsOnly() && file()) {
             af->setBaseChart(file()->getGMT());
         } else {
             af->clearBaseChart();
@@ -2955,7 +2979,7 @@ Transits::doubleClickedCell(QModelIndex inx)
         || et == A::etcTransitToProgressed) {
         af->setType(TypeDerivedProg);
         // Set the natal chart as the base for progressions
-        if (!transitsOnly()) {
+        if (!transitsOnly() && file()) {
             af->setBaseChart(file()->getGMT());
         } else {
             af->clearBaseChart();
@@ -2967,7 +2991,7 @@ Transits::doubleClickedCell(QModelIndex inx)
     af->clearUnsavedState();
     
     // bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
-    if (transitsOnly() || !shift) {
+    if (transitsOnly() || !shift || !file()) {
         emit addChart(af);
     } else {
         emit addChartWithTransits(file()->fileInfo(), af);
