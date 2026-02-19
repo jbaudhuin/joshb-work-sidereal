@@ -5246,7 +5246,7 @@ MainWindow::showAbout()
         "Copyright © 2012-2014 Artem Vasilev<br>"
         "<a style='color:yellow' href='mailto:atten@syslog.pro'>atten@syslog.pro</a></p>"
         "<p><b>Sidereal Branch Enhancements:</b><br>"
-        "Copyright © 2016-2025 Josh Baudhuin/Turtle Crescent Graphics<br>"
+        "Copyright © 2016-2026 Josh Baudhuin/Turtle Crescent Graphics<br>"
         "<a style='color:yellow' href='https://github.com/jbaudhuin/joshb-work-sidereal'>github.com/jbaudhuin/joshb-work-sidereal</a></p>"
         "<p><b>Key Features Added:</b><br>"
         "• Sidereal zodiac support (Fagan-Bradley & Lahiri ayanamshas)<br>"

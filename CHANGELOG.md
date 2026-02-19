@@ -2,6 +2,32 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.5] - 2026-02-19
+
+### Added
+- **Pattern-Based Event Search**: Type patterns like `Sun=Moon`, `H4 Mars=Saturn`, `Mars ingress Aries`, or `Saturn station` directly into the Transits panel to search for specific events
+  - Multi-pattern support with semicolon-separated queries (e.g. `Sun=Moon; Mars ingress Aries`)
+  - Group tokens (`OT`, `N`, `IP`, `T`, `P`) auto-expand to planet lists (e.g. `OT=N`)
+  - Suffix notation (`-t`, `-r`, `-p`) for transit/natal/progressed roles
+  - Midpoint notation via `/` (e.g. `Ura/Plu=Sun-r`)
+  - Per-pattern harmonic prefix (`H4 Sun=Moon`)
+  - Live validation with green/red border feedback
+- **Midpoint Chord Drawing**: Chart wheel now visually draws midpoint structures (A = B/C) as dashed gold chord lines between constituent planets with solid orb-weighted lines to the focal planet; midpoint-to-midpoint patterns also drawn
+- **Apparent Sun for Solar Return/Ingress**: PSSR calculations now use apparent Sun (with nutation) by default instead of mean Sun
+
+### Improved
+- **View Settings Separation**: Harmonic, house system, zodiac, aspect set, and aspect mode are now treated as view-level settings (not persisted with chart files), preventing redundant recalculations and unwanted file-dirty flags when switching display options
+- **Prime Vertical Mode**: Updated PV calculations and UI rendering; chart wheel uses PV positions when in prime-vertical aspect mode
+- **Tab Switching & Editor Styles**: AstroFileEditor styled with theme-aware CSS; improved tab switching behavior
+- **Window Startup**: Active tab now properly refreshed after main window is shown
+
+### Fixed
+- **Transits UI Safety**: Added bounds checks and null guards throughout transits UI to prevent crashes
+- **Thread Safety**: UI and thread fixes for multi-pattern finder operations
+
+### Changed
+- Version bumped to 0.9.5
+
 ## [0.9.4.3] - 2026-01-17
 
 ### Fixed

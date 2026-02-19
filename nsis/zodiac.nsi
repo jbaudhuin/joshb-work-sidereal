@@ -1,5 +1,5 @@
 !define PRODUCT 'Zodiac'
-!define VERSION '0.9.4.3'
+!define VERSION '0.9.5'
 
 !include WinMessages.nsh
 !include FontReg.nsh
