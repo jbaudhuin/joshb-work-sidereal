@@ -133,7 +133,9 @@ class AstroFile : public QObject, public A::EventStore {
     void setFileInfo(const AFileInfo& fi) { _fileInfo = fi; }
     void setType(const FileType type);
     void setGMT(const QDateTime& gmt);
-    void setTimezone(const short& zone);
+    void setTimezone(double zone);
+    void setCalendarType(A::CalendarType ct);
+    void setTimeMode(A::TimeMode tm);
     void setLocation(const QVector3D location);
     void setLocationName(const QString& location);
     void setComment(const QString& comment);
@@ -169,7 +171,7 @@ class AstroFile : public QObject, public A::EventStore {
     const QVector3D& getLocation() const { return scope.inputData.location(); }
     const QString&   getLocationName() const { return locationName; }
     const QDateTime& getGMT() const { return scope.inputData.GMT(); }
-    short            getTimezone() const { return scope.inputData.tz(); }
+    double           getTimezone() const { return scope.inputData.tz(); }
 
     A::Horoscope&       horoscope() { return scope; }
     const A::Horoscope& horoscope() const { return scope; }
@@ -205,8 +207,15 @@ class AstroFile : public QObject, public A::EventStore {
 
     QDateTime getLocalTime() const
     {
-        return getGMT().toTimeZone(QTimeZone(int(getTimezone()) * 3600));
+        return getGMT().toTimeZone(
+            QTimeZone(static_cast<int>(getTimezone() * 3600)));
     }
+
+    A::CalendarType getCalendarType() const
+    {
+        return scope.inputData.calendarType();
+    }
+    A::TimeMode getTimeMode() const { return scope.inputData.timeMode(); }
 
     const ADateRange& getDateRange() const { return _dateRange; }
 

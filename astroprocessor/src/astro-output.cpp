@@ -5,6 +5,7 @@
 #include <QRegularExpression>
 #include <QStringList>
 #include <algorithm>
+#include <cmath>
 #include <math.h>
 #include <stdio.h>
 #include "../swe/swephexp.h"
@@ -259,8 +260,23 @@ describeInput(const InputData& data)
     auto    time = QLocale().toString(data.GMT().time(), QLocale::LongFormat);
     QString dayOfWeek = data.GMT().date().toString("ddd");
 
+    // Calendar type annotation
+    QString calNote;
+    if (data.calendarType() == Cal_Julian)
+        calNote = " (OS)";
+    else if (data.calendarType() == Cal_Gregorian)
+        calNote = " (NS)";
+
+    // Time mode annotation
+    QString modeNote;
+    if (data.timeMode() == Time_LMT)
+        modeNote = " [LMT]";
+    else if (data.timeMode() == Time_LAT)
+        modeNote = " [LAT]";
+
     ret += "<p><strong>" + QObject::tr("Date:") + "</strong> "
-           + QString("%1, %2 %3 GMT").arg(dayOfWeek).arg(date).arg(time)
+           + QString("%1, %2 %3 GMT%4%5")
+                 .arg(dayOfWeek, date, time, calNote, modeNote)
            + "</p>";
 
     QString lat = formatLatitude(data.location().y(), HighPrecision);
@@ -268,6 +284,20 @@ describeInput(const InputData& data)
     
     ret += "<p><strong>" + QObject::tr("Location:") + "</strong> "
            + QString("%1 %2").arg(lat, lng) + "</p>";
+
+    // Equation of Time
+    double geolon = data.location().x();
+    auto eot = computeEoT(data.GMT(), geolon, data.calendarType());
+    if (eot.valid) {
+        int eotMin = static_cast<int>(eot.eotSeconds) / 60;
+        int eotSec = static_cast<int>(std::abs(eot.eotSeconds)) % 60;
+        QString eotSign = (eot.eotSeconds >= 0) ? "+" : "-";
+        ret += "<p><strong>" + QObject::tr("Equation of Time:") + "</strong> "
+               + QString("%1%2m %3s").arg(eotSign)
+                     .arg(std::abs(eotMin)).arg(eotSec, 2, 10, QChar('0'))
+               + "</p>";
+    }
+
     return ret;
 }
 
@@ -875,13 +905,13 @@ describePowerInHtml(const Planet& planet, const Horoscope& scope)
 }
 
 QString
-_formatTime(const QDateTime& dt, short tz)
+_formatTime(const QDateTime& dt, double tz)
 {
     if (!dt.isValid()) {
         return "    --    ";
     }
     QString   dow(QObject::tr("MtWTFsS"));
-    QDateTime ldt = dt.addSecs(tz * 3600);
+    QDateTime ldt = dt.addSecs(static_cast<qint64>(tz * 3600));
     return QString("%2 %1")
         .arg(ldt.time().toString())
         .arg(dow[ldt.date().dayOfWeek() - 1]);
@@ -939,7 +969,7 @@ struct event {
         return (_pivot < other._pivot);
     }
 
-    QString fmt(short               tz,
+    QString fmt(double              tz,
                 const QString&      padding        = "1px",
                 bool                isFirstInGroup = false,
                 SpeculumDisplayMode displayMode    = DisplayLocalTime) const
@@ -1079,8 +1109,8 @@ describeParans(const AstroFileList& scopes,
 
     bool  showDates = scopes.count() == 1;
     auto  scope     = scopes.first()->horoscope();
-    short tz        = scope.inputData.tz();
-    
+    double tz        = scope.inputData.tz();
+
     // Check if this is a return chart and get PSSR context
     event::_pssrCtx = nullptr;
     event::_isProgressed = false;
@@ -1249,7 +1279,7 @@ describeSpeculum(const Horoscope&    scope,
                  bool                showFixedStars,
                  SpeculumDisplayMode displayMode)
 {
-    short tz = scope.inputData.tz();
+    double tz = scope.inputData.tz();
     int&  maxWidth(event::_maxWidth);
     if (maxWidth == 0) {
         for (const Planet& p : scope.planets) {

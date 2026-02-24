@@ -4,6 +4,7 @@
 #include <Astroprocessor/Gui>
 #include <QRegularExpression>
 #include <QComboBox>
+#include "astrodatetimeedit.h"
 
 class QLabel;
 class QLineEdit;
@@ -33,14 +34,14 @@ protected:
     QComboBox* type;
     QComboBox* basis;
     QLabel* basisLbl;
-    QDateTimeEdit* dateTime;
+    A::AstroDateTimeEdit* dateTime;
     QDoubleSpinBox* timeZone;
     QPushButton* lockTimezone;
     GeoSearchWidget* geoSearch;
     QPlainTextEdit* comment;
     QLabel* startDateLbl;
-    QDateEdit* startDate;
-    QDateEdit* endDate;
+    A::AstroDateTimeEdit* startDate;
+    A::AstroDateTimeEdit* endDate;
     QCheckBox* endDateCB;
     QListWidget* hits;
 
@@ -55,9 +56,9 @@ protected:
     void updateTabs();
 
 protected:
-    void filesUpdated(MembersList members);  // AstroFileHandler implementations
+    void filesUpdated(MembersList members) override;  // AstroFileHandler implementations
     //virtual void showEvent(QShowEvent*);
-    virtual void closeEvent(QCloseEvent*) { emit windowClosed(); }
+    void closeEvent(QCloseEvent*) override { emit windowClosed(); }
 
 signals:
     void windowClosed();

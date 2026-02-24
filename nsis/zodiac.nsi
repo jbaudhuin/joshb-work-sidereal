@@ -38,12 +38,11 @@ Var ApiKeyLabel
 Var ApiKeyText
 Var ApiKeyValue
 
-Page custom APIKeyPage APIKeyPageLeave
-
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "license.txt"
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
+Page custom APIKeyPage APIKeyPageLeave
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
@@ -179,6 +178,14 @@ Section "Essential files" SecMain
   WriteRegStr HKCR "ZodiacSession" "" "Zodiac Session File"
   WriteRegStr HKCR "ZodiacSession\DefaultIcon" "" "$INSTDIR\zodiac.exe,0"
   WriteRegStr HKCR "ZodiacSession\shell\open\command" "" '"$INSTDIR\launch-session.bat" "%1"'
+  
+  ; Write APIKey.ini if the user entered an API key during installation
+  StrCmp $ApiKeyValue "" skip_apikey 0
+    FileOpen $0 "$INSTDIR\APIKey.ini" w
+    FileWrite $0 "[%General]$\r$\n"
+    FileWrite $0 "Key=$ApiKeyValue$\r$\n"
+    FileClose $0
+  skip_apikey:
   
   ; Try to grant write permissions to installation directory so settings.ini can be created
   ; Use icacls command (built into Windows) to grant Users group write access
@@ -353,19 +360,8 @@ Function APIKeyPage
 FunctionEnd
 
 Function APIKeyPageLeave
-  ; Get the entered API key value
+  ; Save the entered API key value — file will be written during installation
   ${NSD_GetText} $ApiKeyText $ApiKeyValue
-  
-  ; Only create the file if user entered something
-  StrCmp $ApiKeyValue "" skip_key_creation 0
-  
-  ; Create APIKey.ini with the entered key
-  FileOpen $0 "$INSTDIR\APIKey.ini" w
-  FileWrite $0 "[%General]$\r$\n"
-  FileWrite $0 "Key=$ApiKeyValue$\r$\n"
-  FileClose $0
-  
-  skip_key_creation:
 FunctionEnd
 
 ;--------------------------------

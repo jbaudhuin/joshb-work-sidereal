@@ -9,6 +9,11 @@
 		"C_Cpp.default.cppStandard": "c++17",
 		"C_Cpp.default.cStandard": "c17",
 		"C_Cpp.default.intelliSenseMode": "clang-x64",
-		"C_Cpp.formatting": "clangFormat"
+		"C_Cpp.formatting": "clangFormat",
+		"github.copilot.chat.codeGeneration.instructions": [
+			{
+				"file": ".github/copilot-instructions.md"
+			}
+		]
 	}
 }

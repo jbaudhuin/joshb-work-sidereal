@@ -200,7 +200,46 @@ bool
 isSolarBasedChart(const QString& chartName);
 
 double
-getJulianDate(QDateTime GMT, bool ephemerisTime = false);
+getJulianDate(QDateTime    GMT,
+             bool         ephemerisTime = false,
+             CalendarType calType       = Cal_Auto);
+
+/// Equation of time in fractional days (add to LMT to get LAT).
+/// Returns 0 on error.
+double
+equationOfTime(double jdUT);
+
+/// Convert a Local Mean Time JD to Local Apparent Time JD.
+double
+lmtToLat(double jdLMT, double geolon);
+
+/// Convert a Local Apparent Time JD to Local Mean Time JD.
+double
+latToLmt(double jdLAT, double geolon);
+
+/// Convert a local time QDateTime to UTC, respecting the TimeMode.
+/// For Time_ZoneTime: subtract tz hours.
+/// For Time_LMT:     subtract longitude/15 hours.
+/// For Time_LAT:     convert LAT→LMT then LMT→UT.
+QDateTime
+localToUTC(const QDateTime& localDt,
+           double           tz,
+           double           geolon,
+           TimeMode         mode,
+           CalendarType     calType = Cal_Auto);
+
+/// Compute the equation of time in seconds for a given UTC moment and
+/// longitude, returning both the EoT value and the LAT equivalent.
+struct EoTInfo {
+    double eotSeconds;   ///< Equation of time in seconds (+means sundial ahead)
+    double latJD;        ///< Local Apparent Time as JD
+    double lmtJD;        ///< Local Mean Time as JD
+    bool   valid;
+};
+EoTInfo
+computeEoT(const QDateTime& utcDt, double geolon,
+           CalendarType calType = Cal_Auto);
+
 float
 roundDegree(float deg); // returns 0...360
 const ZodiacSign&

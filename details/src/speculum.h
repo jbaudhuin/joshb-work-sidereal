@@ -42,11 +42,11 @@ class Speculum : public AstroFileHandler {
     QTableWidget* speculumTable() const { return _table; }
 
   protected: // AstroFileHandler implementation
-    void filesUpdated(MembersList);
+    void filesUpdated(MembersList) override;
 
-    AppSettings defaultSettings();
-    AppSettings currentSettings();
-    void        applySettings(const AppSettings&);
+    AppSettings defaultSettings() override;
+    AppSettings currentSettings() override;
+    void        applySettings(const AppSettings&) override;
 
     void updateSpeculumDisplay();
     void clear();
@@ -101,7 +101,7 @@ class Speculum : public AstroFileHandler {
 
     // Settings
     bool        _showFixedStars;
-    short       m_timezone;
+    double      m_timezone;
     A::PlanetId _selectedPlanet;
     int         _fileIndex;
     int         _selectedChartIndex; // Which chart to display (0 or 1)

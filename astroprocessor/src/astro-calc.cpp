@@ -94,31 +94,54 @@ isSolarBasedChart(const QString& chartName)
 }
 
 double
-getJulianDate(QDateTime GMT, bool ephemerisTime /*=false*/)
+getJulianDate(QDateTime GMT, bool ephemerisTime /*=false*/,
+              CalendarType calType /*=Cal_Auto*/)
 {
     char        serr[256];
     double      ret[2];
     const auto& date(GMT.date());
     const auto& time(GMT.time());
+
+    // Resolve calendar flag
+    int gregFlag = 1; // SE_GREG_CAL
+    if (calType == Cal_Julian) {
+        gregFlag = 0; // SE_JUL_CAL
+    } else if (calType == Cal_Auto) {
+        // Julian before the standard Western cutover (Oct 15, 1582)
+        int y = date.year(), m = date.month(), d = date.day();
+        if (y < 1582 || (y == 1582 && (m < 10 || (m == 10 && d < 15))))
+            gregFlag = 0;
+    }
+    // Cal_Gregorian keeps gregFlag = 1
+
     swe_utc_to_jd(date.year(),
                   date.month(),
                   date.day(),
                   time.hour(),
                   time.minute(),
                   double(time.second()) + (time.msec() / 1000.),
-                  1 /*gregorian*/,
+                  gregFlag,
                   ret,
                   serr);
     return ret[ephemerisTime ? 0 : 1]; // ET or UT
 }
 
 double
-getUTfromET(double et)
+getUTfromET(double et, CalendarType calType = Cal_Auto)
 {
+    // For ET→UT conversion, resolve calendar from the JD itself when Auto
+    int gregFlag = 1;
+    if (calType == Cal_Julian) {
+        gregFlag = 0;
+    } else if (calType == Cal_Auto) {
+        // JD 2299161 = Oct 15, 1582 Gregorian cutover
+        gregFlag = (et >= 2299161.0) ? 1 : 0;
+    }
+
     int32  iyear, imonth, iday, ihour, imin;
     double dsec;
     swe_jdut1_to_utc(et,
-                     1 /*greg*/,
+                     gregFlag,
                      &iyear,
                      &imonth,
                      &iday,
@@ -134,11 +157,113 @@ getUTfromET(double et)
                   ihour,
                   imin,
                   dsec,
-                  1 /*greg*/,
+                  gregFlag,
                   ret,
                   serr);
 
     return ret[1];
+}
+
+// ---------------------------------------------------------------------------
+// Equation-of-time / LAT / LMT helpers
+// ---------------------------------------------------------------------------
+
+double
+equationOfTime(double jdUT)
+{
+    double eot = 0.0;
+    char   serr[256];
+    if (swe_time_equ(jdUT, &eot, serr) == ERR) {
+        qDebug() << "swe_time_equ failed:" << serr;
+        return 0.0;
+    }
+    return eot; // fractional days
+}
+
+double
+lmtToLat(double jdLMT, double geolon)
+{
+    double jdLAT = jdLMT;
+    char   serr[256];
+    if (swe_lmt_to_lat(jdLMT, geolon, &jdLAT, serr) == ERR) {
+        qDebug() << "swe_lmt_to_lat failed:" << serr;
+    }
+    return jdLAT;
+}
+
+double
+latToLmt(double jdLAT, double geolon)
+{
+    double jdLMT = jdLAT;
+    char   serr[256];
+    if (swe_lat_to_lmt(jdLAT, geolon, &jdLMT, serr) == ERR) {
+        qDebug() << "swe_lat_to_lmt failed:" << serr;
+    }
+    return jdLMT;
+}
+
+QDateTime
+localToUTC(const QDateTime& localDt,
+           double           tz,
+           double           geolon,
+           TimeMode         mode,
+           CalendarType     calType /*=Cal_Auto*/)
+{
+    switch (mode) {
+    case Time_ZoneTime: {
+        // Standard zone-time path: local – tz → UTC
+        QTimeZone qtz(static_cast<int>(tz * 3600));
+        QDateTime local(localDt.date(), localDt.time(), qtz);
+        return local.toUTC();
+    }
+    case Time_LMT: {
+        // LMT offset = longitude / 15  (hours, east-positive)
+        double lmtOffsetSec = (geolon / 15.0) * 3600.0;
+        QTimeZone qtz(static_cast<int>(lmtOffsetSec));
+        QDateTime local(localDt.date(), localDt.time(), qtz);
+        return local.toUTC();
+    }
+    case Time_LAT: {
+        // LAT → LMT → UT
+        // 1. Treat entered time as LAT at the given longitude
+        double lmtOffsetSec = (geolon / 15.0) * 3600.0;
+        // Rough initial UT estimate (needed to seed swe_lat_to_lmt)
+        QTimeZone qtz(static_cast<int>(lmtOffsetSec));
+        QDateTime roughUTC(localDt.date(), localDt.time(), qtz);
+        // Convert entered LAT (as if it were LMT) to JD
+        double jdLAT =
+            getJulianDate(roughUTC.toUTC(), false, calType)
+            + lmtOffsetSec / 86400.0; // make it an LMT-like JD
+        // SWE: LAT → LMT
+        double jdLMT = latToLmt(jdLAT, geolon);
+        // LMT → UT
+        double jdUT = jdLMT - (geolon / 15.0) / 24.0;
+        return dateTimeFromJulian(jdUT, calType);
+    }
+    }
+    // fallback
+    QTimeZone qtz(static_cast<int>(tz * 3600));
+    QDateTime local(localDt.date(), localDt.time(), qtz);
+    return local.toUTC();
+}
+
+EoTInfo
+computeEoT(const QDateTime& utcDt, double geolon,
+           CalendarType calType /*=Cal_Auto*/)
+{
+    EoTInfo info {};
+    info.valid = false;
+    double jdUT = getJulianDate(utcDt, false, calType);
+    if (jdUT == 0.0) return info;
+
+    // LMT JD  = UT JD + longitude/15 (hours → days)
+    info.lmtJD = jdUT + (geolon / 15.0) / 24.0;
+    // LAT JD
+    info.latJD = lmtToLat(info.lmtJD, geolon);
+    // EoT  = LAT – LMT  expressed in seconds
+    info.eotSeconds = (info.latJD - info.lmtJD) * 86400.0;
+    info.valid      = true;
+    return info;
 }
 
 unsigned
@@ -621,12 +746,11 @@ calculatePlanet(PlanetId         planet,
                 const Houses&    houses,
                 const Zodiac&    zodiac)
 {
-    double jd = getJulianDate(input.GMT());
-
-    char errStr[256] = "";
+    double jd = getJulianDate(input.GMT(), false, input.calendarType());
 
     double       eps, ablong;
     unsigned int flags;
+    char         errStr[256] = "";
     Planet       ret = calculatePlanet(planet,
                                  input,
                                  jd,
@@ -727,7 +851,7 @@ calculatePlanet(PlanetId         planet,
         at[Star::atDesc] = swe_degnorm(houses.RAMC + HDoc);
         at[Star::atIC]   = swe_degnorm(RA - 180);
 
-        double jd0          = getJulianDate(input.GMT());
+        double jd0          = getJulianDate(input.GMT(), false, input.calendarType());
         double RAMC0        = houses.RAMC; // in degrees
         double sidereal_day = 1; //0.99726958;  // days
 
@@ -808,7 +932,7 @@ PlanetLoc::compute(const ChartPlanetId& planet, const InputData& ida, double jd)
     typedef std::pair<double, double> posSpd;
     auto getAscMC = [&](unsigned i, bool trop = false) -> posSpd {
         double cusps[14], cuspspd[14], ascmc[11], ascmcspd[11];
-        auto   jdut  = getUTfromET(jd);
+        auto   jdut  = getUTfromET(jd, ida.calendarType());
         uint   flags = SEFLG_SWIEPH;
         if (!trop) flags |= SEFLG_SIDEREAL;
         swe_houses_ex2(jdut,
@@ -931,7 +1055,7 @@ PlanetLoc::compute(const ChartPlanetId& planet, const InputData& ida, double jd)
 qreal
 PlanetLoc::compute(const InputData& ida)
 {
-    return compute(ida, getJulianDate(ida.GMT()), -1);
+    return compute(ida, getJulianDate(ida.GMT(), false, ida.calendarType()), -1);
 }
 
 qreal
@@ -1074,7 +1198,7 @@ calculateStar(const QString&   name,
     Star ret = getStar(name);
 
     uint   invertPositionFlag = 256 * 1024;
-    double jd                 = getJulianDate(input.GMT());
+    double jd                 = getJulianDate(input.GMT(), false, input.calendarType());
     char   errStr[256]        = "";
 
     double xx[6];
@@ -1199,7 +1323,7 @@ calculateStar(const QString&   name,
             at[Star::atDesc] = swe_degnorm(houses.RAMC + (OD - houses.ODDC));
             at[Star::atIC]   = swe_degnorm(RA - 180);
 
-            double jd0          = getJulianDate(input.GMT());
+            double jd0          = getJulianDate(input.GMT(), false, input.calendarType());
             double RAMC0        = houses.RAMC; // in degrees
             double sidereal_day = 1; //0.99726958;  // days
 
@@ -1256,8 +1380,8 @@ calculateHouses(const InputData& input)
         swe_set_sid_mode(input.zodiac() - 2, 0, 0);
     }
 
-    double julianDay   = getJulianDate(input.GMT(), false /*i.e., UT*/);
-    double jd          = getJulianDate(input.GMT(), true /*i.e., ET*/);
+    double julianDay   = getJulianDate(input.GMT(), false /*i.e., UT*/, input.calendarType());
+    double jd          = getJulianDate(input.GMT(), true /*i.e., ET*/, input.calendarType());
     char   errStr[256] = "";
     double xx[6];
 
@@ -1376,8 +1500,8 @@ calculateHouses(const InputData& input, double progressedMC)
         swe_set_sid_mode(input.zodiac() - 2, 0, 0);
     }
 
-    double julianDay   = getJulianDate(input.GMT(), false /*i.e., UT*/);
-    double jd          = getJulianDate(input.GMT(), true /*i.e., ET*/);
+    double julianDay   = getJulianDate(input.GMT(), false /*i.e., UT*/, input.calendarType());
+    double jd          = getJulianDate(input.GMT(), true /*i.e., ET*/, input.calendarType());
     char   errStr[256] = "";
     double xx[6];
 
@@ -2455,12 +2579,20 @@ brentGlobalMin(F       f,
 }
 
 QDateTime
-dateTimeFromJulian(double jd)
+dateTimeFromJulian(double jd, CalendarType calType /*=Cal_Auto*/)
 {
+    // Resolve calendar from JD when Auto
+    int gregFlag = 1;
+    if (calType == Cal_Julian) {
+        gregFlag = 0;
+    } else if (calType == Cal_Auto) {
+        gregFlag = (jd >= 2299161.0) ? 1 : 0;
+    }
+
     int32  y, d, m;
     int32  hr, min, sec;
     double dsec;
-    swe_jdut1_to_utc(jd, SE_GREG_CAL, &y, &m, &d, &hr, &min, &dsec);
+    swe_jdut1_to_utc(jd, gregFlag, &y, &m, &d, &hr, &min, &dsec);
     sec      = dsec;
     int msec = int((dsec - double(sec)) * 1000.0);
     return QDateTime(QDate(y, m, d), QTime(hr, min, sec, msec), QTimeZone::UTC);
@@ -2812,7 +2944,7 @@ calculateClosestTime(PlanetProfile&   poses,
                      double           harmonic)
 {
 
-    double jdIn = getJulianDate(locale.GMT());
+    double jdIn = getJulianDate(locale.GMT(), false, locale.calendarType());
 
     double   jd = jdIn;
     calcLoop looper(poses, jd);
@@ -2843,8 +2975,8 @@ quotidianSearch(PlanetProfile&   poses,
 {
     modalize<bool> mum(st_quiet, true);
 
-    double jd1 = getJulianDate(locale.GMT());
-    double jd2 = getJulianDate(endDT);
+    double jd1 = getJulianDate(locale.GMT(), false, locale.calendarType());
+    double jd2 = getJulianDate(endDT, false, locale.calendarType());
 
     poses.setForceMinimize(forceMin);
     if (poses.needsFindMinimalSpread()) span *= 2.;
@@ -3084,7 +3216,7 @@ calculatePSSRContext(const Horoscope& returnChart, bool useMeanSun)
     
     // Estimate next return time (approximately 365.25 days)
     double estimatedDays = 360.0 / sunSpeed;
-    double currentJd = getJulianDate(ctx.returnTime);
+    double currentJd = getJulianDate(ctx.returnTime, false, returnChart.inputData.calendarType());
     double targetJd = currentJd + estimatedDays;
     
     // Newton-Raphson iteration to find exact return time
@@ -3207,7 +3339,7 @@ calculateAll(const InputData& input)
 
     // For progressed charts, we need to calculate the progressed date
     // using secondary progressions (1 day = 1 year)
-    double jd = getJulianDate(input.GMT());
+    double jd = getJulianDate(input.GMT(), false, input.calendarType());
 
     // Determine which InputData to use for planet/star calculations
     const InputData* calcInput = &input;
@@ -3216,7 +3348,7 @@ calculateAll(const InputData& input)
     // Check if this should be calculated as a progressed chart
     // Note: base chart is also used for returns and transits, so we check the progression flag
     if (input.hasBaseChart() && input.isProgressed()) {
-        double baseJd    = getJulianDate(input.baseGMT());
+        double baseJd    = getJulianDate(input.baseGMT(), false, input.calendarType());
         double yearsDiff = (jd - baseJd) / 365.25;
         double progJd    = baseJd + yearsDiff; // 1 day per year
 
@@ -3752,7 +3884,7 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
             // Only set natus to the FIRST Male/Female/Event file found
             if (!natal) {
                 natus = i, natal = true;
-                njd = getJulianDate(ida.GMT());
+                njd = getJulianDate(ida.GMT(), false, ida.calendarType());
             } else if (!trans) {
                 // Second Male/Female/Event file becomes the transit/comparison chart
                 locus = i, trans = true;

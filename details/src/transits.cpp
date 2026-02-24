@@ -13,7 +13,6 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
-#include <QDateEdit>
 #include <QDebug>
 #include <QFile>
 #include <QFormLayout>
@@ -329,7 +328,7 @@ class EventsTableModel : public QAbstractItemModel {
 
     void setZodiac(const A::Zodiac& zod) { _zodiac = zod; }
 
-    void setTimezone(short tz) {
+    void setTimezone(double tz) {
         if (_tzOffset != tz) {
             _tzOffset = tz;
             // Refresh date column display
@@ -1226,7 +1225,7 @@ class EventsTableModel : public QAbstractItemModel {
 
     A::Zodiac      _zodiac;
     A::AspectSetId _aspects = 0;
-    short          _tzOffset = 0; // Timezone offset in hours
+    double         _tzOffset = 0; // Timezone offset in hours
 
     int _changeRef = 0;
 
@@ -1352,14 +1351,14 @@ Transits::Transits(QWidget* parent) :
     connect(actCopyTable, SIGNAL(triggered()), this, SLOT(copyTableAsRichText()));
     _tview->addAction(actCopyTable);
 
-    _start  = new QDateEdit;
+    _start  = new A::AstroDateTimeEdit(true /*dateOnly*/);
     _duraRB = new QRadioButton(tr("for"));
     _duraRB->setFocusPolicy(Qt::NoFocus);
     _duration = new QLineEdit;
     _duration->setText(_ddelta.toString());
     _endRB = new QRadioButton(tr("til"));
     _endRB->setFocusPolicy(Qt::NoFocus);
-    _end = new QDateEdit;
+    _end = new A::AstroDateTimeEdit(true /*dateOnly*/);
 
     _back = new QPushButton("«");
     _back->setMaximumWidth(20);
@@ -1906,8 +1905,7 @@ Transits::Transits(QWidget* parent) :
             this,
             SLOT(findIt(const QString&)));
 
-    _start->setCalendarPopup(true);
-    _end->setCalendarPopup(true);
+    // Calendar popup is built-in for AstroDateTimeEdit
 
     connect(_back, &QAbstractButton::clicked, [this] {
         auto sd = _start->date();
@@ -2288,10 +2286,6 @@ Transits::updateTransits()
     }
     
     qDebug() << "[UPDATE TRANSITS] Recalculating events for file" << file(0)->getName();
-    
-    // Clear the recalc flag NOW, before starting calculation
-    // This prevents redundant recalculations if we switch tabs before completion
-    file(0)->clearEventsRecalcFlag();
 
     if (!_active) {
         saveScrollPos();
@@ -2301,19 +2295,10 @@ Transits::updateTransits()
         qDebug() << "[CLEANUP OLD] AspectFinder:" << _activeFinder.data();
         qDebug() << "[CLEANUP OLD] Disconnecting and canceling (non-blocking)...";
         disconnect(_active, SIGNAL(finished()), this, SLOT(onCompleted()));
-        if (_activeFinder) {
-            _activeFinder->cancel();
-            _activeFinder->disconnect();  // Disconnect all signals FROM the finder
-            disconnect(_activeFinder.data());  // Disconnect all signals TO the finder
-        }
-        if (_progressSortTimer && _progressSortTimer->isActive()) {
-            _progressSortTimer->stop();
-        }
-        // Don't block the main thread! Let the old thread finish asynchronously.
-        // When it finishes, it will clean itself up via deleteLater().
-        // We set _pendingRestart so the finished handler will call updateTransits().
-        // Keep _active pointing to the old thread so stopThreads() can still wait
-        // for it during destruction.
+
+        // Connect the restart handler BEFORE canceling to close the race
+        // window where the thread finishes between cancel() and connect(),
+        // which would leave _pendingRestart stuck true forever.
         _pendingRestart = true;
         connect(_active, &QThread::finished, this, [this]() {
             qDebug() << "[CLEANUP OLD] Old thread finished, pendingRestart:" << _pendingRestart;
@@ -2324,15 +2309,42 @@ Transits::updateTransits()
                 updateTransits();
             }
         }, Qt::SingleShotConnection);
+
+        if (_activeFinder) {
+            _activeFinder->cancel();
+            _activeFinder->disconnect();  // Disconnect all signals FROM the finder
+            disconnect(_activeFinder.data());  // Disconnect all signals TO the finder
+        }
+        if (_progressSortTimer && _progressSortTimer->isActive()) {
+            _progressSortTimer->stop();
+        }
         // Clear the finder reference (it will be deleted by the thread's finished handler)
         _activeFinder = nullptr;
         // Clean up the change signal frame from the old calculation
         delete _chs;
         _chs = nullptr;
-        qDebug() << "[CLEANUP OLD] Cancellation dispatched, will restart when old thread exits";
+
+        // Safety net: if the thread already finished before we connected
+        // (e.g., the computation completed naturally and finished() was
+        // already emitted), our lambda won't fire.  Detect this and
+        // schedule a restart directly.
+        if (!_active || _active->isFinished()) {
+            qDebug() << "[CLEANUP OLD] Thread already finished, scheduling direct restart";
+            _pendingRestart = false;
+            _active = nullptr;
+            _activeFinder = nullptr;
+            QTimer::singleShot(0, this, [this]() { updateTransits(); });
+        } else {
+            qDebug() << "[CLEANUP OLD] Cancellation dispatched, will restart when old thread exits";
+        }
         qDebug() << "========================================";
         return;
     }
+
+    // Clear the recalc flag only when we are actually about to start a new
+    // computation (not in the deferred-restart path above, where we need the
+    // flag to remain set so the restart knows to recompute).
+    file(0)->clearEventsRecalcFlag();
 
     if (!_chs) {
         auto* evm = ensureEventsModel();
@@ -3060,7 +3072,7 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
             .arg(dt.time().toString());
         
         QString tzStr;
-        short tz = natalFile->getTimezone();
+        double tz = natalFile->getTimezone();
         if (tz > 0) tzStr = QString("GMT +%1").arg(tz);
         else if (tz < 0) tzStr = QString("GMT %1").arg(tz);
         else tzStr = "GMT";
@@ -3090,7 +3102,7 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
         html += QString("<p><strong>Location:</strong> %1</p>\n").arg(location);
         
         QString tzStr;
-        short tz = transitFile->getTimezone();
+        double tz = transitFile->getTimezone();
         if (tz > 0) tzStr = QString("GMT +%1").arg(tz);
         else if (tz < 0) tzStr = QString("GMT %1").arg(tz);
         else tzStr = "GMT";

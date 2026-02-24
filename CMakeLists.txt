@@ -59,6 +59,7 @@ set(ASTROPROCESSOR_SOURCES
     astroprocessor/src/astro-data.cpp
     astroprocessor/src/astro-calc.cpp
     astroprocessor/src/csvreader.cpp
+    astroprocessor/src/astrodatetimeedit.cpp
 )
 
 set(ASTROPROCESSOR_HEADERS
@@ -73,6 +74,7 @@ set(ASTROPROCESSOR_HEADERS
     astroprocessor/include/Astroprocessor/Data
     astroprocessor/include/Astroprocessor/Calc
     astroprocessor/src/csvreader.h
+    astroprocessor/src/astrodatetimeedit.h
 )
 
 set(CHART_SOURCES

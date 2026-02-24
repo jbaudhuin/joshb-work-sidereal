@@ -535,10 +535,11 @@ AstroFileInfo::refresh()
     }
 
     QString timezone;
-    if (currentFile()->getTimezone() > 0)
-        timezone = QString("GMT +%1").arg(currentFile()->getTimezone());
-    else if (currentFile()->getTimezone() < 0)
-        timezone = QString("GMT %1").arg(currentFile()->getTimezone());
+    double tzVal = currentFile()->getTimezone();
+    if (tzVal > 0)
+        timezone = QString("GMT +%1").arg(tzVal);
+    else if (tzVal < 0)
+        timezone = QString("GMT %1").arg(tzVal);
     else
         timezone = "GMT";
 
@@ -5439,7 +5440,7 @@ MainWindow::restoreSession()
                     af->setType((FileType)settings.value(fileGroup + "type", TypeEvent).toInt());
                     af->setLocation(settings.value(fileGroup + "location").value<QVector3D>());
                     af->setLocationName(settings.value(fileGroup + "locationName").toString());
-                    af->setTimezone(settings.value(fileGroup + "timezone").toInt());
+                    af->setTimezone(settings.value(fileGroup + "timezone").toDouble());
                     af->setHarmonic(settings.value(fileGroup + "harmonic", 1.0).toDouble());
                     af->setComment(settings.value(fileGroup + "comment").toString());
                     
@@ -5721,7 +5722,7 @@ MainWindow::restoreSessionByKey(const QString& sessionKey)
                     af->setType((FileType)settings.value("type", TypeEvent).toInt());
                     af->setLocation(settings.value("location").value<QVector3D>());
                     af->setLocationName(settings.value("locationName").toString());
-                    af->setTimezone(settings.value("timezone").toInt());
+                    af->setTimezone(settings.value("timezone").toDouble());
                     af->setHarmonic(settings.value("harmonic", 1.0).toDouble());
                     af->setComment(settings.value("comment").toString());
                     

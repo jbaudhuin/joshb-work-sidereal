@@ -18,13 +18,13 @@ public:
     QTreeView* htv() const { return _hview; }
 
 protected:                            // AstroFileHandler implementation
-    void filesUpdated(MembersList);
+    void filesUpdated(MembersList) override;
     void viewSettingsUpdated(MembersList) override { } // ignores view settings
 
-    AppSettings defaultSettings();
-    AppSettings currentSettings();
-    void applySettings(const AppSettings&);
-    void setupSettingsEditor(AppSettingsEditor*);
+    AppSettings defaultSettings() override;
+    AppSettings currentSettings() override;
+    void applySettings(const AppSettings&) override;
+    void setupSettingsEditor(AppSettingsEditor*) override;
 
     void describePlanet();
     void clear();

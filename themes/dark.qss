@@ -81,6 +81,11 @@ AstroFileEditor QPushButton {
 	min-width: 60px;
 }
 
+AstroFileEditor QPushButton#calPopupBtn {
+	min-width: 0px;
+	padding: 2px 4px;
+}
+
 AstroFileEditor QPushButton:hover {
 	background-color: #717b88;
 	border-color: #71aeec;
@@ -804,6 +809,11 @@ QPushButton:disabled {
 	background-color: #323232;
 	color: #666666;
 	border-color: #404040;
+}
+
+QPushButton#calPopupBtn {
+	min-width: 0px;
+	padding: 2px 4px;
 }
 
 /* Radix filter button - styled like table cells */

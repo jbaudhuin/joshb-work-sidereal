@@ -106,7 +106,7 @@ describeSpeculum(const Horoscope&    scope,
                  bool                showFixedStars,
                  SpeculumDisplayMode displayMode = DisplayLocalTime);
 QString
-_formatTime(const QDateTime& dt, short tz);
+_formatTime(const QDateTime& dt, double tz);
 QString
 describe(AstroFileList&& scopes,
          Articles        article  = Article_All,

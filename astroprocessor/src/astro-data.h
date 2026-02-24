@@ -138,8 +138,27 @@ dynAspState();
 
 QString
 dtToString(const QDateTime& dt);
+
+/// Calendar system for date interpretation.
+/// Cal_Auto uses Julian before the Gregorian cutover (Oct 15 1582) and
+/// Gregorian from that date onward.  The user can force either calendar
+/// for charts in jurisdictions that adopted the Gregorian calendar later
+/// (e.g. England 1752, Russia 1918).
+enum CalendarType : int {
+    Cal_Auto,      // Julian before cutover, Gregorian after
+    Cal_Gregorian, // Force Gregorian (New Style)
+    Cal_Julian     // Force Julian   (Old Style)
+};
+
+/// How the entered local time should be interpreted.
+enum TimeMode {
+    Time_ZoneTime, // Modern zone / clock time  (default)
+    Time_LMT,      // Local Mean Time  (offset = longitude / 15)
+    Time_LAT       // Local Apparent Time  (sundial time)
+};
+
 QDateTime
-dateTimeFromJulian(double jd);
+dateTimeFromJulian(double jd, CalendarType calType = Cal_Auto);
 
 inline bool
 getDynAspState(QVariant& var)
@@ -345,7 +364,9 @@ class InputData {
     HouseSystemId _houseSystem;
     ZodiacId      _zodiac;
     AspectSetId   _aspectSet;
-    short         _tz;
+    double        _tz;           // timezone offset in fractional hours
+    CalendarType  _calendarType; // Julian / Gregorian / Auto
+    TimeMode      _timeMode;     // Zone Time / LMT / LAT
     // double         harmonic;
     // double         RAMC;
 
@@ -356,18 +377,20 @@ class InputData {
         _GMT.setSecsSinceEpoch(0);
         _baseGMT.setTimeZone(QTimeZone::UTC);
         _baseGMT.setSecsSinceEpoch(0);
-        _hasBaseChart = false;
-        _isProgressed = false;
-        _location    = QVector3D(0, 0, 0);
-        _houseSystem = Housesystem_Placidus;
-        _zodiac      = Zodiac_Tropical;
-        _aspectSet   = AspectSet_Default;
-        _tz          = 0;
+        _hasBaseChart  = false;
+        _isProgressed  = false;
+        _location      = QVector3D(0, 0, 0);
+        _houseSystem   = Housesystem_Placidus;
+        _zodiac        = Zodiac_Tropical;
+        _aspectSet     = AspectSet_Default;
+        _tz            = 0.0;
+        _calendarType  = Cal_Auto;
+        _timeMode      = Time_ZoneTime;
         // harmonic    = 1;
     }
 
     InputData(const QDateTime& gmt,
-              short            tz,
+              double           tz,
               const QVector3D& loc  = { 0, 0, 0 },
               HouseSystemId    hsys = Housesystem_Placidus,
               ZodiacId         zid  = Zodiac_Tropical,
@@ -379,7 +402,9 @@ class InputData {
         _houseSystem(hsys),
         _zodiac(zid),
         _aspectSet(asid),
-        _tz(tz)
+        _tz(tz),
+        _calendarType(Cal_Auto),
+        _timeMode(Time_ZoneTime)
     {
         _baseGMT.setTimeZone(QTimeZone::UTC);
         _baseGMT.setSecsSinceEpoch(0);
@@ -391,8 +416,13 @@ class InputData {
     const QDateTime& GMT() const { return dateTime(); }
     void             setGMT(const QDateTime& gmt) { _GMT = gmt; }
     const QDateTime& dateTime() const { return _GMT; }
-    short            tz() const { return _tz; }
-    void             setTZ(short tz) { _tz = tz; }
+    double           tz() const { return _tz; }
+    void             setTZ(double tz) { _tz = tz; }
+
+    CalendarType calendarType() const { return _calendarType; }
+    void         setCalendarType(CalendarType ct) { _calendarType = ct; }
+    TimeMode     timeMode() const { return _timeMode; }
+    void         setTimeMode(TimeMode tm) { _timeMode = tm; }
 
     // Base chart support for progressed charts
     bool             hasBaseChart() const { return _hasBaseChart; }
@@ -429,6 +459,21 @@ class InputData {
     void          setZodiac(ZodiacId zid) { _zodiac = zid; }
     AspectSetId   aspectSet() const { return _aspectSet; }
     void          setAspectSet(AspectSetId asid) { _aspectSet = asid; }
+
+    /// Resolve Cal_Auto to a concrete SE_GREG_CAL / SE_JUL_CAL flag.
+    /// Standard Western cutover: Oct 15, 1582 Gregorian.
+    int resolvedSweCalFlag() const
+    {
+        if (_calendarType == Cal_Gregorian) return 1; // SE_GREG_CAL
+        if (_calendarType == Cal_Julian) return 0;    // SE_JUL_CAL
+        // Cal_Auto — Julian before the Gregorian cutover
+        const auto& d = _GMT.date();
+        if (d.year() < 1582) return 0;
+        if (d.year() > 1582) return 1;
+        if (d.month() < 10) return 0;
+        if (d.month() > 10) return 1;
+        return (d.day() >= 15) ? 1 : 0;
+    }
 
     // void            computeRAMC() { }
 };

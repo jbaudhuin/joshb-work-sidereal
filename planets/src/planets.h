@@ -19,7 +19,7 @@ class AstroQmlView : public QQuickView
         void fitSceneInView();
 
     protected:
-        virtual void resizeEvent(QResizeEvent*) { fitSceneInView(); }
+        void resizeEvent(QResizeEvent*) override { fitSceneInView(); }
 
     public slots:
 
@@ -61,7 +61,7 @@ class Planets : public AstroFileHandler
         void planetSelected(A::PlanetId, int fileIndex);
 
     protected:                            // AstroFileHandler && other implementations
-        void filesUpdated(MembersList);
+        void filesUpdated(MembersList) override;
         void dragEnterEvent(QDragEnterEvent* event) override;
         void dragMoveEvent(QDragMoveEvent* event) override;
         void dropEvent(QDropEvent* event) override;

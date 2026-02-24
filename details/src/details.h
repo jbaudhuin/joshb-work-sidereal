@@ -38,11 +38,11 @@ private:
     void clear();
 
 protected:                            // AstroFileHandler implementation
-    void filesUpdated(MembersList);
+    void filesUpdated(MembersList) override;
 
-    AppSettings defaultSettings();
-    AppSettings currentSettings();
-    void applySettings(const AppSettings&);
+    AppSettings defaultSettings() override;
+    AppSettings currentSettings() override;
+    void applySettings(const AppSettings&) override;
 
 signals:
     void planetSelected(int index);

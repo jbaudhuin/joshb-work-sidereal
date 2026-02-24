@@ -31,7 +31,7 @@ class GeoSuggestCompletion : public QObject
 
         GeoSuggestCompletion(GeoSearchBox *parent = nullptr);
         ~GeoSuggestCompletion();
-        bool eventFilter(QObject *obj, QEvent *ev);
+        bool eventFilter(QObject *obj, QEvent *ev) override;
         void showCompletion(const QStringList &cities, const QStringList &descr, const QStringList &pos);
         void setSource(Sources src);
 

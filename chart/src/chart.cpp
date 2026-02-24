@@ -705,7 +705,9 @@ Chart::drawMidpointFigures()
 
         // Search focal planets for the solo "A" planet closest to the
         // midpoint axis (check BOTH near and far midpoint = 180° opposite)
-        const A::Planet* bestPlanet = nullptr;
+        // N.B. Store ID+fileId rather than a pointer: QMap::value()
+        // returns a temporary, so &aPlanet would dangle after the loop.
+        A::PlanetId bestPid = A::Planet_None;
         int   bestFid = -1;
         qreal bestOrb = 999;
 
@@ -717,13 +719,13 @@ Chart::drawMidpointFigures()
                 if (aPid == pid1 || aPid == pid2) continue; // skip B and C
                 int cfid = cpid.fileId();
                 if (cfid < 0) cfid = fi;
-                const auto& aPlanet = file(cfid)->horoscope().planets.value(aPid);
+                const auto aPlanet = file(cfid)->horoscope().planets.value(aPid);
                 double dNear = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
                 double dFar  = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), farAngle));
                 double d = qMin(dNear, dFar);
                 if (d < bestOrb) {
                     bestOrb = d;
-                    bestPlanet = &aPlanet;
+                    bestPid = aPid;
                     bestFid = cfid;
                 }
             }
@@ -731,7 +733,7 @@ Chart::drawMidpointFigures()
 
         // Also check the other file's focal planets if none were found above
         // (the focal set is stored on file(1) for synastry)
-        if (!bestPlanet && filesCount() > 1) {
+        if (bestFid < 0 && filesCount() > 1) {
             const auto& fp1 = file(1)->focalPlanets();
             for (const auto& cpid : fp1) {
                 if (cpid.isMidpt()) continue;
@@ -739,20 +741,21 @@ Chart::drawMidpointFigures()
                 if (aPid == pid1 || aPid == pid2) continue;
                 int cfid = cpid.fileId();
                 if (cfid < 0) cfid = 1;
-                const auto& aPlanet = file(cfid)->horoscope().planets.value(aPid);
+                const auto aPlanet = file(cfid)->horoscope().planets.value(aPid);
                 double dNear = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
                 double dFar  = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), farAngle));
                 double d = qMin(dNear, dFar);
                 if (d < bestOrb) {
                     bestOrb = d;
-                    bestPlanet = &aPlanet;
+                    bestPid = aPid;
                     bestFid = cfid;
                 }
             }
         }
 
-        if (bestPlanet && bestOrb <= maxOrb) {
-            QGraphicsItem* markerA = innerMarker(bestFid, bestPlanet->id);
+        if (bestFid >= 0 && bestOrb <= maxOrb) {
+            const auto bestPlanet = file(bestFid)->horoscope().planets.value(bestPid);
+            QGraphicsItem* markerA = innerMarker(bestFid, bestPid);
             if (markerA) {
                 QPointF posA = markerA->sceneBoundingRect().center();
 
@@ -766,7 +769,7 @@ Chart::drawMidpointFigures()
 
                 // Tooltip
                 QString tip = tr("%1 = %2/%3  orb %4")
-                    .arg(bestPlanet->name, p1Data.name, p2Data.name,
+                    .arg(bestPlanet.name, p1Data.name, p2Data.name,
                          A::degreeToString(bestOrb));
                 mf.chordLine->setToolTip(tip);
                 mf.toALine->setToolTip(tip);

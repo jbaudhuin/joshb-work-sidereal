@@ -22,14 +22,14 @@ class RotatingCircleItem : public QAbstractGraphicsShapeItem
         Chart* chart();
 
     protected:
-        void paint(QPainter*, const QStyleOptionGraphicsItem*, QWidget*);
-        bool sceneEventFilter(QGraphicsItem*, QEvent*);    // handles events of items
-        bool sceneEvent(QEvent *event);
+        void paint(QPainter*, const QStyleOptionGraphicsItem*, QWidget*) override;
+        bool sceneEventFilter(QGraphicsItem*, QEvent*) override;    // handles events of items
+        bool sceneEvent(QEvent *event) override;
 
     public:
         RotatingCircleItem(QRect rect, const QPen& pen);
-        QPainterPath shape() const;
-        QRectF boundingRect() const { return rect; }
+        QPainterPath shape() const override;
+        QRectF boundingRect() const override { return rect; }
 
         void setFile(AstroFile* f) { file = f; }
         void setHelpTag(QGraphicsItem* item, QString tag);
@@ -106,16 +106,16 @@ private:
     void refreshAll();
 
 protected:                            // AstroFileHandler && other implementations
-    void filesUpdated(MembersList);
+    void filesUpdated(MembersList) override;
     void viewSettingsUpdated(MembersList) override;
 
-    AppSettings defaultSettings();
-    AppSettings currentSettings();
-    void applySettings(const AppSettings&);
-    void setupSettingsEditor(AppSettingsEditor*);
+    AppSettings defaultSettings() override;
+    AppSettings currentSettings() override;
+    void applySettings(const AppSettings&) override;
+    void setupSettingsEditor(AppSettingsEditor*) override;
 
-    bool eventFilter(QObject *, QEvent *);
-    void resizeEvent(QResizeEvent *ev);
+    bool eventFilter(QObject *, QEvent *) override;
+    void resizeEvent(QResizeEvent *ev) override;
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
     void dropEvent(QDropEvent* event) override;

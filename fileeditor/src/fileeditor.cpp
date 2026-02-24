@@ -6,7 +6,6 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QComboBox>
-#include <QDateTimeEdit>
 #include <QTimeZone>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -60,7 +59,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     name       = new QLineEdit;
     type       = new QComboBox;
     basis      = new QComboBox;
-    dateTime   = new QDateTimeEdit;
+    dateTime   = new A::AstroDateTimeEdit(false /*dateOnly*/);
     timeZone   = new QDoubleSpinBox;
     lockTimezone = new QPushButton;
     lockTimezone->setCheckable(true);
@@ -98,15 +97,7 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     timeZone -> setRange(-12, 12);
     timeZone -> setDecimals(1);
 
-    dateTime -> setCalendarPopup(true);
-    QString fmt = dateTime->displayFormat();
-    if (fmt.replace("h:mm ", "h:mm:ss ") != dateTime->displayFormat()) {
-        // if we don't show seconds, they will be non-zero and
-        // the only way to edit it is hand-editing the .dat file.
-        dateTime->setDisplayFormat(fmt);
-    }
     dateTime->setMinimumDate(QDate(100,1,1));
-    qDebug() << "Minimum date:" << dateTime->minimumDate();
 
     comment->setMaximumHeight(70);
     if (!parent) {
@@ -141,12 +132,12 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
     lay1->addRow(tr("Comment:"),    comment);
 
     //auto lay = new QHBoxLayout;
-    startDate = new QDateEdit;
+    startDate = new A::AstroDateTimeEdit(true /*dateOnly*/);
     startDate->setMinimumDate(QDate(100,1,1));
     startDateLbl = new QLabel("Start search:");
     lay1->insertRow(2, startDateLbl, startDate);
 
-    endDate = new QDateEdit;
+    endDate = new A::AstroDateTimeEdit(true /*dateOnly*/);
     endDate->setMinimumDate(QDate(100,1,1));
 
     //lay->addWidget();
@@ -174,19 +165,20 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
 
     connect(name, SIGNAL(editingFinished()), this, SLOT(onEditingFinished()));
     connect(startDate,
-            &QDateTimeEdit::dateTimeChanged,
+            &A::AstroDateTimeEdit::dateChanged,
             this,
-            [this](const QDateTime& dt) {
+            [this](const QDate&) {
                 if (endDateCB->isChecked())
                     return;
                 endDate->blockSignals(true);
-                endDate->setDateTime(dt.addYears(1));
+                QDate sd = startDate->date();
+                endDate->setDate(sd.addYears(1));
                 endDate->blockSignals(false);
             });
-    connect(startDate, SIGNAL(dateTimeChanged(const QDateTime&)),
-            this, SLOT(onEditingFinished()));
-    connect(endDate, SIGNAL(dateTimeChanged(const QDateTime&)),
-            this, SLOT(onEditingFinished()));
+    connect(startDate, &A::AstroDateTimeEdit::dateTimeChanged,
+            this, &AstroFileEditor::onEditingFinished);
+    connect(endDate, &A::AstroDateTimeEdit::dateTimeChanged,
+            this, &AstroFileEditor::onEditingFinished);
     connect(endDateCB, SIGNAL(toggled(bool)),
             this, SLOT(onEditingFinished()));
 
@@ -228,11 +220,17 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
             this, SLOT(timezoneChanged()));
 
     // Track when user manually edits time
-    connect(dateTime, &QDateTimeEdit::dateTimeChanged,
-            this, [this](const QDateTime&) {
+    connect(dateTime, &A::AstroDateTimeEdit::dateTimeChanged,
+            this, [this]() {
+        // Disable timezone controls when LMT/LAT is active
+        bool usesZoneTime = (dateTime->timeMode() == A::Time_ZoneTime);
+        timeZone->setEnabled(usesZoneTime);
+        lockTimezone->setEnabled(usesZoneTime);
+
         if (!_inUpdate && !_inApply) {
             _userEditedTime = true;
             qDebug() << "User manually edited time";
+            applyToFile(true, false);
         }
     });
 
@@ -347,9 +345,22 @@ AstroFileEditor::updateTimezone()
         return;
     }
 
+    // Skip timezone lookup when LMT or LAT is active — the timezone
+    // spinbox is irrelevant for those modes.
+    if (dateTime->timeMode() != A::Time_ZoneTime) {
+        qDebug() << "Skipping timezone lookup - time mode is"
+                 << (dateTime->timeMode() == A::Time_LMT ? "LMT" : "LAT");
+        // Still keep geo-longitude in sync for EoT tooltip
+        dateTime->setGeoLongitude(geoSearch->location().x());
+        return;
+    }
+
     // Now that time display is decoupled from timezone, we can safely
     // update timezone when location changes without affecting displayed time
     QVector3D vec(geoSearch->location());
+
+    // Keep the datetime widget's longitude in sync for EoT tooltips
+    dateTime->setGeoLongitude(vec.x());
 
     auto nm = new QNetworkAccessManager(this);
     connect(nm, &QNetworkAccessManager::finished,
@@ -388,7 +399,7 @@ AstroFileEditor::updateTimezone()
                                 "&language=en")
             .arg(vec.y()).arg(vec.x())
                       .arg(MainWindow::instance()->APIKey().c_str())
-            .arg(dateTime->dateTime().toSecsSinceEpoch());
+            .arg(dateTime->localDateTime().toSecsSinceEpoch());
     qDebug() << "Issuing TZ URL:" << url;
     nm->get(QNetworkRequest(url));
 }
@@ -454,11 +465,19 @@ void AstroFileEditor::update(AstroFile::Members m)
     QTimeZone tz(3600 * source->getTimezone());
     QDateTime localDt = gmtDt.toTimeZone(tz);
     
-    // Set the datetime widget without timezone - just display the local time
+    // Set the datetime widget — calendar type, time mode, then date/time
     dateTime->blockSignals(true);
+    dateTime->setCalendarType(source->getCalendarType());
+    dateTime->setTimeMode(source->getTimeMode());
+    dateTime->setGeoLongitude(source->getLocation().x());
     dateTime->setDate(localDt.date());
     dateTime->setTime(localDt.time());
     dateTime->blockSignals(false);
+    
+    // Disable timezone controls when LMT/LAT is active
+    bool usesZoneTime = (source->getTimeMode() == A::Time_ZoneTime);
+    timeZone->setEnabled(usesZoneTime);
+    lockTimezone->setEnabled(usesZoneTime);
     
     qDebug() << "Loading: GMT" << gmtDt << "TZ offset" << source->getTimezone()
              << "-> Local time" << localDt.date() << localDt.time();
@@ -650,7 +669,6 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     dst->setType(FileType(type->currentData().toInt()));
     dst->setLocationName(geoSearch->locationName());
     dst->setLocation(geoSearch->location());
-    dst->setTimezone(timeZone->value());
     dst->setTimezoneLocked(lockTimezone->isChecked());
     
     // Handle base chart selection
@@ -678,18 +696,41 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
     }
     
     if (update) {
-        // Manually construct GMT from displayed local time and timezone value
-        // Don't trust QDateTimeEdit's internal timezone handling
-        QDate localDate = dateTime->date();
-        QTime localTime = dateTime->time();
-        QTimeZone tz(3600 * timeZone->value());
-        QDateTime localDt(localDate, localTime, tz);
-        QDateTime gmt = localDt.toUTC();
+        // Convert displayed local date/time to UTC using the new widget
+        double tzOff   = timeZone->value();
+        double geoLon  = geoSearch->location().x();
+        A::CalendarType calType = dateTime->calendarType();
+        A::TimeMode     tMode   = dateTime->timeMode();
+        QDateTime localDt       = dateTime->localDateTime();
+        QDateTime gmt = A::localToUTC(localDt, tzOff, geoLon,
+                                       tMode, calType);
         dst->setGMT(gmt);
-        
-        qDebug() << "Saving: Local time" << localDate << localTime 
-                 << "TZ offset" << timeZone->value()
-                 << "-> GMT" << gmt;
+        dst->setCalendarType(calType);
+        dst->setTimeMode(tMode);
+
+        // Store the effective timezone offset so the round-trip
+        // (GMT → displayed local time) reproduces what the user typed.
+        if (tMode == A::Time_LMT || tMode == A::Time_LAT) {
+            // Compute the effective offset = (local_entered - gmt) in hours.
+            // This makes update() display the same local time the user typed.
+            qint64 localEpoch = QDateTime(localDt.date(), localDt.time(),
+                                          QTimeZone::utc()).toSecsSinceEpoch();
+            qint64 utcEpoch   = gmt.toSecsSinceEpoch();
+            double effectiveTz = (localEpoch - utcEpoch) / 3600.0;
+            dst->setTimezone(effectiveTz);
+            qDebug() << "Saving: Local time" << localDt
+                     << "mode" << (tMode == A::Time_LMT ? "LMT" : "LAT")
+                     << "effective TZ" << effectiveTz
+                     << "-> GMT" << gmt;
+        } else {
+            dst->setTimezone(timeZone->value());
+            qDebug() << "Saving: Local time" << localDt
+                     << "TZ offset" << timeZone->value()
+                     << "-> GMT" << gmt;
+        }
+    } else {
+        // Not computing time — just store the spinbox value
+        dst->setTimezone(timeZone->value());
     }
     dst->setComment(comment->document()->toPlainText());
 
@@ -863,9 +904,9 @@ AstroFileEditor::onEditingFinished()
 
     //auto d0 = A::getJulianDate(startDate->dateTime().toUTC());
     //auto d1 = A::getJulianDate(endDate->dateTime().toUTC());
-    inda.setGMT(startDate->dateTime().toUTC());
+    inda.setGMT(QDateTime(startDate->date(), QTime(0,0), QTimeZone::utc()));
     auto dl = A::quotidianSearch(poses, inda,
-                                 endDate->dateTime().toUTC(),
+                                 QDateTime(endDate->date(), QTime(23,59,59), QTimeZone::utc()),
                                  std::min(span/(*harmonics.rbegin()),30.),
                                  true);
 

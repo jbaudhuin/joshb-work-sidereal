@@ -56,16 +56,16 @@ class Plain : public AstroFileHandler {
     void setParanOrb(double orb);
 
   protected: // AstroFileHandler implementations
-    void filesUpdated(MembersList m);
+    void filesUpdated(MembersList m) override;
     void viewSettingsUpdated(MembersList m) override;
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
     void dropEvent(QDropEvent* event) override;
 
-    AppSettings defaultSettings();
-    AppSettings currentSettings();
-    void        applySettings(const AppSettings&);
-    void        setupSettingsEditor(AppSettingsEditor*);
+    AppSettings defaultSettings() override;
+    AppSettings currentSettings() override;
+    void        applySettings(const AppSettings&) override;
+    void        setupSettingsEditor(AppSettingsEditor*) override;
 
   public:
     Plain(QWidget* parent = 0);

@@ -2,8 +2,8 @@
 #define TRANSITS_H
 
 #include "astro-data.h"
+#include "astrodatetimeedit.h"
 #include <QButtonGroup>
-#include <QDateEdit>
 #include <QLineEdit>
 #include <QModelIndex>
 #include <QPointer>
@@ -168,14 +168,14 @@ class Transits : public AstroFileHandler {
     bool              _pendingRestart = false;  // Set when old thread is canceling and we need to restart
     QLineEdit*        _input;
     QString           _lastUsedPattern;   // pattern text used for cached events
-    QDateEdit*        _start;
+    A::AstroDateTimeEdit* _start;
     QLineEdit*        _duration;
     QButtonGroup*     _grp;
     QRadioButton*     _endRB;
     QRadioButton*     _duraRB;
     QPushButton*      _back;
     QPushButton*      _forth;
-    QDateEdit*        _end;
+    A::AstroDateTimeEdit* _end;
 
     enum class AnchorType {
         None,

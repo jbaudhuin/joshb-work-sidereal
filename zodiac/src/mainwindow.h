@@ -38,7 +38,7 @@ class AstroFileInfo : public AstroFileHandler {
     void       refresh();
 
   protected:
-    void filesUpdated(MembersList members); // AstroFileHandler implementations
+    void filesUpdated(MembersList members) override; // AstroFileHandler implementations
     void viewSettingsUpdated(MembersList) override { } // only cares about file data
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
@@ -52,10 +52,10 @@ class AstroFileInfo : public AstroFileHandler {
     AstroFileInfo(QWidget* parent = nullptr);
     void setCurrentIndex(int i) { currentIndex = i; }
 
-    AppSettings defaultSettings();
-    AppSettings currentSettings();
-    void        applySettings(const AppSettings&);
-    void        setupSettingsEditor(AppSettingsEditor*);
+    AppSettings defaultSettings() override;
+    AppSettings currentSettings() override;
+    void        applySettings(const AppSettings&) override;
+    void        setupSettingsEditor(AppSettingsEditor*) override;
 };
 
 /* =========================== ASTRO WIDGET
@@ -195,10 +195,10 @@ class FileTreeView : public QTreeView {
 
   protected:
     void mousePressEvent(QMouseEvent* event) override;
-    void dragEnterEvent(QDragEnterEvent* event);
-    void dragMoveEvent(QDragMoveEvent* event);
-    void dropEvent(QDropEvent* event);
-    void startDrag(Qt::DropActions supportedActions);
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
+    void startDrag(Qt::DropActions supportedActions) override;
 
   public:
     FileTreeView(AstroDatabase* parent = nullptr);
@@ -220,8 +220,8 @@ class AstroDatabase : public QFrame {
     QString                _renamingDir;
 
   protected:
-    virtual void keyPressEvent(QKeyEvent*);
-    virtual bool eventFilter(QObject*, QEvent*);
+    void keyPressEvent(QKeyEvent*) override;
+    bool eventFilter(QObject*, QEvent*) override;
 
   public:
     bool validateDropTarget(const QPoint& pos, QString& targetDir);
@@ -478,13 +478,13 @@ class MainWindow : public QMainWindow, public Customizable {
     void contextMenu(QPoint);
 
   protected:
-    AppSettings defaultSettings(); // 'Customizable' class implementations
-    AppSettings currentSettings();
-    void        applySettings(const AppSettings&);
-    void        setupSettingsEditor(AppSettingsEditor*);
+    AppSettings defaultSettings() override; // 'Customizable' class implementations
+    AppSettings currentSettings() override;
+    void        applySettings(const AppSettings&) override;
+    void        setupSettingsEditor(AppSettingsEditor*) override;
     void        saveSettings(const QString& iniFile = "settings.ini") override;
 
-    void closeEvent(QCloseEvent*);
+    void closeEvent(QCloseEvent*) override;
     void paintEvent(QPaintEvent* event) override;
 
   public:

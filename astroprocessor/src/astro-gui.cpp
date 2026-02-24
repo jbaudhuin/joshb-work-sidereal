@@ -217,6 +217,16 @@ AstroFile::save()
     file.setValue("timezoneLocked", _timezoneLocked);
     file.setValue("comment", getComment());
 
+    // Calendar type & time mode (new fields — old versions will simply ignore)
+    if (getCalendarType() != A::Cal_Auto)
+        file.setValue("calendarType", static_cast<int>(getCalendarType()));
+    else
+        file.remove("calendarType"); // omit default to keep files clean
+    if (getTimeMode() != A::Time_ZoneTime)
+        file.setValue("timeMode", static_cast<int>(getTimeMode()));
+    else
+        file.remove("timeMode");
+
     // Base chart support for progressed charts
     if (hasBaseChart()) {
         file.setValue("baseChartGMT", getBaseChartGMT().toString(Qt::ISODate));
@@ -333,13 +343,19 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
     if (!dts.endsWith('Z')) dts += 'Z';
     setGMT(QDateTime::fromString(dts, Qt::ISODate));
 
-    setTimezone(file.value("timezone").toFloat());
+    setTimezone(file.value("timezone").toDouble());
     setLocation(QVector3D(file.value("lon").toFloat(),
                           file.value("lat").toFloat(),
                           file.value("z").toFloat()));
     setLocationName(file.value("placeTag").toString());
     _timezoneLocked = file.value("timezoneLocked", false).toBool();
     setComment(file.value("comment").toString());
+
+    // Calendar type & time mode (defaults preserve backwards compatibility)
+    setCalendarType(static_cast<A::CalendarType>(
+        file.value("calendarType", static_cast<int>(A::Cal_Auto)).toInt()));
+    setTimeMode(static_cast<A::TimeMode>(
+        file.value("timeMode", static_cast<int>(A::Time_ZoneTime)).toInt()));
 
     // Clear cached events since we're loading a new chart
     clearEventsModel();
@@ -514,11 +530,29 @@ AstroFile::setGMT(const QDateTime& gmt)
 }
 
 void
-AstroFile::setTimezone(const short& zone)
+AstroFile::setTimezone(double zone)
 {
     if (scope.inputData.tz() != zone) {
         scope.inputData.setTZ(zone);
         change(Timezone);
+    }
+}
+
+void
+AstroFile::setCalendarType(A::CalendarType ct)
+{
+    if (scope.inputData.calendarType() != ct) {
+        scope.inputData.setCalendarType(ct);
+        change(GMT); // recalculate — same moment, different calendar
+    }
+}
+
+void
+AstroFile::setTimeMode(A::TimeMode tm)
+{
+    if (scope.inputData.timeMode() != tm) {
+        scope.inputData.setTimeMode(tm);
+        change(GMT); // recalculate — interpretation of entered time changes
     }
 }
 
