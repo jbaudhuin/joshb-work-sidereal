@@ -1391,13 +1391,18 @@ Transits::Transits(QWidget* parent) :
     connect(_input, &QLineEdit::textChanged, this, [this](const QString& text) {
         QString t = text.trimmed();
         if (t.isEmpty()) {
-            _input->setStyleSheet(QString());           // neutral
+            _inputBorderStyle.clear();
         } else {
             bool ok = A::EventOptions::isValidPattern(t);
-            _input->setStyleSheet(
-                ok ? QStringLiteral("QLineEdit { border: 1px solid green; }")
-                   : QStringLiteral("QLineEdit { border: 1px solid red; }"));
+            _inputBorderStyle =
+                ok ? QStringLiteral("border: 1px solid green;")
+                   : QStringLiteral("border: 1px solid red;");
         }
+        // Apply border only (progress gradient cleared when text changes)
+        _input->setStyleSheet(
+            _inputBorderStyle.isEmpty()
+                ? QString()
+                : QStringLiteral("QLineEdit { %1 }").arg(_inputBorderStyle));
     });
 
     auto l2 = new QVBoxLayout;
@@ -1959,7 +1964,16 @@ Transits::Transits(QWidget* parent) :
             SLOT(onDurationChanged(const QString&)));
 
     connect(_input, &QLineEdit::editingFinished,
-            this, [this]() { updateTransits(); });
+            this, [this]() {
+                // Only restart if the pattern text actually changed.
+                // editingFinished fires on every focus-out; without this
+                // guard, clicking on a result row while a search is running
+                // would trigger a redundant updateTransits() call.
+                QString current = _input->text().trimmed();
+                if (current != _lastUsedPattern) {
+                    updateTransits();
+                }
+            });
 
     auto today        = QDate::currentDate();
     auto startOfMonth = QDate(today.year(), today.month(), 1);
@@ -2489,6 +2503,9 @@ Transits::updateTransits()
 void
 Transits::onProgress(double prog)
 {
+    // Update the progress bar in the pattern input field
+    updateInputProgress(prog);
+
     // Throttle sort operations during progress updates.
     // Uses a repeating timer so that the UI updates at a steady rate
     // regardless of how fast progress signals arrive.  Previous approach
@@ -2526,6 +2543,10 @@ Transits::onCompleted()
         _progressSortTimer->stop();
     }
     
+    // Clear the progress bar in the pattern input field
+    updateInputProgress(1.0);
+    _lastProgress = -1;
+
     // Disconnect all signals from the finder before deletion to prevent
     // any queued progress() signals from being processed after deletion
     if (_activeFinder) {
@@ -2795,6 +2816,12 @@ Transits::clickedCell(QModelIndex inx)
     if (!_evm) return;
     if (inx.row() < 0 || inx.row() >= _evm->rowCount()) return;
     
+    // Inhibit filesUpdated → updateTransits for the ENTIRE duration of this
+    // handler.  Several signals emitted below (updateHarmonics, updateFirst,
+    // updateSecond) can bounce back through AstroFileHandler::filesUpdated.
+    // Without this guard the running search gets cancelled on every click.
+    A::modalize<bool> noup(_inhibitUpdate);
+
     // Save scroll position when user clicks a cell (creates selection anchor)
     saveScrollPos();
     
@@ -2880,7 +2907,6 @@ Transits::clickedCell(QModelIndex inx)
                  << "isMidpt=" << cpid.isMidpt()
                  << "name=" << cpid.name();
     }
-    A::modalize<bool> noup(_inhibitUpdate);
     if (!file()) return;  // guard against no file
     if (transitsOnly()) {
         file()->setFocalPlanets(focal);
@@ -3901,5 +3927,49 @@ Transits::updateProgressedToNatalButtonState()
         _btnProgressedToNatal->setText("IP=N");
     } else {
         _btnProgressedToNatal->setText("P=N");
+    }
+}
+
+void
+Transits::updateInputProgress(double prog)
+{
+    // Throttle stylesheet updates — skip if progress hasn't moved enough
+    // to produce a visible 1% change, unless we're clearing (prog < 0 or >= 1).
+    if (prog >= 0 && prog < 1.0) {
+        int pctNow  = int(prog * 100);
+        int pctLast = int(_lastProgress * 100);
+        if (pctNow == pctLast) return;
+    }
+    _lastProgress = prog;
+
+    if (prog < 0) {
+        // Waiting-for-pool phase: show pulsing indicator (full bar, muted)
+        _input->setStyleSheet(QStringLiteral(
+            "QLineEdit { "
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            "  stop:0 rgba(100,149,237,60), stop:1 rgba(100,149,237,30)); "
+            "%1}").arg(_inputBorderStyle));
+    } else if (prog < 1.0) {
+        int pct = qBound(0, int(prog * 100), 100);
+        // Two-tone gradient: filled portion | unfilled
+        double stopL = pct / 100.0;
+        double stopR = stopL + 0.001;
+        _input->setStyleSheet(QStringLiteral(
+            "QLineEdit { "
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            "  stop:0 rgba(100,149,237,80), "
+            "  stop:%1 rgba(100,149,237,80), "
+            "  stop:%2 transparent, "
+            "  stop:1 transparent); "
+            "%3}")
+            .arg(stopL, 0, 'f', 4)
+            .arg(stopR, 0, 'f', 4)
+            .arg(_inputBorderStyle));
+    } else {
+        // Computation finished — restore validation-only style
+        _input->setStyleSheet(
+            _inputBorderStyle.isEmpty()
+                ? QString()
+                : QStringLiteral("QLineEdit { %1 }").arg(_inputBorderStyle));
     }
 }

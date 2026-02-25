@@ -3626,19 +3626,24 @@ EventOptions::eventPat()
         QString zposrea  = zposre;
         QString plre     = "[a-zA-Z]+(-[a-zA-Z])?"; // e.g., planet-r, planet-p
         QString plmpre   = QString("(%1(/%1)?)").arg(plre); // planet/planet
+        // Equals-delimited: A=B=C (exact pattern for 3+, pairwise for 2)
         QString plmpeqre = plmpre + "(=" + plmpre + ")*" + "(=(?<posa>"
                            + zposrea.replace(">", "a>") + "))?";
-        // e.g., sun=moon=mars
+        // Comma-delimited: A,B,C (pairwise pairs + general cluster detection)
+        QString plmpcommre = plmpre + "(," + plmpre + ")*";
+        // Combined: either equals-delimited or comma-delimited
+        // e.g., sun=moon=mars  OR  sun,moon,mars
         // Use \\s+ for whitespace leniency between tokens
         QString plmpzposre = "(?<body>" + plmpre + ")\\s+" + "("
                              + "(?<ingress>ingress\\s+(?<pos>" + zposre + "))"
                              + "|(?<ret>return)"
                              + ")"; // e.g., sun ingress capricorn, sun return
+        QString commastr  = "(?<comma>" + plmpcommre + ")";
         QString asprestr  = "(?<aspect>" + plmpeqre + ")";
         // Use generic plre so abbreviations like "Sat station" work
         QString stationre = "((?<station>(" + plre + "))\\s+station)";
         s_pat = "(" + stationre + "|" + "(H(?<harmonic>\\d+(\\.\\d+)?)\\s+)?(" 
-                + plmpzposre + "|" + asprestr + ")" + ")";
+                + plmpzposre + "|" + asprestr + "|" + commastr + ")" + ")";
     }
     return s_pat;
 }
@@ -3847,10 +3852,17 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
 
 void
 OmnibusFinder::initializeFromFiles(const AstroFileList& files)
+
 {
     // This ugly jumble intends to generate the appropriate planet listings,
     // and then create the T-T T-N P-P P-N pairings. And the ingresses, etc.
     // Better to have some kind of factory scheme, but for now...
+
+    // Toolbar-driven path: enable general cluster scanning when TA/TNA buttons
+    // are active (pattern path sets this selectively in initializeFromPattern).
+    _generalClustersEnabled =
+        showTransitAspectPatterns() || showTransitNatalAspectPatterns();
+
     bool natal = false, trans = false, prog = false;
     int  natus = -1, locus = -1, progr = -1;
 
@@ -4292,6 +4304,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
     }
 
     enabledEvents.clear();
+    _generalClustersEnabled = false;   // pattern path sets this selectively
 
     // --- Identify natal/transit files (shared across all sub-patterns) ---
     bool natal = false, trans = false;
@@ -4443,6 +4456,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
              << "ingress=" << match.captured("ingress")
              << "ret=" << match.captured("ret")
              << "aspect=" << match.captured("aspect")
+             << "comma=" << match.captured("comma")
              << "pos=" << match.captured("pos")
              << "sign=" << match.captured("sign")
              << "posa=" << match.captured("posa");
@@ -4462,6 +4476,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
     QString stationPat = match.captured("station");
     QString bodyPat    = match.captured("body");
     QString aspectPat  = match.captured("aspect");
+    QString commaPat   = match.captured("comma");
     bool    hasIngress = !match.captured("ingress").isEmpty();
     bool    hasReturn  = !match.captured("ret").isEmpty();
 
@@ -4523,13 +4538,17 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
             }
         }
 
-    } else if (!aspectPat.isEmpty()) {
-        // "Sun=Moon", "Sun-t=Moon-r", "H4 Sun=Moon=Mars"
-        // Also supports group tokens: T (all transit), OT (outer transit),
-        // P (all progressed), IP (inner progressed), N (all natal).
-        // E.g. "OT=N" expands to all outer-transit × natal-planet pairs;
-        //      "OT=OT" gives triangular pairs among outer transits.
-        auto tokens = aspectPat.split("=");
+    } else if (!aspectPat.isEmpty() || !commaPat.isEmpty()) {
+        // Unified handling for both = and , delimited patterns.
+        // "Sun=Moon"       → pairwise (2-body, unchanged)
+        // "Sun=Moon=Mars"  → exact pattern (3+ body, quorum=N, no pairwise)
+        // "Sun,Moon,Mars"  → pairwise pairs with correct per-pair event types
+        //                    + general cluster detection with patternsQuorum
+        bool isCommaDelimited = !commaPat.isEmpty();
+        QString rawPat = isCommaDelimited ? commaPat : aspectPat;
+        QChar   delim  = isCommaDelimited ? ',' : '=';
+
+        auto tokens = rawPat.split(delim);
 
         // --- Helper: resolve a group token to a planet list + implicit mode.
         // Returns {planetIds, implicitMode} or empty list if not a group.
@@ -4578,9 +4597,10 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         }
         if (anyT && !anyR && !anyP) defaultMode = 'r';
 
-        // --- Resolve tokens into per-side index lists ---
-        // Each '=' separated token becomes one "side" with one or more indices.
+        // --- Resolve tokens into per-side index lists + per-index mode ---
+        // Each delimited token becomes one "side" with one or more indices.
         QVector<QVector<unsigned>> sides;
+        QMap<unsigned, QChar>      indexMode; // _alist index → mode char
         bool hasNatal = false, hasTransit = false, hasProgressed = false;
         bool hasOT = false, hasIP = false;  // track specific group tokens
 
@@ -4616,8 +4636,10 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
                         idx = getProgressedPlanet(pid);
                     else if (trans)
                         idx = getTransitPlanet(pid);
-                    if (idx != unsigned(-1))
+                    if (idx != unsigned(-1)) {
                         sideIndices << idx;
+                        indexMode[idx] = mode;
+                    }
                 }
                 if (mode == 'r') hasNatal = true;
                 else if (mode == 'p') hasProgressed = true;
@@ -4629,6 +4651,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
                          << "mode:" << mode << "natal:" << natal << "trans:" << trans;
                 if (idx != unsigned(-1)) {
                     sideIndices << idx;
+                    indexMode[idx] = mode;
                     if (mode == 'r') hasNatal = true;
                     else if (mode == 'p') hasProgressed = true;
                     else hasTransit = true;
@@ -4639,40 +4662,46 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
                 sides << sideIndices;
         }
 
-        // Flatten all sides for total index count (used for event type logic)
+        // Flatten all sides for total index count
         QVector<unsigned> allIndices;
         for (const auto& s : sides)
             allIndices << s;
 
-        // Pick event type
-        bool hasSlowComponent = hasNatal || hasProgressed;
-        EventType etype;
-        if (allIndices.size() > 2 && sides.size() > 2) {
-            etype = hasSlowComponent ? etcTransitNatalAspectPattern
-                                    : etcTransitAspectPattern;
-        } else if (hasOT && hasNatal) {
-            etype = etcOuterTransitToNatal;
-        } else if (hasIP && hasNatal) {
-            etype = etcInnerProgressedToNatal;
-        } else if (hasProgressed && hasNatal) {
-            etype = etcProgressedToNatal;
-        } else if (hasProgressed && hasTransit) {
-            etype = etcTransitToNatal;  // T=P uses same search as T=N
-        } else if (hasProgressed) {
-            etype = etcProgressedToProgressed;
-        } else if (hasSlowComponent && hasTransit) {
-            etype = etcTransitToNatal;
-        } else if (hasSlowComponent) {
-            etype = etcTransitToNatal;
-        } else {
-            etype = etcTransitToTransit;
-        }
-        enable(etype);
+        // --- Helper: determine per-pair event type from two body modes ---
+        auto pairEventType = [&](unsigned a, unsigned b) -> EventType {
+            QChar mA = indexMode.value(a, 't');
+            QChar mB = indexMode.value(b, 't');
+            // Normalize so that the "faster" mode is first
+            // Order: t > p > r
+            if (mA == 'r' && mB != 'r') std::swap(mA, mB);
+            if (mA == 'p' && mB == 't') std::swap(mA, mB);
+            // Now mA is the "faster" body
+            if (mA == 't' && mB == 't') return etcTransitToTransit;
+            if (mA == 't' && mB == 'r') return etcTransitToNatal;
+            if (mA == 't' && mB == 'p') return etcTransitToNatal; // T=P uses T=N search
+            if (mA == 'p' && mB == 'r') return etcProgressedToNatal;
+            if (mA == 'p' && mB == 'p') return etcProgressedToProgressed;
+            if (mA == 'r' && mB == 'r') return etcTransitToNatal; // fallback
+            return etcTransitToTransit;
+        };
+
+        // --- Helper: determine a bulk event type for the whole group ---
+        auto bulkEventType = [&]() -> EventType {
+            bool hasSlowComponent = hasNatal || hasProgressed;
+            if (hasOT && hasNatal)            return etcOuterTransitToNatal;
+            if (hasIP && hasNatal)            return etcInnerProgressedToNatal;
+            if (hasProgressed && hasNatal)    return etcProgressedToNatal;
+            if (hasProgressed && hasTransit)  return etcTransitToNatal;
+            if (hasProgressed)                return etcProgressedToProgressed;
+            if (hasSlowComponent && hasTransit) return etcTransitToNatal;
+            if (hasSlowComponent)             return etcTransitToNatal;
+            return etcTransitToTransit;
+        };
 
         // --- Build staff pairs with deduplication ---
-        // Use the shared `seen` set of normalized (min,max) pairs to avoid
+        // Uses the shared `seen` set of normalized (min,max) pairs to avoid
         // duplicates across sub-patterns.
-        auto addPair = [&](unsigned a, unsigned b) {
+        auto addPair = [&](unsigned a, unsigned b, EventType et) {
             if (a == b) return;                 // skip self-pairs
             // Skip NNode↔SNode pairs: they are always in exact
             // opposition and will never leave aspect, causing
@@ -4685,21 +4714,101 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
             auto key = qMakePair(qMin(a, b), qMax(a, b));
             if (seen.contains(key)) return;     // skip duplicates
             seen.insert(key);
-            _staff.emplace_back(a, b, useHset, etype);
+            _staff.emplace_back(a, b, useHset, et);
         };
 
-        if (sides.size() == 2) {
-            // Cross-product between two sides.
-            // For same-group (e.g. OT=OT) the normalization in addPair
-            // naturally gives triangular (unique unordered) pairs.
-            for (unsigned a : sides[0])
-                for (unsigned b : sides[1])
-                    addPair(a, b);
+        if (isCommaDelimited) {
+            // ====== COMMA syntax: A,B,C ======
+            // Generate all pairwise staff entries with per-pair event types.
+            // Also enable general cluster detection so findClusters() runs
+            // with the user's patternsQuorum setting.
+
+            qDebug() << "[PATTERN] comma-delimited:" << rawPat
+                     << "→" << allIndices.size() << "bodies,"
+                     << sides.size() << "sides";
+
+            // Enable per-pair event types
+            if (sides.size() == 2) {
+                // Cross-product between two sides
+                for (unsigned a : sides[0]) {
+                    for (unsigned b : sides[1]) {
+                        EventType et = pairEventType(a, b);
+                        enable(et);
+                        addPair(a, b, et);
+                    }
+                }
+            } else {
+                // Triangular all-pairs among all indices
+                for (int i = 0; i < allIndices.size(); ++i) {
+                    for (int j = i + 1; j < allIndices.size(); ++j) {
+                        EventType et = pairEventType(allIndices[i], allIndices[j]);
+                        enable(et);
+                        addPair(allIndices[i], allIndices[j], et);
+                    }
+                }
+            }
+
+            // Enable general cluster detection (uses patternsQuorum)
+            if (allIndices.size() >= patternsQuorum) {
+                bool hasSlowComponent = hasNatal || hasProgressed;
+                if (hasSlowComponent) {
+                    enable(etcTransitNatalAspectPattern);
+                } else {
+                    enable(etcTransitAspectPattern);
+                }
+                _generalClustersEnabled = true;
+            }
+
         } else {
-            // 1 side or 3+ sides: triangular all-pairs among all indices
-            for (int i = 0; i < allIndices.size(); ++i)
-                for (int j = i + 1; j < allIndices.size(); ++j)
-                    addPair(allIndices[i], allIndices[j]);
+            // ====== EQUALS syntax: A=B or A=B=C ======
+            bool isTwoBody = (allIndices.size() <= 2 || sides.size() <= 2);
+
+            if (isTwoBody) {
+                // --- Two-body pairwise: unchanged behavior ---
+                EventType etype = bulkEventType();
+                enable(etype);
+
+                if (sides.size() == 2) {
+                    for (unsigned a : sides[0])
+                        for (unsigned b : sides[1])
+                            addPair(a, b, etype);
+                } else {
+                    for (int i = 0; i < allIndices.size(); ++i)
+                        for (int j = i + 1; j < allIndices.size(); ++j)
+                            addPair(allIndices[i], allIndices[j], etype);
+                }
+            } else {
+                // --- Three+-body exact pattern ---
+                // Register as an exact pattern spec (quorum = N).
+                // No pairwise staff entries are generated.
+                bool hasSlowComponent = hasNatal || hasProgressed;
+                EventType etype = hasSlowComponent
+                                      ? etcTransitNatalAspectPattern
+                                      : etcTransitAspectPattern;
+                enable(etype);
+
+                // Collect unique indices
+                std::vector<unsigned> indices;
+                for (unsigned idx : allIndices) {
+                    if (std::find(indices.begin(), indices.end(), idx) == indices.end())
+                        indices.push_back(idx);
+                }
+
+                ExactPatternSpec spec;
+                spec.alistIndices = std::move(indices);
+                spec.hsid         = useHset;
+                spec.et           = etype;
+                // Build PlanetSet for cluster comparison / filtering
+                for (unsigned idx : spec.alistIndices) {
+                    if (auto ploc = dynamic_cast<PlanetLoc*>(_alist[idx]))
+                        spec.bodies.emplace(ploc->planetModeId());
+                }
+                _exactPatterns.push_back(std::move(spec));
+
+                qDebug() << "[PATTERN] exact pattern registered:"
+                         << rawPat << "→" << _exactPatterns.back().quorum()
+                         << "bodies, etype:" << etype;
+            }
         }
     }
 
@@ -4707,9 +4816,20 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
 
     qDebug() << "[PATTERN] _alist:" << _alist.size()
              << "_staff:" << _staff.size()
+             << "_exactPatterns:" << _exactPatterns.size()
              << "events:" << enabledEvents.size();
     for (const auto& pe : _staff)
         qDebug() << "[PATTERN]" << formatPlanetsEtc(pe, _alist, _hsets).c_str();
+    for (size_t i = 0; i < _exactPatterns.size(); ++i) {
+        const auto& ep = _exactPatterns[i];
+        QStringList names;
+        for (unsigned idx : ep.alistIndices) {
+            if (idx < _alist.size())
+                names << _alist[idx]->description();
+        }
+        qDebug() << "[PATTERN] exact #" << i << ":" << names.join("=")
+                 << "quorum:" << ep.quorum() << "etype:" << ep.et;
+    }
 }
 
 namespace
@@ -5234,7 +5354,8 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
     decltype(state.work.size()) workSize = 0;
     decltype(state.tinOrb.size()) tinOrbSize = 0;
 
-    while (!state.work.empty() || !state.tinOrb.empty()) {
+    while (!state.work.empty() || !state.tinOrb.empty()
+           || !state.exactWork.empty()) {
         QCoreApplication::processEvents();
 
         if (_state == cancelRequestedState) break;
@@ -5281,6 +5402,18 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
             ws.insert(hijr.first.planets.begin(), hijr.first.planets.end());
             if (showTinOrb) {
                 qDebug() << "  +" << hijr.first.planets.names().join("=");
+            }
+        }
+
+        // Add planets from exact patterns that need backward search
+        for (const auto& ewp : state.exactWork) {
+            unsigned specIdx = ewp.first.first;
+            if (specIdx < _exactPatterns.size()) {
+                const auto& spec = _exactPatterns[specIdx];
+                for (unsigned idx : spec.alistIndices) {
+                    if (auto ploc = dynamic_cast<PlanetLoc*>(_alist[idx]))
+                        ws.emplace(ploc->planetModeId());
+                }
             }
         }
 
@@ -5444,6 +5577,42 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
                 ++hit;
         }
 
+        // Backward search for exact patterns
+        for (auto ewit = state.exactWork.begin();
+             ewit != state.exactWork.end();) {
+            unsigned specIdx = ewit->first.first;
+            unsigned h       = ewit->first.second;
+            if (specIdx >= _exactPatterns.size()) {
+                state.exactWork.erase(ewit++);
+                continue;
+            }
+            const auto& spec = _exactPatterns[specIdx];
+            // Build subset profile for this exact pattern
+            PlanetProfile eprof;
+            for (unsigned idx : spec.alistIndices) {
+                if (auto ploc = dynamic_cast<PlanetLoc*>(_alist[idx]))
+                    eprof.emplace_back(ploc->clone());
+            }
+            auto orb = computeSpread(h, pjd, eprof, _ids);
+            if (orb > patternsSpreadOrb) {
+                // Found prior start
+                state.exactStarts[ewit->first] =
+                    ClusterOrbWhen(orb, pjd);
+                qDebug() << QString("[EXACT] Found H%1 spec#%2 prior start "
+                                    "with spread %3 at %4")
+                                .arg(h)
+                                .arg(specIdx)
+                                .arg(orb)
+                                .arg(dtToString(state.nd));
+                state.exactWork.erase(ewit++);
+            } else {
+                if (orb < ewit->second.orb) {
+                    ewit->second = { orb, pjd };
+                }
+                ++ewit;
+            }
+        }
+
         if (wp) delete wp;
     }
 }
@@ -5474,7 +5643,7 @@ AspectFinder::findNewStarts(AspectSearchState&              state,
             if (!any) continue;
         }
         PlanetClusterMap hpc;
-        if (!collectingStrays) {
+        if (!collectingStrays && _generalClustersEnabled) {
             PlanetProfile* prof = &state.b;
             if (useProf.get()) prof = useProf.get();
             // Build exclusion set: natal-only patterns AND progressed planets
@@ -5685,6 +5854,145 @@ AspectFinder::findNewStarts(AspectSearchState&              state,
             }
         }
         for (const auto& it : doomed) state.starts[state.h].erase(it);
+    }
+}
+
+void
+AspectFinder::findExactPatterns(AspectSearchState& state)
+{
+    if (_exactPatterns.empty()) return;
+
+    for (unsigned specIdx = 0; specIdx < _exactPatterns.size(); ++specIdx) {
+        const auto& spec = _exactPatterns[specIdx];
+
+        // Build a PlanetProfile subset for this exact pattern
+        PlanetProfile prof;
+        for (unsigned idx : spec.alistIndices) {
+            if (idx < state.b.size())
+                prof.emplace_back(state.b[idx]->clone());
+        }
+        if (prof.size() < spec.quorum()) continue;
+
+        // Check each harmonic in the pattern's hset, highest first
+        // so that lower harmonics get priority (same order as findNewStarts)
+        const auto& hset = _hsets.at(spec.hsid);
+        for (auto hit = hset.rbegin(); hit != hset.rend(); ++hit) {
+            unsigned h   = *hit;
+            auto     key = std::make_pair(specIdx, h);
+            auto     spread = computeSpread(h, prof);
+
+            bool inOrb = (spread <= patternsSpreadOrb);
+            auto sit   = state.exactStarts.find(key);
+            bool wasIn = (sit != state.exactStarts.end());
+
+            if (inOrb && !wasIn) {
+                // Pattern just entered orb — record start
+                state.exactStarts[key] = ClusterOrbWhen(spread, state.pjd);
+                qDebug() << QString("[EXACT] H%1 spec#%2 entered orb "
+                                    "with spread %3 at %4")
+                                .arg(h)
+                                .arg(specIdx)
+                                .arg(spread)
+                                .arg(dtToString(dateTimeFromJulian(state.jd)));
+            } else if (inOrb && wasIn) {
+                // Still in orb — update if tighter
+                if (spread < sit->second.orb) {
+                    sit->second.orb = spread;
+                }
+            } else if (!inOrb && wasIn) {
+                // Pattern just left orb — check harmonic dedup before launching
+                double from = sit->second.when;
+                double to   = state.jd;
+
+                bool cancel = (from == 0) || skippablePeriod({ from, to });
+
+                // Harmonic dedup: skip if a lower factor harmonic still has
+                // a pending start for this same spec (it will produce a
+                // tighter result)
+                if (!cancel && h > 1) {
+                    for (auto fit = hset.begin(); *fit < h; ++fit) {
+                        unsigned f    = *fit;
+                        auto     fkey = std::make_pair(specIdx, f);
+                        if (state.exactStarts.count(fkey)) {
+                            cancel = true;
+                            qDebug() << QString("[EXACT] H%1 spec#%2 "
+                                                "skipped — H%3 pending")
+                                            .arg(h).arg(specIdx).arg(f);
+                            break;
+                        }
+                    }
+                }
+
+                if (!cancel) {
+                    qDebug() << QString("[EXACT] H%1 spec#%2 left orb "
+                                        "with spread %3 at %4, "
+                                        "launching search from %5")
+                                    .arg(h)
+                                    .arg(specIdx)
+                                    .arg(spread)
+                                    .arg(dtToString(dateTimeFromJulian(state.jd)))
+                                    .arg(dtToString(dateTimeFromJulian(from)));
+
+                    ADateTimeRange range(dateTimeFromJulian(from),
+                                         dateTimeFromJulian(to));
+                    unsigned useH = h;
+                    auto& ev = _evs.safe_emplace_back(range, spec.et, useH,
+                                                      PlanetSet(spec.bodies));
+
+                    // Build a fresh profile for the search lambda (owned by lambda)
+                    auto* searchProf = new PlanetProfile;
+                    for (unsigned idx : spec.alistIndices) {
+                        if (idx < _alist.size())
+                            searchProf->emplace_back(_alist[idx]->clone());
+                    }
+
+                    _tp->start(
+                        [this, searchProf, from, to, useH, h, &ev] {
+                            startTask();
+                            auto csprd = [searchProf, h, this](double jd) {
+                                if (_state == cancelRequestedState)
+                                    throw int(1);
+                                return computeSpread(h, jd, *searchProf, _ids);
+                            };
+                            constexpr auto tol =
+                                double(std::numeric_limits<float>::epsilon());
+
+                            double   jd;
+                            double   m  = 1000;
+                            double   a  = from;
+                            double   b  = to;
+                            double   res;
+                            unsigned it = 0;
+                            try {
+                                do {
+                                    double mid = a / 2. + b / 2.;
+                                    ++it;
+                                    res = brentGlobalMin(
+                                        csprd, a, b, mid, m, .0000001, tol, jd);
+                                    if (jd == a || jd == b) {
+                                        if (it > 2) break;
+                                        m *= 10;
+                                        auto q = (mid - a) / 4.;
+                                        if (jd == b) a = b - q, b += q;
+                                        else
+                                            b = a + q, a -= q;
+                                    } else
+                                        break;
+                                } while (it < 3);
+
+                                QMutexLocker ml(_evs.mutex());
+                                auto         qdt = dateTimeFromJulian(jd);
+                                ev.reset(qdt, res);
+                            }
+                            catch (int) {
+                            }
+                            delete searchProf;
+                            endTask();
+                        });
+                }
+                state.exactStarts.erase(sit);
+            }
+        }
     }
 }
 
@@ -6568,7 +6876,8 @@ AspectFinder::findAspectsAndPatterns()
         }
         state.skipAllNatalOnly = true;
     }
-    state.showPatterns = showTransitAspectPatterns() || !state.nats.empty();
+    state.showPatterns = showTransitAspectPatterns() || !state.nats.empty()
+                         || !_exactPatterns.empty();
     state.onlyProgressedAndNatal = false; // Track if only slow-moving aspects remain
 
     const auto& start = _range.first;
@@ -6676,7 +6985,7 @@ AspectFinder::findAspectsAndPatterns()
         for (state.h = 1; state.h <= state.maxH; ++state.h) {
             bool unsel = state.hs.count(state.h) == 0;
             if (unsel /*&& !_filterLowerUnselectedHarmonics*/) continue;
-            if (state.showPatterns) {
+            if (state.showPatterns && _generalClustersEnabled) {
                 auto found = findClusters(state.h,
                                           state.jd,
                                           *state.useProf,
@@ -6688,8 +6997,31 @@ AspectFinder::findAspectsAndPatterns()
                                           patternsRestrictMoon,
                                           patternsSpreadOrb, 
                                           /*excludeProgressed=*/true);
-                if (!found.empty()) {
+                if (!found.empty())
                     state.work[state.h].swap(found);
+            }
+
+            // Check if any exact patterns are already in orb at start
+            for (unsigned specIdx = 0; specIdx < _exactPatterns.size(); ++specIdx) {
+                const auto& spec = _exactPatterns[specIdx];
+                const auto& hset = _hsets.at(spec.hsid);
+                if (hset.count(state.h) == 0) continue;
+
+                // Build a profile subset and compute positions at start jd
+                PlanetProfile prof;
+                for (unsigned idx : spec.alistIndices) {
+                    if (idx < _alist.size())
+                        prof.emplace_back(_alist[idx]->clone());
+                }
+                auto spread = computeSpread(state.h, state.jd, prof, _ids);
+                if (spread <= patternsSpreadOrb) {
+                    auto key = std::make_pair(specIdx, state.h);
+                    state.exactWork[key] = ClusterOrbWhen(spread, state.jd);
+                    qDebug() << QString("[EXACT] H%1 spec#%2 already in orb "
+                                        "at start with spread %3")
+                                    .arg(state.h)
+                                    .arg(specIdx)
+                                    .arg(spread);
                 }
             }
 
@@ -6759,7 +7091,8 @@ AspectFinder::findAspectsAndPatterns()
     state.pjd = state.jd;
     state.ljd = state.jd;
     state.nd  = state.d.addDays(state.ndays).addSecs(state.nsecs);
-    while (state.d < state.e || !state.starts.empty() || !state.inOrb.empty()) {
+    while (state.d < state.e || !state.starts.empty() || !state.inOrb.empty()
+           || !state.exactStarts.empty()) {
         QCoreApplication::processEvents();
 
         if (_state == cancelRequestedState) break;
@@ -6800,11 +7133,22 @@ AspectFinder::findAspectsAndPatterns()
                 ws.insert(hijr.first.planets.begin(), hijr.first.planets.end());
             }
 
+            // Include planets from pending exact-pattern starts so they
+            // are not pruned out of the profile while still being tracked.
+            for (const auto& [key, cow] : state.exactStarts) {
+                unsigned specIdx = key.first;
+                if (specIdx < _exactPatterns.size()) {
+                    const auto& spec = _exactPatterns[specIdx];
+                    ws.insert(spec.bodies.begin(), spec.bodies.end());
+                }
+            }
+
             if (!st_quiet) {
                 qDebug() << "PERF: collectingStrays - state.starts has"
                          << state.starts.size() << "harmonics with"
                          << totalStartsItems << "total items, state.inOrb has"
-                         << totalInOrbItems << "items, ws size:" << ws.size();
+                         << totalInOrbItems << "items, exactStarts has"
+                         << state.exactStarts.size() << "items, ws size:" << ws.size();
                 qDebug() << "PERF: state.b.size() BEFORE any changes:"
                          << state.b.size();
             }
@@ -6913,6 +7257,7 @@ AspectFinder::findAspectsAndPatterns()
             qDebug() << "PERF: state.b.size() BEFORE findNewStarts:" << state.b.size();
         }
         findNewStarts(state, collectingStrays, useProf);
+        findExactPatterns(state);
         qint64 detectionMs = detectionTimer.elapsed();
         if (collectingStrays && !st_quiet) {
             qDebug() << "PERF: state.b.size() AFTER findNewStarts:" << state.b.size();
@@ -7014,6 +7359,19 @@ AspectFinder::findAspectsAndPatterns()
         // nd = d.addDays(_rate);
         state.pjd = state.jd;
         if (!collectingStrays) _alist.swap(state.b);
+    }
+
+    // Diagnostic: log why the main loop exited
+    if (_state == cancelRequestedState) {
+        qDebug() << "[MAIN LOOP] Exited due to cancel request";
+    } else {
+        qDebug() << "[MAIN LOOP] Exited normally —"
+                 << "date past end:" << (state.d >= state.e)
+                 << "starts empty:" << state.starts.empty()
+                 << "inOrb empty:" << state.inOrb.empty()
+                 << "exactStarts empty:" << state.exactStarts.empty()
+                 << "last date:" << dtToString(state.d)
+                 << "end date:" << dtToString(state.e);
     }
 
     qDebug() << state.inOrb.size() << "pending pairs";

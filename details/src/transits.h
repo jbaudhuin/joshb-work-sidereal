@@ -246,9 +246,13 @@ class Transits : public AstroFileHandler {
     bool _progressedToNatalShowsInner = true;  // Track P=N vs IP=N state (default inner)
     bool _transitToNatalAnglesWasChecked = true;  // Cache angles checkbox state when button is off
     
+    QString _inputBorderStyle;  // Current green/red validation border for _input
+    double  _lastProgress = -1; // Last progress value for throttling stylesheet updates
+
     void updateToolbarFromEventOptions();
     void updateTransitToNatalButtonState();
     void updateProgressedToNatalButtonState();
+    void updateInputProgress(double prog);  // Update _input background to show progress
 };
 
 #endif // Harmonics_H

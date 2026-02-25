@@ -1757,6 +1757,20 @@ struct planetsEtc {
 
 typedef std::list<planetsEtc> searchPairList;
 
+/// Specifies an exact N-body pattern to search for.
+/// Unlike general cluster detection (which discovers any quorum-sized groups),
+/// this targets a specific set of bodies — the quorum equals the body count.
+struct ExactPatternSpec {
+    std::vector<unsigned> alistIndices; ///< indices into _alist
+    PlanetSet             bodies;       ///< ChartPlanetModeIds (for cluster comparison)
+    hsetId                hsid;         ///< index into _hsets
+    EventType             et;           ///< event type for results
+
+    unsigned quorum() const { return static_cast<unsigned>(alistIndices.size()); }
+};
+
+typedef std::vector<ExactPatternSpec> ExactPatternList;
+
 class PlanetProfile : public Loc, public std::deque<Loc*> {
     bool _forceMinimize = false;
 

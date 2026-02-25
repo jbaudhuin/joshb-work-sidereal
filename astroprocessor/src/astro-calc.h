@@ -666,6 +666,12 @@ class AspectFinder : public QObject, public EventOptions {
         std::unique_ptr<PlanetProfile>               doomed;
         searchPairList                               stuff;
         std::map<HarmonicPlanetSet, JDateRangeTasks> tinOrb;
+
+        // Exact-pattern tracking: per-ExactPatternSpec, per-harmonic
+        // Keyed by index into _exactPatterns, then harmonic → ClusterOrbWhen
+        // When a pattern is in-orb, its start jd is recorded here.
+        std::map<std::pair<unsigned /*specIdx*/, unsigned /*h*/>, ClusterOrbWhen> exactStarts;
+        std::map<std::pair<unsigned /*specIdx*/, unsigned /*h*/>, ClusterOrbWhen> exactWork;
     };
 
   signals:
@@ -747,6 +753,7 @@ class AspectFinder : public QObject, public EventOptions {
     void findNewStarts(AspectSearchState&             state,
                        bool                           collectingStrays,
                        std::unique_ptr<PlanetProfile>& useProf);
+    void findExactPatterns(AspectSearchState& state);
     void findTransitPairs(AspectSearchState& state);
     void findAspects(AspectSearchState& state, modalize<bool>& mum);
     void findRemainingAspects(AspectSearchState& state);
@@ -771,10 +778,12 @@ class AspectFinder : public QObject, public EventOptions {
 
     bool _restrictiveTimeRange = false;
 
-    double         _rate = 4.0; // # days
-    hsets          _hsets;      ///< harmonic profiles
-    searchPairList _staff;
-    unsigned       _evType = etcUnknownEvent;
+    double           _rate = 4.0; // # days
+    hsets            _hsets;      ///< harmonic profiles
+    searchPairList   _staff;
+    ExactPatternList _exactPatterns; ///< exact N-body pattern searches
+    bool             _generalClustersEnabled = false; ///< true when findClusters() should scan
+    unsigned         _evType = etcUnknownEvent;
 
     friend class PairAspectFinder;
     friend class TaskTracker;
