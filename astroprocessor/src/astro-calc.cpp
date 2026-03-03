@@ -4554,6 +4554,9 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         // Returns {planetIds, implicitMode} or empty list if not a group.
         // Group tokens are exact, case-insensitive matches — checked BEFORE
         // getPlanetId() which uses startsWith (so "N" would match Neptune).
+        //   OT = outer transit planets       IP = inner progressed planets
+        //   T  = all transit planets         P  = all progressed planets
+        //   N  = all natal planets           NA = natal angles (Asc/IC/Desc/MC)
         auto resolveGroup = [&](const QString& body)
             -> std::pair<QList<PlanetId>, QChar /*implicitMode*/> {
             QString b = body.trimmed().toUpper();
@@ -4562,6 +4565,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
             if (b == "T")  return { getPlanets(includeAsteroids, includeCentaurs), 't' };
             if (b == "P")  return { getPlanets(includeAsteroids, includeCentaurs), 'p' };
             if (b == "N")  return { getPlanets(includeAsteroids, includeCentaurs), 'r' };
+            if (b == "NA") return { getAngles(), 'r' };
             return { {}, '\0' };
         };
 
@@ -4787,27 +4791,87 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
                                       : etcTransitAspectPattern;
                 enable(etype);
 
-                // Collect unique indices
-                std::vector<unsigned> indices;
-                for (unsigned idx : allIndices) {
-                    if (std::find(indices.begin(), indices.end(), idx) == indices.end())
-                        indices.push_back(idx);
+                // Check if any side is a group (multiple indices from a
+                // group token like OT, IP, T, P, N, NA).  If so, distribute:
+                // create one exact pattern per group-member combined with
+                // all singleton sides.  E.g. "OT=Sun/Nep=Chi/Sat" becomes
+                // five 3-body patterns: Jup=Sun/Nep=Chi/Sat, etc.
+                QVector<int> groupSideIdx, singletonSideIdx;
+                for (int si = 0; si < sides.size(); ++si) {
+                    if (sides[si].size() > 1)
+                        groupSideIdx << si;
+                    else
+                        singletonSideIdx << si;
                 }
 
-                ExactPatternSpec spec;
-                spec.alistIndices = std::move(indices);
-                spec.hsid         = useHset;
-                spec.et           = etype;
-                // Build PlanetSet for cluster comparison / filtering
-                for (unsigned idx : spec.alistIndices) {
-                    if (auto ploc = dynamic_cast<PlanetLoc*>(_alist[idx]))
-                        spec.bodies.emplace(ploc->planetModeId());
-                }
-                _exactPatterns.push_back(std::move(spec));
+                // Helper: register one ExactPatternSpec from a set of indices
+                auto registerExactPattern = [&](const std::vector<unsigned>& indices) {
+                    ExactPatternSpec spec;
+                    spec.alistIndices = indices;
+                    spec.hsid         = useHset;
+                    spec.et           = etype;
+                    for (unsigned idx : spec.alistIndices) {
+                        if (auto ploc = dynamic_cast<PlanetLoc*>(_alist[idx])) {
+                            spec.bodies.emplace(ploc->planetModeId());
+                            if (ploc->planet.isMidpt())
+                                spec.hasMidpoints = true;
+                        }
+                    }
+                    _exactPatterns.push_back(std::move(spec));
+                };
 
-                qDebug() << "[PATTERN] exact pattern registered:"
-                         << rawPat << "→" << _exactPatterns.back().quorum()
-                         << "bodies, etype:" << etype;
+                if (!groupSideIdx.isEmpty()) {
+                    // Distribute group sides: cross-product of all group
+                    // sides, combined with all singleton side indices.
+                    QVector<unsigned> singletons;
+                    for (int si : singletonSideIdx)
+                        singletons << sides[si][0];
+
+                    // Build cross-product of group sides iteratively
+                    QVector<QVector<unsigned>> combos;
+                    combos << QVector<unsigned> {};
+                    for (int gi : groupSideIdx) {
+                        QVector<QVector<unsigned>> expanded;
+                        for (const auto& combo : std::as_const(combos)) {
+                            for (unsigned idx : sides[gi]) {
+                                auto ext = combo;
+                                ext << idx;
+                                expanded << ext;
+                            }
+                        }
+                        combos = std::move(expanded);
+                    }
+
+                    for (const auto& combo : std::as_const(combos)) {
+                        std::vector<unsigned> indices;
+                        for (unsigned idx : combo) indices.push_back(idx);
+                        for (unsigned idx : singletons) indices.push_back(idx);
+                        // Deduplicate
+                        std::sort(indices.begin(), indices.end());
+                        indices.erase(std::unique(indices.begin(),
+                                                  indices.end()),
+                                      indices.end());
+                        if (indices.size() < 2) continue;
+                        registerExactPattern(indices);
+                    }
+
+                    qDebug() << "[PATTERN] distributed group pattern:"
+                             << rawPat << "→" << combos.size()
+                             << "exact patterns of quorum"
+                             << (singletons.size() + 1) << ", etype:" << etype;
+                } else {
+                    // No group sides — single exact pattern (original path)
+                    std::vector<unsigned> indices;
+                    for (unsigned idx : allIndices) {
+                        if (std::find(indices.begin(), indices.end(), idx) == indices.end())
+                            indices.push_back(idx);
+                    }
+                    registerExactPattern(indices);
+
+                    qDebug() << "[PATTERN] exact pattern registered:"
+                             << rawPat << "→" << _exactPatterns.back().quorum()
+                             << "bodies, etype:" << etype;
+                }
             }
         }
     }
@@ -5594,7 +5658,7 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
                     eprof.emplace_back(ploc->clone());
             }
             auto orb = computeSpread(h, pjd, eprof, _ids);
-            if (orb > patternsSpreadOrb) {
+            if (orb > spec.effectiveOrb(patternsSpreadOrb)) {
                 // Found prior start
                 state.exactStarts[ewit->first] =
                     ClusterOrbWhen(orb, pjd);
@@ -5881,7 +5945,7 @@ AspectFinder::findExactPatterns(AspectSearchState& state)
             auto     key = std::make_pair(specIdx, h);
             auto     spread = computeSpread(h, prof);
 
-            bool inOrb = (spread <= patternsSpreadOrb);
+            bool inOrb = (spread <= spec.effectiveOrb(patternsSpreadOrb));
             auto sit   = state.exactStarts.find(key);
             bool wasIn = (sit != state.exactStarts.end());
 
@@ -7014,7 +7078,7 @@ AspectFinder::findAspectsAndPatterns()
                         prof.emplace_back(_alist[idx]->clone());
                 }
                 auto spread = computeSpread(state.h, state.jd, prof, _ids);
-                if (spread <= patternsSpreadOrb) {
+                if (spread <= spec.effectiveOrb(patternsSpreadOrb)) {
                     auto key = std::make_pair(specIdx, state.h);
                     state.exactWork[key] = ClusterOrbWhen(spread, state.jd);
                     qDebug() << QString("[EXACT] H%1 spec#%2 already in orb "

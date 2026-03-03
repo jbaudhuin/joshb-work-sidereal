@@ -640,7 +640,7 @@ Chart::drawMidpointFigures()
     if (focalMPs.isEmpty()) return;
 
     QGraphicsScene* s = view->scene();
-    QColor midpointColor(255, 220, 50);
+    QColor midpointColor = ThemeManager::instance().getChartMidpointColor();
     QPen chordPen(midpointColor, 1.5, Qt::DashLine);
 
     // Helper: for bi-wheels (fid > 0), return the inner-circle child

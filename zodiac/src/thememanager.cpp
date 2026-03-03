@@ -430,6 +430,19 @@ QColor ThemeManager::getChartCuspLabelColor(int fileIndex) const
     }
 }
 
+QColor ThemeManager::getChartMidpointColor() const
+{
+    switch (m_currentTheme) {
+    case Theme::Light:
+    case Theme::Printable:
+        return QColor(Qt::black);
+
+    case Theme::Dark:
+    default:
+        return QColor(Qt::white);
+    }
+}
+
 QString ThemeManager::getHtmlExportCssPath(Theme theme) const
 {
     QString filename;

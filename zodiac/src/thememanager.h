@@ -203,6 +203,12 @@ public:
     QColor getChartCuspLabelColor(int fileIndex = 0) const;
 
     /**
+     * @brief Get midpoint visualization color (chord + connecting lines)
+     * @return White for dark theme, black for light/printable
+     */
+    QColor getChartMidpointColor() const;
+
+    /**
      * @brief Get the HTML export CSS file path for a specific theme
      * @param theme Theme to get export CSS for (defaults to current theme)
      * @return Path to the CSS file for HTML export
