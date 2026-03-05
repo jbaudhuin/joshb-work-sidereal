@@ -100,6 +100,7 @@ AstroFile::AstroFile(QObject* parent) : QObject(parent)
     _holdUpdate        = false;
     _holdUpdateMembers = None;
     _timezoneLocked    = false;
+    _transitTimezone     = 0;
     _transitEventOptions = A::EventOptions::globalDefaults();  // Initialize new file from global defaults
     qDebug() << "Created file" << getName();
 }

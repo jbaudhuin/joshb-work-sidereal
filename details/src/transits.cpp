@@ -2055,6 +2055,27 @@ Transits::stopThreads()
     }
 }
 
+void
+Transits::refreshLocationUI()
+{
+    // Lightweight refresh: update the location widget from file(0)'s stored
+    // transit location without triggering event recomputation.
+    if (filesCount() == 0 || !file(0)) return;
+    if (!file(0)->hasTransitLocation()) return;
+
+    _pendingLocationChange = true;
+    _location->setLocation(file(0)->getTransitLocation());
+    _location->setLocationName(file(0)->getTransitLocationName());
+    _pendingLocationChange = false;
+
+    // Also sync transitsAF() so future calculations use correct location
+    transitsAF()->suspendUpdate();
+    transitsAF()->setLocation(file(0)->getTransitLocation());
+    transitsAF()->setLocationName(file(0)->getTransitLocationName());
+    transitsAF()->setTimezone(file(0)->getTransitTimezone());
+    transitsAF()->resumeUpdate();
+}
+
 bool
 Transits::transitsOnly() const
 {
@@ -2172,6 +2193,14 @@ Transits::updateTimezone()
         transitsAF()->setTimezone(short(tz));
         transitsAF()->resumeUpdate();
 
+        // Persist to file(0)'s per-tab transit location so it survives
+        // file-2 close and session save/restore.
+        if (filesCount() > 0 && file(0)) {
+            file(0)->setTransitLocation(_location->location());
+            file(0)->setTransitLocationName(_location->locationName());
+            file(0)->setTransitTimezone(short(tz));
+        }
+
         qDebug() << "Timezone for location is"
                  << response["rawOffset"].toInt() / 60 /*minsPerSec*/
                  << "with dstOffset" << response["dstOffset"].toInt() / 60
@@ -2228,9 +2257,17 @@ Transits::updateTransits()
     if (filesCount() >= 2) {
         // If we have 2+ files, use file(1) for location (the transit/return chart)
         locFile = file(1);
+        // Sync to file(0)'s per-tab transit location so it survives file-2 close
+        file(0)->setTransitLocation(locFile->getLocation());
+        file(0)->setTransitLocationName(locFile->getLocationName());
+        file(0)->setTransitTimezone(locFile->getTimezone());
     } else if (filesCount() == 1 && transitsOnly()) {
         // Single file that is transits-only, use it
         locFile = file(0);
+    } else if (filesCount() == 1 && file(0)->hasTransitLocation()) {
+        // Single natal chart with stored transit location — use it
+        // (preserves location after file-2 was closed)
+        locFile = nullptr; // handled below
     } else if (filesCount() == 1) {
         // Single natal/event chart, use transitsAF() which may have custom location
         locFile = transitsAF();
@@ -2253,6 +2290,21 @@ Transits::updateTransits()
             transitsAF()->setTimezone(locFile->getTimezone());
             transitsAF()->resumeUpdate();
         }
+    } else if (filesCount() == 1 && file(0)->hasTransitLocation()) {
+        // Restore location from file(0)'s stored transit fields
+        qDebug() << "updateTransits: Restoring transit location from file(0)"
+                 << file(0)->getTransitLocationName();
+        _pendingLocationChange = true;
+        _location->setLocation(file(0)->getTransitLocation());
+        _location->setLocationName(file(0)->getTransitLocationName());
+        _pendingLocationChange = false;
+
+        // Sync to transitsAF() so the finder uses the right location
+        transitsAF()->suspendUpdate();
+        transitsAF()->setLocation(file(0)->getTransitLocation());
+        transitsAF()->setLocationName(file(0)->getTransitLocationName());
+        transitsAF()->setTimezone(file(0)->getTransitTimezone());
+        transitsAF()->resumeUpdate();
     }
 
     // Process pending UI events (repaints, etc.) before doing heavy work

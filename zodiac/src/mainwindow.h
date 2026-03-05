@@ -40,12 +40,14 @@ class AstroFileInfo : public AstroFileHandler {
   protected:
     void filesUpdated(MembersList members) override; // AstroFileHandler implementations
     void viewSettingsUpdated(MembersList) override { } // only cares about file data
+    void mousePressEvent(QMouseEvent* event) override;
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
     void dropEvent(QDropEvent* event) override;
 
   signals:
     void clicked();
+    void middleClicked(int fileIndex);
     void chartDropped(const QString& filePath, int targetIndex);
 
   public:
@@ -128,6 +130,7 @@ class AstroWidget : public QWidget {
     void helpRequested(QString tag);
     void appendFileRequested();
     void swapFilesRequested(int, int);
+    void closeFileRequested(int fileIndex);
     void chartFileDropped(const QString& filePath);
     void chartDroppedOnInputWidget(const QString& filePath, int targetIndex);
 
@@ -330,6 +333,7 @@ class FilesBar : public QTabBar {
     void nextTab() { setCurrentIndex((currentIndex() + 1) % count()); }
     bool closeTab(int);
     bool closeSecondaryChart();
+    bool closeFileByIndex(int fileIndex);
 
   public:
     FilesBar(QWidget* parent = nullptr);

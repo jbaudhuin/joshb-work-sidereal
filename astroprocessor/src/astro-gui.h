@@ -225,6 +225,15 @@ class AstroFile : public QObject, public A::EventStore {
     QString getTransitDuration() const { return _transitDuration; }
     void setTransitDuration(const QString& duration) { _transitDuration = duration; }
 
+    // Transit location (per-tab state — persists across file-2 open/close)
+    const QVector3D& getTransitLocation() const { return _transitLocation; }
+    void  setTransitLocation(const QVector3D& loc) { _transitLocation = loc; }
+    const QString& getTransitLocationName() const { return _transitLocationName; }
+    void  setTransitLocationName(const QString& name) { _transitLocationName = name; }
+    short getTransitTimezone() const { return _transitTimezone; }
+    void  setTransitTimezone(short tz) { _transitTimezone = tz; }
+    bool  hasTransitLocation() const { return !_transitLocation.isNull(); }
+
     A::FileInput fileInputData() const { return { type, scope.inputData }; }
     A::FileInput fileInputData(FileType typ) const
     {
@@ -313,6 +322,11 @@ class AstroFile : public QObject, public A::EventStore {
     // Transit date range per-tab state
     QDate   _transitStartDate;
     QString _transitDuration;
+
+    // Transit location per-tab state (survives file-2 close)
+    QVector3D _transitLocation;
+    QString   _transitLocationName;
+    short     _transitTimezone = 0;
 
     A::PlanetSet _focalPlanets;
 

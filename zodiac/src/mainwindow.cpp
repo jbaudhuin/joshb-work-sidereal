@@ -505,6 +505,17 @@ AstroFileInfo::AstroFileInfo(QWidget* parent) : AstroFileHandler(parent)
 }
 
 void
+AstroFileInfo::mousePressEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::MiddleButton && filesCount() > 1) {
+        emit middleClicked(currentIndex);
+        event->accept();
+        return;
+    }
+    AstroFileHandler::mousePressEvent(event);
+}
+
+void
 AstroFileInfo::refresh()
 {
     qDebug() << "AstroFileInfo::refresh";
@@ -721,6 +732,8 @@ AstroWidget::AstroWidget(QWidget* parent) : QWidget(parent)
 
     connect(fileView, SIGNAL(clicked()), this, SLOT(openEditor()));
     connect(fileView2nd, SIGNAL(clicked()), this, SLOT(openEditor()));
+    connect(fileView, SIGNAL(middleClicked(int)), this, SIGNAL(closeFileRequested(int)));
+    connect(fileView2nd, SIGNAL(middleClicked(int)), this, SIGNAL(closeFileRequested(int)));
     connect(fileView, SIGNAL(chartDropped(QString,int)), this, SLOT(handleChartDroppedOnInputWidget(QString,int)));
     connect(fileView2nd, SIGNAL(chartDropped(QString,int)), this, SLOT(handleChartDroppedOnInputWidget(QString,int)));
     connect(slides,
@@ -3956,15 +3969,58 @@ FilesBar::closeSecondaryChart()
     }
     
     // Stop any active transit finder threads before closing the secondary chart
-    if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>()) {
+    auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>();
+    if (transits) {
         transits->stopThreads();
     }
-    
+
+    // Preserve file(1)'s location on file(0) so the Events panel keeps
+    // it after the secondary chart disappears.
+    AstroFile* primaryFile = files[currentIndex()][0];
+    if (primaryFile && secondFile) {
+        primaryFile->setTransitLocation(secondFile->getLocation());
+        primaryFile->setTransitLocationName(secondFile->getLocationName());
+        primaryFile->setTransitTimezone(secondFile->getTimezone());
+    }
+
+    // Inhibit Transits recomputation while the file is being destroyed —
+    // file(0) and its cached events remain valid.
+    if (transits) transits->setInhibitUpdate(true);
+
     // Remove the secondary file — fileDestroyed() handles list removal,
     // tab update, and emitting currentChanged to refresh all widgets.
     secondFile->destroy();
+
+    // Re-enable Transits updates and refresh the location widget from
+    // file(0)'s stored transit location (no event recompute needed).
+    if (transits) {
+        transits->setInhibitUpdate(false);
+        transits->refreshLocationUI();
+    }
     
     return true;
+}
+
+bool
+FilesBar::closeFileByIndex(int fileIndex)
+{
+    // Close a specific file (by index within the current tab's file list)
+    // via middle-click on the file info widget.
+    if (currentIndex() < 0 || currentIndex() >= files.count()) return true;
+
+    auto& tabFiles = files[currentIndex()];
+    if (tabFiles.count() < 2) return true;    // can't close the only file
+    if (fileIndex < 0 || fileIndex >= tabFiles.count()) return true;
+
+    if (fileIndex == 1) {
+        // Closing file 2 (secondary) — same as closeSecondaryChart
+        return closeSecondaryChart();
+    }
+
+    // Closing file 1 (primary, index 0): swap so file 2 becomes primary,
+    // then close the new secondary (which is the old file 1).
+    swapCurrentFiles(0, 1);
+    return closeSecondaryChart();
 }
 
 bool
@@ -4482,6 +4538,10 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, QWidget* parent)
             SIGNAL(swapFilesRequested(int, int)),
             filesBar,
             SLOT(swapCurrentFiles(int, int)));
+    connect(astroWidget,
+            SIGNAL(closeFileRequested(int)),
+            filesBar,
+            SLOT(closeFileByIndex(int)));
     connect(astroWidget,
             SIGNAL(chartFileDropped(QString)),
             this,
@@ -5472,6 +5532,11 @@ MainWindow::restoreSession()
                     if (settings.contains(fileGroup + "transitDuration")) {
                         af->setTransitDuration(settings.value(fileGroup + "transitDuration").toString());
                     }
+                    if (settings.contains(fileGroup + "transitLocation")) {
+                        af->setTransitLocation(settings.value(fileGroup + "transitLocation").value<QVector3D>());
+                        af->setTransitLocationName(settings.value(fileGroup + "transitLocationName").toString());
+                        af->setTransitTimezone(settings.value(fileGroup + "transitTimezone").value<short>());
+                    }
                     
                     // Restore per-file transit event options (toolbar state)
                     if (settings.contains(fileGroup + "transitEventOptions")) {
@@ -5645,6 +5710,11 @@ MainWindow::saveSessionWithTimestamp(const QString& sessionKey)
                 if (!af->getTransitDuration().isEmpty()) {
                     settings.setValue("transitDuration", af->getTransitDuration());
                 }
+                if (af->hasTransitLocation()) {
+                    settings.setValue("transitLocation", af->getTransitLocation());
+                    settings.setValue("transitLocationName", af->getTransitLocationName());
+                    settings.setValue("transitTimezone", af->getTransitTimezone());
+                }
                 
                 settings.endGroup(); // File%1
             }
@@ -5743,6 +5813,11 @@ MainWindow::restoreSessionByKey(const QString& sessionKey)
                     }
                     if (settings.contains("transitDuration")) {
                         af->setTransitDuration(settings.value("transitDuration").toString());
+                    }
+                    if (settings.contains("transitLocation")) {
+                        af->setTransitLocation(settings.value("transitLocation").value<QVector3D>());
+                        af->setTransitLocationName(settings.value("transitLocationName").toString());
+                        af->setTransitTimezone(settings.value("transitTimezone").value<short>());
                     }
                     
                     if (j == 0) {

@@ -69,6 +69,8 @@ class Transits : public AstroFileHandler {
 
     QTreeView* ttv() const;
     void       stopThreads();
+    void       setInhibitUpdate(bool v) { _inhibitUpdate = v; }
+    void       refreshLocationUI();
 
   protected: // AstroFileHandler implementation
     void filesUpdated(MembersList) override;
@@ -159,7 +161,7 @@ class Transits : public AstroFileHandler {
     bool        _inhibitUpdate;
     bool        _pendingLocationChange = false;
 
-    AstroFile* _trans = nullptr;
+    QPointer<AstroFile> _trans;
 
     TransitTreeView* _tview;
 
