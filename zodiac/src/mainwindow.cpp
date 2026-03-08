@@ -5973,6 +5973,11 @@ FilesBar::saveFilesToSession()
             if (!af->getTransitDuration().isEmpty()) {
                 settings.setValue("transitDuration", af->getTransitDuration());
             }
+            if (af->hasTransitLocation()) {
+                settings.setValue("transitLocation", af->getTransitLocation());
+                settings.setValue("transitLocationName", af->getTransitLocationName());
+                settings.setValue("transitTimezone", af->getTransitTimezone());
+            }
             
             // Save per-file transit event options (toolbar state) using brief strings
             const A::EventTypeSet& eventOpts = af->getTransitEventOptions();

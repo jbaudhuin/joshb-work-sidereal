@@ -2269,8 +2269,10 @@ Transits::updateTransits()
         // (preserves location after file-2 was closed)
         locFile = nullptr; // handled below
     } else if (filesCount() == 1) {
-        // Single natal/event chart, use transitsAF() which may have custom location
-        locFile = transitsAF();
+        // Single natal/event chart with no stored transit location —
+        // default to the chart's own birth location (not the shared _trans
+        // which may carry a stale location from a different tab).
+        locFile = file(0);
     }
     
     if (locFile) {
