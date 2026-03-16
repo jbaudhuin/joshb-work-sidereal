@@ -234,6 +234,10 @@ class AstroFile : public QObject, public A::EventStore {
     void  setTransitTimezone(short tz) { _transitTimezone = tz; }
     bool  hasTransitLocation() const { return !_transitLocation.isNull(); }
 
+    // Transit pattern (per-tab state for the pattern input field)
+    const QString& getTransitPattern() const { return _transitPattern; }
+    void  setTransitPattern(const QString& pat) { _transitPattern = pat; }
+
     A::FileInput fileInputData() const { return { type, scope.inputData }; }
     A::FileInput fileInputData(FileType typ) const
     {
@@ -327,6 +331,9 @@ class AstroFile : public QObject, public A::EventStore {
     QVector3D _transitLocation;
     QString   _transitLocationName;
     short     _transitTimezone = 0;
+
+    // Transit pattern per-tab state (pattern input field text)
+    QString _transitPattern;
 
     A::PlanetSet _focalPlanets;
 

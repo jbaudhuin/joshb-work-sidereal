@@ -4122,11 +4122,17 @@ FilesBar::openFile(AstroFile* af)
             transits->stopThreads();
         }
         
-        // Reset transit date range to defaults for the new chart
-        auto today = QDate::currentDate();
-        auto startOfMonth = QDate(today.year(), today.month(), 1);
-        af->setTransitStartDate(startOfMonth);
-        af->setTransitDuration("1 mo");
+        // Only reset transit date range when actually replacing the file
+        // (not when the same file is being "re-opened" due to a location
+        // or timezone update — that would blow away the user's dates).
+        bool sameFile = (files[currentIndex()].count() > 0
+                         && files[currentIndex()][0] == af);
+        if (!sameFile) {
+            auto today = QDate::currentDate();
+            auto startOfMonth = QDate(today.year(), today.month(), 1);
+            af->setTransitStartDate(startOfMonth);
+            af->setTransitDuration("1 mo");
+        }
         
         files[currentIndex()][0] = af;
         updateTab(i);
@@ -5538,6 +5544,11 @@ MainWindow::restoreSession()
                         af->setTransitTimezone(settings.value(fileGroup + "transitTimezone").value<short>());
                     }
                     
+                    // Restore per-tab pattern input field
+                    if (settings.contains(fileGroup + "transitPattern")) {
+                        af->setTransitPattern(settings.value(fileGroup + "transitPattern").toString());
+                    }
+
                     // Restore per-file transit event options (toolbar state)
                     if (settings.contains(fileGroup + "transitEventOptions")) {
                         A::EventTypeSet eventOpts;
@@ -5715,6 +5726,9 @@ MainWindow::saveSessionWithTimestamp(const QString& sessionKey)
                     settings.setValue("transitLocationName", af->getTransitLocationName());
                     settings.setValue("transitTimezone", af->getTransitTimezone());
                 }
+                if (!af->getTransitPattern().isEmpty()) {
+                    settings.setValue("transitPattern", af->getTransitPattern());
+                }
                 
                 settings.endGroup(); // File%1
             }
@@ -5818,6 +5832,9 @@ MainWindow::restoreSessionByKey(const QString& sessionKey)
                         af->setTransitLocation(settings.value("transitLocation").value<QVector3D>());
                         af->setTransitLocationName(settings.value("transitLocationName").toString());
                         af->setTransitTimezone(settings.value("transitTimezone").value<short>());
+                    }
+                    if (settings.contains("transitPattern")) {
+                        af->setTransitPattern(settings.value("transitPattern").toString());
                     }
                     
                     if (j == 0) {
@@ -5979,6 +5996,11 @@ FilesBar::saveFilesToSession()
                 settings.setValue("transitTimezone", af->getTransitTimezone());
             }
             
+            // Save per-tab pattern input field
+            if (!af->getTransitPattern().isEmpty()) {
+                settings.setValue("transitPattern", af->getTransitPattern());
+            }
+
             // Save per-file transit event options (toolbar state) using brief strings
             const A::EventTypeSet& eventOpts = af->getTransitEventOptions();
             if (!eventOpts.empty()) {

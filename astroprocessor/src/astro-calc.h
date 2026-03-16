@@ -634,6 +634,8 @@ class AspectFinder : public QObject, public EventOptions {
     void findAspectsAndPatterns();
 
     bool isActive() const { return _numTasks != 0; }
+    bool isPaused() const { return _state.loadRelaxed() == pauseRequestedState; }
+    int  getState() const { return _state.loadRelaxed(); }
 
     struct AspectSearchState {
         PlanetSet     nats;
@@ -690,11 +692,12 @@ class AspectFinder : public QObject, public EventOptions {
     {
         auto thread = QThread::currentThread();
         qDebug() << "[CANCEL SLOT]" << thread << thread->objectName() << "- cancel() called, current state:" << _state.loadRelaxed();
-        if (_state == runningState) {
+        int s = _state.loadRelaxed();
+        if (s == runningState || s == pauseRequestedState) {
             _state = cancelRequestedState;
             qDebug() << "[CANCEL SLOT]" << thread << thread->objectName() << "- State changed to cancelRequestedState";
         } else {
-            qDebug() << "[CANCEL SLOT]" << thread << thread->objectName() << "- State was NOT runningState, no change made";
+            qDebug() << "[CANCEL SLOT]" << thread << thread->objectName() << "- State was NOT runningState/pauseRequestedState, no change made";
         }
     }
     void findStuff();
@@ -730,7 +733,7 @@ class AspectFinder : public QObject, public EventOptions {
                 break;
             }
         }
-        return d > (anyMidPoints ? expandShowOrb / 8 : expandShowOrb);
+        return d > (anyMidPoints ? patternsSpreadOrb / 8 : patternsSpreadOrb);
     }
 
     bool keepLooking(unsigned h, unsigned i) const

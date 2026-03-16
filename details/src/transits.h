@@ -4,6 +4,7 @@
 #include "astro-data.h"
 #include "astrodatetimeedit.h"
 #include <QButtonGroup>
+#include <QHash>
 #include <QLineEdit>
 #include <QModelIndex>
 #include <QPointer>
@@ -160,14 +161,29 @@ class Transits : public AstroFileHandler {
     bool        _expandedAspects;
     bool        _inhibitUpdate;
     bool        _pendingLocationChange = false;
+    bool        _fileJustSwitched = false;  // Set in filesUpdated when file(0) changes, cleared in viewSettingsUpdated
+    AstroFile*  _previousFile = nullptr;    // Tracks file(0) across tab switches
 
     QPointer<AstroFile> _trans;
 
     TransitTreeView* _tview;
 
-    QPointer<QThread> _active;
-    QPointer<A::AspectFinder> _activeFinder;
+    // Per-file finder tracking: each tab's finder thread lives here
+    struct FinderState {
+        QPointer<QThread>           thread;
+        QPointer<A::AspectFinder>   finder;
+        AChangeSignalFrame*         chs = nullptr;
+    };
+    QHash<AstroFile*, FinderState> _finders;   // All active/paused finders
+
+    // Current-tab aliases (convenience pointers, always match _finders[file(0)] when running)
+    QPointer<QThread>           _active;
+    QPointer<A::AspectFinder>   _activeFinder;
+    AChangeSignalFrame*         _chs = nullptr;
+
     bool              _pendingRestart = false;  // Set when old thread is canceling and we need to restart
+    bool              _inUpdateTransits = false; // Re-entrancy guard for updateTransits()
+    bool              _backgroundFinders = false; // When true, finders keep computing on tab switch instead of pausing
     QLineEdit*        _input;
     QString           _lastUsedPattern;   // pattern text used for cached events
     A::AstroDateTimeEdit* _start;
@@ -214,8 +230,6 @@ class Transits : public AstroFileHandler {
     
     ADateDelta _ddelta;
 
-    AChangeSignalFrame* _chs;
-    
     QTimer* _progressSortTimer = nullptr;  // Debounces progress-triggered sorts
     
     // Per-tab event visibility state (which event types are enabled in THIS specific tab)
@@ -255,6 +269,8 @@ class Transits : public AstroFileHandler {
     void updateTransitToNatalButtonState();
     void updateProgressedToNatalButtonState();
     void updateInputProgress(double prog);  // Update _input background to show progress
+    void disconnectFinder(FinderState& fs);         // Disconnect UI signals from a finder
+    void cancelAndRemoveFinder(AstroFile* af);       // Cancel finder + remove from map
 };
 
 #endif // Harmonics_H

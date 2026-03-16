@@ -1770,7 +1770,7 @@ struct ExactPatternSpec {
     unsigned quorum() const { return static_cast<unsigned>(alistIndices.size()); }
 
     /// Effective orb for this pattern: tighter when midpoints are involved,
-    /// mirroring the outOfOrb() logic (expandShowOrb / 8 for midpoints).
+    /// mirroring the outOfOrb() logic (patternsSpreadOrb / 8 for midpoints).
     qreal effectiveOrb(qreal baseOrb) const
     {
         return hasMidpoints ? baseOrb / 4. : baseOrb;

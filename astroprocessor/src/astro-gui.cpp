@@ -896,6 +896,8 @@ AstroFileHandler::calculateAspects()
     if (fp.size() < curr.patternsQuorum) {
         bool        skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
         A::uintSSet hs   = A::dynAspState();
+        qreal       useOrb =
+            fp.size() > 2 ? curr.patternsSpreadOrb : curr.expandShowOrb;
 
         auto hpc = A::findClusters(hs,
                                    { &file(0)->horoscope().planetsOrig },
@@ -903,7 +905,7 @@ AstroFileHandler::calculateAspects()
                                    skip ? A::PlanetSet() : fp,
                                    false,
                                    false /*curr.patternsRestrictMoon*/,
-                                   curr.expandShowOrb);
+                                   useOrb);
 
         for (const auto& h_pc : hpc) {
             const auto& pc = h_pc.second;
@@ -916,7 +918,7 @@ AstroFileHandler::calculateAspects()
                 fp.insert(pl.begin(), pl.end());
             }
         }
-        A::setOrbFactor(curr.expandShowOrb / A::harmonicsMaxQOrb());
+        A::setOrbFactor(useOrb / A::harmonicsMaxQOrb());
     } else {
         aspset = MainWindow::theAstroWidget()->overrideAspectSet();
     }
@@ -998,6 +1000,8 @@ AstroFileHandler::calculateSynastryAspects()
                     || (fp.size() == 2
                         && fp.begin()->planetId() == fp.rbegin()->planetId());
         A::uintSSet hs;
+        qreal       useOrb =
+            fp.size() > 2 ? curr.patternsSpreadOrb : curr.expandShowOrb;
 #if 0
         uint h;
         bool ok;
@@ -1012,7 +1016,7 @@ AstroFileHandler::calculateSynastryAspects()
 
         A::PlanetProfile pf { &file(0)->horoscope().planetsOrig,
                               &file(1)->horoscope().planetsOrig };
-        A::setOrbFactor(curr.expandShowOrb / A::harmonicsMaxQOrb());
+        A::setOrbFactor(useOrb / A::harmonicsMaxQOrb());
         QList<A::Aspect> alist;
         _syntheticMidpointPlanets.clear();
         _focalMidpoints.clear();
@@ -1022,7 +1026,7 @@ AstroFileHandler::calculateSynastryAspects()
                                    /*skip &&*/ alt ? A::PlanetSet() : fp,
                                    true /*skipAllNatalOnly*/,
                                    false /*curr.patternsRestrictMoon*/,
-                                   curr.expandShowOrb);
+                                   useOrb);
         for (const auto& h_pc : hpc) {
             auto         h  = h_pc.first;
             const auto&  pc = h_pc.second;

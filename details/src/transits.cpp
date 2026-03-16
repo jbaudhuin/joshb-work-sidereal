@@ -1478,17 +1478,22 @@ Transits::Transits(QWidget* parent) :
     
     toolbar->addSeparator();
     
-    // Helper to save event options and trigger recalc
-    auto saveEventOptionsAndRecalc = [this]() {
+    // Helper to save event options and optionally trigger recalc.
+    // filterAdded == true  → a new event type was enabled  → recalc needed
+    // filterAdded == false → an event type was disabled     → keep existing
+    //                         events visible, only persist the option change
+    auto saveEventOptionsAndRecalc = [this](bool filterAdded) {
         // Save to file(0) immediately so it persists when switching files
         if (filesCount() > 0 && file(0)) {
             file(0)->setTransitEventOptions(_tabEventOptions);
         }
-        // Mark events for recalc since event filter changed
-        for (int i = 0, n = filesCount(); i < n; ++i) {
-            file(i)->markEventsForRecalc();
+        if (filterAdded) {
+            // Mark events for recalc since a new event type was added
+            for (int i = 0, n = filesCount(); i < n; ++i) {
+                file(i)->markEventsForRecalc();
+            }
+            if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
         }
-        if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
     };
     
     // Stations button
@@ -1504,7 +1509,7 @@ Transits::Transits(QWidget* parent) :
         else _tabEventOptions.erase(A::etcStation);
         qDebug() << "  _tabEventOptions now has" << _tabEventOptions.size() << "event types";
         
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     // Returns button (controls all return types)
@@ -1524,7 +1529,7 @@ Transits::Transits(QWidget* parent) :
             _tabEventOptions.erase(A::etcSolarReturn);
             _tabEventOptions.erase(A::etcLunarReturn);
         }
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     toolbar->addSeparator();
@@ -1540,7 +1545,7 @@ Transits::Transits(QWidget* parent) :
         qDebug() << "T=T button toggled:" << checked;
         if (checked) _tabEventOptions.insert(A::etcTransitToTransit);
         else _tabEventOptions.erase(A::etcTransitToTransit);
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     // T=N dropdown button with menu
@@ -1607,7 +1612,7 @@ Transits::Transits(QWidget* parent) :
                 _tabEventOptions.insert(A::etcTransitToNatal);
                 _tabEventOptions.erase(A::etcOuterTransitToNatal);
             }
-            saveEventOptionsAndRecalc();
+            saveEventOptionsAndRecalc(true);
         }
     });
     
@@ -1618,7 +1623,7 @@ Transits::Transits(QWidget* parent) :
         } else {
             _tabEventOptions.erase(A::etcTransitToNatalAngles);
         }
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     // Button click toggles the on/off state for the current mode
@@ -1651,7 +1656,7 @@ Transits::Transits(QWidget* parent) :
         }
         qDebug() << "After T=N click: hasTransitToNatal=" << (_tabEventOptions.count(A::etcTransitToNatal) > 0)
                  << "hasOuter=" << (_tabEventOptions.count(A::etcOuterTransitToNatal) > 0);
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(newState);
     });
     
     toolbar->addWidget(_btnTransitToNatal);
@@ -1665,7 +1670,7 @@ Transits::Transits(QWidget* parent) :
     connect(_actProgressedToProgressed, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcProgressedToProgressed);
         else _tabEventOptions.erase(A::etcProgressedToProgressed);
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     // IP=N/P=N dropdown button with menu
@@ -1723,7 +1728,7 @@ Transits::Transits(QWidget* parent) :
                 _tabEventOptions.insert(A::etcProgressedToNatal);
                 _tabEventOptions.erase(A::etcInnerProgressedToNatal);
             }
-            saveEventOptionsAndRecalc();
+            saveEventOptionsAndRecalc(true);
         }
     });
     
@@ -1746,7 +1751,7 @@ Transits::Transits(QWidget* parent) :
             _tabEventOptions.erase(A::etcProgressedToNatal);
             _tabEventOptions.erase(A::etcInnerProgressedToNatal);
         }
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(newState);
     });
     
     toolbar->addWidget(_btnProgressedToNatal);
@@ -1760,7 +1765,7 @@ Transits::Transits(QWidget* parent) :
     connect(_actTransitAspectPatterns, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcTransitAspectPattern);
         else _tabEventOptions.erase(A::etcTransitAspectPattern);
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     _actTransitNatalAspectPatterns = toolbar->addAction("TNA");
@@ -1772,7 +1777,7 @@ Transits::Transits(QWidget* parent) :
     connect(_actTransitNatalAspectPatterns, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcTransitNatalAspectPattern);
         else _tabEventOptions.erase(A::etcTransitNatalAspectPattern);
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     // Sign Ingress button
@@ -1785,7 +1790,7 @@ Transits::Transits(QWidget* parent) :
     connect(_actSignIngress, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcSignIngress);
         else _tabEventOptions.erase(A::etcSignIngress);
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     // House Ingress button
@@ -1798,7 +1803,7 @@ Transits::Transits(QWidget* parent) :
     connect(_actHouseIngress, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcHouseIngress);
         else _tabEventOptions.erase(A::etcHouseIngress);
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     // Paranatellonta button
@@ -1811,7 +1816,7 @@ Transits::Transits(QWidget* parent) :
     connect(_actParanatellonta, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcParanatellonta);
         else _tabEventOptions.erase(A::etcParanatellonta);
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     // Paranatellonta to Natal button
@@ -1824,7 +1829,7 @@ Transits::Transits(QWidget* parent) :
     connect(_actParanatellontaToNatal, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
         if (checked) _tabEventOptions.insert(A::etcParanatellontaToNatal);
         else _tabEventOptions.erase(A::etcParanatellontaToNatal);
-        saveEventOptionsAndRecalc();
+        saveEventOptionsAndRecalc(checked);
     });
     
     // Initialize toolbar state from tab event options
@@ -1970,6 +1975,10 @@ Transits::Transits(QWidget* parent) :
                 // guard, clicking on a result row while a search is running
                 // would trigger a redundant updateTransits() call.
                 QString current = _input->text().trimmed();
+                // Persist pattern to file(0) so it survives tab switches
+                if (filesCount() > 0 && file(0)) {
+                    file(0)->setTransitPattern(current);
+                }
                 if (current != _lastUsedPattern) {
                     updateTransits();
                 }
@@ -1998,10 +2007,11 @@ Transits::Transits(QWidget* parent) :
 }
 
 Transits::~Transits() { 
-    // Save current event options to file(0) before destruction
+    // Save current event options and pattern to file(0) before destruction
     if (filesCount() > 0 && file(0)) {
         qDebug() << "[DESTRUCTOR] Saving event options to file" << file(0)->getName();
         file(0)->setTransitEventOptions(_tabEventOptions);
+        file(0)->setTransitPattern(_input->text());
     }
     
     // Disconnect scroll bar signals to prevent crashes during destruction
@@ -2037,22 +2047,71 @@ Transits::stopThreads()
     if (_progressSortTimer && _progressSortTimer->isActive()) {
         _progressSortTimer->stop();
     }
-    if (_active && !_active->isFinished()) {
+
+    // Cancel and wait on ALL finders (current + paused/background)
+    QList<AstroFile*> keys = _finders.keys();
+    for (auto* af : keys) {
+        auto& fs = _finders[af];
         qDebug() << "========================================";
-        qDebug() << "[STOP THREADS] Cancelling active finder thread" << _active << _active->objectName();
-        qDebug() << "[STOP THREADS] AspectFinder:" << _activeFinder.data();
+        qDebug() << "[STOP THREADS] Cancelling finder for" << af->getName()
+                 << "thread:" << fs.thread << "finder:" << fs.finder.data();
         qDebug() << "========================================";
-        if (_activeFinder) {
-            _activeFinder->cancel();
+        if (fs.finder) fs.finder->cancel();
+        delete fs.chs;
+        fs.chs = nullptr;
+        if (fs.thread && !fs.thread->isFinished()) {
+            qDebug() << "[STOP THREADS] Waiting for finder thread to finish...";
+            fs.thread->wait();
+            qDebug() << "[STOP THREADS] Finder thread finished";
         }
-        // Wait for the thread to actually finish completely
-        // The finder thread's waitForDone loop will ensure thread pool tasks finish
-        qDebug() << "[STOP THREADS] Waiting for finder thread to finish...";
-        _active->wait();
-        qDebug() << "========================================";
-        qDebug() << "[STOP THREADS] Finder thread finished and cleaned up";
-        qDebug() << "========================================";
     }
+    _finders.clear();
+    _active       = nullptr;
+    _activeFinder = nullptr;
+    _chs          = nullptr;
+}
+
+void
+Transits::disconnectFinder(FinderState& fs)
+{
+    if (fs.finder) {
+        fs.finder->disconnect();        // Disconnect all signals FROM the finder
+        disconnect(fs.finder.data());   // Disconnect all signals TO the finder
+    }
+    if (fs.thread) {
+        disconnect(fs.thread, SIGNAL(finished()), this, SLOT(onCompleted()));
+    }
+    if (_progressSortTimer && _progressSortTimer->isActive()) {
+        _progressSortTimer->stop();
+    }
+}
+
+void
+Transits::cancelAndRemoveFinder(AstroFile* af)
+{
+    auto it = _finders.find(af);
+    if (it == _finders.end()) return;
+
+    auto& fs = it.value();
+    qDebug() << "[CANCEL FINDER] Canceling finder for" << af->getName();
+    disconnectFinder(fs);
+
+    if (fs.finder) fs.finder->cancel();
+    delete fs.chs;
+    fs.chs = nullptr;
+
+    if (fs.thread && !fs.thread->isFinished()) {
+        fs.thread->wait();
+    }
+
+    // Clear current-tab aliases if they point to this finder
+    if (_active == fs.thread) {
+        _active       = nullptr;
+        _activeFinder = nullptr;
+        _chs          = nullptr;
+    }
+
+    _finders.erase(it);
 }
 
 void
@@ -2186,12 +2245,6 @@ Transits::updateTimezone()
         if (_evm) {
             _evm->setTimezone(short(tz));
         }
-        
-        transitsAF()->suspendUpdate();
-        transitsAF()->setLocation(_location->location());
-        transitsAF()->setLocationName(_location->locationName());
-        transitsAF()->setTimezone(short(tz));
-        transitsAF()->resumeUpdate();
 
         // Persist to file(0)'s per-tab transit location so it survives
         // file-2 close and session save/restore.
@@ -2206,13 +2259,45 @@ Transits::updateTimezone()
                  << "with dstOffset" << response["dstOffset"].toInt() / 60
                  << "in" << response["timeZoneName"].toString();
 
-        // Signal that the chart needs updating with new location/timezone
-        // This will cause the chart to redraw with the new location
-        // Stop any active finder threads before updating the chart
-        stopThreads();
         if (transitsOnly()) {
-            emit updateFirst(file());
+            // Event times are stored in UTC and displayed via the model's
+            // _tzOffset, which we already updated above.  Most transit
+            // event types (T=T, stations, ingresses, returns, etc.) are
+            // location-independent, so a full recalc is unnecessary.
+            //
+            // Only house-ingress and paranatellonta depend on the
+            // observer's location.  Recalc only when those are active.
+            bool needsRecalc =
+                _tabEventOptions.count(A::etcHouseIngress)
+                || _tabEventOptions.count(A::etcParanatellonta);
+
+            // Update transitsAF() (== file(0) here) with new location/tz.
+            // Block filesUpdated so the change() → recalculate chain
+            // doesn't trigger a redundant event search.
+            {
+                A::modalize<bool> noup(_inhibitUpdate);
+                transitsAF()->suspendUpdate();
+                transitsAF()->setLocation(_location->location());
+                transitsAF()->setLocationName(_location->locationName());
+                transitsAF()->setTimezone(short(tz));
+                transitsAF()->resumeUpdate();
+            }
+
+            if (needsRecalc) {
+                stopThreads();
+                file(0)->markEventsForRecalc();
+                describePlanet();
+            }
         } else {
+            // For natal + transit tabs, update transitsAF (file(1)) and
+            // signal FilesBar to refresh the chart.
+            transitsAF()->suspendUpdate();
+            transitsAF()->setLocation(_location->location());
+            transitsAF()->setLocationName(_location->locationName());
+            transitsAF()->setTimezone(short(tz));
+            transitsAF()->resumeUpdate();
+
+            stopThreads();
             emit updateSecond(transitsAF());
         }
     });
@@ -2241,6 +2326,15 @@ Transits::updateTransits()
     qDebug() << "========================================";
     
     if (filesCount() == 0) return;
+
+    // Guard against re-entrancy: setting the location widget below can
+    // trigger changed() → fileUpdatedSlot → filesUpdated → describePlanet
+    // → updateTransits again.  Let the outer call handle everything.
+    if (_inUpdateTransits) {
+        qDebug() << "[UPDATE TRANSITS] Re-entrant call blocked";
+        return;
+    }
+    A::modalize<bool> utGuard(_inUpdateTransits, true);
     if (!isVisible()) return;
     if (transitsAF()->isSuspendedUpdate()) return;
 
@@ -2321,6 +2415,15 @@ Transits::updateTransits()
     bool hasEvents = !evs.empty();
     bool needsRecalc = file(0)->needsEventsRecalc();
 
+    // Check if there's a finder still active (paused or background) for this file
+    bool hasActiveFinder = false;
+    {
+        auto fit = _finders.find(file(0));
+        if (fit != _finders.end() && fit.value().thread && !fit.value().thread->isFinished()) {
+            hasActiveFinder = true;
+        }
+    }
+
     // Detect if the pattern text changed since last calculation
     QString currentPattern = _input->text().trimmed();
     if (currentPattern != _lastUsedPattern) {
@@ -2332,10 +2435,11 @@ Transits::updateTransits()
     
     qDebug() << "[UPDATE TRANSITS] file(0):" << file(0)->getName() 
              << "hasEvents:" << hasEvents << "evs.size():" << evs.size()
-             << "needsRecalc:" << needsRecalc;
+             << "needsRecalc:" << needsRecalc
+             << "hasActiveFinder:" << hasActiveFinder;
     
-    if (hasEvents && !needsRecalc) {
-        // Events already cached - repopulate the model and we're done
+    if (hasEvents && !needsRecalc && !hasActiveFinder) {
+        // Events already cached and no finder running — repopulate the model and done
         qDebug() << "[UPDATE TRANSITS] Using cached events for file" << file(0)->getName();
         
         // Update model settings to match current file
@@ -2355,58 +2459,66 @@ Transits::updateTransits()
     
     qDebug() << "[UPDATE TRANSITS] Recalculating events for file" << file(0)->getName();
 
-    if (!_active) {
-        saveScrollPos();
-    } else {
-        qDebug() << "========================================";
-        qDebug() << "[CLEANUP OLD] Found existing finder thread" << _active << _active->objectName();
-        qDebug() << "[CLEANUP OLD] AspectFinder:" << _activeFinder.data();
-        qDebug() << "[CLEANUP OLD] Disconnecting and canceling (non-blocking)...";
-        disconnect(_active, SIGNAL(finished()), this, SLOT(onCompleted()));
+    // Check if there's already a paused or background finder for this file
+    auto fit = _finders.find(file(0));
+    if (fit != _finders.end()) {
+        auto& fs = fit.value();
+        if (fs.finder && fs.thread && !fs.thread->isFinished()) {
+            if (needsRecalc) {
+                // Settings/dates changed — cancel old finder and start fresh
+                qDebug() << "[UPDATE TRANSITS] Canceling stale finder for" << file(0)->getName()
+                         << "(recalc needed)";
+                cancelAndRemoveFinder(file(0));
+                // Entry already removed from map — fall through to create new finder
+            } else {
+                // Finder is still alive (paused or running) — resume it
+                qDebug() << "[UPDATE TRANSITS] Resuming existing finder for" << file(0)->getName()
+                         << "state:" << fs.finder->getState();
 
-        // Connect the restart handler BEFORE canceling to close the race
-        // window where the thread finishes between cancel() and connect(),
-        // which would leave _pendingRestart stuck true forever.
-        _pendingRestart = true;
-        connect(_active, &QThread::finished, this, [this]() {
-            qDebug() << "[CLEANUP OLD] Old thread finished, pendingRestart:" << _pendingRestart;
-            _active = nullptr;
-            _activeFinder = nullptr;
-            if (_pendingRestart) {
-                _pendingRestart = false;
-                updateTransits();
+                // Reconnect signals
+                connect(fs.finder, SIGNAL(progress(double)), this, SLOT(onProgress(double)));
+                connect(fs.thread, SIGNAL(finished()), this, SLOT(onCompleted()));
+                connect(this, SIGNAL(cancelActive()), fs.finder, SLOT(cancel()));
+
+                // Set as current-tab active finder
+                _active       = fs.thread;
+                _activeFinder = fs.finder;
+                _chs          = fs.chs;
+
+                // Update model to show events accumulated so far
+                const A::Horoscope& scope(file()->horoscope());
+                _evm->setZodiac(scope.zodiac);
+                _evm->setTimezone(transitsAF()->getTimezone());
+                _evm->clearAllEvents();
+                _evm->addEvents(file(0)->events());
+                _evm->sort();
+
+                // Resume if paused
+                if (fs.finder->isPaused()) {
+                    qDebug() << "[UPDATE TRANSITS] Calling resume() on paused finder";
+                    fs.finder->resume();
+                }
+                return;
             }
-        }, Qt::SingleShotConnection);
-
-        if (_activeFinder) {
-            _activeFinder->cancel();
-            _activeFinder->disconnect();  // Disconnect all signals FROM the finder
-            disconnect(_activeFinder.data());  // Disconnect all signals TO the finder
-        }
-        if (_progressSortTimer && _progressSortTimer->isActive()) {
-            _progressSortTimer->stop();
-        }
-        // Clear the finder reference (it will be deleted by the thread's finished handler)
-        _activeFinder = nullptr;
-        // Clean up the change signal frame from the old calculation
-        delete _chs;
-        _chs = nullptr;
-
-        // Safety net: if the thread already finished before we connected
-        // (e.g., the computation completed naturally and finished() was
-        // already emitted), our lambda won't fire.  Detect this and
-        // schedule a restart directly.
-        if (!_active || _active->isFinished()) {
-            qDebug() << "[CLEANUP OLD] Thread already finished, scheduling direct restart";
-            _pendingRestart = false;
-            _active = nullptr;
-            _activeFinder = nullptr;
-            QTimer::singleShot(0, this, [this]() { updateTransits(); });
         } else {
-            qDebug() << "[CLEANUP OLD] Cancellation dispatched, will restart when old thread exits";
+            // Thread finished while we weren't looking — clean up stale entry
+            qDebug() << "[UPDATE TRANSITS] Stale finder entry for" << file(0)->getName() << ", removing";
+            delete fs.chs;
+            _finders.erase(fit);
         }
-        qDebug() << "========================================";
-        return;
+    }
+
+    // If the current tab's finder is a different file's (shouldn't happen
+    // after filesUpdated pauses it, but be safe), clear the aliases
+    if (_active) {
+        saveScrollPos();
+        // The current _active belongs to a different file — it was already
+        // paused/disconnected in filesUpdated(). Just clear the aliases.
+        _active       = nullptr;
+        _activeFinder = nullptr;
+        _chs          = nullptr;
+    } else {
+        saveScrollPos();
     }
 
     // Clear the recalc flag only when we are actually about to start a new
@@ -2536,19 +2648,38 @@ Transits::updateTransits()
     connect(thread, SIGNAL(started()), af, SLOT(findStuff()));
     connect(af, SIGNAL(progress(double)), this, SLOT(onProgress(double)));
     connect(thread, SIGNAL(finished()), this, SLOT(onCompleted()));
+    // Delete thread and finder after thread finishes (true completion or cancel)
     connect(thread, SIGNAL(finished()), thread, SLOT(deleteLater()));
-    // Delete AspectFinder after thread finishes
-    // We can't use moveToThread() here because the worker thread has exited
-    // and moveToThread() must be called from the object's current thread.
-    // Since the finder is no longer doing work, we can delete it directly.
     connect(thread, &QThread::finished, this, [af]() {
         qDebug() << "[DELETE FINDER] Deleting AspectFinder:" << af;
         delete af;
     });
     
     thread->start();
-    _active = thread;
+    _active       = thread;
     _activeFinder = af;
+
+    // Store in per-file finder map
+    AstroFile* ownerFile = file(0);
+    _finders[ownerFile] = FinderState { thread, af, _chs };
+
+    // Clean up the map entry if the file is destroyed while finder is paused
+    connect(ownerFile, &QObject::destroyed, this, [this, ownerFile]() {
+        qDebug() << "[FILE DESTROYED] Cleaning up finder for destroyed file";
+        auto it = _finders.find(ownerFile);
+        if (it != _finders.end()) {
+            auto& fs = it.value();
+            if (fs.finder) fs.finder->cancel();
+            delete fs.chs;
+            if (fs.thread && !fs.thread->isFinished()) fs.thread->wait();
+            if (_active == fs.thread) {
+                _active       = nullptr;
+                _activeFinder = nullptr;
+                _chs          = nullptr;
+            }
+            _finders.erase(it);
+        }
+    }, Qt::UniqueConnection);
     
     qDebug() << "[CREATE FINDER] Started finder thread" << thread;
     qDebug() << "========================================";
@@ -2557,6 +2688,13 @@ Transits::updateTransits()
 void
 Transits::onProgress(double prog)
 {
+    // Belt-and-suspenders: check the sender is the current tab's finder.
+    // Signals should be disconnected on tab switch, but guard anyway.
+    auto* senderObj = sender();
+    if (senderObj && _activeFinder && senderObj != _activeFinder.data()) {
+        return;
+    }
+
     // Update the progress bar in the pattern input field
     updateInputProgress(prog);
 
@@ -2593,6 +2731,39 @@ Transits::onCompleted()
 {
 #if 1
     qDebug() << "[ON COMPLETED] Starting cleanup, thread:" << _active.data() << "finder:" << _activeFinder.data();
+
+    // Find which file this finder belongs to and remove from map
+    AstroFile* ownerFile = nullptr;
+    for (auto it = _finders.begin(); it != _finders.end(); ++it) {
+        if (it.value().thread == _active || it.value().finder == _activeFinder) {
+            ownerFile = it.key();
+            // Delete _chs stored in the map entry
+            delete it.value().chs;
+            it.value().chs = nullptr;
+            _finders.erase(it);
+            break;
+        }
+    }
+
+    bool isCurrentTab = (ownerFile == nullptr || (filesCount() > 0 && ownerFile == file(0)));
+    qDebug() << "[ON COMPLETED] ownerFile:" << (ownerFile ? ownerFile->getName() : "unknown")
+             << "isCurrentTab:" << isCurrentTab;
+
+    if (!isCurrentTab) {
+        // Background finder finished for a non-current tab.
+        // Events are already written to ownerFile->events() by reference.
+        // Just clear recalc flag and clean up — no UI updates needed.
+        qDebug() << "[ON COMPLETED] Background finder done, no UI update needed";
+        if (ownerFile) ownerFile->clearEventsRecalcFlag();
+        if (_activeFinder) {
+            _activeFinder->disconnect();
+            disconnect(_activeFinder.data());
+        }
+        // Don't clear _active/_activeFinder — they belong to the CURRENT tab.
+        return;
+    }
+
+    // Current tab's finder completed
     if (_progressSortTimer && _progressSortTimer->isActive()) {
         _progressSortTimer->stop();
     }
@@ -2609,9 +2780,7 @@ Transits::onCompleted()
         disconnect(_activeFinder.data());  // Disconnect all signals TO the finder
     }
     
-    // Delete _chs BEFORE sorting to emit changeDone() signal first
-    qDebug() << "[ON COMPLETED] Deleting change signal frame";
-    delete _chs;
+    // _chs already deleted when removing from map above
     _chs = nullptr;
     
     qDebug() << "[ON COMPLETED] Sorting model";
@@ -2970,7 +3139,10 @@ Transits::clickedCell(QModelIndex inx)
         if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
             file()->setType(TypeReturn);
         }
-        emit updateFirst(file());
+        // Don't emit updateFirst here — setGMT/setName/setFocalPlanets
+        // already fire changed() which propagates to Chart and all other
+        // handlers.  updateFirst would route through FilesBar::openFile()
+        // which stops the running finder thread and resets the date range.
     } else {
         auto* taf = transitsAF();
         if (!taf) return;
@@ -3516,31 +3688,70 @@ Transits::filesUpdated(MembersList m)
     }
     
     // Save current event options to previous file(0) if it exists
-    static AstroFile* previousFile = nullptr;
-    bool fileChanged = (previousFile != file(0));
+    bool fileChanged = (_previousFile != file(0));
+    // Use |= so that a re-entrant filesUpdated() (triggered by
+    // setTransitEventOptions → changed() → fileUpdatedSlot) cannot
+    // clobber the flag before viewSettingsUpdated() reads it.
+    _fileJustSwitched |= fileChanged;
     
-    if (previousFile && previousFile != file(0)) {
-        qDebug() << "[FILES UPDATED] Saving event options from previous file" << previousFile->getName();
-        previousFile->setTransitEventOptions(_tabEventOptions);
+    // Pause/disconnect the previous tab's finder on tab switch
+    if (fileChanged && _previousFile) {
+        auto fit = _finders.find(_previousFile);
+        if (fit != _finders.end()) {
+            auto& fs = fit.value();
+            if (fs.finder && fs.thread && !fs.thread->isFinished()) {
+                qDebug() << "[FILES UPDATED] Tab switch: disconnecting finder for" << _previousFile->getName();
+                disconnectFinder(fs);
+                if (!_backgroundFinders) {
+                    qDebug() << "[FILES UPDATED] Pausing finder for" << _previousFile->getName();
+                    fs.finder->pause();
+                } else {
+                    qDebug() << "[FILES UPDATED] Background mode: leaving finder running for" << _previousFile->getName();
+                }
+            }
+        }
+        // Clear current-tab aliases — updateTransits() will set them for the new file
+        _active       = nullptr;
+        _activeFinder = nullptr;
+        _chs          = nullptr;
+        updateInputProgress(1.0);
+        _lastProgress = -1;
     }
     
-    // Load event options from new file(0)
-    if (file(0)) {
-        qDebug() << "[FILES UPDATED] Loading event options for file" << file(0)->getName();
-        _tabEventOptions = file(0)->getTransitEventOptions();
-        
-        // If file has no saved options (empty set), initialize from global defaults
-        if (_tabEventOptions.empty()) {
-            qDebug() << "  No saved options, using global defaults";
-            _tabEventOptions = A::EventOptions::globalDefaults();
-            file(0)->setTransitEventOptions(_tabEventOptions);
+    // Guard file mutations that emit changed() to prevent re-entrant
+    // dispatches back into this handler.  The ChangedState signal is
+    // irrelevant for Transits so nothing is lost.
+    {
+        A::modalize<bool> guard(_inhibitUpdate, true);
+
+        if (_previousFile && _previousFile != file(0)) {
+            qDebug() << "[FILES UPDATED] Saving event options from previous file" << _previousFile->getName();
+            _previousFile->setTransitEventOptions(_tabEventOptions);
+            _previousFile->setTransitPattern(_input->text());
         }
         
-        // Update toolbar to reflect the loaded event options
-        updateToolbarFromEventOptions();
-        
-        previousFile = file(0);
-    }
+        // Load event options from new file(0)
+        if (file(0)) {
+            qDebug() << "[FILES UPDATED] Loading event options for file" << file(0)->getName();
+            _tabEventOptions = file(0)->getTransitEventOptions();
+            
+            // If file has no saved options (empty set), initialize from global defaults
+            if (_tabEventOptions.empty()) {
+                qDebug() << "  No saved options, using global defaults";
+                _tabEventOptions = A::EventOptions::globalDefaults();
+                file(0)->setTransitEventOptions(_tabEventOptions);
+            }
+            
+            // Update toolbar to reflect the loaded event options
+            updateToolbarFromEventOptions();
+            
+            // Restore per-tab pattern input field
+            _input->setText(file(0)->getTransitPattern());
+            _lastUsedPattern = file(0)->getTransitPattern();
+            
+            _previousFile = file(0);
+        }
+    }  // ~guard restores _inhibitUpdate
 
 #if 0
     // XXX need a better division of in-process update and final update
@@ -3666,13 +3877,25 @@ Transits::viewSettingsUpdated(MembersList m)
         auto* evm = ensureEventsModel();
         if (!evm) return;
 
-        if (filesCount() > 0 && needsRecalc) {
+        // When file(0) just changed (tab switch), the "All" diff flags from
+        // a new file(1) include ViewSettings bits that look like Zodiac/
+        // AspectSet/etc. changed.  They didn't — ViewSettings are global.
+        // Skip the false-positive recalc in that case.
+        if (filesCount() > 0 && needsRecalc && !_fileJustSwitched) {
             qDebug() << "[VIEW SETTINGS] Marking for recalc due to settings change";
             file(0)->markEventsForRecalc();
             // Note: Don't call updateTransits() here — describePlanet() below
             // will call it, avoiding a double-call that would block the main
             // thread waiting for the first finder to finish.
+        } else if (_fileJustSwitched) {
+            qDebug() << "[VIEW SETTINGS] Skipping recalc mark — tab switch, not a real settings change";
+            // filesUpdated() already called describePlanet() which started
+            // the finder thread.  Don't call it again — that would cancel
+            // the running thread and schedule a redundant restart.
+            _fileJustSwitched = false;
+            return;
         }
+        _fileJustSwitched = false;  // Clear after use
 
         if (!_chs) _chs = new AChangeSignalFrame(evm);
         evm->setAspectSet(file()->getAspectSetId());
@@ -3714,7 +3937,9 @@ Transits::hideEvent(QHideEvent* e)
 AppSettings
 Transits::defaultSettings()
 {
-    return A::EventOptions().toMap();
+    AppSettings s = A::EventOptions().toMap();
+    s.setValue("Events/backgroundFinders", false);
+    return s;
 }
 
 AppSettings
@@ -3723,13 +3948,17 @@ Transits::currentSettings()
     // Get global settings and replace event types with tab-specific ones
     A::EventOptions opts = A::EventOptions::current();
     opts.enabledEvents = _tabEventOptions;
-    return opts.toMap();
+    AppSettings s = opts.toMap();
+    s.setValue("Events/backgroundFinders", _backgroundFinders);
+    return s;
 }
 
 void
 Transits::applySettings(const AppSettings& s)
 {
     qDebug() << "[APPLY SETTINGS] Applying global event calculation settings";
+    
+    _backgroundFinders = s.value("Events/backgroundFinders", false).toBool();
     
     // Extract settings from dialog (no event type settings anymore)
     A::EventOptions opts(s.values());
@@ -3833,6 +4062,8 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
                          16.);
     ed->addCheckBox("Events/patternsRestrictMoon",
                     tr("Patterns Restrict Moon"));
+    ed->addCheckBox("Events/backgroundFinders",
+                    tr("Continue event search in background on tab switch"));
 #if 0
     ed->addCheckBox("Events/showLunations", tr("Show Lunations"));
     ed->addCheckBox("Events/showHeliacalEvents", tr("Show Heliacal Events"));

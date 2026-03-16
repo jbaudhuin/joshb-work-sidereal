@@ -653,7 +653,7 @@ Chart::drawMidpointFigures()
         return m;
     };
 
-    qreal maxOrb = A::EventOptions::current().expandShowOrb;
+    qreal maxOrb = A::EventOptions::current().patternsSpreadOrb;
     if (maxOrb <= 0) maxOrb = 2.0;
 
     // Track chord info for midpoint-to-midpoint connections (A/B=C/D)
