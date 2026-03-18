@@ -981,16 +981,16 @@ quotidianSearch(PlanetProfile&   poses,
 struct PSSRContext {
     double    anniversarySecond = 0.0; // Rate: degrees per day
     QDateTime returnTime;              // Time of the return chart
-    double    returnRAMS = 0.0;        // Return Sun's RA (or mean Sun)
+    double    returnRAMS = 0.0;        // Return Sun's RA (mean or apparent)
     double    returnRAMC = 0.0;        // Return chart RAMC
     bool      isValid = false;         // Whether this context is valid
-    bool      useMeanSun = true;       // Whether to use mean or apparent Sun
+    bool      useApparentSun = true;   // true = RAAS (apparent), false = RAMS (mean)
     
     PSSRContext() = default;
 };
 
 double
-calculateRAMS(const QDateTime& dt, bool useMeanSun = true);
+calculateRAMS(const QDateTime& dt, bool useApparentSun = true);
 
 double
 calculateAnniversarySecond(const Houses& return1, const Houses& return2);
@@ -1000,11 +1000,18 @@ calculatePSSRRAMC(const Houses&    returnHouses,
                   const QDateTime& returnTime,
                   const QDateTime& eventTime,
                   double           anniversarySecond,
-                  bool             useMeanSun = true);
+                  bool             useApparentSun = true);
 
 // Calculate PSSR context for a return chart (caches anniversary second)
 PSSRContext
 calculatePSSRContext(const Horoscope& returnChart, bool useApparentSun = true);
+
+// Convert angleTransitMode index (0=Rise, 1=Set, 2=MC, 3=IC) to string
+inline QString angleTransitName(int index)
+{
+    static const char* names[] = { "Rise", "Set", "MC", "IC" };
+    return (index >= 0 && index < 4) ? names[index] : "?";
+}
 
 // Unified function to calculate angular dates using either PD or PSSR
 // If pssrCtx is null or invalid, uses Primary Direction (Naibod rate: 1°/day)
@@ -1021,7 +1028,8 @@ calculateAngularDate(const QDateTime&   radixTime,
                      const QDateTime&   angleTime,
                      double             planetRA,
                      double             angleRA,
-                     const PSSRContext* pssrCtx = nullptr);
+                     const PSSRContext* pssrCtx = nullptr,
+                     const QString&     debugLabel = {});
 
 Horoscope
 calculateAll(const InputData& input);

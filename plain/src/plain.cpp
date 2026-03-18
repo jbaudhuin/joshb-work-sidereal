@@ -748,13 +748,15 @@ Plain::applySettings(const AppSettings& s)
     bool useApparentSunChanged = (A::useApparentSun != newUseApparentSun);
     A::useApparentSun = newUseApparentSun;
 
-    // If useApparentSun changed, recalculate only solar-based charts
+    // If useApparentSun changed, clear PSSR caches and recalculate solar-based charts
     if (useApparentSunChanged) {
         for (int i = 0; i < filesCount(); i++) {
             if (file(i) && A::isSolarBasedChart(file(i)->getName())) {
                 file(i)->clearPSSRContext();
+                file(i)->calculate();
             }
         }
+        aspectsCached = false;
     }
 
     // If primDirMode changed, recalculate all files to update transit times
@@ -764,7 +766,6 @@ Plain::applySettings(const AppSettings& s)
                 file(i)->calculate();
             }
         }
-        // Invalidate cached aspects since planets were recalculated
         aspectsCached = false;
     }
 
@@ -774,7 +775,7 @@ Plain::applySettings(const AppSettings& s)
 void
 Plain::setupSettingsEditor(AppSettingsEditor* ed)
 {
-    ed->addTab(tr("Mundane"));
+    ed->addTab(tr("Tables"));
     ed->addComboBox("Mundane/primDirMode",
                     tr("Speculum type"),
                     { { "Mundane", A::prdMundane },
@@ -793,8 +794,10 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                          1. / 60. /*1 minute*/,
                          5.0 /*5 degrees*/);
     ed->addCheckBox("Mundane/includeFixedStars", tr("Include fixed stars"));
-
-    ed->addTab(tr("Aspects Table"));
+    ed->addComboBox("Mundane/useApparentSun",
+                    tr("PSSR Sun mode"),
+                    { { "Apparent Sun (RAAS)", true },
+                      { "Mean Sun (RAMS)", false } });
     ed->addComboBox("Text/aspectSortOrder",
                     tr("Sort aspects by"),
                     { { "Planet pairs", A::SortByPlanets },

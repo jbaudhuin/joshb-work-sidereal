@@ -3060,7 +3060,7 @@ quotidianSearch(PlanetProfile&   poses,
 // ============================================================================
 
 double
-calculateRAMS(const QDateTime& dt, bool useMeanSun)
+calculateRAMS(const QDateTime& dt, bool useApparentSun)
 {
     // Calculate Right Ascension of Mean (or Apparent) Sun
     double       jd  = getJulianDate(dt, false); // UT
@@ -3068,17 +3068,33 @@ calculateRAMS(const QDateTime& dt, bool useMeanSun)
     double       xx[6];
     unsigned int flags = SEFLG_SWIEPH | SEFLG_EQUATORIAL;
 
-    if (useMeanSun) {
-        // For Mean Sun: use true position (geometric) + no nutation
+    if (!useApparentSun) {
+        // For Mean Sun (RAMS): use true position (geometric) + no nutation
         flags |= SEFLG_TRUEPOS | SEFLG_NONUT;
     }
-    // For Apparent Sun: use default (apparent position with nutation)
+    // For Apparent Sun (RAAS): use default (apparent position with nutation)
 
     int ret = swe_calc_ut(jd, SE_SUN, flags, xx, errStr);
     if (ret < 0) {
         qWarning() << "calculateRAMS error:" << errStr;
         return 0.0;
     }
+
+    // Format RA as HH:MM:SS for debug
+    auto raToHMS = [](double deg) {
+        double hours = deg / 15.0;
+        int h = (int)hours;
+        int m = (int)((hours - h) * 60.0);
+        double s = (((hours - h) * 60.0) - m) * 60.0;
+        if (h < 0) h += 24;
+        return QString("%1h %2m %3s")
+            .arg(h, 2, 10, QChar('0'))
+            .arg(m, 2, 10, QChar('0'))
+            .arg(s, 0, 'f', 3);
+    };
+    qDebug() << "calculateRAMS:" << (useApparentSun ? "RAAS" : "RAMS")
+             << "for" << dt.toString(Qt::ISODate)
+             << "= RA" << xx[0] << "deg (" << qPrintable(raToHMS(xx[0])) << ")";
 
     return xx[0]; // Right Ascension in degrees
 }
@@ -3141,12 +3157,12 @@ calculatePSSRRAMC(const Houses&    returnHouses,
                   const QDateTime& returnTime,
                   const QDateTime& eventTime,
                   double           anniversarySecond,
-                  bool             useMeanSun)
+                  bool             useApparentSun)
 {
     // PSSR RAMC = Return RAMC + (Event RAMS - Return RAMS) × Anniversary Second
 
-    double returnRAMS = calculateRAMS(returnTime, useMeanSun);
-    double eventRAMS  = calculateRAMS(eventTime, useMeanSun);
+    double returnRAMS = calculateRAMS(returnTime, useApparentSun);
+    double eventRAMS  = calculateRAMS(eventTime, useApparentSun);
 
     // Calculate elapsed Mean Sun between return and event
     double elapsedRAMS = swe_difdeg2n(eventRAMS, returnRAMS); // Signed difference
@@ -3182,15 +3198,15 @@ calculateReturnTime(PlanetId         id,
 }
 
 PSSRContext
-calculatePSSRContext(const Horoscope& returnChart, bool useMeanSun)
+calculatePSSRContext(const Horoscope& returnChart, bool useApparentSun)
 {
     PSSRContext ctx;
-    ctx.useMeanSun = useMeanSun;
+    ctx.useApparentSun = useApparentSun;
     
     // Store return chart info
     ctx.returnTime = returnChart.inputData.GMT();
     ctx.returnRAMC = returnChart.houses.RAMC;
-    ctx.returnRAMS = calculateRAMS(ctx.returnTime, useMeanSun);
+    ctx.returnRAMS = calculateRAMS(ctx.returnTime, useApparentSun);
     
     // Calculate next return to get anniversary second
     // For solar return: find when Sun returns to its current position one year later
@@ -3254,7 +3270,14 @@ calculatePSSRContext(const Horoscope& returnChart, bool useMeanSun)
                                                        nextReturnHouses);
     ctx.isValid = true;
     
-    qDebug() << "calculatePSSRContext: Anniversary Second =" << ctx.anniversarySecond;
+    qDebug() << "=== calculatePSSRContext ===";
+    qDebug() << "  Mode:" << (useApparentSun ? "RAAS (Apparent Sun)" : "RAMS (Mean Sun)");
+    qDebug() << "  Return time:" << ctx.returnTime.toString(Qt::ISODate);
+    qDebug() << "  Return RAMC:" << ctx.returnRAMC;
+    qDebug() << "  Return Sun RA:" << ctx.returnRAMS;
+    qDebug() << "  Next return:" << nextReturnTime.toString(Qt::ISODate);
+    qDebug() << "  Next return RAMC:" << nextReturnHouses.RAMC;
+    qDebug() << "  Anniversary Second:" << ctx.anniversarySecond;
     
     return ctx;
 }
@@ -3264,10 +3287,21 @@ calculateAngularDate(const QDateTime&   radixTime,
                      const QDateTime&   angleTime,
                      double             planetRA,
                      double             angleRA,
-                     const PSSRContext* pssrCtx)
+                     const PSSRContext* pssrCtx,
+                     const QString&     debugLabel)
 {
     if (pssrCtx && pssrCtx->isValid) {
         // PSSR mode: Find when Sun reaches the RAMS needed for planet to hit angle
+        
+        qDebug() << "=== calculateAngularDate (PSSR)" << debugLabel << "===";
+        qDebug() << "  Mode:" << (pssrCtx->useApparentSun ? "RAAS (Apparent Sun)" : "RAMS (Mean Sun)");
+        qDebug() << "  radixTime:" << radixTime.toString(Qt::ISODate);
+        qDebug() << "  angleTime:" << angleTime.toString(Qt::ISODate);
+        qDebug() << "  planetRA:" << planetRA << "  angleRA:" << angleRA;
+        qDebug() << "  returnTime:" << pssrCtx->returnTime.toString(Qt::ISODate);
+        qDebug() << "  returnRAMS:" << pssrCtx->returnRAMS;
+        qDebug() << "  returnRAMC:" << pssrCtx->returnRAMC;
+        qDebug() << "  anniversarySecond:" << pssrCtx->anniversarySecond;
         
         // Compute the RAMC arc from the actual time difference between
         // the radix moment and the angular transit moment. This is essential
@@ -3295,7 +3329,7 @@ calculateAngularDate(const QDateTime&   radixTime,
         // Newton-Raphson iteration to find exact time when RAMS = targetRAMS
         for (int iter = 0; iter < 10; iter++) {
             QDateTime testTime = dateTimeFromJulian(targetJd);
-            double testRAMS = calculateRAMS(testTime, pssrCtx->useMeanSun);
+            double testRAMS = calculateRAMS(testTime, pssrCtx->useApparentSun);
             
             // Calculate difference (we want testRAMS to equal targetRAMS)
             double diff = swe_difdeg2n(testRAMS, targetRAMS);
@@ -3314,9 +3348,19 @@ calculateAngularDate(const QDateTime&   radixTime,
         QDateTime sunTime = dateTimeFromJulian(targetJd);
         qint64 offsetSeconds = pssrCtx->returnTime.secsTo(sunTime);
         
+        qDebug() << "  timeDiffSec:" << timeDiffSec << "  ramcDiff:" << ramcDiff;
+        qDebug() << "  delta (ramcDiff/annSec):" << delta;
+        qDebug() << "  targetRAMS:" << targetRAMS;
+        qDebug() << "  sunTime (when Sun reaches targetRAMS):" << sunTime.toString(Qt::ISODate);
+        qDebug() << "  offsetSeconds from return:" << offsetSeconds;
+        
         // Apply absolute offset forward from radix (all results in future like PD)
         offsetSeconds = qAbs(offsetSeconds);
         QDateTime result = radixTime.addSecs(offsetSeconds);
+        
+        QString direction = (timeDiffSec >= 0) ? "Direct" : "Converse";
+        qDebug() << "  result:" << result.toString(Qt::ISODate) << direction;
+        qDebug() << "===================================";
         
         return result;
         

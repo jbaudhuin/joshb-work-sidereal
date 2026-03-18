@@ -116,6 +116,7 @@ Harmonics::Harmonics(QWidget* parent) :
 
     QAction* act = new QAction("Copy");
     act->setShortcut(QKeySequence::Copy);
+    act->setShortcutContext(Qt::WidgetShortcut);
     connect(act, SIGNAL(triggered()), this, SLOT(copySelection()));
     _hview->addAction(act);
 
@@ -559,20 +560,16 @@ Harmonics::copySelection()
     auto sim = tvm();
     if (!sim) return;
 
-    QClipboard* cb = QApplication::clipboard();
-    if (const QMimeData* md = cb->mimeData()) {
-        if (md->hasText()) {
-            qDebug() << md->text();
-        } else if (md->hasHtml()) {
-            qDebug() << md->html();
-        }
-    }
-    QItemSelectionModel* sm   = _hview->selectionModel();
-    QModelIndexList      qmil = sm->selectedIndexes();
-    qDebug() << qmil;
+    QItemSelectionModel* sm = _hview->selectionModel();
+    if (!sm) return;
+
+    QModelIndexList qmil = sm->selectedIndexes();
+    if (qmil.isEmpty()) return;
+
     QMimeData* md = sim->mimeData(qmil);
-    qDebug() << md->formats();
-    cb->setMimeData(sim->mimeData(qmil));
+    if (!md) return;
+
+    QApplication::clipboard()->setMimeData(md);
 }
 
 void

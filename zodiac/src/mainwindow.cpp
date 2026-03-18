@@ -705,7 +705,7 @@ AstroWidget::AstroWidget(QWidget* parent) : QWidget(parent)
     addDockWidget(new Speculum, tr("Speculum"), false /*not scrollable*/);
     addSlide(new Chart, QIcon("style/natal.png"), tr("Chart"));
     addSlide(new Planets, QIcon("style/planets.png"), tr("Planets"));
-    addSlide(new Plain, QIcon("style/plain.png"), tr("Text"));
+    addSlide(new Plain, QIcon("style/plain.png"), tr("Tables"));
     addHoroscopeControls();
 
     // Connect Speculum orb changes to Plain widget refresh
@@ -4414,7 +4414,7 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, QWidget* parent)
     databaseDockWidget = new QDockWidget(this);
     astroDatabase      = new AstroDatabase();
     toolBar            = new QToolBar(tr("File"), this);
-    toolBar2           = new QToolBar(tr("Options"), this);
+    toolBar2           = new QToolBar(tr("Settings"), this);
     helpToolBar        = new QToolBar(tr("Hint"), this);
     panelsMenu         = new QMenu;
 
@@ -4722,7 +4722,7 @@ MainWindow::addToolBarActions()
 
     toolBar2->addWidget(b);
     toolBar2->addAction(QIcon("style/tools.png"),
-                        tr("Options"),
+                        tr("Settings"),
                         this,
                         SLOT(showSettingsEditor()));
     toolBar2->addAction(QIcon("style/info.png"),

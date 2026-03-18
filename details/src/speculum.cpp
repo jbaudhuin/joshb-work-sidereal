@@ -423,8 +423,9 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
             double planetRA = planet.equatorialPos.x();
             double angleRA = planet.angleTransitRA[timeIndex];
             
+            QString label = planet.name + " @ " + A::angleTransitName(timeIndex);
             QDateTime angularDateGMT = A::calculateAngularDate(_radixTime, transitTime, 
-                                                                 planetRA, angleRA, pssrCtx);
+                                                                 planetRA, angleRA, pssrCtx, label);
             // Convert to local time
             int offsetSeconds = m_timezone * 3600;
             QTimeZone timeZone = QTimeZone::fromSecondsAheadOfUtc(offsetSeconds);
@@ -518,8 +519,9 @@ Speculum::addStarRow(const A::Star& star, int row)
             double starRA = star.equatorialPos.x();
             double angleRA = star.angleTransitRA[timeIndex];
             
+            QString label = star.name + " @ " + A::angleTransitName(timeIndex);
             QDateTime angularDateGMT = A::calculateAngularDate(_radixTime, transitTime,
-                                                                 starRA, angleRA, pssrCtx);
+                                                                 starRA, angleRA, pssrCtx, label);
             // Convert to local time
             int offsetSeconds = m_timezone * 3600;
             QTimeZone timeZone = QTimeZone::fromSecondsAheadOfUtc(offsetSeconds);

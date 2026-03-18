@@ -2477,7 +2477,8 @@ Transits::updateTransits()
 
                 // Reconnect signals
                 connect(fs.finder, SIGNAL(progress(double)), this, SLOT(onProgress(double)));
-                connect(fs.thread, SIGNAL(finished()), this, SLOT(onCompleted()));
+                connect(fs.thread, SIGNAL(finished()), this, SLOT(onCompleted()),
+                        Qt::UniqueConnection);
                 connect(this, SIGNAL(cancelActive()), fs.finder, SLOT(cancel()));
 
                 // Set as current-tab active finder
@@ -2661,25 +2662,36 @@ Transits::updateTransits()
 
     // Store in per-file finder map
     AstroFile* ownerFile = file(0);
-    _finders[ownerFile] = FinderState { thread, af, _chs };
+    if (ownerFile) {
+        _finders[ownerFile] = FinderState { thread, af, _chs };
 
-    // Clean up the map entry if the file is destroyed while finder is paused
-    connect(ownerFile, &QObject::destroyed, this, [this, ownerFile]() {
-        qDebug() << "[FILE DESTROYED] Cleaning up finder for destroyed file";
-        auto it = _finders.find(ownerFile);
-        if (it != _finders.end()) {
-            auto& fs = it.value();
-            if (fs.finder) fs.finder->cancel();
-            delete fs.chs;
-            if (fs.thread && !fs.thread->isFinished()) fs.thread->wait();
-            if (_active == fs.thread) {
-                _active       = nullptr;
-                _activeFinder = nullptr;
-                _chs          = nullptr;
-            }
-            _finders.erase(it);
-        }
-    }, Qt::UniqueConnection);
+        // Clean up the map entry if the file is destroyed while finder is paused
+        // Note: Qt::UniqueConnection can't be used with lambdas, so we
+        // disconnect any prior destroyed-signal connection before reconnecting.
+        disconnect(ownerFile, &QObject::destroyed, this, nullptr);
+        connect(
+            ownerFile,
+            &QObject::destroyed,
+            this,
+            [this, ownerFile]() {
+                qDebug()
+                    << "[FILE DESTROYED] Cleaning up finder for destroyed file";
+                auto it = _finders.find(ownerFile);
+                if (it != _finders.end()) {
+                    auto& fs = it.value();
+                    if (fs.finder) fs.finder->cancel();
+                    delete fs.chs;
+                    if (fs.thread && !fs.thread->isFinished())
+                        fs.thread->wait();
+                    if (_active == fs.thread) {
+                        _active       = nullptr;
+                        _activeFinder = nullptr;
+                        _chs          = nullptr;
+                    }
+                    _finders.erase(it);
+                }
+            });
+    }
     
     qDebug() << "[CREATE FINDER] Started finder thread" << thread;
     qDebug() << "========================================";
@@ -2732,10 +2744,16 @@ Transits::onCompleted()
 #if 1
     qDebug() << "[ON COMPLETED] Starting cleanup, thread:" << _active.data() << "finder:" << _activeFinder.data();
 
-    // Find which file this finder belongs to and remove from map
+    // Find which file this finder belongs to and remove from map.
+    // Use sender() (the QThread that emitted finished()) to match,
+    // because for background finders _active/_activeFinder point to
+    // the *current* tab, not the background one.
+    auto* senderThread = sender();
     AstroFile* ownerFile = nullptr;
     for (auto it = _finders.begin(); it != _finders.end(); ++it) {
-        if (it.value().thread == _active || it.value().finder == _activeFinder) {
+        if (it.value().thread == senderThread
+            || it.value().thread == _active
+            || it.value().finder == _activeFinder) {
             ownerFile = it.key();
             // Delete _chs stored in the map entry
             delete it.value().chs;
@@ -2755,11 +2773,7 @@ Transits::onCompleted()
         // Just clear recalc flag and clean up — no UI updates needed.
         qDebug() << "[ON COMPLETED] Background finder done, no UI update needed";
         if (ownerFile) ownerFile->clearEventsRecalcFlag();
-        if (_activeFinder) {
-            _activeFinder->disconnect();
-            disconnect(_activeFinder.data());
-        }
-        // Don't clear _active/_activeFinder — they belong to the CURRENT tab.
+        // Don't touch _active/_activeFinder — they belong to the CURRENT tab.
         return;
     }
 
@@ -3701,11 +3715,21 @@ Transits::filesUpdated(MembersList m)
             auto& fs = fit.value();
             if (fs.finder && fs.thread && !fs.thread->isFinished()) {
                 qDebug() << "[FILES UPDATED] Tab switch: disconnecting finder for" << _previousFile->getName();
-                disconnectFinder(fs);
                 if (!_backgroundFinders) {
+                    disconnectFinder(fs);
                     qDebug() << "[FILES UPDATED] Pausing finder for" << _previousFile->getName();
                     fs.finder->pause();
                 } else {
+                    // Background mode: disconnect UI signals but keep
+                    // thread→onCompleted() so cleanup runs when it finishes.
+                    if (fs.finder) {
+                        disconnect(fs.finder.data(), SIGNAL(progress(double)),
+                                   this, SLOT(onProgress(double)));
+                        disconnect(this, SIGNAL(cancelActive()),
+                                   fs.finder.data(), SLOT(cancel()));
+                    }
+                    if (_progressSortTimer && _progressSortTimer->isActive())
+                        _progressSortTimer->stop();
                     qDebug() << "[FILES UPDATED] Background mode: leaving finder running for" << _previousFile->getName();
                 }
             }
@@ -3818,7 +3842,16 @@ Transits::filesUpdated(MembersList m)
         auto* evm = ensureEventsModel();
         if (!evm) return;
         
-        bool shouldRecalc = file(0)->events().empty() || (needsRecalc && !fileChanged);
+        bool hasActiveFinderForFile = false;
+        {
+            auto fit2 = _finders.find(file(0));
+            if (fit2 != _finders.end() && fit2.value().thread
+                && !fit2.value().thread->isFinished()) {
+                hasActiveFinderForFile = true;
+            }
+        }
+        bool shouldRecalc = (file(0)->events().empty() && !hasActiveFinderForFile)
+                            || (needsRecalc && !fileChanged);
         
         if (filesCount() > 0 && shouldRecalc) {
             if (needsRecalc && !fileChanged) {

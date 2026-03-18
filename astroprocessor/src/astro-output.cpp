@@ -1062,7 +1062,8 @@ struct event {
             double planetRA = _star->equatorialPos.x();
             double angleRA = _star->angleTransitRA[_pivot];
             
-            QDateTime angularDateGMT = calculateAngularDate(_radix, _dt, planetRA, angleRA, _pssrCtx);
+            QString label = _star->name + " @ " + angleTransitName(_pivot);
+            QDateTime angularDateGMT = calculateAngularDate(_radix, _dt, planetRA, angleRA, _pssrCtx, label);
             QString method = "PD"; // Default to Primary Directions
             QString dateFormat = "yyyy/MM/dd";
             if (_pssrCtx) {

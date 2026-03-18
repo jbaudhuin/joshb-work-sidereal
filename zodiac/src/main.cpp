@@ -197,14 +197,14 @@ main(int argc, char* argv[])
     
     // Immediately create log file before anything else (moved from below)
 #if defined(_ZOD_DEBUG)
-    qint64 pid = QCoreApplication::applicationPid();
-    QString logFileName = QString("zodiac-%1.log").arg(pid);
+    QString logTimestamp = QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
+    QString logFileName = QString("zodiac-%1.log").arg(logTimestamp);
     g_logFile = new QFile(logFileName);
     if (g_logFile->open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) {
         // Don't use qDebug yet, write directly
         QTextStream stream(g_logFile);
         stream << "[DEBUG] === NEW INSTANCE START ===" << Qt::endl;
-        stream << "[DEBUG] PID: " << pid << Qt::endl;
+        stream << "[DEBUG] PID: " << QCoreApplication::applicationPid() << Qt::endl;
         stream << "[DEBUG] argc: " << argc << Qt::endl;
         for (int i = 0; i < argc; ++i) {
             stream << "[DEBUG] argv[" << i << "]: " << argv[i] << Qt::endl;
