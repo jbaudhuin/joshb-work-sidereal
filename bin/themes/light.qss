@@ -605,6 +605,22 @@ Transits QDateEdit {
 	font: 8pt;
 }
 
+Transits QComboBox {
+	padding: 1px 2px;
+	font: 8pt;
+	margin-bottom: 0px;
+}
+
+Transits QComboBox QLineEdit {
+	background: transparent;
+	border: none;
+}
+
+Transits QComboBox QListView {
+	background-color: #FFFFFF;
+	color: #2C2C2C;
+}
+
 Transits QRadioButton {
 	color: #2C2C2C;
 	background: transparent;
@@ -698,6 +714,12 @@ QComboBox QListView {
 	color: #2C2C2C;
 	selection-background-color: #DAA520;
 	selection-color: #000000;
+}
+
+/* Completer popup (top-level, not a child of QComboBox) */
+QListView#completerPopup {
+	background-color: #FFFFFF;
+	color: #2C2C2C;
 }
 
 /* =========================== Tables ======================================== */

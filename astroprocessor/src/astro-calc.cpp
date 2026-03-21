@@ -3641,6 +3641,12 @@ EventOptions::zposPat()
 {
     static QString s_pat;
     if (s_pat.isEmpty()) {
+        if (AstroFileEditor::signs.empty()) {
+            AstroFileEditor::signs = QStringList(
+                {"Aries", "Taurus", "Gemini", "Cancer",
+                 "Leo", "Virgo", "Libra", "Scorpio",
+                 "Sagittarius", "Capricorn", "Aquarius", "Pisces"});
+        }
         QString plre    = "[a-zA-Z]+(-[a-zA-Z])?"; // e.g., planet-r, planet-p
         QString plmpre  = QString("(%1(/%1)?)").arg(plre); // planet/planet
         QString signsre = "(" + AstroFileEditor::signs.join("|") + ")";
@@ -3686,7 +3692,15 @@ EventOptions::eventPat()
         QString asprestr  = "(?<aspect>" + plmpeqre + ")";
         // Use generic plre so abbreviations like "Sat station" work
         QString stationre = "((?<station>(" + plre + "))\\s+station)";
-        s_pat = "(" + stationre + "|" + "(H(?<harmonic>\\d+(\\.\\d+)?)\\s+)?(" 
+        // Harmonic specifiers:
+        //   H4      → hstrict="4"               (strict single harmonic)
+        //   H4*     → hstrict="4", hstar="*"     (all divisors via getAllFactorsAlt)
+        //   H-6     → hmax="6"                   (dynamic selection capped at 6)
+        //   H{1,5,9}→ hset="1,5,9"              (explicit set)
+        QString hre = "(H((?<hstrict>\\d+(\\.\\d+)?)(?<hstar>\\*)?" 
+                      "|-(?<hmax>\\d+)"
+                      "|\\{(?<hset>\\d+(,\\d+)*)\\})\\s+)?";
+        s_pat = "(" + stationre + "|" + hre + "("
                 + plmpzposre + "|" + asprestr + "|" + commastr + ")" + ")";
     }
     return s_pat;
@@ -4495,7 +4509,10 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
     qDebug() << "[PATTERN] sub-pattern:" << subPat;
     qDebug() << "[PATTERN] captured groups:"
              << "station=" << match.captured("station")
-             << "harmonic=" << match.captured("harmonic")
+             << "hstrict=" << match.captured("hstrict")
+             << "hstar=" << match.captured("hstar")
+             << "hmax=" << match.captured("hmax")
+             << "hset=" << match.captured("hset")
              << "body=" << match.captured("body")
              << "ingress=" << match.captured("ingress")
              << "ret=" << match.captured("ret")
@@ -4505,14 +4522,64 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
              << "sign=" << match.captured("sign")
              << "posa=" << match.captured("posa");
 
-    // Per-sub-pattern harmonic: use base hset unless H# is specified
+    // Per-sub-pattern harmonic: use base hset unless H specifier is given
+    //   H4       → strict single harmonic {4}
+    //   H4*      → all divisors of 4 → {1,2,4}
+    //   H-6      → dynamic selection capped at 6
+    //   H{1,5,9} → explicit set {1,5,9}
     hsetId useHset = 0;
-    QString harmonicStr = match.captured("harmonic");
-    if (!harmonicStr.isEmpty()) {
-        unsigned h = harmonicStr.toUInt();
+    QString hstrict = match.captured("hstrict");
+    QString hstar   = match.captured("hstar");
+    QString hmaxStr = match.captured("hmax");
+    QString hsetStr = match.captured("hset");
+
+    if (!hstrict.isEmpty()) {
+        unsigned h = hstrict.toUInt();
         if (h >= 1) {
+            if (!hstar.isEmpty()) {
+                // H4* → expand to all divisors: {1,2,4}
+                uintSSet factors;
+                getAllFactorsAlt(h, factors);
+                useHset = _hsets.size();
+                _hsets.emplace_back(std::move(factors));
+                QStringList fl;
+                for (unsigned f : _hsets.back()) fl << QString::number(f);
+                qDebug() << "[PATTERN] H" << h << "* → factors: {" << fl.join(",") << "}";
+            } else {
+                // H4 → strict single harmonic {4}
+                useHset = _hsets.size();
+                _hsets.emplace_back(uintSSet { h });
+            }
+        }
+    } else if (!hmaxStr.isEmpty()) {
+        // H-6 → dynamic selection capped at specified maximum
+        unsigned hmax = hmaxStr.toUInt();
+        if (hmax >= 1 && !_hsets.empty()) {
+            uintSSet capped;
+            for (unsigned v : _hsets[0]) {
+                if (v <= hmax) capped.insert(v);
+            }
+            if (!capped.empty()) {
+                useHset = _hsets.size();
+                _hsets.emplace_back(std::move(capped));
+                QStringList cl;
+                for (unsigned v : _hsets.back()) cl << QString::number(v);
+                qDebug() << "[PATTERN] H-" << hmax << " → capped: {" << cl.join(",") << "}";
+            }
+        }
+    } else if (!hsetStr.isEmpty()) {
+        // H{1,5,9} → explicit harmonic set
+        uintSSet explicit_hs;
+        for (const auto& s : hsetStr.split(',')) {
+            unsigned v = s.trimmed().toUInt();
+            if (v >= 1) explicit_hs.insert(v);
+        }
+        if (!explicit_hs.empty()) {
             useHset = _hsets.size();
-            _hsets.emplace_back(uintSSet { h });
+            _hsets.emplace_back(std::move(explicit_hs));
+            QStringList sl;
+            for (unsigned v : _hsets.back()) sl << QString::number(v);
+            qDebug() << "[PATTERN] H{" << hsetStr << "} → set: {" << sl.join(",") << "}";
         }
     }
 
@@ -4543,22 +4610,35 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
                 unsigned ti = getTransitPlanet(pid);
 
                 ZodiacId zid = _ids[0].zodiac();
+                QString signName = match.captured("sign");
                 qreal signPos = getSignPos(zid,
-                                           match.captured("sign"),
+                                           signName,
                                            match.captured("deg").trimmed().toUInt(),
                                            match.captured("min").toUInt(),
                                            match.captured("sec").toUInt());
 
+                // Resolve sign index (0-11) from sign name
+                int signIdx = 0;
+                const auto& Z = getZodiac(zid);
+                for (int si = 0; si < Z.signs.size(); ++si) {
+                    if (Z.signs[si].name.startsWith(signName, Qt::CaseInsensitive)) {
+                        signIdx = si;
+                        break;
+                    }
+                }
+                PlanetId ingrFwd = Ingresses_Start + signIdx;
+                PlanetId ingrRev = ingrFwd + 12;
+
                 // Forward ingress
                 unsigned ji = _alist.size();
-                auto pl = new PlanetLoc({-1, Ingresses_Start, Planet_None}, "I", signPos);
+                auto pl = new PlanetLoc({-1, ingrFwd, Planet_None}, "I", signPos);
                 pl->allowAspects = PlanetLoc::aspOnlyDirect;
                 _alist.push_back(pl);
                 _staff.emplace_back(ti, ji, useHset, etcSignIngress);
 
                 // Retrograde ingress
                 unsigned ri = _alist.size();
-                auto plR = new PlanetLoc({-1, Ingresses_Start + 12, Planet_None}, "I", signPos);
+                auto plR = new PlanetLoc({-1, ingrRev, Planet_None}, "I", signPos);
                 plR->allowAspects = PlanetLoc::aspOnlyRetro;
                 _alist.push_back(plR);
                 _staff.emplace_back(ti, ri, useHset, etcSignIngress);

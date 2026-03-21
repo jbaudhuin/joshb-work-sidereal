@@ -1195,11 +1195,13 @@ class PlanetSet : public std::set<ChartPlanetModeId> {
 
         std::map<int, unsigned> ids;
         for (const auto& cpid : *this) ids[cpid.fileId()]++;
+        bool hasOtherChart = std::any_of(ids.begin(), ids.end(),
+                                         [](auto& p) { return p.first > 0; });
 
         for (const ChartPlanetModeId& cpid : *this) {
             auto name = cpid.isMidpt() ? cpid.name()
                                        : cpid.name().left(3);
-            if (cpid.fileId() == 0 && ids.size() > 1) res << name + "-r";
+            if (cpid.fileId() == 0 && hasOtherChart) res << name + "-r";
             else
                 res << name;
         }

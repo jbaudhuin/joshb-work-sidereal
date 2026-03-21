@@ -4,8 +4,8 @@
 #include "astro-data.h"
 #include "astrodatetimeedit.h"
 #include <QButtonGroup>
+#include <QComboBox>
 #include <QHash>
-#include <QLineEdit>
 #include <QModelIndex>
 #include <QPointer>
 #include <QTreeView>
@@ -184,7 +184,7 @@ class Transits : public AstroFileHandler {
     bool              _pendingRestart = false;  // Set when old thread is canceling and we need to restart
     bool              _inUpdateTransits = false; // Re-entrancy guard for updateTransits()
     bool              _backgroundFinders = false; // When true, finders keep computing on tab switch instead of pausing
-    QLineEdit*        _input;
+    QComboBox*        _input;
     QString           _lastUsedPattern;   // pattern text used for cached events
     A::AstroDateTimeEdit* _start;
     QLineEdit*        _duration;

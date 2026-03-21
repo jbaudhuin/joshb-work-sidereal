@@ -13,6 +13,7 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QCompleter>
 #include <QDebug>
 #include <QFile>
 #include <QFormLayout>
@@ -24,6 +25,7 @@
 #include <QJsonValue>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListView>
 #include <QMenu>
 #include <QMimeData>
 #include <QMouseEvent>
@@ -33,9 +35,11 @@
 #include <QRadioButton>
 #include <QRegularExpressionValidator>
 #include <QScrollBar>
+#include <QSettings>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QStringListModel>
+#include <QStyledItemDelegate>
 #include <QTextDocument>
 #include <QThreadPool>
 #include <QTimeZone>
@@ -1301,6 +1305,55 @@ ADateDelta::subtractFrom(const QDate& d)
     return d.addYears(-numYears).addMonths(-numMonths).addDays(-numDays);
 }
 
+// ============================================================================
+// Pattern MRU (Most Recently Used) helpers
+// ============================================================================
+
+// Item delegate that caps row height to font metrics + small margin,
+// preventing the "double-spaced" look caused by QSS-styled QComboBox popups.
+class CompactItemDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QSize sizeHint(const QStyleOptionViewItem& option,
+                   const QModelIndex& index) const override
+    {
+        QSize s = QStyledItemDelegate::sizeHint(option, index);
+        int compact = option.fontMetrics.height() + 4;
+        if (s.height() > compact) s.setHeight(compact);
+        return s;
+    }
+};
+
+static const int    kPatternMRUMax = 30;
+static const QString kPatternMRUKey = QStringLiteral("Events/patternHistory");
+
+static QStringList
+loadPatternMRU()
+{
+    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
+    return settings.value(kPatternMRUKey).toStringList();
+}
+
+static void
+savePatternMRU(const QStringList& mru)
+{
+    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
+    settings.setValue(kPatternMRUKey, mru);
+    settings.sync();
+}
+
+static void
+addPatternToMRU(const QString& pattern)
+{
+    if (pattern.isEmpty()) return;
+    QStringList mru = loadPatternMRU();
+    mru.removeAll(pattern);
+    mru.prepend(pattern);
+    while (mru.size() > kPatternMRUMax) mru.removeLast();
+    savePatternMRU(mru);
+}
+
 Transits::Transits(QWidget* parent) :
     AstroFileHandler(parent),
     _planet(A::Planet_None),
@@ -1383,12 +1436,41 @@ Transits::Transits(QWidget* parent) :
     l1->addWidget(_end);
     l1->setSpacing(4);
 
-    _input = new QLineEdit;
-    _input->setPlaceholderText(tr("Pattern (e.g. Sun=Moon; Mars ingress Aries; Saturn station)"));
+    _input = new QComboBox;
+    _input->setEditable(true);
+    _input->setInsertPolicy(QComboBox::NoInsert);
+    _input->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    _input->lineEdit()->setPlaceholderText(tr("Pattern (e.g. Sun=Moon; Mars ingress Aries; Saturn station)"));
+    // Use a compact delegate so popup items aren't double-spaced
+    _input->setItemDelegate(new CompactItemDelegate(_input));
+
+    // Populate from persisted MRU
+    _input->addItems(loadPatternMRU());
+    _input->setCurrentText(QString());  // start blank; per-tab pattern set in filesUpdated()
+
+    // QCompleter with substring matching on the MRU list
+    auto* completer = new QCompleter(loadPatternMRU(), _input);
+    completer->setCaseSensitivity(Qt::CaseInsensitive);
+    completer->setFilterMode(Qt::MatchContains);
+    _input->setCompleter(completer);
+    // Name the popup so it can be styled via QSS (it's a top-level widget,
+    // not a child of QComboBox, so "QComboBox QListView" selectors don't reach it)
+    completer->popup()->setObjectName(QStringLiteral("completerPopup"));
+    completer->popup()->setItemDelegate(new CompactItemDelegate(completer->popup()));
+
+    // Refresh combo items from global MRU when dropdown is about to show
+    connect(_input, &QComboBox::activated, this, [this](int) {
+        QString current = _input->currentText().trimmed();
+        if (filesCount() > 0 && file(0))
+            file(0)->setTransitPattern(current);
+        if (current != _lastUsedPattern)
+            updateTransits();
+    });
+
     // Live visual feedback instead of a blocking QRegularExpressionValidator.
     // The validator rejected partial input (intermediate keystrokes) because
     // the complex regex couldn't partially match incomplete tokens.
-    connect(_input, &QLineEdit::textChanged, this, [this](const QString& text) {
+    connect(_input->lineEdit(), &QLineEdit::textChanged, this, [this](const QString& text) {
         QString t = text.trimmed();
         if (t.isEmpty()) {
             _inputBorderStyle.clear();
@@ -1398,11 +1480,11 @@ Transits::Transits(QWidget* parent) :
                 ok ? QStringLiteral("border: 1px solid green;")
                    : QStringLiteral("border: 1px solid red;");
         }
-        // Apply border only (progress gradient cleared when text changes)
+        // Apply border on the QComboBox frame (inner QLineEdit border is hidden)
         _input->setStyleSheet(
             _inputBorderStyle.isEmpty()
                 ? QString()
-                : QStringLiteral("QLineEdit { %1 }").arg(_inputBorderStyle));
+                : QStringLiteral("QComboBox { %1 }").arg(_inputBorderStyle));
     });
 
     auto l2 = new QVBoxLayout;
@@ -1968,16 +2050,29 @@ Transits::Transits(QWidget* parent) :
             this,
             SLOT(onDurationChanged(const QString&)));
 
-    connect(_input, &QLineEdit::editingFinished,
+    connect(_input->lineEdit(), &QLineEdit::editingFinished,
             this, [this]() {
                 // Only restart if the pattern text actually changed.
                 // editingFinished fires on every focus-out; without this
                 // guard, clicking on a result row while a search is running
                 // would trigger a redundant updateTransits() call.
-                QString current = _input->text().trimmed();
+                QString current = _input->currentText().trimmed();
                 // Persist pattern to file(0) so it survives tab switches
                 if (filesCount() > 0 && file(0)) {
                     file(0)->setTransitPattern(current);
+                }
+                // Add valid, non-empty patterns to the global MRU
+                if (!current.isEmpty() && A::EventOptions::isValidPattern(current)) {
+                    addPatternToMRU(current);
+                    // Refresh combo items & completer from updated MRU
+                    QStringList mru = loadPatternMRU();
+                    _input->blockSignals(true);
+                    _input->clear();
+                    _input->addItems(mru);
+                    _input->setCurrentText(current);
+                    _input->blockSignals(false);
+                    if (auto* c = _input->completer())
+                        static_cast<QStringListModel*>(c->model())->setStringList(mru);
                 }
                 if (current != _lastUsedPattern) {
                     updateTransits();
@@ -2011,7 +2106,7 @@ Transits::~Transits() {
     if (filesCount() > 0 && file(0)) {
         qDebug() << "[DESTRUCTOR] Saving event options to file" << file(0)->getName();
         file(0)->setTransitEventOptions(_tabEventOptions);
-        file(0)->setTransitPattern(_input->text());
+        file(0)->setTransitPattern(_input->currentText());
     }
     
     // Disconnect scroll bar signals to prevent crashes during destruction
@@ -2425,7 +2520,7 @@ Transits::updateTransits()
     }
 
     // Detect if the pattern text changed since last calculation
-    QString currentPattern = _input->text().trimmed();
+    QString currentPattern = _input->currentText().trimmed();
     if (currentPattern != _lastUsedPattern) {
         needsRecalc = true;
         qDebug() << "[UPDATE TRANSITS] Pattern changed from"
@@ -2541,7 +2636,7 @@ Transits::updateTransits()
     // leaves the current event list intact (user can clear the field to
     // get back to toolbar-based computation).
     A::AspectFinder* af = nullptr;
-    QString pattern = _input->text().trimmed();
+    QString pattern = _input->currentText().trimmed();
     bool usePattern = false;
     if (!pattern.isEmpty()) {
         usePattern = A::EventOptions::isValidPattern(pattern);
@@ -3751,7 +3846,7 @@ Transits::filesUpdated(MembersList m)
         if (_previousFile && _previousFile != file(0)) {
             qDebug() << "[FILES UPDATED] Saving event options from previous file" << _previousFile->getName();
             _previousFile->setTransitEventOptions(_tabEventOptions);
-            _previousFile->setTransitPattern(_input->text());
+            _previousFile->setTransitPattern(_input->currentText());
         }
         
         // Load event options from new file(0)
@@ -3770,7 +3865,17 @@ Transits::filesUpdated(MembersList m)
             updateToolbarFromEventOptions();
             
             // Restore per-tab pattern input field
-            _input->setText(file(0)->getTransitPattern());
+            // Refresh combo items from global MRU before restoring per-tab text
+            {
+                QStringList mru = loadPatternMRU();
+                _input->blockSignals(true);
+                _input->clear();
+                _input->addItems(mru);
+                _input->blockSignals(false);
+                if (auto* c = _input->completer())
+                    static_cast<QStringListModel*>(c->model())->setStringList(mru);
+            }
+            _input->setCurrentText(file(0)->getTransitPattern());
             _lastUsedPattern = file(0)->getTransitPattern();
             
             _previousFile = file(0);
@@ -4262,32 +4367,33 @@ Transits::updateInputProgress(double prog)
 
     if (prog < 0) {
         // Waiting-for-pool phase: show pulsing indicator (full bar, muted)
-        _input->setStyleSheet(QStringLiteral(
-            "QLineEdit { "
+        QString bg = QStringLiteral(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "  stop:0 rgba(100,149,237,60), stop:1 rgba(100,149,237,30)); "
-            "%1}").arg(_inputBorderStyle));
+            "  stop:0 rgba(100,149,237,60), stop:1 rgba(100,149,237,30)); ");
+        _input->setStyleSheet(
+            QStringLiteral("QComboBox { %1%2 }")
+                .arg(bg, _inputBorderStyle));
     } else if (prog < 1.0) {
         int pct = qBound(0, int(prog * 100), 100);
         // Two-tone gradient: filled portion | unfilled
         double stopL = pct / 100.0;
         double stopR = stopL + 0.001;
-        _input->setStyleSheet(QStringLiteral(
-            "QLineEdit { "
+        QString bg = QStringLiteral(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
             "  stop:0 rgba(100,149,237,80), "
             "  stop:%1 rgba(100,149,237,80), "
             "  stop:%2 transparent, "
-            "  stop:1 transparent); "
-            "%3}")
+            "  stop:1 transparent); ")
             .arg(stopL, 0, 'f', 4)
-            .arg(stopR, 0, 'f', 4)
-            .arg(_inputBorderStyle));
+            .arg(stopR, 0, 'f', 4);
+        _input->setStyleSheet(
+            QStringLiteral("QComboBox { %1%2 }")
+                .arg(bg, _inputBorderStyle));
     } else {
         // Computation finished — restore validation-only style
         _input->setStyleSheet(
             _inputBorderStyle.isEmpty()
                 ? QString()
-                : QStringLiteral("QLineEdit { %1 }").arg(_inputBorderStyle));
+                : QStringLiteral("QComboBox { %1 }").arg(_inputBorderStyle));
     }
 }
