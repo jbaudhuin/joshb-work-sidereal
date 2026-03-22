@@ -175,17 +175,27 @@ QPushButton[chartButton="true"]:checked {
 /* =========================== About Dialog ================================== */
 
 QDialog#about {
-	background: #FFFFFF;
+	background-color: none;
+	border-image: url(style/about.jpg) 0 0 0 0 stretch stretch;
 }
 
 QDialog#about QPushButton {
-	background-color: #E8E8E8;
-	border: 1px solid #CCCCCC;
-	color: #000000;
+	background-color: qlineargradient(spread:pad,
+					x1:0, y1:0.551, x2:0, y2:0.107591,
+					stop:0 rgba(0, 43, 63, 255),
+					stop:1 rgba(0, 89, 109, 255));
+	border-width: 0px;
+	border-radius: 6px;
+	padding: 5px;
+	min-height: 36px;
+	color: #EEECE1;
 }
 
 QDialog#about QPushButton:pressed {
-	background-color: #D0D0D0;
+	background-color: qlineargradient(spread:pad,
+		x1:0, y1:0.551, x2:0, y2:0.107591,
+		stop:0 rgba(63, 63, 63, 255),
+		stop:1 rgba(40, 40, 40, 255));
 }
 
 /* =========================== Tooltips ====================================== */

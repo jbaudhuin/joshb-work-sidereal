@@ -1045,32 +1045,33 @@ MainWindow {
 }
 
 QDialog#about {
-	background: #E8E8E8;
+	background-color: none;
+	border-image: url(style/about.jpg) 0 0 0 0 stretch stretch;
 }
 
 QDialog#about QLabel {
 	font: 11px Verdana;
-	color: #2C2C2C;
+	color: #c5d7f2;
 	padding: 100px 15px 15px 15px;
 }
 
 QDialog#about QPushButton {
 	background-color: qlineargradient(spread:pad,
 					x1:0, y1:0.551, x2:0, y2:0.107591,
-					stop:0 rgba(70, 130, 180, 255),
-					stop:1 rgba(100, 160, 210, 255));
+					stop:0 rgba(0, 43, 63, 255),
+					stop:1 rgba(0, 89, 109, 255));
 	border-width: 0px;
 	border-radius: 6px;
 	padding: 5px;
 	min-height: 36px;
-	color: #FFFFFF;
+	color: #EEECE1;
 }
 
 QDialog#about QPushButton:pressed {
 	background-color: qlineargradient(spread:pad,
 		x1:0, y1:0.551, x2:0, y2:0.107591,
-		stop:0 rgba(180, 180, 180, 255),
-		stop:1 rgba(150, 150, 150, 255));
+		stop:0 rgba(63, 63, 63, 255),
+		stop:1 rgba(40, 40, 40, 255));
 }
 
 QMainWindow::separator:vertical {

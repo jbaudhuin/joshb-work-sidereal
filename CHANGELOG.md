@@ -2,6 +2,55 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.6] - 2026-03-21
+
+### Added
+- **Calendar & Time-Mode Support**: Explicit calendar type (Auto/Gregorian/Julian) and time mode (Zone Time/LMT/LAT) throughout the engine
+  - New `AstroDateTimeEdit` widget for robust date/time entry including BC years and calendar suffixes
+  - Equation-of-time and LAT/LMT helper functions for historical-date correctness
+  - Calendar and time mode persisted in chart file save/load
+  - Output formatting annotates calendar type and time mode, and displays EoT
+- **Exact N-Body Pattern Matching**: Specify 3+ body conjunctions (e.g. `Sun=Moon=Mars`) as exact quorum patterns instead of pairwise decomposition
+  - Comma-delimited input (`Sun,Moon,Mars`) generates flexible pairwise cluster detection
+  - Equals-delimited input with 3+ bodies registers an `ExactPatternSpec` requiring all bodies within orb simultaneously
+  - Entering/leaving orb window tracking with focused harmonic minimization search
+- **Pattern Harmonics**: Extended pattern language with richer harmonic specifiers (`Hn`, `Hn*`, `H-n`, `H{...}`)
+  - Per-sub-pattern harmonic sets including divisor expansion (`Hn*`) and capped/dedicated sets
+  - New regex capture groups (hstrict, hstar, hmax, hset) in pattern parser
+- **Pattern MRU Combo**: Transits pattern input replaced with editable QComboBox backed by persisted most-recently-used list
+  - QCompleter with substring matching for fast recall
+  - Global MRU with per-tab pattern persistence
+- **NA Group Token**: Pattern group token `NA` for natal angles alongside existing `OT`, `N`, `IP`, `T`, `P` groups
+- **Event Search Progress**: Visual progress gradient in pattern input field during long-running searches
+
+### Improved
+- **Background Transit Finders**: Long-running pattern searches can optionally continue across tab switches
+  - FinderState tracking with pause/resume/cancel per-file finder threads
+  - Re-entrancy guards for `updateTransits()` to reduce unnecessary restarts and thread churn
+  - Optional `backgroundFinders` setting (persisted) to keep searches running in background
+- **Transit Location Persistence**: Per-tab transit location (coordinates, name, timezone) saved/restored across sessions
+  - Single-file charts now use their own birth/event location instead of stale locations from other tabs
+- **Apparent Sun (RAAS) Mode**: PSSR calculations accept an explicit `useApparentSun` flag carried through `PSSRContext`
+  - UI toggle in Plain view with cache clearing and recalculation on switch
+  - Diagnostic debug logging for RA values, PSSR context, and iteration details
+- **Midpoint Drawing**: Midpoint chord color pulled from ThemeManager (`getChartMidpointColor`)
+- **Group Token Expansion**: Multi-member sides (`OT`, `T`, `P`, `N`, `NA`) distributed into multiple exact pattern specs
+- **Midpoint Orb Handling**: Patterns containing midpoints use tighter effective orb via `ExactPatternSpec::effectiveOrb()`
+- **UI Labels**: "Text" → "Tables", "Options" → "Settings" in toolbar
+
+### Fixed
+- **Thread Safety**: Safer finder thread lifecycle — `UniqueConnection` for finished signal, sender-based identification in `onCompleted()`, proper cleanup of map entries
+  - Improved `ownerFile` destroyed cleanup with disconnected previous connections
+  - Background finders left running with UI signals disconnected during tab switches
+- **Middle-Click Close**: Middle-click on file info bar closes the file; secondary chart location preserved on file(0)
+- **Clipboard Handling**: Harmonics copy action uses widget shortcut context with more robust clipboard handling
+- **Transit Date Range**: Avoid resetting transit date range when reopening the same file
+- **Ingress Planet IDs**: Correct sign index resolution for forward/reverse ingresses
+- **PlanetSet Name Suffix**: Detect any non-zero fileId (`hasOtherChart`) when deciding to append "-r"
+
+### Changed
+- Version bumped to 0.9.6
+
 ## [0.9.5] - 2026-02-19
 
 ### Added

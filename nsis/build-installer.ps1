@@ -157,24 +157,7 @@ if (-not $SkipDeploy) {
     }
     
     if (-not $qtDlls) {
-        Write-Host "⚠ No Qt DLLs found in bin/" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "IMPORTANT: If you're using zodiac_bundle.pro (static build), you can proceed," -ForegroundColor Yellow
-        Write-Host "but the installer will only work on systems with Qt already installed." -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "For distribution to users without Qt, you should:" -ForegroundColor Yellow
-        Write-Host "1. Build with the non-bundle configuration, OR" -ForegroundColor Yellow
-        Write-Host "2. Run windeployqt to deploy Qt dependencies" -ForegroundColor Yellow
-        Write-Host ""
-        
-        $response = Read-Host "Continue anyway? (y/n)"
-        if ($response -ne 'y') {
-            Write-Host "Aborted by user." -ForegroundColor Red
-            exit 1
-        }
-        
-        Write-Host ""
-        Write-Host "Running windeployqt on zodiac.exe..." -ForegroundColor Yellow
+        Write-Host "Deploying Qt dependencies via windeployqt..." -ForegroundColor Yellow
         
         # Try to find windeployqt
         $WinDeployQt = ""

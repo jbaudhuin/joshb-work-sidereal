@@ -5261,12 +5261,7 @@ MainWindow::showAbout()
     d->setMinimumSize(640, 500);  // Minimum size to ensure background covers dialog
     d->resize(800, 600);           // Default size - larger but maintains aspect ratio
     
-    // Set background image with scaling using palette instead of CSS
-    QPalette palette;
-    QPixmap background("style/about.jpg");
-    palette.setBrush(QPalette::Window, QBrush(background.scaled(d->size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation)));
-    d->setPalette(palette);
-    d->setAutoFillBackground(true);
+    // Background image is set via QSS (border-image on QDialog#about)
     
     b->setCheckable(true);
     b1->setIconSize(QSize(32, 32));

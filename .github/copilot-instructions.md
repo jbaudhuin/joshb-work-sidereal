@@ -105,6 +105,37 @@ No automated test suite exists yet. The `swetest.c` file is a Swiss Ephemeris te
 | Check toolchain | `pwsh check-setup.ps1` |
 | Build installer | `cd nsis && pwsh build-installer.ps1` |
 
+## Creating a New Release
+
+When cutting a new version (e.g. 0.9.5 → 0.9.6), update **all** of the following files:
+
+### Required version-bump files
+
+| # | File | What to change |
+|---|---|---|
+| 1 | `zodiac/src/main.cpp` | `a.setApplicationVersion("v0.9.6 (build YYYY-MM-DD)");` |
+| 2 | `nsis/zodiac.nsi` | `!define VERSION '0.9.6'` (line 2) |
+| 3 | `nsis/zodiac-ru.nsi` | `!define VERSION '0.9.6'` (line 2) |
+| 4 | `CHANGELOG.md` | Add a new `## [0.9.6] - YYYY-MM-DD` section at the top (below the header) |
+| 5 | `README.md` | Update "Current Version" line and download link URL |
+| 6 | `nsis/README_FOR_USERS.txt` | Update `Version X.Y.Z` on line 2 |
+
+### Checklist
+
+1. **Update version strings** in all six files listed above.
+2. **Write the CHANGELOG entry** summarising Added / Improved / Fixed / Changed items since the previous release.
+3. **Build and smoke-test**: `cmake --build build` then run `bin/zodiac.exe`.
+4. **Build the installer** (optional): `cd nsis && pwsh build-installer.ps1` — it reads the version from `zodiac.nsi` automatically.
+5. **Commit** with message `Release vX.Y.Z` (or similar).
+6. **Tag**: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+7. **Create a GitHub Release** attaching the installer `.exe`.
+
+### Notes
+
+- `CMakeLists.txt` has `project(zodiac VERSION 1.0 ...)` — this is the CMake project version and is **not** the application release version; do not change it for a release.
+- `nsis/build-installer.ps1` extracts the version from `zodiac.nsi` at build time, so no separate update is needed there.
+- The `.pro` / `.pri` files (qmake) do not carry a version number.
+
 ## Guidelines for AI Assistance
 
 - When modifying astrological calculations, always work in `astroprocessor/src/astro-calc.cpp` and keep the public API in `astro-data.h` stable.
