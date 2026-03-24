@@ -1065,7 +1065,10 @@ class EventsTableModel : public QAbstractItemModel {
         }
     };
 
-    void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override
+    // Internal helper: rebuild _evs from _evls (applying filters) and sort.
+    // Emits NO model signals — caller is responsible for framing with
+    // either layoutAboutToBeChanged/layoutChanged or beginResetModel/endResetModel.
+    void doSortInternal(int column, Qt::SortOrder order)
     {
         _sortPending = false;
 
@@ -1073,8 +1076,6 @@ class EventsTableModel : public QAbstractItemModel {
         std::function<bool(HEv, HEv)>   less =
             hevLess(column, order == Qt::DescendingOrder);
 
-        beginResetModel();
-#if 1
         _evs.clear();
         for (auto lievs : _evls) {
             A::modalize<eventListIndex> cev(evp::curr(), lievs.first);
@@ -1092,9 +1093,16 @@ class EventsTableModel : public QAbstractItemModel {
                 _evs.emplace_back(ev);
             }
         }
-#endif
         std::sort(_evs.begin(), _evs.end(), less);
-        endResetModel();
+    }
+
+    // Public sort: uses layoutAboutToBeChanged/layoutChanged so the view
+    // preserves hover state, selection, and scroll position.
+    void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override
+    {
+        emit layoutAboutToBeChanged();
+        doSortInternal(column, order);
+        emit layoutChanged();
 
         delete _chs;
         _chs = nullptr;
@@ -1110,8 +1118,7 @@ class EventsTableModel : public QAbstractItemModel {
 
         A::modalize<eventListIndex> cli(evp::curr(), li);
         beginResetModel();
-        _evs.insert(_evs.end(), evs.cbegin(), evs.cend());
-        sort();
+        doSortInternal(_sortBy, _sortOrder);
         endResetModel();
     }
 
@@ -1126,8 +1133,7 @@ class EventsTableModel : public QAbstractItemModel {
             
             _evls.erase(lievit++);
             beginResetModel();
-            rebuild();
-            sort();
+            doSortInternal(_sortBy, _sortOrder);
             endResetModel();
             
             if (!_changeRef) emit changeDone();
@@ -1305,11 +1311,7 @@ class EventsTableModel : public QAbstractItemModel {
   public slots:
     void rebuild()
     {
-        _evs.clear();
-        for (const auto& liev : _evls) {
-            _evs.insert(_evs.end(), liev.second->begin(), liev.second->end());
-        }
-        sort();
+        doSortInternal(_sortBy, _sortOrder);
     }
 
     void triggerSort()
@@ -2986,12 +2988,14 @@ Transits::onProgress(double prog)
         _progressSortTimer = new QTimer(this);  // Parent ensures cleanup
         _progressSortTimer->setInterval(250);   // Update UI ~4 times/sec
         connect(_progressSortTimer, &QTimer::timeout, this, [this]() {
+            // Defensive: stop ourselves if the finder finished but
+            // onCompleted() somehow missed stopping us.
+            if (!_activeFinder) {
+                _progressSortTimer->stop();
+                return;
+            }
             if (_evm) {
                 _evm->sort();
-                // NOTE: restoreScrollPos() is NOT called here because the
-                // model-reset signals (modelAboutToBeReset/modelReset) already
-                // handle save/restore.  Calling it again here would overwrite
-                // a user's active scroll position.
             }
         });
     }

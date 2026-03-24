@@ -3711,7 +3711,10 @@ EventOptions::eventPat()
 const QRegularExpression&
 EventOptions::eventRE()
 {
-    static QRegularExpression s_re(eventPat(),
+    // Anchor so the regex must match the ENTIRE subject.  Without this,
+    // the equals-delimited branch (which can match a single planet name)
+    // wins on the first token and the comma-delimited branch is never tried.
+    static QRegularExpression s_re("^(?:" + eventPat() + ")$",
                                    QRegularExpression::CaseInsensitiveOption);
     return s_re;
 }
@@ -3921,6 +3924,7 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
     // are active (pattern path sets this selectively in initializeFromPattern).
     _generalClustersEnabled =
         showTransitAspectPatterns() || showTransitNatalAspectPatterns();
+    _patternMode = false;
 
     bool natal = false, trans = false, prog = false;
     int  natus = -1, locus = -1, progr = -1;
@@ -4364,6 +4368,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
 
     enabledEvents.clear();
     _generalClustersEnabled = false;   // pattern path sets this selectively
+    _patternMode = true;
 
     // --- Identify natal/transit files (shared across all sub-patterns) ---
     bool natal = false, trans = false;
@@ -7084,7 +7089,9 @@ AspectFinder::findAspectsAndPatterns()
         auto&& hset = _hsets.at(ij.hsid);
         state.hs.insert(hset.begin(), hset.end());
     }
-    if (showTransitAspectPatterns() || showTransitNatalAspectPatterns()) {
+    if (!_patternMode
+        && (showTransitAspectPatterns() || showTransitNatalAspectPatterns()))
+    {
         auto&& hset = _hsets.at(0);
         state.hs.insert(hset.begin(), hset.end());
     }
