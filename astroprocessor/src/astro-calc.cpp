@@ -18,6 +18,7 @@
 #include "astro-calc.h"
 #include "astro-gui.h"
 #include "astro-output.h"
+#include "csvreader.h"
 #include "fileeditor.h"
 
 #include <sweodef.h> // the swe.h files are a little squirrely about include order
@@ -3950,8 +3951,8 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
 
         const auto& ida  = f->horoscope().inputData;
         auto        type = f->getType();
-        if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
-            // Only set natus to the FIRST Male/Female/Event file found
+        if (type == TypeMale || type == TypeFemale || type == TypeEvent || type == TypeReturn) {
+            // Only set natus to the FIRST Male/Female/Event/Return file found
             if (!natal) {
                 natus = i, natal = true;
                 njd = getJulianDate(ida.GMT(), false, ida.calendarType());
@@ -4371,7 +4372,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         auto f = files.at(i);
         _ids.push_back(f->horoscope().inputData);
         auto type = f->getType();
-        if (type == TypeMale || type == TypeFemale || type == TypeEvent) {
+        if (type == TypeMale || type == TypeFemale || type == TypeEvent || type == TypeReturn) {
             if (!natal) { natus = i; natal = true; }
             else if (!trans) { locus = i; trans = true; }
         } else {
@@ -7933,6 +7934,84 @@ EventTypeManager::registerEventType(const eventTypeInfo& evtinf)
     return registerEventType(std::get<0>(evtinf),
                              std::get<1>(evtinf),
                              std::get<2>(evtinf));
+}
+
+// ============================================================================
+// ChartPreset
+// ============================================================================
+
+QMap<EventType, ChartPreset>&
+ChartPreset::presets()
+{
+    static QMap<EventType, ChartPreset> s_presets;
+    return s_presets;
+}
+
+const ChartPreset*
+ChartPreset::forEvent(EventType et)
+{
+    auto& p = presets();
+    auto  it = p.constFind(et);
+    return (it != p.constEnd()) ? &it.value() : nullptr;
+}
+
+void
+ChartPreset::loadAll()
+{
+    CsvFile csv("astroprocessor/chart-presets.csv");
+    if (!csv.openForRead()) {
+        qDebug() << "ChartPreset: could not open chart-presets.csv";
+        return;
+    }
+
+    auto& mgr = EventTypeManager::singleton();
+    Q_UNUSED(mgr);
+
+    while (csv.readRow()) {
+        if (csv.columnsCount() < 6) continue;
+
+        auto originBrief = csv.row(0).trimmed();
+        auto originET    = EventTypeManager::briefToEventType(originBrief);
+        if (originET == etcUnknownEvent) {
+            qDebug() << "ChartPreset: unknown origin event type:" << originBrief;
+            continue;
+        }
+
+        ChartPreset preset;
+
+        // EnabledEvents: pipe-delimited briefs
+        auto eventBriefs = csv.row(1).split('|', Qt::SkipEmptyParts);
+        for (auto& brief : eventBriefs) {
+            auto et = EventTypeManager::briefToEventType(brief.trimmed());
+            if (et != etcUnknownEvent) preset.enabledEvents.insert(et);
+        }
+
+        // Timespan
+        preset.timespan = ADateDelta::fromString(csv.row(2).trimmed());
+
+        // StartOffset (signed, e.g. "+1d", "-7d")
+        preset.startOffset = ADateDelta::fromString(csv.row(3).trimmed());
+
+        // HarmonicFilter: comma-separated "TYPE:maxH" pairs
+        auto filters = csv.row(4).split(',', Qt::SkipEmptyParts);
+        for (auto& f : filters) {
+            auto parts = f.trimmed().split(':');
+            if (parts.size() != 2) continue;
+            auto filterET = EventTypeManager::briefToEventType(parts[0].trimmed());
+            bool ok       = false;
+            unsigned maxH  = parts[1].trimmed().toUInt(&ok);
+            if (filterET != etcUnknownEvent && ok) {
+                preset.harmonicFilters[filterET] = maxH;
+            }
+        }
+
+        // Pattern (optional)
+        preset.pattern = csv.row(5).trimmed();
+
+        presets()[originET] = preset;
+    }
+    csv.close();
+    qDebug() << "ChartPreset: loaded" << presets().size() << "presets";
 }
 
 namespace
