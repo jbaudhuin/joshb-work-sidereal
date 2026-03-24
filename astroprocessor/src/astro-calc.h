@@ -42,8 +42,8 @@ struct ADateDelta {
         return sl.join(terse ? " " : ", ");
     }
 
-    QDate addTo(const QDate& d);
-    QDate subtractFrom(const QDate& d);
+    QDate addTo(const QDate& d) const;
+    QDate subtractFrom(const QDate& d) const;
 
     static ADateDelta fromString(const QString& str) { return ADateDelta(str); }
 
@@ -397,6 +397,10 @@ struct EventOptions {
 
     // Core enabled events set
     EventTypeSet enabledEvents;
+
+    // Per-event-type harmonic restrictions (event type → max harmonic allowed)
+    // If an event type is present in this map, events with harmonic > max are filtered out
+    QMap<EventType, unsigned> harmonicRestrictions;
 
     // Event type accessors
     bool isEnabled(EventType et) const { return enabledEvents.count(et) > 0; }
@@ -1033,6 +1037,27 @@ calculateAngularDate(const QDateTime&   radixTime,
 
 Horoscope
 calculateAll(const InputData& input);
+
+// ============================================================================
+// Chart Presets — loaded from bin/astroprocessor/chart-presets.csv
+// ============================================================================
+
+struct ChartPreset {
+    EventTypeSet                enabledEvents;
+    ADateDelta                  timespan;
+    ADateDelta                  startOffset;
+    QMap<EventType, unsigned>   harmonicFilters;   // event type → max harmonic (0 = unrestricted)
+    QString                     pattern;
+
+    // Look up a preset by originating event type; returns nullptr if none
+    static const ChartPreset* forEvent(EventType et);
+
+    // Load all presets from CSV (call once at startup)
+    static void loadAll();
+
+  private:
+    static QMap<EventType, ChartPreset>& presets();
+};
 
 } // namespace A
 #endif // A_CALC_H

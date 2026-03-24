@@ -4175,6 +4175,23 @@ FilesBar::openFileInNewTabWithTransits(const AFileInfo& fi, AstroFile* af)
 {
     AstroFile* file1 = new AstroFile;
     file1->load(fi);
+
+    // Transfer transit preset settings from af (return/transit chart) to
+    // file1 (natal chart) because Transits::filesUpdated() reads and
+    // writes transit state on file(0).
+    if (!af->getTransitEventOptions().empty())
+        file1->setTransitEventOptions(af->getTransitEventOptions());
+    if (!af->getTransitDuration().isEmpty())
+        file1->setTransitDuration(af->getTransitDuration());
+    if (!af->getTransitStartDate().isNull())
+        file1->setTransitStartDate(af->getTransitStartDate());
+    if (!af->getTransitHarmonicRestrictions().isEmpty())
+        file1->setTransitHarmonicRestrictions(af->getTransitHarmonicRestrictions());
+    if (!af->getTransitPattern().isEmpty())
+        file1->setTransitPattern(af->getTransitPattern());
+    if (af->getOriginEventType() != A::etcUnknownEvent)
+        file1->setOriginEventType(af->getOriginEventType());
+
     addFile(file1);
     af->setParent(this);
     files[currentIndex()] << af;

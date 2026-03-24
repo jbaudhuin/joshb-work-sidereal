@@ -160,6 +160,12 @@ class AstroFile : public QObject, public A::EventStore {
     const A::EventTypeSet& getTransitEventOptions() const { return _transitEventOptions; }
     void setTransitEventOptions(const A::EventTypeSet& opts);
 
+    A::EventType getOriginEventType() const { return _originEventType; }
+    void setOriginEventType(A::EventType et) { _originEventType = et; }
+
+    const QMap<A::EventType, unsigned>& getTransitHarmonicRestrictions() const { return _transitHarmonicRestrictions; }
+    void setTransitHarmonicRestrictions(const QMap<A::EventType, unsigned>& r) { _transitHarmonicRestrictions = r; }
+
     QString          getName() const { return _fileInfo.baseName(); }
     QString          getBaseName() const;
     QString          getDisplayName() const;
@@ -344,6 +350,12 @@ class AstroFile : public QObject, public A::EventStore {
     
     // Per-file event type filter for Transits view
     A::EventTypeSet _transitEventOptions;
+
+    // Originating event type (e.g. etcSolarReturn) for chart preset lookup
+    A::EventType _originEventType = A::etcUnknownEvent;
+
+    // Per-event-type harmonic restrictions (event type → max harmonic)
+    QMap<A::EventType, unsigned> _transitHarmonicRestrictions;
     
     // PSSR (Progressed Sidereal Solar Return) cache
     A::PSSRContext _pssrContext;

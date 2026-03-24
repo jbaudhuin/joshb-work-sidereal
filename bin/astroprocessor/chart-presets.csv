@@ -1,0 +1,3 @@
+OriginEvent;EnabledEvents;Timespan;StartOffset;HarmonicFilter;Pattern
+SR;T=N|T=NA;6 mo;+1d;T=NA:1;
+LR;T=N|T=NA;1 mo;+1d;T=NA:1;

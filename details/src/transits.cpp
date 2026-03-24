@@ -72,6 +72,59 @@ eventTypeDesc(A::EventType et)
     return A::EventTypeManager::eventTypeToString(et);
 }
 
+/// Describe a PlanetSet using the event type to infer mode suffixes
+/// (-r natal, -p progressed, -sa solar arc) when mode() is unknown.
+inline
+QString
+describePlanetsForEvent(const A::PlanetSet& ps, A::EventType et)
+{
+    QStringList res;
+    bool hasOtherChart = ps.heterogeneous();
+
+    for (const A::ChartPlanetModeId& cpid : ps) {
+        auto name = cpid.isMidpt() ? cpid.name()
+                                   : cpid.name().left(3);
+        QString suff;
+
+        // If mode is explicitly set, prefer it
+        if (cpid.mode() != A::plmUnknown) {
+            suff = A::modeToSuffix(cpid.mode());
+        } else {
+            int fid = cpid.fileId();
+
+            // fid 0 in mixed-fid events is always natal
+            if (fid == 0 && hasOtherChart) {
+                suff = "r";
+            } else {
+                // Infer meaning of non-natal planets from event type
+                switch (et) {
+                case A::etcProgressedToProgressed:
+                    suff = "p";
+                    break;
+                case A::etcProgressedToNatal:
+                case A::etcInnerProgressedToNatal:
+                    suff = (fid != 0) ? "p" : "r";
+                    break;
+                case A::etcTransitToProgressed:
+                    if (fid == 0) suff = "p";
+                    break;
+                case A::etcSolarArcToNatal:
+                    suff = (fid != 0) ? "sa" : "r";
+                    break;
+                default:
+                    break;  // transit / station / etc. — no suffix
+                }
+            }
+        }
+
+        if (!suff.isEmpty())
+            res << name + "-" + suff;
+        else
+            res << name;
+    }
+    return res.join("=");
+}
+
 #if 0
 typedef QList<QStandardItem*> itemListBase;
 
@@ -833,6 +886,123 @@ class EventsTableModel : public QAbstractItemModel {
         return QVariant();
     }
 
+    // Extract the ChartPlanetModeIds displayed in a given column for
+    // a particular aspect, mirroring the display logic in data().
+    // This ensures that sort order matches what the user sees.
+    //
+    // Key insight: PlanetSet is ordered by planet ID (Sun<Moon<Merc...)
+    // while PlanetRangeBySpeed is ordered by speed (fastest first).
+    // The display code uses getTColIters/getNTColIters which split
+    // differently depending on the container type, and additionally
+    // "swaps" which iterator function is used for planets() vs
+    // locations() (the "goofiness" noted in data()). This helper
+    // replicates exactly that logic.
+    static std::vector<A::ChartPlanetModeId>
+    columnSortKey(const A::HarmonicAspect& asp, int col)
+    {
+        std::vector<A::ChartPlanetModeId> key;
+
+        auto isSingleColumn = [](const auto& c) {
+            return c.size() == 1
+                   || (c.size() > 2
+                       && fid(*c.begin()) == fid(*c.rbegin()));
+        };
+        auto isMixedMode = [](const auto& c) {
+            return c.size() >= 2
+                   && fid(*c.begin()) != fid(*c.rbegin());
+        };
+
+        // Helper lambdas that collect ChartPlanetModeIds from iterator
+        // ranges, matching getTColIters / getNTColIters logic.
+        auto collectBeginSide = [&](const auto& c) {
+            if (isSingleColumn(c)) {
+                // getTColIters returns [begin, end)
+                for (auto it = c.begin(); it != c.end(); ++it)
+                    key.push_back(it->planetModeId());
+            } else if (isMixedMode(c)) {
+                auto it  = c.begin();
+                auto f   = fid(*it);
+                for (auto end = it; end != c.end() && fid(*end) == f; ++end)
+                    key.push_back(end->planetModeId());
+            } else {
+                // pair: first element only
+                if (!c.empty())
+                    key.push_back(c.begin()->planetModeId());
+            }
+        };
+        auto collectRbeginSide = [&](const auto& c) {
+            if (isSingleColumn(c)) {
+                // getNTColIters returns [rend, rend) → empty
+                return;
+            }
+            if (isMixedMode(c)) {
+                auto it  = c.rbegin();
+                auto f   = fid(*it);
+                for (auto end = it; end != c.rend() && fid(*end) == f; ++end)
+                    key.push_back(end->planetModeId());
+            } else {
+                // pair: last element only
+                if (!c.empty())
+                    key.push_back(c.rbegin()->planetModeId());
+            }
+        };
+
+        // For PlanetSet (no locations), we need a different approach
+        // since ChartPlanetModeId already IS the element type.
+        auto collectPSBeginSide = [&](const A::PlanetSet& ps) {
+            if (isSingleColumn(ps)) {
+                for (auto it = ps.begin(); it != ps.end(); ++it)
+                    key.push_back(*it);
+            } else if (isMixedMode(ps)) {
+                auto it = ps.begin();
+                auto f  = fid(*it);
+                for (auto end = it; end != ps.end() && fid(*end) == f; ++end)
+                    key.push_back(*end);
+            } else {
+                if (!ps.empty())
+                    key.push_back(*ps.begin());
+            }
+        };
+        auto collectPSRbeginSide = [&](const A::PlanetSet& ps) {
+            if (isSingleColumn(ps)) return;
+            if (isMixedMode(ps)) {
+                auto it = ps.rbegin();
+                auto f  = fid(*it);
+                for (auto end = it; end != ps.rend() && fid(*end) == f; ++end)
+                    key.push_back(*end);
+            } else {
+                if (!ps.empty())
+                    key.push_back(*ps.rbegin());
+            }
+        };
+
+        if (col == transitBodyCol) {
+            if (!asp.locations().empty()) {
+                // locations present → begin side (fastest)
+                collectBeginSide(asp.locations());
+            } else if (isSingleColumn(asp.planets())) {
+                // singleColumn → all planets (same as getTColIters)
+                collectPSBeginSide(asp.planets());
+            } else {
+                // multi-column planets: display uses getNTColIters
+                // (the "swap" — rbegin side = highest planet IDs)
+                collectPSRbeginSide(asp.planets());
+            }
+        } else if (col == natalTransitBodyCol) {
+            if (!asp.locations().empty()) {
+                // locations present → rbegin side (slowest)
+                collectRbeginSide(asp.locations());
+            } else if (!isSingleColumn(asp.planets())) {
+                // multi-column planets: display uses getTColIters
+                // (the "swap" — begin side = lowest planet IDs)
+                collectPSBeginSide(asp.planets());
+            }
+            // singleColumn → empty (nothing displayed in T/P/N)
+        }
+
+        return key;
+    }
+
     struct hevLess {
         int  _col;
         bool _isMore;
@@ -877,34 +1047,13 @@ class EventsTableModel : public QAbstractItemModel {
                 if (a->locations().size() > b->locations().size()) return false;
                 return (a->locations() < b->locations()); // planetRange
 
-            case transitBodyCol: {
-                A::PlanetClusterLess prless(true /*fast*/);
-                if (true || (a->locations().empty() && b->locations().empty()))
-                {
-                    if (prless(a->planets(), b->planets())) return true;
-                    if (prless(b->planets(), a->planets())) return false;
-                } else {
-                    if (prless(a->locations(), b->locations())) return true;
-                    if (prless(b->locations(), a->locations())) return false;
-                }
-                if (a->dateTime() < b->dateTime()) return true; // date-time
-                if (a->dateTime() > b->dateTime()) return false;
-                if (a->orb() < b->orb()) return true; // orb
-                if (a->orb() > b->orb()) return false;
-                return (a->harmonic() < b->harmonic()); // harmonic
-            }
-
-            case natalTransitBodyCol: // XXX
+            case transitBodyCol:
+            case natalTransitBodyCol:
             {
-                A::PlanetClusterLess prless(false /*not fast*/);
-                if (true || (a->locations().empty() && b->locations().empty()))
-                {
-                    if (prless(a->planets(), b->planets())) return true;
-                    if (prless(b->planets(), a->planets())) return false;
-                } else {
-                    if (prless(a->locations(), b->locations())) return true;
-                    if (prless(b->locations(), a->locations())) return false;
-                }
+                auto ka = columnSortKey(*a, _col);
+                auto kb = columnSortKey(*b, _col);
+                if (ka < kb) return true;
+                if (kb < ka) return false;
                 if (a->dateTime() < b->dateTime()) return true; // date-time
                 if (a->dateTime() > b->dateTime()) return false;
                 if (a->orb() < b->orb()) return true; // orb
@@ -931,7 +1080,16 @@ class EventsTableModel : public QAbstractItemModel {
             A::modalize<eventListIndex> cev(evp::curr(), lievs.first);
             QMutexLocker ml(const_cast<QMutex*>(lievs.second->mutex()));
             for (auto& ev : *lievs.second) {
-                if (ev.dateTime().isValid()) _evs.emplace_back(ev);
+                if (!ev.dateTime().isValid()) continue;
+                // Apply per-event-type harmonic restrictions
+                if (!_harmonicRestrictions.isEmpty()) {
+                    auto it = _harmonicRestrictions.constFind(ev.eventType());
+                    if (it != _harmonicRestrictions.constEnd()
+                        && ev.harmonic() > it.value()) {
+                        continue;
+                    }
+                }
+                _evs.emplace_back(ev);
             }
         }
 #endif
@@ -989,6 +1147,11 @@ class EventsTableModel : public QAbstractItemModel {
     }
 
     void setAspectSet(A::AspectSetId asps) { _aspects = asps; }
+
+    void setHarmonicRestrictions(const QMap<A::EventType, unsigned>& r)
+    {
+        _harmonicRestrictions = r;
+    }
 
     const A::AspectsSet& aspects() const { return A::getAspectSet(_aspects); }
 
@@ -1242,6 +1405,9 @@ class EventsTableModel : public QAbstractItemModel {
     
     AstroFile* _natalFile = nullptr; // Pointer to natal chart for rulership calculations
 
+    // Per-event-type harmonic restrictions (event type → max harmonic)
+    QMap<A::EventType, unsigned> _harmonicRestrictions;
+
     friend class AChangeSignalFrame;
 };
 
@@ -1265,7 +1431,7 @@ AChangeSignalFrame::~AChangeSignalFrame()
 
 ADateDelta::ADateDelta(const QString& str)
 {
-    QRegularExpression re("(\\d+) ?((y(ea)?r?|m(o(n(th)?)?)?|d(a?y)?)s?)");
+    QRegularExpression re("([+-]?\\d+) ?((y(ea)?r?|m(o(n(th)?)?)?|d(a?y)?)s?)");
     re.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
 
     auto mit = re.globalMatch(str);
@@ -1294,13 +1460,13 @@ ADateDelta::ADateDelta(QDate from, QDate to)
 }
 
 QDate
-ADateDelta::addTo(const QDate& d)
+ADateDelta::addTo(const QDate& d) const
 {
     return d.addYears(numYears).addMonths(numMonths).addDays(numDays);
 }
 
 QDate
-ADateDelta::subtractFrom(const QDate& d)
+ADateDelta::subtractFrom(const QDate& d) const
 {
     return d.addYears(-numYears).addMonths(-numMonths).addDays(-numDays);
 }
@@ -2164,6 +2330,7 @@ Transits::stopThreads()
     _active       = nullptr;
     _activeFinder = nullptr;
     _chs          = nullptr;
+    _previousFile = nullptr;
 }
 
 void
@@ -2238,7 +2405,7 @@ Transits::transitsOnly() const
     if (filesCount() != 1) return false;
     
     auto ftype = file()->getType();
-    return (ftype != TypeMale && ftype != TypeFemale && ftype != TypeEvent);
+    return (ftype != TypeMale && ftype != TypeFemale && ftype != TypeEvent && ftype != TypeReturn);
 }
 
 EventsTableModel*
@@ -2682,6 +2849,7 @@ Transits::updateTransits()
             // Create EventOptions with global settings but tab-specific event filter
             A::EventOptions opts = A::EventOptions::current();
             opts.enabledEvents = _tabEventOptions;
+            opts.harmonicRestrictions = file(0)->getTransitHarmonicRestrictions();
             qDebug() << "[UPDATE TRANSITS] EventOptions: T=T:" << (opts.enabledEvents.count(A::etcTransitToTransit) > 0)
                      << "T=N:" << (opts.enabledEvents.count(A::etcTransitToNatal) > 0)
                      << "OT=N:" << (opts.enabledEvents.count(A::etcOuterTransitToNatal) > 0)
@@ -2695,6 +2863,7 @@ Transits::updateTransits()
         // Create EventOptions with global settings but tab-specific event filter
         A::EventOptions opts = A::EventOptions::current();
         opts.enabledEvents = _tabEventOptions;
+        opts.harmonicRestrictions = file(0)->getTransitHarmonicRestrictions();
         qDebug() << "[UPDATE TRANSITS] EventOptions: T=T:" << (opts.enabledEvents.count(A::etcTransitToTransit) > 0)
                  << "T=N:" << (opts.enabledEvents.count(A::etcTransitToNatal) > 0)
                  << "OT=N:" << (opts.enabledEvents.count(A::etcOuterTransitToNatal) > 0)
@@ -2795,10 +2964,12 @@ Transits::updateTransits()
 void
 Transits::onProgress(double prog)
 {
-    // Belt-and-suspenders: check the sender is the current tab's finder.
-    // Signals should be disconnected on tab switch, but guard anyway.
+    // Belt-and-suspenders: only accept progress from the current tab's finder.
+    // After a tab switch _activeFinder is null, but queued cross-thread
+    // progress() signals from the background finder may still arrive.
+    if (!_activeFinder) return;
     auto* senderObj = sender();
-    if (senderObj && _activeFinder && senderObj != _activeFinder.data()) {
+    if (senderObj && senderObj != _activeFinder.data()) {
         return;
     }
 
@@ -3228,7 +3399,7 @@ Transits::clickedCell(QModelIndex inx)
     else {
         desc =
             inx.siblingAtColumn(EventsTableModel::harmonicCol).data().toString()
-            + " " + focal.describe();
+            + " " + describePlanetsForEvent(focal, et);
     }
     qDebug() << "[MIDPT-NAME] clickedCell: focal.size()=" << focal.size()
              << "desc=" << desc;
@@ -3358,11 +3529,35 @@ Transits::doubleClickedCell(QModelIndex inx)
             af->clearBaseChart();
         }
     }
+
+    // Apply chart preset if one exists for this event type
+    af->setOriginEventType(et);
+    if (auto* preset = A::ChartPreset::forEvent(et)) {
+        if (!preset->enabledEvents.empty())
+            af->setTransitEventOptions(preset->enabledEvents);
+        if (preset->timespan)
+            af->setTransitDuration(preset->timespan.toString());
+        if (preset->startOffset) {
+            QDate chartDate = dt.date();
+            af->setTransitStartDate(preset->startOffset.addTo(chartDate));
+        }
+        if (!preset->harmonicFilters.isEmpty())
+            af->setTransitHarmonicRestrictions(preset->harmonicFilters);
+        if (!preset->pattern.isEmpty())
+            af->setTransitPattern(preset->pattern);
+    }
+
     af->resumeUpdate();
     
     // Clear unsaved state since this is a generated chart from an event
     af->clearUnsavedState();
     
+    // Allow filesUpdated() to run during tab creation so the new tab
+    // gets its own event search and Transits state is properly updated.
+    // The guard is no longer needed past this point — all file mutations
+    // are done and only the tab-creation signals remain.
+    noup = false;
+
     // bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
     if (transitsOnly() || !shift || !file()) {
         emit addChart(af);
@@ -3859,6 +4054,12 @@ Transits::filesUpdated(MembersList m)
                 qDebug() << "  No saved options, using global defaults";
                 _tabEventOptions = A::EventOptions::globalDefaults();
                 file(0)->setTransitEventOptions(_tabEventOptions);
+            }
+
+            // Restore per-event-type harmonic restrictions
+            if (_evm) {
+                _evm->setHarmonicRestrictions(
+                    file(0)->getTransitHarmonicRestrictions());
             }
             
             // Update toolbar to reflect the loaded event options

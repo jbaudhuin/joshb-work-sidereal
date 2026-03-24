@@ -265,6 +265,7 @@ main(int argc, char* argv[])
 
     QFontDatabase::addApplicationFont("fonts/Almagest.ttf");
     A::load(lang);
+    A::ChartPreset::loadAll();
 
     // Check for command-line flags to skip session restore and allow multiple instances
     qDebug() << "Parsing command-line arguments...";
