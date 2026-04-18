@@ -18,6 +18,7 @@ class QStandardItemModel;
 class QRadioButton;
 class GeoSearchWidget;
 class EventsTableModel;
+class EventTypeFilterProxy;
 class AChangeSignalFrame;
 
 class ASignalBlocker {
@@ -173,6 +174,12 @@ class Transits : public AstroFileHandler {
         QPointer<QThread>           thread;
         QPointer<A::AspectFinder>   finder;
         AChangeSignalFrame*         chs = nullptr;
+
+        // Manifest metadata: what this finder was asked to search for.
+        // Recorded at launch, read at completion to populate EventStore.
+        A::EventTypeSet             searchedTypes;
+        A::ADateRange               searchedRange;
+        A::uintSSet                 searchedHarmonics;
     };
     QHash<AstroFile*, FinderState> _finders;   // All active/paused finders
 
@@ -227,6 +234,7 @@ class Transits : public AstroFileHandler {
     GeoSearchWidget* _location;
 
     QPointer<EventsTableModel> _evm;  // Points to file(0)->eventsModel() - QPointer for safe destruction
+    EventTypeFilterProxy*      _filterProxy = nullptr;  // Sits between _evm and _tview for event-type filtering
     
     ADateDelta _ddelta;
 
@@ -271,6 +279,10 @@ class Transits : public AstroFileHandler {
     void updateInputProgress(double prog);  // Update _input background to show progress
     void disconnectFinder(FinderState& fs);         // Disconnect UI signals from a finder
     void cancelAndRemoveFinder(AstroFile* af);       // Cancel finder + remove from map
+
+    /// Launch a scoped finder for only the specified event types.
+    /// Appends results to the existing event list (no clear).
+    void launchScopedFinder(const A::EventTypeSet& types);
 };
 
 #endif // Harmonics_H

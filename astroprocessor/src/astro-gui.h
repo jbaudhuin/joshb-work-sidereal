@@ -266,7 +266,7 @@ class AstroFile : public QObject, public A::EventStore {
     void clearEvents() { _evs.clear(); }
     
     bool needsEventsRecalc() const { return _eventsNeedRecalc; }
-    void markEventsForRecalc() { _eventsNeedRecalc = true; }
+    void markEventsForRecalc() { _eventsNeedRecalc = true; clearManifest(); }
     void clearEventsRecalcFlag() { _eventsNeedRecalc = false; }
     
     // PSSR context access

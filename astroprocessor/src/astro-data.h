@@ -1586,6 +1586,32 @@ class NatalPosition : public InputPosition {
     PlanetLocMode mode() const override { return plmNatal; }
 };
 
+/// Natal position that dynamically ex-precesses equatorial coordinates
+/// to the transit epoch.  Used for mundane transits in equatorial mode.
+/// The operator() is implemented out-of-line in astro-calc.cpp because
+/// it depends on ex-precession functions declared in astro-calc.h.
+class NatalExprecessedPosition : public NatalPosition {
+    double _natalRA;         ///< Natal RA (degrees)
+    double _natalDec;        ///< Natal declination (degrees)
+    double _eclLon;          ///< Natal ecliptic longitude (degrees, cached)
+    double _eclLat;          ///< Natal ecliptic latitude (degrees, cached)
+    double _jdNatal;         ///< Julian date of natal epoch
+
+  public:
+    NatalExprecessedPosition(const ChartPlanetId& cpid,
+                             const InputData&     ida,
+                             const QString&       tag = "");
+
+    Loc* clone() const override
+    {
+        return new NatalExprecessedPosition(*this);
+    }
+
+    bool          inMotion() const override { return true; }
+    qreal         operator()(double jd, int h) override;
+    PlanetLocMode mode() const override { return plmNatal; }
+};
+
 class TransitPosition : public InputPosition {
   public:
     TransitPosition(const ChartPlanetId& cpid,
@@ -2309,6 +2335,8 @@ typedef std::set<ADateRange> ADateRangeSet;
 struct EventStoreData {
     ADateRangeSet  ranges;
     HarmonicEvents events;
+    uintSSet       harmonics;   ///< which harmonics were searched
+    bool           searched = false; ///< true after a finder run included this type
 };
 
 struct EventUpdateData {
@@ -2320,8 +2348,6 @@ struct EventScope {
     unsigned   eventType;
     ADateRange range;
 };
-
-// @todo need to include harmonic list, right?
 
 typedef QMap<unsigned, EventStoreData> EventStoreBase;
 class EventStore : public EventStoreBase {
@@ -2335,6 +2361,27 @@ class EventStore : public EventStoreBase {
 
     EventUpdateData getEventUpdateScope(EventScope      evscope,
                                         EventUpdateType uptype);
+
+    // Manifest API — tracks which event types have been computed
+    bool         wasSearched(unsigned eventType) const;
+    bool         wasSearched(unsigned eventType,
+                             const ADateRange& range) const;
+    EventTypeSet searchedTypes() const;
+    EventTypeSet missingTypes(const EventTypeSet& wanted) const;
+
+    /// Record that a finder searched for the given event types over the
+    /// specified date range using the given harmonic set.
+    void recordSearch(const EventTypeSet& types,
+                      const ADateRange&   range,
+                      const uintSSet&     harmonics);
+
+    /// Clear all manifest metadata (marks everything as unsearched).
+    /// Call when a full recomputation is required.
+    void clearManifest();
+
+    /// Ingest a list of events, bucketing each into the appropriate
+    /// EventStoreData slot by eventType().
+    void ingestEvents(const HarmonicEvents& evs);
 };
 
 typedef std::map<unsigned, PlanetGroups> PlanetHarmonics;
@@ -2374,6 +2421,27 @@ struct Horoscope {
     {
         return &const_cast<Horoscope*>(this)->planets[pid];
     }
+
+    /// Replace equatorial coordinates with ex-precessed values at targetJD.
+    /// Original values are saved so clearExprecession() can restore them.
+    void applyExprecession(double targetJD);
+
+    /// Restore original (natal-epoch) equatorial coordinates.
+    void clearExprecession();
+
+    /// True when ex-precessed equatorial overlays are active.
+    bool exprecessApplied() const { return _exprecessApplied; }
+
+  private:
+    struct SavedEquatorial {
+        QPointF   pos;
+        QVector2D speed;
+    };
+    QMap<PlanetId, SavedEquatorial>    _savedPlanetEq;
+    QMap<std::string, SavedEquatorial> _savedStarEq;
+    // [ANGLE_PRECESSION] Saved natal-epoch house RA values for chart axes.
+    double _savedRAAC = 0, _savedRAMC = 0, _savedRADC = 0;
+    bool                               _exprecessApplied = false;
 };
 
 void

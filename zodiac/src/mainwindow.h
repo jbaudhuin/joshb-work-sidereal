@@ -198,6 +198,7 @@ class FileTreeView : public QTreeView {
 
   protected:
     void mousePressEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
     void dropEvent(QDropEvent* event) override;
@@ -230,9 +231,9 @@ class AstroDatabase : public QFrame {
     bool validateDropTarget(const QPoint& pos, QString& targetDir);
     void performMove(const QString& targetDir);
     void performCopy(const QString& targetDir);
+    void showContextMenu(QPoint);
 
   private slots:
-    void showContextMenu(QPoint);
     void saveCurrent(const QModelIndex& qmi);
     void newDirectory(const QModelIndex& qmi);
     void deleteDirectory(const QModelIndex& qmi);

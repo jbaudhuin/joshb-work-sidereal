@@ -1175,7 +1175,10 @@ AstroFileHandler::fileUpdatedSlot(AstroFile::Members m)
     AstroFile::Members dataFlags = m & ~AstroFile::ViewSettings;
     AstroFile::Members viewFlags = m & AstroFile::ViewSettings;
 
-    if (isVisible() && !isAnyFileSuspended()) {
+    bool vis = isVisible();
+    bool susp = isAnyFileSuspended();
+
+    if (vis && !susp) {
         MembersList dataList, viewList;
         if (delayUpdate) {
             dataList        = delayMembers;
@@ -1212,6 +1215,22 @@ void
 AstroFileHandler::dispatchUpdate(const MembersList& dataFlags,
                                  const MembersList& viewFlags)
 {
+    // Apply or clear ex-precessed equatorial overlays on file(0)
+    // when a second file exists in equatorial aspect mode.
+    if (file(0)) {
+        auto& h0 = file(0)->horoscope();
+        if (filesCount() > 1 && file(1)
+            && A::aspectMode == A::amcEquatorial)
+        {
+            double targetJD = A::getJulianDate(
+                file(1)->horoscope().inputData.GMT(), false,
+                file(1)->horoscope().inputData.calendarType());
+            h0.applyExprecession(targetJD);
+        } else {
+            h0.clearExprecession();
+        }
+    }
+
     // Always deliver data flags (includes ChangedState, Name, GMT, etc.)
     bool hasData = false;
     for (const auto& m : dataFlags)

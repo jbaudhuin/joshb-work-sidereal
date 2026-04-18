@@ -520,6 +520,9 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     switch (A::aspectMode) {
     case A::amcEquatorial: {
         const auto& houses = file(fileIndex)->horoscope().houses;
+        qDebug() << "[ANGLE_PRECESSION] chart cusps fileIndex=" << fileIndex
+                 << "RAAC=" << houses.RAAC << "RAMC=" << houses.RAMC
+                 << "exprApplied=" << file(fileIndex)->horoscope().exprecessApplied();
         for (int i = 0; i < 12; ++i) {
             cuspides[fileIndex][i]->setVisible(!(i % 3));
         }
@@ -1157,12 +1160,16 @@ Chart::filesUpdated(MembersList m)
     }
 
     // File-data changes that require scene rebuild
+    AstroFile::Members rebuildFlags =
+        AstroFile::GMT | AstroFile::Location
+        | AstroFile::Type | AstroFile::Name;
+
     if (chartsCount
         && (chartsCount != filesCount()
             || (filesCount()
-                && (m[0]
-                    & (AstroFile::GMT | AstroFile::Location
-                       | AstroFile::Type | AstroFile::Name)))))
+                && ((m[0] | (filesCount() > 1 ? m[1]
+                                              : AstroFile::Member()))
+                    & rebuildFlags))))
     {
         clearScene();
     }

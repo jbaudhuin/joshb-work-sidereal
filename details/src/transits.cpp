@@ -36,6 +36,7 @@
 #include <QRegularExpressionValidator>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSortFilterProxyModel>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QStringListModel>
@@ -1145,6 +1146,7 @@ class EventsTableModel : public QAbstractItemModel {
     void clearAllEvents()
     {
         if (_evls.empty()) return;
+        qDebug() << "[EVM] clearAllEvents() called, had" << _evls.size() << "events";
         if (!_changeRef) emit aboutToChange();
         beginResetModel();
         _evls.clear();
@@ -1152,7 +1154,20 @@ class EventsTableModel : public QAbstractItemModel {
         endResetModel();
     }
 
+    /// Clear internal data without emitting aboutToChange.
+    /// Used during file switches where the old data is already destroyed.
+    void quietClear()
+    {
+        qDebug() << "[EVM] quietClear() called, had" << _evls.size() << "events";
+        beginResetModel();
+        _evls.clear();
+        _evs.clear();
+        endResetModel();
+    }
+
     void setAspectSet(A::AspectSetId asps) { _aspects = asps; }
+
+    int eventListCount() const { return static_cast<int>(_evls.size()); }
 
     void setHarmonicRestrictions(const QMap<A::EventType, unsigned>& r)
     {
@@ -1413,6 +1428,229 @@ class EventsTableModel : public QAbstractItemModel {
     friend class AChangeSignalFrame;
 };
 
+// ---------------------------------------------------------------------------
+// EventTypeFilterProxy — sits between EventsTableModel and the tree view,
+// hiding rows whose event type is not in the enabled set.
+// ---------------------------------------------------------------------------
+class EventTypeFilterProxy : public QSortFilterProxyModel {
+    Q_OBJECT
+
+  public:
+    explicit EventTypeFilterProxy(QObject* parent = nullptr)
+        : QSortFilterProxyModel(parent)
+    {
+        setDynamicSortFilter(false);   // We manage invalidation explicitly
+        setRecursiveFilteringEnabled(false);
+    }
+
+    void setEnabledEventTypes(const A::EventTypeSet& types)
+    {
+        if (_enabled == types) return;
+        _enabled = types;
+        if (!_patternActive) {
+            beginFilterChange();
+            endFilterChange();
+        }
+    }
+
+    const A::EventTypeSet& enabledEventTypes() const { return _enabled; }
+
+    /// When a pattern is active, disable event-type filtering — the pattern
+    /// already controls what the finder computes.
+    void setPatternActive(bool active)
+    {
+        if (_patternActive == active) return;
+        _patternActive = active;
+        beginFilterChange();
+        endFilterChange();
+    }
+
+    bool patternActive() const { return _patternActive; }
+
+    // --- Harmonic (dynAspState) filtering ---
+
+    void setEnabledHarmonics(const A::uintSSet& hs)
+    {
+        if (_enabledHarmonics == hs) return;
+        _enabledHarmonics = hs;
+        if (!_patternActive) {
+            beginFilterChange();
+            endFilterChange();
+        }
+    }
+
+    const A::uintSSet& enabledHarmonics() const { return _enabledHarmonics; }
+
+    /// Check whether the source model contains any event with the given harmonic.
+    bool sourceHasHarmonic(unsigned h) const
+    {
+        auto* src = qobject_cast<EventsTableModel*>(sourceModel());
+        if (!src) return false;
+        for (int r = 0, n = src->rowCount(); r < n; ++r) {
+            if (src->rowData(r).harmonic() == h)
+                return true;
+        }
+        return false;
+    }
+
+    // --- Duration (skipByDuration) filtering ---
+
+    void setSkipByDuration(A::EventOptions::skipper s)
+    {
+        if (_skipByDuration == s) return;
+        _skipByDuration = s;
+        if (!_patternActive) {
+            beginFilterChange();
+            endFilterChange();
+        }
+    }
+
+    A::EventOptions::skipper skipByDuration() const { return _skipByDuration; }
+
+    /// Record the skip level that was used when the finder last computed events.
+    /// This lets us determine whether a filter change needs recomputation.
+    void setComputedSkipLevel(A::EventOptions::skipper s) { _computedSkipLevel = s; }
+    A::EventOptions::skipper computedSkipLevel() const { return _computedSkipLevel; }
+
+    /// Check whether the source model contains any events of the given type.
+    /// Applies the same alias logic as filterAcceptsRow.
+    bool sourceHasEventType(A::EventType et) const
+    {
+        auto* src = qobject_cast<EventsTableModel*>(sourceModel());
+        if (!src) return false;
+
+        // Map variant flags to the base type the finder actually tags
+        A::EventType searchFor = et;
+        if (et == A::etcOuterTransitToNatal) searchFor = A::etcTransitToNatal;
+        else if (et == A::etcInnerProgressedToNatal) searchFor = A::etcProgressedToNatal;
+
+        for (int r = 0, n = src->rowCount(); r < n; ++r) {
+            if (src->rowData(r).eventType() == searchFor)
+                return true;
+        }
+        return false;
+    }
+
+    // --- Date-range filtering ---
+
+    /// Set a strict date range.  Events whose date falls outside
+    /// [range.first, range.second] are hidden.  Pass a default-constructed
+    /// (null) range to disable the gate.
+    void setStrictDateRange(const A::ADateRange& range)
+    {
+        if (_strictRange == range) return;
+        _strictRange = range;
+        if (!_patternActive) {
+            beginFilterChange();
+            endFilterChange();
+        }
+    }
+
+    const A::ADateRange& strictDateRange() const { return _strictRange; }
+
+    bool hasStrictDateRange() const
+    {
+        return !_strictRange.first.isNull() && !_strictRange.second.isNull();
+    }
+
+  protected:
+    bool filterAcceptsRow(int sourceRow,
+                          const QModelIndex& sourceParent) const override
+    {
+        // Always accept child (coincidence) rows
+        if (sourceParent.isValid()) return true;
+
+        // Pattern mode: finder already computed exactly what was asked for
+        if (_patternActive) return true;
+
+        auto* src = qobject_cast<EventsTableModel*>(sourceModel());
+        if (!src) return true;
+
+        // --- Event-type gate ---
+        if (!_enabled.empty()) {
+            auto et = src->rowData(sourceRow).eventType();
+
+            bool typeOk = _enabled.count(et) > 0;
+
+            // Alias handling: etcOuterTransitToNatal and etcInnerProgressedToNatal
+            // are selection-mode flags controlling which planets the finder computes,
+            // but the resulting events are tagged with the base type.
+            if (!typeOk && et == A::etcTransitToNatal
+                && _enabled.count(A::etcOuterTransitToNatal) > 0)
+                typeOk = true;
+            if (!typeOk && et == A::etcProgressedToNatal
+                && _enabled.count(A::etcInnerProgressedToNatal) > 0)
+                typeOk = true;
+
+            if (!typeOk) return false;
+        }
+
+        // --- Harmonic gate ---
+        if (!_enabledHarmonics.empty()) {
+            if (!harmonicAccepted(sourceRow)) return false;
+        }
+
+        // --- Duration gate ---
+        if (_skipByDuration != A::EventOptions::SkipNone) {
+            if (!durationAccepted(sourceRow, src)) return false;
+        }
+
+        // --- Date-range gate ---
+        if (hasStrictDateRange()) {
+            QDate d = src->rowData(sourceRow).dateTime().date();
+            if (!_strictRange.contains(d)) return false;
+        }
+
+        return true;
+    }
+
+    /// Second-pass filter: after event type is accepted, check harmonic.
+    /// Called only from filterAcceptsRow when _enabledHarmonics is non-empty.
+    bool harmonicAccepted(int sourceRow) const
+    {
+        auto* src = qobject_cast<EventsTableModel*>(sourceModel());
+        if (!src) return true;
+        unsigned h = src->rowData(sourceRow).harmonic();
+        return _enabledHarmonics.count(h) > 0;
+    }
+
+    /// Duration gate: hide events of skippable types whose duration is
+    /// below the threshold.
+    bool durationAccepted(int sourceRow, EventsTableModel* src) const
+    {
+        auto et = src->rowData(sourceRow).eventType();
+        // Skippable event types for duration filtering
+        if (et != A::etcTransitToTransit
+            && et != A::etcTransitToNatal
+            && et != A::etcTransitAspectPattern
+            && et != A::etcTransitNatalAspectPattern)
+            return true;
+
+        double days = src->rowData(sourceRow).range().days();
+        switch (_skipByDuration) {
+        case A::EventOptions::SkipLessThanDay:   return days >= 1.0;
+        case A::EventOptions::SkipLessThanWeek:  return days >= 7.0;
+        case A::EventOptions::SkipLessThanMonth: return days >= 28.0;
+        default: return true;
+        }
+    }
+
+    // Disable proxy-level sorting — sorting is handled internally by
+    // EventsTableModel::sort() which emits layoutChanged.
+    bool lessThan(const QModelIndex&, const QModelIndex&) const override
+    {
+        return false;
+    }
+
+  private:
+    A::EventTypeSet          _enabled;
+    A::uintSSet              _enabledHarmonics;
+    A::EventOptions::skipper _skipByDuration    = A::EventOptions::SkipNone;
+    A::EventOptions::skipper _computedSkipLevel = A::EventOptions::SkipNone;
+    bool                     _patternActive     = false;
+    A::ADateRange            _strictRange;      ///< hide events outside this range (null = no filter)
+};
+
 #include "transits.moc"
 
 AChangeSignalFrame::AChangeSignalFrame(EventsTableModel* evm) : _evm(evm)
@@ -1543,6 +1781,9 @@ Transits::Transits(QWidget* parent) :
     _tview->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _tview->expandAll();
     _tview->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Expanding);
+
+    _filterProxy = new EventTypeFilterProxy(this);
+    _filterProxy->setEnabledEventTypes(_tabEventOptions);
 
     // Model will be created and set in ensureEventsModel() when file(0) is available
 
@@ -1733,16 +1974,39 @@ Transits::Transits(QWidget* parent) :
     // filterAdded == false → an event type was disabled     → keep existing
     //                         events visible, only persist the option change
     auto saveEventOptionsAndRecalc = [this](bool filterAdded) {
-        // Save to file(0) immediately so it persists when switching files
-        if (filesCount() > 0 && file(0)) {
-            file(0)->setTransitEventOptions(_tabEventOptions);
-        }
-        if (filterAdded) {
-            // Mark events for recalc since a new event type was added
-            for (int i = 0, n = filesCount(); i < n; ++i) {
-                file(i)->markEventsForRecalc();
+        // Guard: prevent the changed() signals from setTransitPattern /
+        // setTransitEventOptions from cascading into filesUpdated() and
+        // clobbering the model.  We handle the proxy update ourselves.
+        {
+            A::modalize<bool> guard(_inhibitUpdate, true);
+
+            if (filesCount() > 0 && file(0)) {
+                file(0)->setTransitPattern(_input->currentText().trimmed());
+                file(0)->setTransitEventOptions(_tabEventOptions);
             }
-            if (_actAutoRecalc && _actAutoRecalc->isChecked()) updateTransits();
+        }   // ~guard restores _inhibitUpdate
+
+        // If a pattern is active, toolbar changes only affect saved prefs;
+        // the proxy is in pattern-active mode (accepts all rows), so there's
+        // nothing to filter/recompute until the pattern is cleared.
+        if (_filterProxy->patternActive()) return;
+
+        // Always update the proxy filter so rows hide/show immediately
+        _filterProxy->setEnabledEventTypes(_tabEventOptions);
+
+        if (filterAdded) {
+            // Only trigger recomputation if the manifest shows the
+            // newly-enabled type(s) were never searched.  If they were
+            // searched (even with zero results), the proxy reveal suffices.
+            if (filesCount() > 0 && file(0)) {
+                auto missing = file(0)->missingTypes(_tabEventOptions);
+                if (!missing.empty()
+                    && _actAutoRecalc && _actAutoRecalc->isChecked()) {
+                    // Launch a scoped finder for only the missing types —
+                    // existing events stay in place.
+                    launchScopedFinder(missing);
+                }
+            }
         }
     };
     
@@ -2293,6 +2557,7 @@ Transits::ttv() const
 void
 Transits::describePlanet()
 {
+    qDebug() << "[DESCRIBE PLANET] called, filesCount:" << filesCount();
 #if 0
     // TODO filter by planet?
 #endif
@@ -2429,7 +2694,8 @@ Transits::ensureEventsModel()
     // Update our local pointer and view if needed
     if (_evm != evm) {
         _evm = evm;
-        _tview->setModel(_evm);
+        _filterProxy->setSourceModel(_evm);
+        _tview->setModel(_filterProxy);
         
         // Connect to custom signals for event recalculation
         QObject::connect(_evm, &EventsTableModel::aboutToChange, this, [this] {
@@ -2554,15 +2820,18 @@ Transits::updateTimezone()
             }
         } else {
             // For natal + transit tabs, update transitsAF (file(1)) and
-            // signal FilesBar to refresh the chart.
-            transitsAF()->suspendUpdate();
-            transitsAF()->setLocation(_location->location());
-            transitsAF()->setLocationName(_location->locationName());
-            transitsAF()->setTimezone(short(tz));
-            transitsAF()->resumeUpdate();
+            // signal FilesBar to refresh the chart — but only if the user
+            // hasn't manually relocated file(1) (indicated by timezone lock).
+            if (!transitsAF()->isTimezoneLocked()) {
+                transitsAF()->suspendUpdate();
+                transitsAF()->setLocation(_location->location());
+                transitsAF()->setLocationName(_location->locationName());
+                transitsAF()->setTimezone(short(tz));
+                transitsAF()->resumeUpdate();
 
-            stopThreads();
-            emit updateSecond(transitsAF());
+                stopThreads();
+                emit updateSecond(transitsAF());
+            }
         }
     });
 
@@ -2609,16 +2878,16 @@ Transits::updateTransits()
         return;
     }
 
-    // Restore location from the appropriate file FIRST (before cache check)
-    // This ensures the location widget updates even when using cached events
+    // Restore location from the canonical tab source FIRST (before cache check).
+    // The canonical events-table location lives in file(0)->transitLocation /
+    // the _location dock-widget.  file(1) is a *consumer* of that location —
+    // we never read file(1)'s location back into the canonical store.
     AstroFile* locFile = nullptr;
     if (filesCount() >= 2) {
-        // If we have 2+ files, use file(1) for location (the transit/return chart)
-        locFile = file(1);
-        // Sync to file(0)'s per-tab transit location so it survives file-2 close
-        file(0)->setTransitLocation(locFile->getLocation());
-        file(0)->setTransitLocationName(locFile->getLocationName());
-        file(0)->setTransitTimezone(locFile->getTimezone());
+        // Two files present: the dock widget / file(0)->transitLocation is
+        // authoritative.  Push it to transitsAF() below via the locFile==nullptr
+        // path (hasTransitLocation branch).  Do NOT read from file(1).
+        locFile = nullptr; // handled by the hasTransitLocation branch below
     } else if (filesCount() == 1 && transitsOnly()) {
         // Single file that is transits-only, use it
         locFile = file(0);
@@ -2635,8 +2904,6 @@ Transits::updateTransits()
     
     if (locFile) {
         // Update the location widget and transitsAF to match the current chart
-        qDebug() << "updateTransits: Setting location from file" << locFile->getName() 
-                 << "to" << locFile->getLocationName();
         _pendingLocationChange = true;
         _location->setLocation(locFile->getLocation());
         _location->setLocationName(locFile->getLocationName());
@@ -2650,21 +2917,24 @@ Transits::updateTransits()
             transitsAF()->setTimezone(locFile->getTimezone());
             transitsAF()->resumeUpdate();
         }
-    } else if (filesCount() == 1 && file(0)->hasTransitLocation()) {
-        // Restore location from file(0)'s stored transit fields
-        qDebug() << "updateTransits: Restoring transit location from file(0)"
-                 << file(0)->getTransitLocationName();
+    } else if (file(0)->hasTransitLocation()) {
+        // Use file(0)'s stored transit location as the canonical source.
+        // This covers both the 2-file case (where file(1) is a downstream
+        // consumer, not a source) and the 1-file case after file-2 close.
         _pendingLocationChange = true;
         _location->setLocation(file(0)->getTransitLocation());
         _location->setLocationName(file(0)->getTransitLocationName());
         _pendingLocationChange = false;
 
-        // Sync to transitsAF() so the finder uses the right location
-        transitsAF()->suspendUpdate();
-        transitsAF()->setLocation(file(0)->getTransitLocation());
-        transitsAF()->setLocationName(file(0)->getTransitLocationName());
-        transitsAF()->setTimezone(file(0)->getTransitTimezone());
-        transitsAF()->resumeUpdate();
+        // Sync to transitsAF() so the finder uses the right location —
+        // but only if file(1) hasn't been manually relocated (tz-locked).
+        if (!transitsAF()->isTimezoneLocked()) {
+            transitsAF()->suspendUpdate();
+            transitsAF()->setLocation(file(0)->getTransitLocation());
+            transitsAF()->setLocationName(file(0)->getTransitLocationName());
+            transitsAF()->setTimezone(file(0)->getTransitTimezone());
+            transitsAF()->resumeUpdate();
+        }
     }
 
     // Process pending UI events (repaints, etc.) before doing heavy work
@@ -2799,6 +3069,7 @@ Transits::updateTransits()
     qDebug() << "filesCount()" << filesCount();
 
     auto       hs = A::dynAspState();
+    _filterProxy->setEnabledHarmonics(hs);
     ADateRange r { _start->date(), _end->date() };
 
     // Validate pattern BEFORE clearing events so that an invalid pattern
@@ -2815,10 +3086,12 @@ Transits::updateTransits()
         }
     }
     _lastUsedPattern = pattern;
+    _filterProxy->setPatternActive(usePattern);
 
     // Pattern is valid (or empty) — now safe to clear events
     _evm->clearAllEvents();
     evs.clear();
+    file(0)->clearManifest();  // reset manifest for fresh computation
 
 #if 0
     transitsAF()->suspendUpdate();
@@ -2885,6 +3158,10 @@ Transits::updateTransits()
     }
 #endif
     if (!af) return;
+
+    // Sync proxy with the skip level used for this computation
+    _filterProxy->setSkipByDuration(A::EventOptions::current().skipByDuration);
+    _filterProxy->setComputedSkipLevel(A::EventOptions::current().skipByDuration);
     
     qDebug() << "[UPDATE TRANSITS] OmnibusFinder created with EventOptions:";
     qDebug() << "  showTransitsToTransits:" << af->showTransitsToTransits();
@@ -2926,10 +3203,17 @@ Transits::updateTransits()
     _active       = thread;
     _activeFinder = af;
 
-    // Store in per-file finder map
+    // Store in per-file finder map (including manifest metadata)
     AstroFile* ownerFile = file(0);
     if (ownerFile) {
-        _finders[ownerFile] = FinderState { thread, af, _chs };
+        FinderState fs;
+        fs.thread             = thread;
+        fs.finder             = af;
+        fs.chs                = _chs;
+        fs.searchedTypes      = usePattern ? A::EventTypeSet{} : _tabEventOptions;
+        fs.searchedRange      = r;
+        fs.searchedHarmonics  = hs;
+        _finders[ownerFile]   = fs;
 
         // Clean up the map entry if the file is destroyed while finder is paused
         // Note: Qt::UniqueConnection can't be used with lambdas, so we
@@ -2960,6 +3244,120 @@ Transits::updateTransits()
     }
     
     qDebug() << "[CREATE FINDER] Started finder thread" << thread;
+    qDebug() << "========================================";
+}
+
+/// Launch a scoped finder that computes only the specified event types.
+/// Unlike updateTransits(), this does NOT clear existing events — results
+/// are appended to file(0)->events() and the model is updated incrementally.
+void
+Transits::launchScopedFinder(const A::EventTypeSet& types)
+{
+    if (types.empty() || filesCount() == 0 || !file(0)) return;
+    if (!isVisible()) return;
+
+    // Don't launch if there's already an active finder for this file
+    {
+        auto fit = _finders.find(file(0));
+        if (fit != _finders.end() && fit.value().thread
+            && !fit.value().thread->isFinished()) {
+            qDebug() << "[SCOPED FINDER] Active finder exists, falling back to full updateTransits";
+            updateTransits();
+            return;
+        }
+    }
+
+    ensureEventsModel();
+    if (!_evm) return;
+
+    auto       hs  = A::dynAspState();
+    ADateRange r { _start->date(), _end->date() };
+    auto&      evs = file(0)->events();
+
+    // Build EventOptions restricted to only the missing types
+    A::EventOptions opts = A::EventOptions::current();
+    opts.enabledEvents        = types;
+    opts.harmonicRestrictions = file(0)->getTransitHarmonicRestrictions();
+
+    qDebug() << "========================================";
+    qDebug() << "[SCOPED FINDER] Launching for" << types.size() << "missing type(s)"
+             << "range:" << r.first << "-" << r.second;
+
+    A::AspectFinder* af = nullptr;
+    auto ftype = file(0)->getType();
+    if (ftype != TypeOther) {
+        af = new A::OmnibusFinder(evs, r, hs, { file(0), transitsAF() }, opts);
+    } else {
+        af = new A::OmnibusFinder(evs, r, hs, files(), opts);
+    }
+    if (!af) return;
+
+    // Sync proxy settings
+    _filterProxy->setSkipByDuration(A::EventOptions::current().skipByDuration);
+    _filterProxy->setComputedSkipLevel(A::EventOptions::current().skipByDuration);
+
+    // The model already has events — ensure evs reference is registered
+    // (it may have been cleared on a prior tab switch and re-added).
+    const A::Horoscope& scope(file()->horoscope());
+    _evm->setZodiac(scope.zodiac);
+    _evm->setTimezone(transitsAF()->getTimezone());
+    // Only re-register if the model has no event lists (was cleared)
+    if (_evm->eventListCount() == 0) {
+        _evm->addEvents(evs);
+    }
+
+    if (!_chs) {
+        _chs = new AChangeSignalFrame(_evm);
+    }
+
+    auto thread = new QThread(this);
+    QString chartName = file(0)->getName();
+    thread->setObjectName(QString("scoped-finder:%1").arg(chartName));
+    af->moveToThread(thread);
+
+    connect(this, SIGNAL(cancelActive()), af, SLOT(cancel()));
+    connect(thread, SIGNAL(started()), af, SLOT(findStuff()));
+    connect(af, SIGNAL(progress(double)), this, SLOT(onProgress(double)));
+    connect(thread, SIGNAL(finished()), this, SLOT(onCompleted()));
+    connect(thread, SIGNAL(finished()), thread, SLOT(deleteLater()));
+    connect(thread, &QThread::finished, this, [af]() {
+        delete af;
+    });
+
+    thread->start();
+    _active       = thread;
+    _activeFinder = af;
+
+    // Store in finder map with manifest metadata for just the scoped types
+    AstroFile* ownerFile = file(0);
+    FinderState fs;
+    fs.thread             = thread;
+    fs.finder             = af;
+    fs.chs                = _chs;
+    fs.searchedTypes      = types;
+    fs.searchedRange      = r;
+    fs.searchedHarmonics  = hs;
+    _finders[ownerFile]   = fs;
+
+    // Clean up on file destruction
+    disconnect(ownerFile, &QObject::destroyed, this, nullptr);
+    connect(ownerFile, &QObject::destroyed, this, [this, ownerFile]() {
+        auto it = _finders.find(ownerFile);
+        if (it != _finders.end()) {
+            if (it.value().finder) it.value().finder->cancel();
+            delete it.value().chs;
+            if (it.value().thread && !it.value().thread->isFinished())
+                it.value().thread->wait();
+            if (_active == it.value().thread) {
+                _active       = nullptr;
+                _activeFinder = nullptr;
+                _chs          = nullptr;
+            }
+            _finders.erase(it);
+        }
+    });
+
+    qDebug() << "[SCOPED FINDER] Started thread" << thread;
     qDebug() << "========================================";
 }
 
@@ -3020,14 +3418,17 @@ Transits::onCompleted()
     // the *current* tab, not the background one.
     auto* senderThread = sender();
     AstroFile* ownerFile = nullptr;
+    FinderState completedState;  // capture metadata before erasing
     for (auto it = _finders.begin(); it != _finders.end(); ++it) {
         if (it.value().thread == senderThread
             || it.value().thread == _active
             || it.value().finder == _activeFinder) {
             ownerFile = it.key();
+            completedState = it.value();
             // Delete _chs stored in the map entry
             delete it.value().chs;
             it.value().chs = nullptr;
+            completedState.chs = nullptr;
             _finders.erase(it);
             break;
         }
@@ -3040,9 +3441,17 @@ Transits::onCompleted()
     if (!isCurrentTab) {
         // Background finder finished for a non-current tab.
         // Events are already written to ownerFile->events() by reference.
-        // Just clear recalc flag and clean up — no UI updates needed.
+        // Just clear recalc flag, populate manifest, and clean up.
         qDebug() << "[ON COMPLETED] Background finder done, no UI update needed";
-        if (ownerFile) ownerFile->clearEventsRecalcFlag();
+        if (ownerFile) {
+            ownerFile->clearEventsRecalcFlag();
+            if (!completedState.searchedTypes.empty()) {
+                ownerFile->ingestEvents(ownerFile->events());
+                ownerFile->recordSearch(completedState.searchedTypes,
+                                        completedState.searchedRange,
+                                        completedState.searchedHarmonics);
+            }
+        }
         // Don't touch _active/_activeFinder — they belong to the CURRENT tab.
         return;
     }
@@ -3076,6 +3485,16 @@ Transits::onCompleted()
     // Mark that events are now calculated and cached
     if (filesCount() > 0) {
         file(0)->clearEventsRecalcFlag();
+        // Populate EventStore manifest from completed finder
+        if (!completedState.searchedTypes.empty()) {
+            file(0)->ingestEvents(file(0)->events());
+            file(0)->recordSearch(completedState.searchedTypes,
+                                  completedState.searchedRange,
+                                  completedState.searchedHarmonics);
+            qDebug() << "[ON COMPLETED] Manifest recorded:"
+                     << completedState.searchedTypes.size() << "types,"
+                     << file(0)->events().size() << "events";
+        }
     }
     
     // Final restore attempt - if anchor can't be found now, it won't be found
@@ -3131,8 +3550,7 @@ Transits::onLocationChange()
 void
 Transits::findIt(const QString& val)
 {
-    auto sim = tvm();
-    if (!sim) return;
+    if (!_evm) return;
 
     for (const auto& item : _evm->match(_evm->index(0, 0),
                                         Qt::DisplayRole,
@@ -3140,8 +3558,10 @@ Transits::findIt(const QString& val)
                                         1,
                                         Qt::MatchExactly))
     {
-        ttv()->scrollTo(item);
-        ttv()->setExpanded(item, true);
+        auto proxyItem = _filterProxy->mapFromSource(item);
+        if (!proxyItem.isValid()) break;  // Filtered out
+        ttv()->scrollTo(proxyItem);
+        ttv()->setExpanded(proxyItem, true);
         break;
     }
 }
@@ -3189,7 +3609,7 @@ Transits::saveScrollPos()
 
     if (hasSelection && selectionVisible && !isScrollEvent) {
         // Selection anchor: preserve the selected row's position in viewport
-        A::HarmonicEvent currentEvent = _evm->rowData(cur);
+        A::HarmonicEvent currentEvent = _evm->rowData(_filterProxy->mapToSource(cur));
         
         // If we already have a Selection anchor for the same event, preserve its offset
         // This prevents offset drift when sorting/filtering without scrolling
@@ -3219,7 +3639,7 @@ Transits::saveScrollPos()
             // Scrolled up - use Bottom anchor
             QModelIndex bottom = ttv()->indexAt(ttv()->rect().bottomLeft());
             if (bottom.isValid()) {
-                _anchor.event = _evm->rowData(bottom);
+                _anchor.event = _evm->rowData(_filterProxy->mapToSource(bottom));
                 _anchor.type = AnchorType::Bottom;
                 _anchor.sortColumn = _evm->sortColumn();
                 _anchor.sortOrder = _evm->sortOrder();
@@ -3229,7 +3649,7 @@ Transits::saveScrollPos()
             // Scrolled down or other case - use Top anchor
             QModelIndex top = ttv()->indexAt(ttv()->rect().topLeft());
             if (top.isValid()) {
-                _anchor.event = _evm->rowData(top);
+                _anchor.event = _evm->rowData(_filterProxy->mapToSource(top));
                 _anchor.type = AnchorType::Top;
                 _anchor.sortColumn = _evm->sortColumn();
                 _anchor.sortOrder = _evm->sortOrder();
@@ -3270,7 +3690,9 @@ Transits::restoreScrollPos()
     }
     
     // Found the event - restore based on anchor type
-    QModelIndex targetIndex = _evm->index(targetRow, 0);
+    QModelIndex sourceIndex = _evm->index(targetRow, 0);
+    QModelIndex targetIndex = _filterProxy->mapFromSource(sourceIndex);
+    if (!targetIndex.isValid()) return;  // Filtered out — nothing to restore
     
     switch (_anchor.type) {
         case AnchorType::Selection:
@@ -3282,9 +3704,10 @@ Transits::restoreScrollPos()
             
             // Scroll to maintain the same visual offset from top
             if (_anchor.visibleRowOffset >= 0) {
-                int scrollToRow = targetRow - _anchor.visibleRowOffset;
-                if (scrollToRow >= 0) {
-                    QModelIndex scrollToIndex = _evm->index(scrollToRow, 0);
+                int proxyRow = targetIndex.row();
+                int scrollToProxyRow = proxyRow - _anchor.visibleRowOffset;
+                if (scrollToProxyRow >= 0) {
+                    QModelIndex scrollToIndex = _filterProxy->index(scrollToProxyRow, 0);
                     ttv()->scrollTo(scrollToIndex, QAbstractItemView::PositionAtTop);
                 } else {
                     ttv()->scrollTo(targetIndex, QAbstractItemView::PositionAtTop);
@@ -3321,7 +3744,11 @@ Transits::clickedCell(QModelIndex inx)
 {
     if (!inx.isValid()) return;
     if (!_evm) return;
-    if (inx.row() < 0 || inx.row() >= _evm->rowCount()) return;
+
+    // Map view (proxy) index to source model for _evm access
+    QModelIndex srcInx = _filterProxy->mapToSource(inx);
+    if (!srcInx.isValid()) return;
+    if (srcInx.row() < 0 || srcInx.row() >= _evm->rowCount()) return;
     
     // Inhibit filesUpdated → updateTransits for the ENTIRE duration of this
     // handler.  Several signals emitted below (updateHarmonics, updateFirst,
@@ -3391,15 +3818,19 @@ Transits::clickedCell(QModelIndex inx)
         return;
     }
 
-    // Re-validate row after potential model changes from signals above
-    if (inx.row() < 0 || inx.row() >= _evm->rowCount()) return;
+    // Re-map to source after potential parent promotion
+    srcInx = _filterProxy->mapToSource(inx);
+    if (!srcInx.isValid()) return;
 
-    auto    dt = _evm->rowDate(inx.row());
+    // Re-validate row after potential model changes from signals above
+    if (srcInx.row() < 0 || srcInx.row() >= _evm->rowCount()) return;
+
+    auto    dt = _evm->rowDate(srcInx.row());
     if (!dt.isValid()) return;
-    auto    ev = _evm->rowData(inx.row());
+    auto    ev = _evm->rowData(srcInx.row());
     auto    et = ev.eventType();
     QString desc;
-    if (focal.empty()) desc = _evm->rowDesc(inx.row());
+    if (focal.empty()) desc = _evm->rowDesc(srcInx.row());
     else {
         desc =
             inx.siblingAtColumn(EventsTableModel::harmonicCol).data().toString()
@@ -3441,11 +3872,21 @@ Transits::clickedCell(QModelIndex inx)
         if (shift.size() == focal.size()) focal.swap(shift);
 
         taf->suspendUpdate();
+        // Clear any manual timezone lock from the previous event so the new
+        // event uses the tab's default transit location, not a one-off override.
+        taf->setTimezoneLocked(false);
         if (clickHarmonic > 0)
             taf->setHarmonic(clickHarmonic);
         taf->setFocalPlanets(focal);
         taf->setName(desc);
         taf->setGMT(dt);
+        // Reset to the tab's default transit location so a manually-relocated
+        // previous event doesn't bleed its location into the next selection.
+        if (file(0)->hasTransitLocation()) {
+            taf->setLocation(file(0)->getTransitLocation());
+            taf->setLocationName(file(0)->getTransitLocationName());
+            taf->setTimezone((double) file(0)->getTransitTimezone());
+        }
         // Set file type and base chart based on event type
         // Base chart stores the natal chart relationship for all event types
         if (et == A::etcSolarReturn || et == A::etcLunarReturn
@@ -3483,14 +3924,17 @@ Transits::doubleClickedCell(QModelIndex inx)
 {
     if (!inx.isValid()) return;
     if (!_evm) return;
-    if (inx.row() < 0 || inx.row() >= _evm->rowCount()) return;
 
     //bool ctrl = (QApplication::keyboardModifiers() & Qt::ControlModifier);
     bool shift = (QApplication::keyboardModifiers() & Qt::ShiftModifier);
 
     auto par = inx.parent();
     if (par.isValid()) inx = par;
-    int row = inx.row();
+
+    // Map view (proxy) index to source model
+    QModelIndex srcInx = _filterProxy->mapToSource(inx);
+    if (!srcInx.isValid()) return;
+    int row = srcInx.row();
     if (row < 0 || row >= _evm->rowCount()) return;
     auto              dt   = _evm->rowDate(row);
     if (!dt.isValid()) return;
@@ -3836,7 +4280,12 @@ Transits::copySelection()
         QItemSelectionModel* sm   = _tview->selectionModel();
         QModelIndexList      qmil = sm->selectedIndexes();
         qDebug() << qmil;
-        QMimeData* md = sim->mimeData(qmil);
+        // Map proxy indices to source model indices for mimeData
+        QModelIndexList srcList;
+        srcList.reserve(qmil.size());
+        for (const auto& idx : qmil)
+            srcList.append(_filterProxy->mapToSource(idx));
+        QMimeData* md = sim->mimeData(srcList);
         if (md) {
             qDebug() << md->formats();
             cb->setMimeData(md);
@@ -3879,7 +4328,7 @@ Transits::clear()
 EventsTableModel*
 Transits::tvm() const
 {
-    return qobject_cast<EventsTableModel*>(_tview->model());
+    return _evm;
 }
 
 void
@@ -4048,8 +4497,11 @@ Transits::filesUpdated(MembersList m)
             _previousFile->setTransitPattern(_input->currentText());
         }
         
-        // Load event options from new file(0)
-        if (file(0)) {
+        // Load event options from new file(0) — only on actual tab switch.
+        // On same-file updates (e.g. file(1) location change) the per-tab
+        // state is already correct and quietClear() would destroy the
+        // current events list without repopulating it.
+        if (file(0) && fileChanged) {
             qDebug() << "[FILES UPDATED] Loading event options for file" << file(0)->getName();
             _tabEventOptions = file(0)->getTransitEventOptions();
             
@@ -4062,12 +4514,23 @@ Transits::filesUpdated(MembersList m)
 
             // Restore per-event-type harmonic restrictions
             if (_evm) {
+                // Clear stale event pointers before updating the filter proxy.
+                // The old file's HarmonicEvents may have been destroyed, and
+                // setEnabledEventTypes triggers filterAcceptsRow which would
+                // dereference dangling pointers in the source model.
+                // Use quietClear to avoid aboutToChange → saveScrollPos
+                // accessing the same dangling data.
+                _evm->quietClear();
+
                 _evm->setHarmonicRestrictions(
                     file(0)->getTransitHarmonicRestrictions());
             }
             
             // Update toolbar to reflect the loaded event options
             updateToolbarFromEventOptions();
+            
+            // Sync the proxy filter with the loaded event options
+            _filterProxy->setEnabledEventTypes(_tabEventOptions);
             
             // Restore per-tab pattern input field
             // Refresh combo items from global MRU before restoring per-tab text
@@ -4082,7 +4545,13 @@ Transits::filesUpdated(MembersList m)
             }
             _input->setCurrentText(file(0)->getTransitPattern());
             _lastUsedPattern = file(0)->getTransitPattern();
+            _filterProxy->setPatternActive(!_lastUsedPattern.isEmpty());
+            _filterProxy->setEnabledHarmonics(A::dynAspState());
+            _filterProxy->setSkipByDuration(A::EventOptions::current().skipByDuration);
             
+            _previousFile = file(0);
+        } else if (file(0) && !_previousFile) {
+            // First time seeing any file — initialize _previousFile
             _previousFile = file(0);
         }
     }  // ~guard restores _inhibitUpdate
@@ -4093,30 +4562,32 @@ Transits::filesUpdated(MembersList m)
 #endif
 
     // Restore date range from file(0) when switching tabs (BEFORE any updates)
-    QDate transitStart = file(0)->getTransitStartDate();
-    QString transitDuration = file(0)->getTransitDuration();
-    
-    // If no saved date range, initialize with defaults
-    if (transitStart.isNull() || transitDuration.isEmpty()) {
-        auto today = QDate::currentDate();
-        auto startOfMonth = QDate(today.year(), today.month(), 1);
-        QString defaultDuration = "1 mo";
+    if (fileChanged) {
+        QDate transitStart = file(0)->getTransitStartDate();
+        QString transitDuration = file(0)->getTransitDuration();
         
-        // Save defaults to file so it has its own state
-        file(0)->setTransitStartDate(startOfMonth);
-        file(0)->setTransitDuration(defaultDuration);
+        // If no saved date range, initialize with defaults
+        if (transitStart.isNull() || transitDuration.isEmpty()) {
+            auto today = QDate::currentDate();
+            auto startOfMonth = QDate(today.year(), today.month(), 1);
+            QString defaultDuration = "1 mo";
+            
+            // Save defaults to file so it has its own state
+            file(0)->setTransitStartDate(startOfMonth);
+            file(0)->setTransitDuration(defaultDuration);
+            
+            transitStart = startOfMonth;
+            transitDuration = defaultDuration;
+        }
         
-        transitStart = startOfMonth;
-        transitDuration = defaultDuration;
-    }
-    
-    // Always restore from file(0) to ensure each tab has independent dates
-    {
-        ASignalBlocker sb({_start, _duration, _end});
-        _start->setDate(transitStart);
-        _duration->setText(transitDuration);
-        _ddelta = ADateDelta::fromString(transitDuration);
-        _end->setDate(_ddelta.addTo(_start->date()));
+        // Always restore from file(0) to ensure each tab has independent dates
+        {
+            ASignalBlocker sb({_start, _duration, _end});
+            _start->setDate(transitStart);
+            _duration->setText(transitDuration);
+            _ddelta = ADateDelta::fromString(transitDuration);
+            _end->setDate(_ddelta.addTo(_start->date()));
+        }
     }
 
     while (m.size() < filesCount()) m.append(AstroFile::Member());
@@ -4207,18 +4678,54 @@ Transits::viewSettingsUpdated(MembersList m)
     // View settings that affect event calculation and require recalc
     bool any = false;
     bool needsRecalc = false;
+    bool aspectSetOnly = false;
     for (int fi = 0; fi < filesCount(); ++fi) {
         auto ml = m[fi];
         any |= (ml & (AstroFile::Zodiac | AstroFile::AspectSet
                       | AstroFile::AspectMode | AstroFile::HouseSystem));
         needsRecalc |= (ml & (AstroFile::Zodiac | AstroFile::AspectSet
                               | AstroFile::AspectMode | AstroFile::HouseSystem));
+        // Check if it's purely an AspectSet content change (dynAspState toggle)
+        // with no Zodiac/HouseSystem/AspectMode change
+        if ((ml & AstroFile::AspectSet)
+            && !(ml & (AstroFile::Zodiac | AstroFile::HouseSystem
+                       | AstroFile::AspectMode)))
+            aspectSetOnly = true;
     }
 
     qDebug() << "[TRANSITS viewSettingsUpdated] any=" << any << "needsRecalc=" << needsRecalc;
     if (any) {
         auto* evm = ensureEventsModel();
         if (!evm) return;
+
+        // Detect dynAspState-only change: the aspect set ID didn't change,
+        // only individual harmonics were toggled.  Try filter-only update.
+        if (aspectSetOnly && !_fileJustSwitched && _filterProxy) {
+            auto newHs = A::dynAspState();
+            auto oldHs = _filterProxy->enabledHarmonics();
+            bool sameSetId = (evm->aspects().id
+                              == file()->getAspectSetId());
+
+            if (sameSetId && newHs != oldHs) {
+                // Check if any newly-enabled harmonics lack events
+                bool needNewData = false;
+                for (unsigned h : newHs) {
+                    if (oldHs.count(h) == 0
+                        && !_filterProxy->sourceHasHarmonic(h)) {
+                        needNewData = true;
+                        break;
+                    }
+                }
+
+                if (!needNewData) {
+                    qDebug() << "[VIEW SETTINGS] dynAspState filter-only update";
+                    _filterProxy->setEnabledHarmonics(newHs);
+                    return;
+                }
+                qDebug() << "[VIEW SETTINGS] dynAspState change needs recompute"
+                         << "— new harmonics have no cached events";
+            }
+        }
 
         // When file(0) just changed (tab switch), the "All" diff flags from
         // a new file(1) include ViewSettings bits that look like Zodiac/
@@ -4260,6 +4767,7 @@ Transits::showEvent(QShowEvent* e)
     
     // Restore toolbar to match this tab's event options when becoming visible
     updateToolbarFromEventOptions();
+    _filterProxy->setEnabledEventTypes(_tabEventOptions);
 }
 
 void
@@ -4309,6 +4817,11 @@ Transits::applySettings(const AppSettings& s)
     // Get reference to global settings singleton
     A::EventOptions& curr(A::EventOptions::current());
 
+    // Check if skipByDuration changed — may be filter-only
+    auto newSkip = A::EventOptions::skipper(
+        s.value("Events/skipByDuration").toUInt());
+    bool skipChanged = (newSkip != curr.skipByDuration);
+
     // Check if any settings changed that would require recalculation
     bool changed =
         (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
@@ -4324,12 +4837,24 @@ Transits::applySettings(const AppSettings& s)
                 != curr.includeOnlyOuterTransitsToNatal
          || s.value("Events/limitLunarTransits").toBool()
                 != curr.limitLunarTransits
-         || A::EventOptions::skipper(s.value("Events/skipByDuration").toUInt())
-                != curr.skipByDuration
          || s.value("Events/includeAsteroids").toBool() != curr.includeAsteroids
          || s.value("Events/includeCentaurs").toBool() != curr.includeCentaurs
          || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
                 != curr.includeOnlyInnerProgressionsToNatal);
+
+    // skipByDuration: if the new level is >= the computed level (i.e., more
+    // restrictive or same), a proxy-filter update suffices.  Only when
+    // relaxing below the computed level do we need to recompute.
+    bool skipNeedsRecalc = false;
+    if (skipChanged) {
+        if (newSkip < _filterProxy->computedSkipLevel()) {
+            // Less restrictive — events below old threshold were never computed
+            skipNeedsRecalc = true;
+        }
+        // Either way, include in "changed" so the global opts get written
+        // and the proxy filter gets updated below
+    }
+    changed = changed || skipNeedsRecalc;
     bool changedExpanded =
         (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
          || s.value("Events/expandShowAspectPatterns").toBool()
@@ -4363,6 +4888,10 @@ Transits::applySettings(const AppSettings& s)
             file(0)->markEventsForRecalc();
             updateTransits();
         }
+    } else if (skipChanged) {
+        // skipByDuration changed but no recompute needed (more restrictive
+        // or same as computed level) — just update the proxy filter
+        _filterProxy->setSkipByDuration(curr.skipByDuration);
     } else if (changedExpanded) {
         // updateExpanded(); ?
     }

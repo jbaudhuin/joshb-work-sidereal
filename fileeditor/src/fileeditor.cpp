@@ -572,10 +572,15 @@ void AstroFileEditor::currentTabChanged(int index)
 {
     if (currentFile == index || index==-1) return;
     
-    // Save current file's data before switching tabs to preserve user edits
+    // Save current file's data before switching tabs to preserve user edits.
+    // Use resume=false so that this quiet save doesn't trigger recalculations
+    // (we're just preserving the UI state, not asking for a recompute).
+    // Then explicitly resume the file so it doesn't stay permanently suspended
+    // and block other handlers from receiving updates.
     int oldFile = currentFile;
     currentFile = oldFile;  // Temporarily keep currentFile pointing to old file
-    applyToFile(false, false);  // Save without setting needsSave flag or resuming update
+    applyToFile(false, false);  // Save without needsSave flag or triggering recalc
+    file(oldFile)->resumeUpdate();  // Unblock — don't leave file(0) suspended
     
     // Now switch to the new file
     currentFile = index;

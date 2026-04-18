@@ -1077,6 +1077,92 @@ EventStore::getEventUpdateScope(EventScope evscope, EventUpdateType uptype)
     return { out, it->events };
 }
 
+// ---------------------------------------------------------------------------
+// Manifest API
+// ---------------------------------------------------------------------------
+
+bool
+EventStore::wasSearched(unsigned eventType) const
+{
+    auto it = find(eventType);
+    return it != end() && it->searched;
+}
+
+bool
+EventStore::wasSearched(unsigned eventType, const ADateRange& range) const
+{
+    auto it = find(eventType);
+    if (it == end() || !it->searched) return false;
+    for (auto& r : it->ranges) {
+        if (r.first <= range.first && r.second >= range.second)
+            return true;
+    }
+    return false;
+}
+
+EventTypeSet
+EventStore::searchedTypes() const
+{
+    EventTypeSet result;
+    for (auto it = begin(); it != end(); ++it) {
+        if (it->searched)
+            result.insert(static_cast<EventType>(it.key()));
+    }
+    return result;
+}
+
+EventTypeSet
+EventStore::missingTypes(const EventTypeSet& wanted) const
+{
+    EventTypeSet result;
+    for (auto et : wanted) {
+        if (!wasSearched(static_cast<unsigned>(et)))
+            result.insert(et);
+    }
+    return result;
+}
+
+void
+EventStore::recordSearch(const EventTypeSet& types,
+                         const ADateRange&   range,
+                         const uintSSet&     harmonics)
+{
+    for (auto et : types) {
+        auto key = static_cast<unsigned>(et);
+        auto it  = find(key);
+        if (it == end()) {
+            it = insert(key, {});
+        }
+        it->searched = true;
+        it->ranges.insert(range);
+        it->harmonics.insert(harmonics.begin(), harmonics.end());
+    }
+}
+
+void
+EventStore::clearManifest()
+{
+    for (auto it = begin(); it != end(); ++it) {
+        it->searched = false;
+        it->ranges.clear();
+        it->harmonics.clear();
+        it->events.clear();
+    }
+}
+
+void
+EventStore::ingestEvents(const HarmonicEvents& evs)
+{
+    for (auto& ev : evs) {
+        auto key = static_cast<unsigned>(ev.eventType());
+        auto it  = find(key);
+        if (it == end()) {
+            it = insert(key, {});
+        }
+        it->events.push_back(ev);
+    }
+}
+
 double
 Planet::getPrefPos() const
 {

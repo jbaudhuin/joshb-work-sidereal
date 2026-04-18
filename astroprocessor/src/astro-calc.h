@@ -102,6 +102,31 @@ class modalize {
     }
 };
 
+/// RAII thread_local context.  Establishes a shared value that consumers
+/// can query via active() / current().  Falls back gracefully when no
+/// context is set (consumers must check active() first).
+template <typename T>
+class context {
+    static thread_local T* _current;
+    T                      _data;
+
+  public:
+    explicit context(T data) : _data(std::move(data))
+    {
+        _current = &_data;
+    }
+    ~context() { _current = nullptr; }
+
+    context(const context&)            = delete;
+    context& operator=(const context&) = delete;
+
+    static bool     active() { return _current != nullptr; }
+    static const T& current() { return *_current; }
+};
+
+template <typename T>
+thread_local T* context<T>::_current = nullptr;
+
 enum aspectModeEnum {
     amcUnknown = -1,
     amcGreatCircle,
@@ -239,6 +264,50 @@ struct EoTInfo {
 EoTInfo
 computeEoT(const QDateTime& utcDt, double geolon,
            CalendarType calType = Cal_Auto);
+
+// ---------------------------------------------------------------------------
+// Ex-precession: shift natal equatorial positions to a transit epoch
+// ---------------------------------------------------------------------------
+
+/// Cached natal-epoch values shared across all ex-precessed positions
+/// for the same natal chart.  Used with context<ExprecessNatalEpoch>.
+struct ExprecessNatalEpoch {
+    double jdNatal;
+    double obliquity;   ///< Mean obliquity at natal JD (degrees)
+    double ayanamsa;    ///< Ayanamsa at natal JD (degrees)
+};
+
+/// Result of a single ex-precession computation.
+struct ExprecessedEquatorial {
+    double ra;          ///< Ex-precessed RA at target epoch (degrees)
+    double dec;         ///< Ex-precessed declination at target epoch (degrees)
+    double raSpeed;     ///< dRA/dt at target epoch (degrees/day)
+    double decSpeed;    ///< dDec/dt at target epoch (degrees/day)
+};
+
+/// Compute ex-precessed RA/Dec and their rates at jd_t2, given natal
+/// RA/Dec at jd_t1.  Uses pre-cached natal-epoch ecliptic coordinates
+/// to avoid redundant conversions.
+///
+/// If a context<ExprecessNatalEpoch> is active AND its jdNatal matches
+/// jd_t1, the cached obliquity/ayanamsa are used; otherwise they are
+/// computed from scratch.
+ExprecessedEquatorial
+exprecess_equatorial(double ra_t1_deg,
+                     double dec_t1_deg,
+                     double eclLon_t1_deg,
+                     double eclLat_t1_deg,
+                     double jd_t1,
+                     double jd_t2,
+                     double dt_days = 0.01);
+
+/// Convenience overload: computes natal ecliptic coords internally.
+ExprecessedEquatorial
+exprecess_equatorial(double ra_t1_deg,
+                     double dec_t1_deg,
+                     double jd_t1,
+                     double jd_t2,
+                     double dt_days = 0.01);
 
 float
 roundDegree(float deg); // returns 0...360
@@ -793,6 +862,9 @@ class AspectFinder : public QObject, public EventOptions {
     bool             _patternMode = false; ///< true when initialized via pattern (not toolbar)
     unsigned         _evType = etcUnknownEvent;
 
+    ExprecessNatalEpoch _exprecessCtx {};    ///< cached natal-epoch values for ex-precession
+    bool                _hasExprecessCtx = false; ///< true when equatorial mode with natal file
+
     friend class PairAspectFinder;
     friend class TaskTracker;
 
@@ -897,7 +969,7 @@ findClusters(unsigned             h,
 PlanetClusterMap
 findClusters(unsigned                h,
              double                  jd,
-             const PlanetProfile&    prof,
+             PlanetProfile&          prof,
              const QList<InputData>& ids,
              unsigned                quorum,
              const PlanetSet&        need         = {},
@@ -917,13 +989,15 @@ findClusters(const uintSSet&      hs,
 qreal
 computeSpread(unsigned                h,
               double                  jd,
-              const PlanetProfile&    prof,
+              PlanetProfile&          prof,
               const QList<InputData>& ids);
 
 inline qreal
 computeSpread(unsigned h, const PlanetProfile& prof)
 {
-    return computeSpread(h, 0, prof, {});
+    // jd=0, ids={} → all bodies use cached _rasiLoc (no mutation)
+    auto& mprof = const_cast<PlanetProfile&>(prof);
+    return computeSpread(h, 0, mprof, {});
 }
 
 Planet

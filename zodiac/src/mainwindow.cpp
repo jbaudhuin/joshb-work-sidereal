@@ -1,4 +1,5 @@
 ﻿#include <QActionGroup>
+#include <QContextMenuEvent>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QMouseEvent>
@@ -1530,6 +1531,15 @@ FileTreeView::mousePressEvent(QMouseEvent* event)
 }
 
 void
+FileTreeView::contextMenuEvent(QContextMenuEvent* event)
+{
+    qDebug() << ">>> FileTreeView::contextMenuEvent fired at" << event->pos()
+             << "global:" << event->globalPos();
+    database->showContextMenu(event->globalPos());
+    event->accept();
+}
+
+void
 FileTreeView::startDrag(Qt::DropActions supportedActions)
 {
     // Start the drag but DON'T call the base implementation
@@ -1758,7 +1768,6 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
 
     search->setPlaceholderText(tr("Search"));
     setMinimumWidth(200);
-    setContextMenuPolicy(Qt::CustomContextMenu);
     setWindowTitle(tr("Database"));
     setWindowFlags(Qt::WindowStaysOnTopHint);
 
@@ -1771,10 +1780,6 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
     layout->addWidget(fileList);
 
     connect(refresh, SIGNAL(clicked()), this, SLOT(updateList()));
-    connect(this,
-            SIGNAL(customContextMenuRequested(QPoint)),
-            this,
-            SLOT(showContextMenu(QPoint)));
     connect(fileList,
             SIGNAL(doubleClicked(QModelIndex)),
             this,
@@ -2560,78 +2565,90 @@ AstroDatabase::openSelectedSolarReturnInNewTab()
 }
 
 void
-AstroDatabase::showContextMenu(QPoint p)
+AstroDatabase::showContextMenu(QPoint pos)
 {
-    QPoint pos = ((QWidget*) sender())->mapToGlobal(p);
+    qDebug() << ">>> showContextMenu called, global pos:" << pos;
 
-    p        = fileList->mapFromGlobal(pos);
-    auto proxyIndex = fileList->indexAt(p);
-    if (!proxyIndex.isValid()) return;
+    // pos is in global coordinates; convert to viewport for indexAt()
+    QPoint vp       = fileList->viewport()->mapFromGlobal(pos);
+    qDebug() << "    viewport pos:" << vp;
+    auto proxyIndex = fileList->indexAt(vp);
+    if (!proxyIndex.isValid()) {
+        qDebug() << "    BAIL: proxyIndex not valid at viewport pos" << vp;
+        return;
+    }
 
-    qDebug() << proxyIndex << proxyIndex.data() << proxyIndex.data(TypeRole);
+    qDebug() << "    proxyIndex:" << proxyIndex << proxyIndex.data() << "TypeRole:" << proxyIndex.data(TypeRole);
     auto qmi = searchProxy->mapToSource(proxyIndex);
-    qDebug() << qmi;
+    qDebug() << "    sourceIndex:" << qmi;
 
     auto item = dirModel->itemFromIndex(qmi);
-    if (!item) return;
+    if (!item) {
+        qDebug() << "    BAIL: item is null";
+        return;
+    }
 
-    // Analyze selection to determine menu type
+    auto type = entryType(item->data(TypeRole).toUInt());
+
+    // For multi-select operations (sessions, files), check the selection model.
+    // For single-item operations (directories), we just use the clicked item.
     QItemSelectionModel* sm = fileList->selectionModel();
-    if (!sm || !sm->hasSelection()) return;
+    bool hasSelection       = sm && sm->hasSelection();
     
-    int sessionCount = 0;
-    int fileCount = 0;
-    int dirCount = 0;
+    if (hasSelection) {
+        int sessionCount = 0;
+        int fileCount    = 0;
+        int dirCount     = 0;
     
-    for (const auto& mi : sm->selectedIndexes()) {
-        auto sourceIndex = searchProxy->mapToSource(mi);
-        auto selectedItem = dirModel->itemFromIndex(sourceIndex);
-        if (!selectedItem) continue;
+        for (const auto& mi : sm->selectedIndexes()) {
+            auto sourceIndex  = searchProxy->mapToSource(mi);
+            auto selectedItem = dirModel->itemFromIndex(sourceIndex);
+            if (!selectedItem) continue;
         
-        auto selectedType = entryType(selectedItem->data(TypeRole).toUInt());
-        if (selectedType == sessionType) {
-            sessionCount++;
-        } else if (selectedType == fileType) {
-            fileCount++;
-        } else if (selectedType == dirType) {
-            dirCount++;
+            auto selectedType = entryType(selectedItem->data(TypeRole).toUInt());
+            if (selectedType == sessionType) {
+                sessionCount++;
+            } else if (selectedType == fileType) {
+                fileCount++;
+            } else if (selectedType == dirType) {
+                dirCount++;
+            }
+        }
+    
+        // Don't show menu for mixed selection types
+        if ((sessionCount > 0 && fileCount > 0) || 
+            (sessionCount > 0 && dirCount > 0) || 
+            (fileCount > 0 && dirCount > 0)) {
+            qDebug() << "Mixed selection detected, no context menu";
+            return;
+        }
+    
+        // Handle session-specific menu
+        if (sessionCount > 0) {
+            QMenu* mnu = new QMenu(this);
+        
+            // "Open in new window" - only for single session
+            QAction* openNewWindowAction = mnu->addAction(tr("Open in new window"), this, SLOT(openSessionInNewWindow()));
+            openNewWindowAction->setEnabled(sessionCount == 1);
+        
+            // "Load in current" - works with multiple sessions
+            mnu->addAction(tr("Load in current"), this, SLOT(loadSessionsInCurrent()));
+        
+            mnu->addSeparator();
+        
+            // "Rename..." - only for single session
+            QAction* renameAction = mnu->addAction(tr("Rename..."), this, SLOT(renameSession()));
+            renameAction->setEnabled(sessionCount == 1);
+        
+            // "Delete" - works with multiple sessions
+            mnu->addAction(QIcon("style/delete.png"), tr("Delete"), this, SLOT(deleteSessions()));
+        
+            mnu->exec(pos);
+            mnu->deleteLater();
+            return;
         }
     }
-    
-    // Don't show menu for mixed selection types
-    if ((sessionCount > 0 && fileCount > 0) || 
-        (sessionCount > 0 && dirCount > 0) || 
-        (fileCount > 0 && dirCount > 0)) {
-        qDebug() << "Mixed selection detected, no context menu";
-        return;
-    }
-    
-    // Handle session-specific menu
-    if (sessionCount > 0) {
-        QMenu* mnu = new QMenu(this);
-        
-        // "Open in new window" - only for single session
-        QAction* openNewWindowAction = mnu->addAction(tr("Open in new window"), this, SLOT(openSessionInNewWindow()));
-        openNewWindowAction->setEnabled(sessionCount == 1);
-        
-        // "Load in current" - works with multiple sessions
-        mnu->addAction(tr("Load in current"), this, SLOT(loadSessionsInCurrent()));
-        
-        mnu->addSeparator();
-        
-        // "Rename..." - only for single session
-        QAction* renameAction = mnu->addAction(tr("Rename..."), this, SLOT(renameSession()));
-        renameAction->setEnabled(sessionCount == 1);
-        
-        // "Delete" - works with multiple sessions
-        mnu->addAction(QIcon("style/delete.png"), tr("Delete"), this, SLOT(deleteSessions()));
-        
-        mnu->exec(pos);
-        mnu->deleteLater();
-        return;
-    }
-    
-    auto type = entryType(item->data(TypeRole).toUInt());
+
     if (type != dirType && type != fileType) return;
 
     QMenu* mnu = new QMenu(this);

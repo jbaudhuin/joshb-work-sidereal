@@ -10,6 +10,7 @@
 #define min min
 
 #include <math.h>
+#include <cmath>
 #include <tuple>
 
 #include <boost/math/tools/minima.hpp>
@@ -30,8 +31,7 @@
 
 using namespace boost::math::tools;
 
-namespace A
-{
+namespace A {
 
 static QString angleDesc[] = { "asc", "desc", "mc", "ic" };
 
@@ -163,6 +163,452 @@ getUTfromET(double et, CalendarType calType = Cal_Auto)
                   serr);
 
     return ret[1];
+}
+
+constexpr double DEG_TO_RAD = M_PI / 180.0;
+constexpr double RAD_TO_DEG = 180.0 / M_PI;
+
+// ------------------------------------------------------------
+// Convert equatorial → ecliptic coordinates
+// ------------------------------------------------------------
+static void
+equatorialToEcliptic(double  ra_deg,
+                     double  dec_deg,
+                     double  obliquity_deg,
+                     double& eclLon_deg,
+                     double& eclLat_deg)
+{
+    double ra  = ra_deg  * DEG_TO_RAD;
+    double dec = dec_deg * DEG_TO_RAD;
+    double eps = obliquity_deg * DEG_TO_RAD;
+
+    double sinLat = sin(dec) * cos(eps) - cos(dec) * sin(eps) * sin(ra);
+    eclLat_deg = asin(sinLat) * RAD_TO_DEG;
+
+    double y = sin(ra) * cos(eps) + tan(dec) * sin(eps);
+    double x = cos(ra);
+    eclLon_deg = atan2(y, x) * RAD_TO_DEG;
+
+    if (eclLon_deg < 0)
+        eclLon_deg += 360.0;
+}
+
+// ------------------------------------------------------------
+// Convert ecliptic → equatorial coordinates
+// ------------------------------------------------------------
+static void
+eclipticToEquatorial(double  eclLon_deg,
+                     double  eclLat_deg,
+                     double  obliquity_deg,
+                     double& ra_deg,
+                     double& dec_deg)
+{
+    double lon = eclLon_deg * DEG_TO_RAD;
+    double lat = eclLat_deg * DEG_TO_RAD;
+    double eps = obliquity_deg * DEG_TO_RAD;
+
+    double sinDec = sin(lat) * cos(eps) + cos(lat) * sin(eps) * sin(lon);
+    dec_deg = asin(sinDec) * RAD_TO_DEG;
+
+    double y = sin(lon) * cos(eps) - tan(lat) * sin(eps);
+    double x = cos(lon);
+    ra_deg = atan2(y, x) * RAD_TO_DEG;
+
+    if (ra_deg < 0)
+        ra_deg += 360.0;
+}
+
+// ------------------------------------------------------------
+// Internal: ex-precess ecliptic longitude from t1 to t2, return
+// RA/Dec at t2.  Reuses pre-computed natal ecliptic coordinates
+// and (optionally) cached natal-epoch obliquity/ayanamsa.
+// ------------------------------------------------------------
+static std::pair<double, double>
+exprecess_core(double eclLon_t1_deg,
+               double eclLat_t1_deg,
+               double ayanamsa_t1,
+               double obliquity_t2_deg,
+               double ayanamsa_t2)
+{
+    double deltaAyanamsa = ayanamsa_t2 - ayanamsa_t1;
+
+    double eclLon_t2 = eclLon_t1_deg + deltaAyanamsa;
+    if (eclLon_t2 < 0)     eclLon_t2 += 360.0;
+    if (eclLon_t2 >= 360.0) eclLon_t2 -= 360.0;
+
+    double ra_t2, dec_t2;
+    eclipticToEquatorial(eclLon_t2, eclLat_t1_deg,
+                         obliquity_t2_deg, ra_t2, dec_t2);
+    return { ra_t2, dec_t2 };
+}
+
+// ------------------------------------------------------------
+// Unified ex-precession: position + rate in one call.
+// Primary overload — accepts pre-computed natal ecliptic coords.
+// Uses context<ExprecessNatalEpoch> when available.
+// ------------------------------------------------------------
+ExprecessedEquatorial
+exprecess_equatorial(double ra_t1_deg,
+                     double dec_t1_deg,
+                     double eclLon_t1_deg,
+                     double eclLat_t1_deg,
+                     double jd_t1,
+                     double jd_t2,
+                     double dt_days /*= 0.01*/)
+{
+    double xx[6];
+    char   serr[256];
+
+    // --- Natal-epoch values (from context or computed) ---
+    double ayanamsa_t1;
+    if (context<ExprecessNatalEpoch>::active()
+        && context<ExprecessNatalEpoch>::current().jdNatal == jd_t1)
+    {
+        ayanamsa_t1 = context<ExprecessNatalEpoch>::current().ayanamsa;
+    } else {
+        ayanamsa_t1 = swe_get_ayanamsa(jd_t1);
+    }
+
+    // --- Target-epoch values ---
+    swe_calc(jd_t2, SE_ECL_NUT, 0, xx, serr);
+    double obliquity_t2 = xx[0];
+    double ayanamsa_t2  = swe_get_ayanamsa(jd_t2);
+
+    // --- Position at t2 ---
+    auto [ra_t2, dec_t2] = exprecess_core(
+        eclLon_t1_deg, eclLat_t1_deg,
+        ayanamsa_t1, obliquity_t2, ayanamsa_t2);
+
+    // --- Position at t2+dt (for numerical derivative) ---
+    double jd_t2dt = jd_t2 + dt_days;
+    swe_calc(jd_t2dt, SE_ECL_NUT, 0, xx, serr);
+    double obliquity_t2dt = xx[0];
+    double ayanamsa_t2dt  = swe_get_ayanamsa(jd_t2dt);
+
+    auto [ra_t2dt, dec_t2dt] = exprecess_core(
+        eclLon_t1_deg, eclLat_t1_deg,
+        ayanamsa_t1, obliquity_t2dt, ayanamsa_t2dt);
+
+    // --- Numerical derivatives (deg/day) ---
+    double dra = ra_t2dt - ra_t2;
+    if (dra > 180.0)  dra -= 360.0;
+    if (dra < -180.0) dra += 360.0;
+
+    return { ra_t2, dec_t2, dra / dt_days, (dec_t2dt - dec_t2) / dt_days };
+}
+
+// ------------------------------------------------------------
+// Convenience overload: computes natal ecliptic coords internally.
+// ------------------------------------------------------------
+ExprecessedEquatorial
+exprecess_equatorial(double ra_t1_deg,
+                     double dec_t1_deg,
+                     double jd_t1,
+                     double jd_t2,
+                     double dt_days /*= 0.01*/)
+{
+    double xx[6];
+    char   serr[256];
+
+    // Get natal obliquity (from context or computed)
+    double obliquity_t1;
+    if (context<ExprecessNatalEpoch>::active()
+        && context<ExprecessNatalEpoch>::current().jdNatal == jd_t1)
+    {
+        obliquity_t1 = context<ExprecessNatalEpoch>::current().obliquity;
+    } else {
+        swe_calc(jd_t1, SE_ECL_NUT, 0, xx, serr);
+        obliquity_t1 = xx[0];
+    }
+
+    double eclLon_t1, eclLat_t1;
+    equatorialToEcliptic(ra_t1_deg, dec_t1_deg, obliquity_t1,
+                         eclLon_t1, eclLat_t1);
+
+    return exprecess_equatorial(
+        ra_t1_deg, dec_t1_deg,
+        eclLon_t1, eclLat_t1,
+        jd_t1, jd_t2, dt_days);
+}
+
+// ------------------------------------------------------------
+// Legacy wrappers (kept for backward compatibility)
+// ------------------------------------------------------------
+std::tuple<double, double>
+exprecess_ra_dec_swe(double ra_t1_deg,
+                     double dec_t1_deg,
+                     double jd_t1,
+                     double jd_t2)
+{
+    auto r = exprecess_equatorial(ra_t1_deg, dec_t1_deg, jd_t1, jd_t2);
+    return { r.ra, r.dec };
+}
+
+std::tuple<double, double>
+exprecess_ra_dec_rate_swe(double ra_t1_deg,
+                          double dec_t1_deg,
+                          double jd_t1,
+                          double jd_t,
+                          double dt_days = 0.01)
+{
+    auto r = exprecess_equatorial(ra_t1_deg, dec_t1_deg, jd_t1, jd_t, dt_days);
+    return { r.raSpeed, r.decSpeed };
+}
+
+// ---------------------------------------------------------------------------
+// NatalExprecessedPosition — constructor and operator()
+// ---------------------------------------------------------------------------
+
+NatalExprecessedPosition::NatalExprecessedPosition(
+    const ChartPlanetId& cpid,
+    const InputData&     ida,
+    const QString&       tag) :
+    NatalPosition(cpid, ida, tag)
+{
+    // Base NatalPosition already called compute(ida), set _rasiLoc & speed=0.
+
+    // 2. Get natal JD
+    _jdNatal = getJulianDate(ida.GMT(), false, ida.calendarType());
+
+    // 3. Get natal obliquity (needed by both planets and angles)
+    double xx[6];
+    char   errStr[256];
+    double obliquity_t1;
+    if (context<ExprecessNatalEpoch>::active()
+        && context<ExprecessNatalEpoch>::current().jdNatal == _jdNatal)
+    {
+        obliquity_t1 = context<ExprecessNatalEpoch>::current().obliquity;
+    } else {
+        swe_calc(_jdNatal, SE_ECL_NUT, 0, xx, errStr);
+        obliquity_t1 = xx[0];
+    }
+
+    const PlanetId pid = cpid.planetId();
+
+    // ---------------------------------------------------------------
+    // [ANGLE_PRECESSION] Cardinal angles (Asc, IC, Desc, MC):
+    // sweNum = 0 for angles, so swe_calc_ut would give the Sun's
+    // position.  Instead, compute tropical houses and derive the
+    // angle's true RA/Dec from its ecliptic longitude (lat = 0).
+    // If this approach is wrong, search for ANGLE_PRECESSION to
+    // find every related site and revert.
+    // ---------------------------------------------------------------
+    if (pid >= Angles_Start && pid < Angles_End) {
+        double cusps[14], ascmc[11];
+        swe_houses_ex(_jdNatal,
+                      SEFLG_SWIEPH,   // always tropical
+                      ida.location().y(),
+                      ida.location().x(),
+                      'C',
+                      cusps,
+                      ascmc);
+
+        switch (pid) {
+        case Planet_Asc:  _eclLon = ascmc[0]; break;
+        case Planet_MC:   _eclLon = ascmc[1]; break;
+        case Planet_Desc: _eclLon = swe_degnorm(ascmc[0] + 180.); break;
+        case Planet_IC:   _eclLon = swe_degnorm(ascmc[1] + 180.); break;
+        default:          _eclLon = 0; break; // unreachable
+        }
+        _eclLat = 0.0;
+
+        eclipticToEquatorial(_eclLon, 0.0, obliquity_t1,
+                             _natalRA, _natalDec);
+    } else {
+        // 4. True planets: get natal RA/Dec via SWE (equatorial, tropical)
+        const Planet& p = getPlanet(pid);
+        uint          flags = (SEFLG_SWIEPH | p.sweFlags | SEFLG_EQUATORIAL
+                               | SEFLG_SPEED)
+                     & ~SEFLG_TRUEPOS & ~SEFLG_SIDEREAL;
+        swe_calc_ut(_jdNatal, p.sweNum, flags, xx, errStr);
+
+        _natalRA  = xx[0];
+        _natalDec = xx[1];
+
+        if (pid == Planet_SouthNode) {
+            _natalRA  = swe_degnorm(_natalRA + 180.);
+            _natalDec = -_natalDec;
+        }
+
+        // 5. Compute natal ecliptic lon/lat (cached for the NR loop)
+        equatorialToEcliptic(_natalRA, _natalDec, obliquity_t1,
+                             _eclLon, _eclLat);
+    }
+
+    // 6. At construction time, the position is the natal RA (no precession)
+    //    Speed is zero (will be recomputed in operator())
+    speed = 0;
+}
+
+qreal
+NatalExprecessedPosition::operator()(double jd, int h)
+{
+    auto ep = exprecess_equatorial(
+        _natalRA, _natalDec,
+        _eclLon, _eclLat,
+        _jdNatal, jd);
+
+    loc = ep.ra;
+    // Negate speed: computeDelta uses (a.speed + b.speed) as derivative
+    // of (b - a), so natal body's speed contribution must be -d(loc)/dt.
+    speed = -ep.raSpeed;
+
+    _rasiLoc = loc;
+    if (h > 1) {
+        loc = fmod(loc * h, 360.);
+        speed *= h;
+    }
+    return loc;
+}
+
+// ---------------------------------------------------------------------------
+// Horoscope::applyExprecession / clearExprecession
+// ---------------------------------------------------------------------------
+
+void
+Horoscope::applyExprecession(double targetJD)
+{
+    if (_exprecessApplied) clearExprecession();
+
+    double natalJD = getJulianDate(inputData.GMT(), false,
+                                   inputData.calendarType());
+
+    // ------------------------------------------------------------------
+    // Pre-compute natal-epoch obliquity + ayanamsa for angle precession.
+    // [ANGLE_PRECESSION] — see breadcrumb comments below.
+    // ------------------------------------------------------------------
+    double xx_ep[6];
+    char   serr_ep[256];
+    swe_calc(natalJD, SE_ECL_NUT, 0, xx_ep, serr_ep);
+    double obliquity_natal = xx_ep[0];
+    double ayanamsa_natal  = swe_get_ayanamsa(natalJD);
+
+    // Save and replace planet equatorial coordinates.
+    for (auto it = planets.begin(); it != planets.end(); ++it) {
+
+        // House cusps (id >= Angles_End): skip entirely — their
+        // equatorialPos is a copy of eclipticPos, not true RA/Dec.
+        if (it.key() >= Angles_End) continue;
+
+        // --- True planets (id < Angles_Start): full ex-precession ---
+        Planet& p = it.value();
+        _savedPlanetEq[it.key()] = { p.equatorialPos, p.equatorialSpeed };
+
+        auto ep = exprecess_equatorial(
+            p.equatorialPos.x(), p.equatorialPos.y(),
+            natalJD, targetJD);
+
+        p.equatorialPos.setX(ep.ra);
+        p.equatorialPos.setY(ep.dec);
+        p.equatorialSpeed.setX(ep.raSpeed);
+        p.equatorialSpeed.setY(ep.decSpeed);
+
+        // Also update planetsOrig so that findClusters (via PlanetProfile)
+        // sees ex-precessed equatorial positions.
+        if (planetsOrig.contains(it.key())) {
+            planetsOrig[it.key()].equatorialPos   = p.equatorialPos;
+            planetsOrig[it.key()].equatorialSpeed  = p.equatorialSpeed;
+        }
+    }
+
+    // Save and replace star equatorial coordinates
+    for (auto it = stars.begin(); it != stars.end(); ++it) {
+        Star& s = it.value();
+        _savedStarEq[it.key()] = { s.equatorialPos, {} };
+
+        auto ep = exprecess_equatorial(
+            s.equatorialPos.x(), s.equatorialPos.y(),
+            natalJD, targetJD);
+
+        s.equatorialPos.setX(ep.ra);
+        s.equatorialPos.setY(ep.dec);
+    }
+
+    // [ANGLE_PRECESSION] Precess houses.RAAC / RAMC / RADC so the chart
+    // widget draws axis lines at the precessed positions.
+    //
+    // Angles are NOT in the planets map — they live only in the Houses
+    // struct.  We take each angle's ecliptic longitude (houses.Asc,
+    // houses.MC), convert to tropical if sidereal, derive natal RA/Dec,
+    // then run the full exprecess_equatorial() pipeline with eclLat = 0.
+    //
+    // If this approach is wrong, search for ANGLE_PRECESSION to find
+    // every related site and revert.
+    _savedRAAC = houses.RAAC;
+    _savedRAMC = houses.RAMC;
+    _savedRADC = houses.RADC;
+    {
+        // --- Ascendant ---
+        double ascTrop = houses.Asc;
+        if (inputData.zodiac() > 1)
+            ascTrop = swe_degnorm(ascTrop + ayanamsa_natal);
+        double ascRA, ascDec;
+        eclipticToEquatorial(ascTrop, 0.0, obliquity_natal, ascRA, ascDec);
+        auto epAsc = exprecess_equatorial(
+            ascRA, ascDec, ascTrop, 0.0, natalJD, targetJD);
+        houses.RAAC = epAsc.ra;
+
+        // --- Descendant (Asc + 180) ---
+        double descTrop = swe_degnorm(ascTrop + 180.0);
+        double descRA, descDec;
+        eclipticToEquatorial(descTrop, 0.0, obliquity_natal, descRA, descDec);
+        auto epDesc = exprecess_equatorial(
+            descRA, descDec, descTrop, 0.0, natalJD, targetJD);
+        houses.RADC = epDesc.ra;
+
+        // --- MC ---
+        double mcTrop = houses.MC;
+        if (inputData.zodiac() > 1)
+            mcTrop = swe_degnorm(mcTrop + ayanamsa_natal);
+        double mcRA, mcDec;
+        eclipticToEquatorial(mcTrop, 0.0, obliquity_natal, mcRA, mcDec);
+        auto epMC = exprecess_equatorial(
+            mcRA, mcDec, mcTrop, 0.0, natalJD, targetJD);
+        houses.RAMC = epMC.ra;
+    }
+
+    qDebug() << "[ANGLE_PRECESSION] applyExprecession:"
+             << "RAAC" << _savedRAAC << "->" << houses.RAAC
+             << "RAMC" << _savedRAMC << "->" << houses.RAMC;
+
+    _exprecessApplied = true;
+}
+
+void
+Horoscope::clearExprecession()
+{
+    if (!_exprecessApplied) return;
+
+    for (auto it = _savedPlanetEq.constBegin();
+         it != _savedPlanetEq.constEnd(); ++it)
+    {
+        if (planets.contains(it.key())) {
+            planets[it.key()].equatorialPos   = it.value().pos;
+            planets[it.key()].equatorialSpeed  = it.value().speed;
+        }
+        if (planetsOrig.contains(it.key())) {
+            planetsOrig[it.key()].equatorialPos   = it.value().pos;
+            planetsOrig[it.key()].equatorialSpeed  = it.value().speed;
+        }
+    }
+
+    for (auto it = _savedStarEq.constBegin();
+         it != _savedStarEq.constEnd(); ++it)
+    {
+        if (stars.contains(it.key())) {
+            stars[it.key()].equatorialPos = it.value().pos;
+        }
+    }
+
+    _savedPlanetEq.clear();
+    _savedStarEq.clear();
+
+    // [ANGLE_PRECESSION] Restore natal-epoch house RA values.
+    houses.RAAC = _savedRAAC;
+    houses.RAMC = _savedRAMC;
+    houses.RADC = _savedRADC;
+
+    _exprecessApplied = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -736,6 +1182,15 @@ calculatePlanet(PlanetId         planet,
         ret.equatorialPos.setY(xx[1]);
         ret.equatorialSpeed.setX(xx[3]);
         ret.equatorialSpeed.setY(xx[4]);
+
+        // SWE returns North Node's equatorial coords for both nodes;
+        // mirror RA by 180° and negate declination for the South Node.
+        if (ret.id == Planet_SouthNode) {
+            ret.equatorialPos.setX(swe_degnorm(xx[0] + 180.));
+            ret.equatorialPos.setY(-xx[1]);
+            ret.equatorialSpeed.setX(xx[3]);
+            ret.equatorialSpeed.setY(-xx[4]);
+        }
     }
 
     return ret;
@@ -3970,6 +4425,17 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
             locus = i, trans = true;
     }
 
+    // Cache natal-epoch values for ex-precession context (equatorial mode)
+    if (natal && aspectMode == amcEquatorial) {
+        double xx[6];
+        char   errStr[256];
+        swe_calc(njd, SE_ECL_NUT, 0, xx, errStr);
+        _exprecessCtx.jdNatal   = njd;
+        _exprecessCtx.obliquity = xx[0];
+        _exprecessCtx.ayanamsa  = swe_get_ayanamsa(njd);
+        _hasExprecessCtx        = true;
+    }
+
     QVector<ZodiacSign> signs = getZodiac(_ids[0].zodiac()).signs.toVector();
 
     auto getIngress = [&](PlanetId ingr, bool forward = true) {
@@ -4005,7 +4471,15 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
             ChartPlanetId cpid(natus, pid, Planet_None);
             if (!natalIndex.contains(cpid)) {
                 natalIndex[cpid] = _alist.size();
-                auto pl          = new NatalPosition(cpid, _ids[natus], "r");
+                NatalPosition* pl;
+                // [ANGLE_PRECESSION] Angles (Asc–MC) are now included in
+                // NatalExprecessedPosition — the constructor computes their
+                // true RA/Dec from tropical ecliptic lon (lat=0).
+                // House cusps (>= Angles_End) remain excluded.
+                if (aspectMode == amcEquatorial && pid < Angles_End)
+                    pl = new NatalExprecessedPosition(cpid, _ids[natus], "r");
+                else
+                    pl = new NatalPosition(cpid, _ids[natus], "r");
                 if (pid >= Houses_Start && pid < Houses_End) {
                     pl->allowAspects = PlanetLoc::aspOnlyConj;
                 }
@@ -4388,6 +4862,18 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
 
     // --- Shared deduplicating planet getters ---
     double njd = natal ? getJulianDate(_ids[natus].GMT()) : 0;
+
+    // Cache natal-epoch values for ex-precession context (equatorial mode)
+    if (natal && aspectMode == amcEquatorial) {
+        double xx[6];
+        char   errStr[256];
+        swe_calc(njd, SE_ECL_NUT, 0, xx, errStr);
+        _exprecessCtx.jdNatal   = njd;
+        _exprecessCtx.obliquity = xx[0];
+        _exprecessCtx.ayanamsa  = swe_get_ayanamsa(njd);
+        _hasExprecessCtx        = true;
+    }
+
     QMap<ChartPlanetId, unsigned> transitIndex, natalIndex, progressedIndex;
 
     auto getTransitPlanet = [&](PlanetId pid) -> unsigned {
@@ -4403,7 +4889,11 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         ChartPlanetId cpid(natus, pid, Planet_None);
         if (!natalIndex.contains(cpid)) {
             natalIndex[cpid] = _alist.size();
-            _alist.push_back(new NatalPosition(cpid, _ids[natus], "r"));
+            // [ANGLE_PRECESSION] Angles (Asc–MC) now included; house cusps excluded.
+            if (aspectMode == amcEquatorial && pid < Angles_End)
+                _alist.push_back(new NatalExprecessedPosition(cpid, _ids[natus], "r"));
+            else
+                _alist.push_back(new NatalPosition(cpid, _ids[natus], "r"));
         }
         return natalIndex.value(cpid);
     };
@@ -7035,7 +7525,7 @@ AspectFinder::findAspectsAndPatterns()
     if (!showTransitAspectPatterns() && showTransitNatalAspectPatterns()) {
         for (auto&& pl : _alist) {
             auto pla = dynamic_cast<NatalPosition*>(pl);
-            if (!pla || pla->inMotion()) continue;
+            if (!pla) continue;
             state.nats.emplace(pla->planetModeId());
         }
         state.skipAllNatalOnly = true;
@@ -7058,11 +7548,14 @@ AspectFinder::findAspectsAndPatterns()
             auto pla = dynamic_cast<PlanetLoc*>(pl);
             if (!pla) continue;
             if (pla->inMotion()) {
-                // Separate transits from progressed
+                // Separate transits from progressed; ex-precessed natals
+                // have inMotion()==true but mode()==plmNatal
                 if (pla->mode() == plmTransit) {
                     state.trans.emplace(pla->planetModeId());
                 } else if (pla->mode() == plmProgressed) {
                     state.progs.emplace(pla->planetModeId());
+                } else if (pla->mode() == plmNatal) {
+                    state.nats.emplace(pla->planetModeId());
                 }
             } else {
                 state.nats.emplace(pla->planetModeId());
@@ -7702,8 +8195,19 @@ AspectFinder::findStuff()
     }
 #else
     // Normal finder mode
-    if (showStations()) findStations();
-    if (_state != cancelRequestedState) findAspectsAndPatterns();
+    // Wrap in lambda so we can conditionally establish the RAII context
+    // for ex-precessed natal positions (equatorial mode).
+    auto runFinder = [&]() {
+        if (showStations()) findStations();
+        if (_state != cancelRequestedState) findAspectsAndPatterns();
+    };
+
+    if (_hasExprecessCtx) {
+        context<ExprecessNatalEpoch> exCtx(_exprecessCtx);
+        runFinder();
+    } else {
+        runFinder();
+    }
 #endif
     
     _state = idleState;
@@ -8250,7 +8754,7 @@ findClusters(unsigned             h,
 PlanetClusterMap
 findClusters(unsigned                h,
              double                  jd,
-             const PlanetProfile&    plist,
+             PlanetProfile&          plist,
              const QList<InputData>& ids,
              unsigned                quorum,
              const PlanetSet&        need /*={}*/,
@@ -8285,9 +8789,9 @@ findClusters(unsigned                h,
         if (h % 2 == 0 && (pid == Planet_SouthNode)) continue;
 
         ++pfid[cpid.fileId()];
-        const auto& ida = ids.at(qMax(ids.size() - 1, cpid.fileId()));
-        qreal pos = (ploc->inMotion()) ? PlanetLoc::compute(cpid, ida, jd).first
-                                       : ploc->_rasiLoc;
+        qreal pos = (ploc->inMotion() && !ids.isEmpty())
+                        ? (*ploc)(jd, 1)
+                        : ploc->_rasiLoc;
         auto  hloc = h == 1 ? pos : harmonic(h, pos);
         auto  ins  = posits.emplace(hloc, ploc->planetModeId());
         if (ins.first->first > 345) {
@@ -8351,7 +8855,7 @@ findClusters(const uintSSet&      hs,
 qreal
 computeSpread(unsigned                h,
               double                  jd,
-              const PlanetProfile&    prof,
+              PlanetProfile&          prof,
               const QList<InputData>& ids)
 {
     std::vector<qreal>    sums(2, 0);
@@ -8367,8 +8871,7 @@ computeSpread(unsigned                h,
         qreal    pos;
         unsigned vroom(ploc->inMotion());
         if (vroom && !ids.isEmpty()) {
-            auto&& ida = ids.at(qMax(ids.size() - 1, cpid.fileId()));
-            pos        = PlanetLoc::compute(cpid, ida, jd).first;
+            pos = (*ploc)(jd, 1);
         } else {
             pos = ploc->_rasiLoc;
         }
