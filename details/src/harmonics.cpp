@@ -277,8 +277,11 @@ Harmonics::updateHarmonics()
                                     hp.first.glyphs() };
                     ip[0]->setData(tip, Qt::ToolTipRole);
                     ip[0]->setData(ph.first, Qt::UserRole + 1);
+                    ip[0]->setData(ph.first / sh, Qt::UserRole + 3);
                     ip[1]->setData(hp.first.names().join("-"), Qt::ToolTipRole);
                     ip[1]->setData(astroFont, Qt::FontRole);
+                    ip[1]->setData(ph.first, Qt::UserRole + 1);
+                    ip[1]->setData(QVariant::fromValue(hp.first), Qt::UserRole + 2);
                     return ip;
                 };
 
@@ -473,6 +476,9 @@ Harmonics::clearFocal()
         }
     }
     _focalIndex = QPersistentModelIndex();
+    // Reset persistent overrides
+    auto* aw = MainWindow::theAstroWidget();
+    if (aw) aw->overrideAspectSet() = -1;
     int targetFid = filesCount() > 1 ? 1 : 0;
     if (file(targetFid) && wasFocal) {
         file(targetFid)->setFocalPlanets({}, true);
@@ -499,6 +505,7 @@ Harmonics::clickedCell(const QModelIndex& inx)
 
     // --- Extract (harmonic, PlanetSet) from any row regardless of sort mode ---
     int          h  = 0;
+    int          overtoneH = 0;
     A::PlanetSet ps;
     auto extractRowData = [&]() {
         switch (s_harmonicsOrder) {
@@ -525,6 +532,8 @@ Harmonics::clickedCell(const QModelIndex& inx)
             }
             auto psv = planetsInx.data(Qt::UserRole + 2);
             if (psv.isValid()) ps = psv.value<A::PlanetSet>();
+            auto ohv = inx.sibling(inx.row(), 0).data(Qt::UserRole + 3);
+            if (ohv.isValid()) overtoneH = ohv.toInt();
             break;
         }
         case A::hscByPlanets: {
@@ -573,7 +582,9 @@ Harmonics::clickedCell(const QModelIndex& inx)
         if (v.isValid() || getHarmonic()) {
             emit updateHarmonics(v.toDouble());
         }
-        // Set focal planets if we have them
+        // Set focal planets if we have them; clear any persistent override
+        // since at H(h) the aspects are naturally visible
+        if (aw) aw->overrideAspectSet() = -1;
         if (ps.size() > 1 && file(targetFid)) {
             // Remove previous highlight
             if (_focalIndex.isValid()) {
@@ -617,18 +628,56 @@ Harmonics::clickedCell(const QModelIndex& inx)
         return;
     }
 
-    if (ps.size() > 1 && aw && file(targetFid)) {
-        A::modalize<A::AspectSetId> aset(aw->overrideAspectSet(), -1);
+    if (overtoneH > 0 && ps.size() > 1 && aw && file(targetFid)) {
+        // Overtone click: switch to parent harmonic, override aspect set for overtone harmonic
+        file(targetFid)->setFocalPlanets(ps);  // non-notifying
+        aw->overrideAspectSet() = A::topAspectSet().id + overtoneH;
+        aw->setHarmonicQuietly(h / overtoneH);  // switch to parent group harmonic (sh)
+        file(targetFid)->setFocalPlanets(ps, true);  // force redraw
+        // Remove previous highlight
+        if (_focalIndex.isValid()) {
+            auto sim2 = tvm();
+            if (sim2) {
+                auto idx = QModelIndex(_focalIndex);
+                int cols = sim2->columnCount();
+                for (int c = 0; c < cols; ++c) {
+                    auto* item = sim2->itemFromIndex(
+                        sim2->index(idx.row(), c, idx.parent()));
+                    if (item) item->setBackground(QBrush());
+                }
+            }
+        }
+        _focalIndex = inx;
+        auto simOvt = tvm();
+        if (simOvt) {
+            QBrush bg(QColor(113, 174, 236, 80));
+            int cols = simOvt->columnCount();
+            for (int c = 0; c < cols; ++c) {
+                auto* item = simOvt->itemFromIndex(
+                    simOvt->index(inx.row(), c, inx.parent()));
+                if (item) item->setBackground(bg);
+            }
+        }
+    } else if (ps.size() > 1 && aw && file(targetFid)) {
         bool hasMidpoint = std::any_of(ps.begin(), ps.end(),
             [](const auto& cpid) { return cpid.isMidpt(); });
 
+        // Set override and focal BEFORE triggering any redraws.
+        // setHarmonicQuietly fires change(Harmonic) synchronously — the
+        // override and focal must already be in place.
+        // The override persists until clearFocal() resets it.
+        file(targetFid)->setFocalPlanets(ps);  // non-notifying
         if (hasMidpoint) {
+            aw->overrideAspectSet() = A::topAspectSet().id + 1;
             aw->setHarmonicQuietly(h);
-            aset = A::topAspectSet().id + 1;
         } else {
+            aw->overrideAspectSet() = A::topAspectSet().id + h;
             aw->setHarmonicQuietly(1);
-            aset = A::topAspectSet().id + h;
         }
+        // Force a definitive redraw (in case harmonic didn't change and
+        // setHarmonicQuietly was a no-op)
+        file(targetFid)->setFocalPlanets(ps, true);
+
         // Remove previous highlight without resetting harmonic
         if (_focalIndex.isValid()) {
             auto sim2 = tvm();
@@ -654,7 +703,6 @@ Harmonics::clickedCell(const QModelIndex& inx)
                 if (item) item->setBackground(bg);
             }
         }
-        file(targetFid)->setFocalPlanets(ps, true);
     } else {
         // Clear focal on header/non-aspect rows
         clearFocal();

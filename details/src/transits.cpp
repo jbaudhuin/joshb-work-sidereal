@@ -3795,17 +3795,15 @@ Transits::clickedCell(QModelIndex inx)
                 // finds the conjunctions that represent the original H(h)
                 // pattern.
                 //
-                // Use setHarmonicQuietly to update the combo box and
-                // apply harmonic to current files WITHOUT triggering
-                // horoscopeControlChanged -> ds.apply -> premature chart
-                // redraw (which would fire before focal planets are set).
+                // Set override BEFORE setHarmonicQuietly — it triggers
+                // change(Harmonic) which redraws the chart synchronously.
+                aset = A::topAspectSet().id + 1;
                 MainWindow::theAstroWidget()->setHarmonicQuietly(h);
                 clickHarmonic = h;
-                aset = A::topAspectSet().id + 1;
             } else {
                 // Non-midpoint focal: show at H1 with override aspect set
-                MainWindow::theAstroWidget()->setHarmonicQuietly(1);
                 aset = A::topAspectSet().id + h;
+                MainWindow::theAstroWidget()->setHarmonicQuietly(1);
             }
         }
     } else {
