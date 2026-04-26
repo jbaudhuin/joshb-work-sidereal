@@ -1,6 +1,5 @@
 ﻿#include "chart.h"
 #include "../../zodiac/src/thememanager.h"
-#include "qregularexpression.h"
 #include <Astroprocessor/Calc>
 #include <Astroprocessor/Output>
 #include <QDebug>
@@ -320,15 +319,8 @@ Chart::updateScene()
     circle->setFile(file());
     float rotate;
 
-    bool useReturnAsc = false;
-    if (circleStart == Start_Outer_Ascendant && files().size() > 1) {
-        static QRegularExpression re(R"(^H\d+ (\w+)-r=\1.*)");
-
-        auto id    = file(1)->getName();
-        auto match = re.match(id);
-
-        useReturnAsc = match.hasMatch();
-    }
+    // Use the outer chart's ascendant whenever two charts are present.
+    bool useReturnAsc = (circleStart == Start_Outer_Ascendant && files().size() > 1);
 
     switch (circleStart) {
     case Start_Outer_Ascendant:

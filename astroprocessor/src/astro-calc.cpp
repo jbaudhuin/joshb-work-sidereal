@@ -1286,6 +1286,21 @@ calculatePlanet(PlanetId         planet,
                 }
             }
         }
+        // SWE uses the North Node's sweNum for both nodes, so its transit times
+        // correspond to the North Node. Swap Rise↔Set and MC↔IC to get South
+        // Node timings, then add 180° to the RA values (SWE returned North Node
+        // RA; South Node RA is always 180° opposite).
+        if (ret.id == Planet_SouthNode) {
+            qSwap(ret.angleTransit[Star::atAsc], ret.angleTransit[Star::atDesc]);
+            qSwap(ret.angleTransit[Star::atMC], ret.angleTransit[Star::atIC]);
+            qSwap(ret.angleTransitRA[Star::atAsc],
+                  ret.angleTransitRA[Star::atDesc]);
+            qSwap(ret.angleTransitRA[Star::atMC], ret.angleTransitRA[Star::atIC]);
+            for (int i = 0; i < Star::numAngles; ++i) {
+                auto mi              = Star::angleTransitMode(i);
+                ret.angleTransitRA[mi] = swe_degnorm(ret.angleTransitRA[mi] + 180.0);
+            }
+        }
     } else {
         std::array<double,Star::numAngles> at;
 
@@ -1341,13 +1356,6 @@ calculatePlanet(PlanetId         planet,
 #if 0 // !DEBUG_FINDER_THREADS
         qDebug() << qPrintable(rastr);
 #endif
-    }
-    if (ret.id == Planet_SouthNode) {
-        qSwap(ret.angleTransit[Star::atAsc], ret.angleTransit[Star::atDesc]);
-        qSwap(ret.angleTransit[Star::atMC], ret.angleTransit[Star::atIC]);
-        qSwap(ret.angleTransitRA[Star::atAsc],
-              ret.angleTransitRA[Star::atDesc]);
-        qSwap(ret.angleTransitRA[Star::atMC], ret.angleTransitRA[Star::atIC]);
     }
 
     return ret;
@@ -3518,17 +3526,30 @@ quotidianSearch(PlanetProfile&   poses,
 double
 calculateRAMS(const QDateTime& dt, bool useApparentSun)
 {
-    // Calculate Right Ascension of Mean (or Apparent) Sun
+    // Calculate Right Ascension of Mean (or Apparent) Sun.
+    //
+    // RAMS: We use the equatorial RA of the true geometric Sun (SEFLG_EQUATORIAL |
+    // SEFLG_NONUT | SEFLG_TRUEPOS). This matches Fagan's tabular approach, where
+    // "RAMS" is read directly from a solar ephemeris giving the Sun's RA in
+    // equatorial coordinates. Although the strict definition of the Mean Sun's RA
+    // equals the mean ecliptic longitude (L0), Fagan's published calculations use
+    // the true equatorial RA (read from tables), and that is what produces the
+    // correct PSSR dates. Using raw L0 (ecliptic longitude without the obliquity
+    // projection) overstates the elapsed RA by ~3° over a 54-day period and pushes
+    // the resulting PSSR date ~2 days too early.
+    //
+    // RAAS: apparent equatorial RA with nutation and aberration, for practitioners
+    // who prefer the apparent Sun position.
     double       jd  = getJulianDate(dt, false); // UT
     char         errStr[256];
     double       xx[6];
     unsigned int flags = SEFLG_SWIEPH | SEFLG_EQUATORIAL;
 
     if (!useApparentSun) {
-        // For Mean Sun (RAMS): use true position (geometric) + no nutation
-        flags |= SEFLG_TRUEPOS | SEFLG_NONUT;
+        // RAMS: geometric equatorial RA, no aberration, no nutation
+        flags |= SEFLG_NONUT | SEFLG_TRUEPOS;
     }
-    // For Apparent Sun (RAAS): use default (apparent position with nutation)
+    // RAAS: apparent RA — no additional flags needed (nutation/aberration included by default)
 
     int ret = swe_calc_ut(jd, SE_SUN, flags, xx, errStr);
     if (ret < 0) {
@@ -3536,7 +3557,7 @@ calculateRAMS(const QDateTime& dt, bool useApparentSun)
         return 0.0;
     }
 
-    // Format RA as HH:MM:SS for debug
+    // Format as HH:MM:SS for debug
     auto raToHMS = [](double deg) {
         double hours = deg / 15.0;
         int h = (int)hours;
@@ -3550,9 +3571,9 @@ calculateRAMS(const QDateTime& dt, bool useApparentSun)
     };
     qDebug() << "calculateRAMS:" << (useApparentSun ? "RAAS" : "RAMS")
              << "for" << dt.toString(Qt::ISODate)
-             << "= RA" << xx[0] << "deg (" << qPrintable(raToHMS(xx[0])) << ")";
+             << "=" << xx[0] << "deg (" << qPrintable(raToHMS(xx[0])) << ")";
 
-    return xx[0]; // Right Ascension in degrees
+    return xx[0]; // equatorial RA (both RAMS geometric and RAAS apparent)
 }
 
 double
@@ -3724,6 +3745,7 @@ calculatePSSRContext(const Horoscope& returnChart, bool useApparentSun)
     // Calculate anniversary second
     ctx.anniversarySecond = calculateAnniversarySecond(returnChart.houses, 
                                                        nextReturnHouses);
+    ctx.nextReturnRAMC = nextReturnHouses.RAMC;
     ctx.isValid = true;
     
     qDebug() << "=== calculatePSSRContext ===";
@@ -3747,77 +3769,42 @@ calculateAngularDate(const QDateTime&   radixTime,
                      const QString&     debugLabel)
 {
     if (pssrCtx && pssrCtx->isValid) {
-        // PSSR mode: Find when Sun reaches the RAMS needed for planet to hit angle
-        
+        // PSSR mode: linear formula — the Mean Sun moves uniformly, so no
+        // iterative search is needed.  The anniversary second already captures
+        // the RAMC-advance / mean-sun-travel ratio, so we simply invert it:
+        //
+        //   elapsed_RAMC   = radixTime → angleTime  (in degrees, via 240 s/°)
+        //   elapsed_RAMS°  = elapsed_RAMC / anniversarySecond
+        //   elapsed_days   = elapsed_RAMS° / 360° × 365.25
+        //   event_date     = radixTime + |elapsed_days|   (converse pivots forward)
+
+        // Compute the RAMC arc as the direct sidereal difference between the
+        // angle's transit RA and the return RAMC.  This is the canonical
+        // Bowser/Fagan formula: accrued_ST = angleRA − returnRAMC.
+        // Positive = direct (angle transits after the return), negative = converse.
+        double ramcDiff = angleRA - pssrCtx->returnRAMC;
+        if (ramcDiff > 180.0) ramcDiff -= 360.0;
+        else if (ramcDiff <= -180.0) ramcDiff += 360.0;
+
+        // Invert the anniversary second to get elapsed RAMS, then convert to days.
+        double elapsedRAMS = ramcDiff / pssrCtx->anniversarySecond; // degrees
+        double elapsedDays = (elapsedRAMS / 360.0) * 365.25;
+
+        // Converse contacts have a negative elapsed time; take the absolute value
+        // so the result lands in the future from the return (standard convention).
+        qint64 offsetSeconds = static_cast<qint64>(qAbs(elapsedDays) * 86400.0);
+        QDateTime result = pssrCtx->returnTime.addSecs(offsetSeconds);
+
+        QString direction = (ramcDiff >= 0) ? "Direct" : "Converse";
         qDebug() << "=== calculateAngularDate (PSSR)" << debugLabel << "===";
-        qDebug() << "  Mode:" << (pssrCtx->useApparentSun ? "RAAS (Apparent Sun)" : "RAMS (Mean Sun)");
-        qDebug() << "  radixTime:" << radixTime.toString(Qt::ISODate);
-        qDebug() << "  angleTime:" << angleTime.toString(Qt::ISODate);
-        qDebug() << "  planetRA:" << planetRA << "  angleRA:" << angleRA;
+        qDebug() << "  Mode:" << (pssrCtx->useApparentSun ? "RAAS" : "RAMS");
         qDebug() << "  returnTime:" << pssrCtx->returnTime.toString(Qt::ISODate);
-        qDebug() << "  returnRAMS:" << pssrCtx->returnRAMS;
-        qDebug() << "  returnRAMC:" << pssrCtx->returnRAMC;
-        qDebug() << "  anniversarySecond:" << pssrCtx->anniversarySecond;
-        
-        // Compute the RAMC arc from the actual time difference between
-        // the radix moment and the angular transit moment. This is essential
-        // because angleTransitRA stores different values depending on the
-        // primary direction mode:
-        //   prdMundane/prdZodiacal: stores the RAMC at transit (correct for PSSR)
-        //   prdActive: stores the planet's own RA at transit (NOT the RAMC)
-        // Using the time difference works correctly in all modes, since the
-        // transit time always reflects the true RAMC advance.
-        // 240 solar seconds ≈ 1° of RAMC advance (same rate used by PD path).
-        double timeDiffSec = static_cast<double>(radixTime.secsTo(angleTime));
-        double ramcDiff = timeDiffSec / 240.0; // signed: positive=direct, negative=converse
-        
-        // Step 3: Calculate target RAMS using anniversary second
-        // targetRAMS = returnRAMS + ramcDiff / anniversarySecond
-        double delta = ramcDiff / pssrCtx->anniversarySecond;
-        double targetRAMS = swe_degnorm(pssrCtx->returnRAMS + delta);
-        
-        // Step 4: Find when the Sun reaches this RA position (past or future)
-        // Initial estimate
-        double estimatedDays = (delta / 360.0) * 365.25;
-        double currentJd = getJulianDate(pssrCtx->returnTime);
-        double targetJd = currentJd + estimatedDays; // Can be negative for converse
-        
-        // Newton-Raphson iteration to find exact time when RAMS = targetRAMS
-        for (int iter = 0; iter < 10; iter++) {
-            QDateTime testTime = dateTimeFromJulian(targetJd);
-            double testRAMS = calculateRAMS(testTime, pssrCtx->useApparentSun);
-            
-            // Calculate difference (we want testRAMS to equal targetRAMS)
-            double diff = swe_difdeg2n(testRAMS, targetRAMS);
-            
-            if (qAbs(diff) < 0.00001) {
-                break;
-            }
-            
-            // Newton-Raphson step: adjust JD by diff/speed
-            // Sun advances ~0.9856 degrees per day in RA
-            double sunRASpeed = 360.0 / 365.25; // degrees per day
-            targetJd -= diff / sunRASpeed;
-        }
-        
-        // Step 5: Calculate the time difference and apply it from radix
-        QDateTime sunTime = dateTimeFromJulian(targetJd);
-        qint64 offsetSeconds = pssrCtx->returnTime.secsTo(sunTime);
-        
-        qDebug() << "  timeDiffSec:" << timeDiffSec << "  ramcDiff:" << ramcDiff;
-        qDebug() << "  delta (ramcDiff/annSec):" << delta;
-        qDebug() << "  targetRAMS:" << targetRAMS;
-        qDebug() << "  sunTime (when Sun reaches targetRAMS):" << sunTime.toString(Qt::ISODate);
-        qDebug() << "  offsetSeconds from return:" << offsetSeconds;
-        
-        // Apply absolute offset forward from radix (all results in future like PD)
-        offsetSeconds = qAbs(offsetSeconds);
-        QDateTime result = radixTime.addSecs(offsetSeconds);
-        
-        QString direction = (timeDiffSec >= 0) ? "Direct" : "Converse";
+        qDebug() << "  angleRA:" << angleRA << "°  returnRAMC:" << pssrCtx->returnRAMC << "°";
+        qDebug() << "  ramcDiff:" << ramcDiff << "°  anniversarySecond:" << pssrCtx->anniversarySecond;
+        qDebug() << "  elapsedRAMS:" << elapsedRAMS << "°  elapsedDays:" << elapsedDays;
         qDebug() << "  result:" << result.toString(Qt::ISODate) << direction;
         qDebug() << "===================================";
-        
+
         return result;
         
     } else {

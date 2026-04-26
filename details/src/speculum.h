@@ -11,6 +11,7 @@ class QTableWidgetItem;
 class QLabel;
 class QDoubleSpinBox;
 class QPushButton;
+class QCheckBox;
 
 // Custom delegate for painting highlighted cells
 class SpeculumDelegate : public QStyledItemDelegate

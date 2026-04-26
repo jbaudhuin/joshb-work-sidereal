@@ -1062,6 +1062,7 @@ struct PSSRContext {
     QDateTime returnTime;              // Time of the return chart
     double    returnRAMS = 0.0;        // Return Sun's RA (mean or apparent)
     double    returnRAMC = 0.0;        // Return chart RAMC
+    double    nextReturnRAMC = 0.0;    // Following year's return RAMC
     bool      isValid = false;         // Whether this context is valid
     bool      useApparentSun = true;   // true = RAAS (apparent), false = RAMS (mean)
     

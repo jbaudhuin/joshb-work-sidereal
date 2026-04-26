@@ -147,7 +147,7 @@ Speculum::Speculum(QWidget* parent) :
     filterLayout->setAlignment(_chart1Btn, Qt::AlignBaseline);
     filterLayout->addWidget(_chart2Btn);
     filterLayout->setAlignment(_chart2Btn, Qt::AlignBaseline);
-    filterLayout->addSpacing(10); // Add some space after chart buttons
+    filterLayout->addSpacing(10);// Add some space after chart buttons
     filterLayout->addWidget(radixLabel);
     filterLayout->setAlignment(radixLabel, Qt::AlignBaseline);
     filterLayout->addWidget(_radixBtn);
@@ -370,8 +370,9 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
     if (currentFile) {
         // Check if this is a solar-based chart (solar return or solar ingress)
         if (A::isSolarBasedChart(currentFile->getName())) {
-            // Try to get cached PSSR/NeoSQ context, or calculate if needed
-            if (!currentFile->hasPSSRContext()) {
+            // Rebuild context if missing or if Sun mode changed
+            if (!currentFile->hasPSSRContext()
+                || currentFile->pssrContext().useApparentSun != A::useApparentSun) {
                 auto ctx = A::calculatePSSRContext(currentFile->horoscope(), A::useApparentSun);
                 currentFile->setPSSRContext(ctx);
             }
@@ -432,16 +433,89 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
             QDateTime angularDate = angularDateGMT.toTimeZone(timeZone);
             
             QString direction = (transitTime < _radixTime) ? "Con" : "Dir";
-            QString method = "PD"; // Default to Primary Directions
+            QString method    = "PD";
             QString dateFormat = "yyyy/MM/dd";
+            QString tooltip;
             if (pssrCtx) {
-                method = isSolarReturn ? "PSSR" : "NeoSQ";
+                method     = isSolarReturn ? "PSSR" : "NeoSQ";
                 dateFormat = "ddd yyyy-MM-dd hh:mm";
+
+                    // Intermediate steps (Bowser/Fagan linear formula):
+                    //   RAMC arc    = angleRA − returnRAMC  (sidereal arc, degrees)
+                    //   elapsedRAMS = RAMC arc / anniversarySecond
+                    //   elapsedDays = elapsedRAMS / 360° × 365.25
+                    double ramcDiff = angleRA - pssrCtx->returnRAMC;
+                    if (ramcDiff > 180.0) ramcDiff -= 360.0;
+                    else if (ramcDiff <= -180.0) ramcDiff += 360.0;
+                    double elapsedRAMS = ramcDiff / pssrCtx->anniversarySecond;
+                    double elapsedDays = (elapsedRAMS / 360.0) * 365.25;
+
+                    // Format a signed decimal degree as ±D°MM'SS"
+                    auto dms = [](double d) -> QString {
+                        QString sign = (d < 0) ? "-" : "";
+                        double  a    = qAbs(d);
+                        int     deg  = static_cast<int>(a);
+                        double  rem  = (a - deg) * 60.0;
+                        int     arcm = static_cast<int>(rem);
+                        int     arcs = static_cast<int>((rem - arcm) * 60.0);
+                        return QString("%1%2° %3' %4\"")
+                            .arg(sign)
+                            .arg(deg)
+                            .arg(arcm, 2, 10, QChar('0'))
+                            .arg(arcs, 2, 10, QChar('0'));
+                    };
+                    auto st = [](double d) -> QString {
+                        QString sign  = (d < 0) ? "-" : "";
+                        double  a     = qAbs(d) / 15.0;
+                        int     h     = static_cast<int>(a);
+                        double  rem   = (a - h) * 60.0;
+                        int     m     = static_cast<int>(rem);
+                        int     s     = static_cast<int>((rem - m) * 60.0);
+                        return QString("%1%2h %3m %4s")
+                            .arg(sign)
+                            .arg(h)
+                            .arg(m, 2, 10, QChar('0'))
+                            .arg(s, 2, 10, QChar('0'));
+                    };
+
+                    // Format absolute elapsed days as Nd HHh MMm
+                    double absDays = qAbs(elapsedDays);
+                    int    dWhole  = static_cast<int>(absDays);
+                    double fracDay = (absDays - dWhole) * 24.0;
+                    int    hours   = static_cast<int>(fracDay);
+                    int    mins    = static_cast<int>((fracDay - hours) * 60.0);
+                    QString daysStr = QString("%1d %2h %3m")
+                                          .arg(dWhole)
+                                          .arg(hours, 2, 10, QChar('0'))
+                                          .arg(mins, 2, 10, QChar('0'));
+
+                    tooltip = QString(
+                        "%1 %2: %3\n"
+                        "─────────────────────────\n"
+                        "Ann. Sec. mode: %4\n"
+                        "Next RAMC    : %5\n"
+                        "Return RAMC  : %6\n"
+                        "Anniv. Second: %7\n"
+                        "RAMC arc     : %8\n"
+                        "Elapsed RA   : %9\n"
+                        "Elapsed days : %10\n"
+                        "─────────────────────────\n"
+                        "Return time  : %11")
+                        .arg(method, direction, angularDate.toString(dateFormat))
+                        .arg(pssrCtx->useApparentSun ? "RAAS (apparent Sun)" : "RAMS (mean Sun)")
+                        .arg(A::siderealTimeToString(pssrCtx->nextReturnRAMC, A::HighPrecision))
+                        .arg(A::siderealTimeToString(pssrCtx->returnRAMC, A::HighPrecision))
+                        .arg(QString::number(pssrCtx->anniversarySecond, 'f', 6))
+                        .arg(st(ramcDiff))
+                        .arg(st(elapsedRAMS))
+                        .arg(daysStr)
+                        .arg(pssrCtx->returnTime.toString("yyyy-MM-dd hh:mm"));
+            } else {
+                tooltip = QString("%1: %2 %3")
+                              .arg(method)
+                              .arg(angularDate.toString(dateFormat))
+                              .arg(direction);
             }
-            QString tooltip = QString("%1: %2 %3")
-                                  .arg(method)
-                                  .arg(angularDate.toString(dateFormat))
-                                  .arg(direction);
             timeItem->setToolTip(tooltip);
         }
 
@@ -466,8 +540,9 @@ Speculum::addStarRow(const A::Star& star, int row)
     if (currentFile) {
         // Check if this is a solar-based chart (solar return or solar ingress)
         if (A::isSolarBasedChart(currentFile->getName())) {
-            // Try to get cached PSSR/NeoSQ context, or calculate if needed
-            if (!currentFile->hasPSSRContext()) {
+            // Rebuild context if missing or if Sun mode changed
+            if (!currentFile->hasPSSRContext()
+                || currentFile->pssrContext().useApparentSun != A::useApparentSun) {
                 auto ctx = A::calculatePSSRContext(currentFile->horoscope(), A::useApparentSun);
                 currentFile->setPSSRContext(ctx);
             }
@@ -528,16 +603,83 @@ Speculum::addStarRow(const A::Star& star, int row)
             QDateTime angularDate = angularDateGMT.toTimeZone(timeZone);
             
             QString direction = (transitTime < _radixTime) ? "Con" : "Dir";
-            QString method = "PD"; // Default to Primary Directions
+            QString method    = "PD";
             QString dateFormat = "yyyy/MM/dd";
+            QString tooltip;
             if (pssrCtx) {
-                method = isSolarReturn ? "PSSR" : "NeoSQ";
+                method     = isSolarReturn ? "PSSR" : "NeoSQ";
                 dateFormat = "ddd yyyy-MM-dd hh:mm";
+
+                    double ramcDiff = angleRA - pssrCtx->returnRAMC;
+                    if (ramcDiff > 180.0) ramcDiff -= 360.0;
+                    else if (ramcDiff <= -180.0) ramcDiff += 360.0;
+                    double elapsedRAMS = ramcDiff / pssrCtx->anniversarySecond;
+                    double elapsedDays = (elapsedRAMS / 360.0) * 365.25;
+
+                    auto dms = [](double d) -> QString {
+                        QString sign = (d < 0) ? "-" : "";
+                        double  a    = qAbs(d);
+                        int     deg  = static_cast<int>(a);
+                        double  rem  = (a - deg) * 60.0;
+                        int     arcm = static_cast<int>(rem);
+                        int     arcs = static_cast<int>((rem - arcm) * 60.0);
+                        return QString("%1%2° %3' %4\"")
+                            .arg(sign)
+                            .arg(deg)
+                            .arg(arcm, 2, 10, QChar('0'))
+                            .arg(arcs, 2, 10, QChar('0'));
+                    };
+                    auto st = [](double d) -> QString {
+                        QString sign  = (d < 0) ? "-" : "";
+                        double  a     = qAbs(d) / 15.0;
+                        int     h     = static_cast<int>(a);
+                        double  rem   = (a - h) * 60.0;
+                        int     m     = static_cast<int>(rem);
+                        int     s     = static_cast<int>((rem - m) * 60.0);
+                        return QString("%1%2h %3m %4s")
+                            .arg(sign)
+                            .arg(h)
+                            .arg(m, 2, 10, QChar('0'))
+                            .arg(s, 2, 10, QChar('0'));
+                    };
+
+                    double absDays = qAbs(elapsedDays);
+                    int    dWhole  = static_cast<int>(absDays);
+                    double fracDay = (absDays - dWhole) * 24.0;
+                    int    hours   = static_cast<int>(fracDay);
+                    int    mins    = static_cast<int>((fracDay - hours) * 60.0);
+                    QString daysStr = QString("%1d %2h %3m")
+                                          .arg(dWhole)
+                                          .arg(hours, 2, 10, QChar('0'))
+                                          .arg(mins, 2, 10, QChar('0'));
+
+                    tooltip = QString(
+                        "%1 %2: %3\n"
+                        "─────────────────────────\n"
+                        "Ann. Sec. mode: %4\n"
+                        "Next RAMC    : %5\n"
+                        "Return RAMC  : %6\n"
+                        "Anniv. Second: %7\n"
+                        "RAMC arc     : %8\n"
+                        "Elapsed RA   : %9\n"
+                        "Elapsed days : %10\n"
+                        "─────────────────────────\n"
+                        "Return time  : %11")
+                        .arg(method, direction, angularDate.toString(dateFormat))
+                        .arg(pssrCtx->useApparentSun ? "RAAS (apparent Sun)" : "RAMS (mean Sun)")
+                        .arg(A::siderealTimeToString(pssrCtx->nextReturnRAMC, A::HighPrecision))
+                        .arg(A::siderealTimeToString(pssrCtx->returnRAMC, A::HighPrecision))
+                        .arg(QString::number(pssrCtx->anniversarySecond, 'f', 6))
+                        .arg(st(ramcDiff))
+                        .arg(st(elapsedRAMS))
+                        .arg(daysStr)
+                        .arg(pssrCtx->returnTime.toString("yyyy-MM-dd hh:mm"));
+            } else {
+                tooltip = QString("%1: %2 %3")
+                              .arg(method)
+                              .arg(angularDate.toString(dateFormat))
+                              .arg(direction);
             }
-            QString tooltip = QString("%1: %2 %3")
-                                  .arg(method)
-                                  .arg(angularDate.toString(dateFormat))
-                                  .arg(direction);
             timeItem->setToolTip(tooltip);
         }
 

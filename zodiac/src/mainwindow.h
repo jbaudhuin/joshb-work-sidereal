@@ -336,6 +336,10 @@ class FilesBar : public QTabBar {
     bool closeSecondaryChart();
     bool closeFileByIndex(int fileIndex);
 
+  protected:
+    void childEvent(QChildEvent* event) override;
+    void labelScrollButtons();
+
   public:
     FilesBar(QWidget* parent = nullptr);
 

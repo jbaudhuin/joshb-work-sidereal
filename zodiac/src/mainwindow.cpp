@@ -1,4 +1,5 @@
-﻿#include <QActionGroup>
+﻿#include <QChildEvent>
+#include <QActionGroup>
 #include <QContextMenuEvent>
 #include <QInputDialog>
 #include <QMessageBox>
@@ -3743,6 +3744,43 @@ FilesBar::FilesBar(QWidget* parent) : QTabBar(parent)
 
     connect(this, SIGNAL(tabMoved(int, int)), this, SLOT(swapTabs(int, int)));
     connect(this, SIGNAL(tabCloseRequested(int)), this, SLOT(closeTab(int)));
+
+    // Qt creates the scroller QToolButtons during QTabBar's constructor,
+    // so they are already children by the time we get here.
+    labelScrollButtons();
+}
+
+void
+FilesBar::labelScrollButtons()
+{
+    // Qt names its internal tab scroller buttons "qt_tabbar_scrollbutton".
+    const auto buttons = findChildren<QToolButton*>("qt_tabbar_scrollbutton");
+    // Inline style overrides the global QSS padding/font that would squash
+    // the glyph inside these tiny fixed-size buttons.
+    const QString scrollBtnStyle = QStringLiteral(
+        "QToolButton { padding: 0px; margin: 0px; border-radius: 2px; font-size: 11px; }");
+    if (buttons.size() >= 1) {
+        buttons[0]->setArrowType(Qt::NoArrow);
+        buttons[0]->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        buttons[0]->setText(u8"\u25C0"); // ◀
+        buttons[0]->setStyleSheet(scrollBtnStyle);
+    }
+    if (buttons.size() >= 2) {
+        buttons[1]->setArrowType(Qt::NoArrow);
+        buttons[1]->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        buttons[1]->setText(u8"\u25B6"); // ▶
+        buttons[1]->setStyleSheet(scrollBtnStyle);
+    }
+}
+
+void
+FilesBar::childEvent(QChildEvent* event)
+{
+    QTabBar::childEvent(event);
+    // Fallback: catch any scroller buttons added after construction.
+    if (event->added() && qobject_cast<QToolButton*>(event->child())) {
+        QTimer::singleShot(0, this, [this]() { labelScrollButtons(); });
+    }
 }
 
 AstroFile*
