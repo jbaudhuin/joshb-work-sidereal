@@ -165,6 +165,7 @@ void
 Harmonics::updateHarmonics()
 {
     qDebug() << "filesCount()" << filesCount();
+    _focalIndex = QPersistentModelIndex();
     QStringList expo;
     auto        sim = tvm();
     if (sim) {
@@ -244,6 +245,8 @@ Harmonics::updateHarmonics()
                 itemList ip = { num, hp.first.glyphs() };
                 ip[1]->setData(hp.first.names().join("-"), Qt::ToolTipRole);
                 ip[1]->setData(astroFont, Qt::FontRole);
+                ip[1]->setData(ph.first, Qt::UserRole + 1);
+                ip[1]->setData(QVariant::fromValue(hp.first), Qt::UserRole + 2);
                 hits << ip;
 
                 if (ph.first == 1 && hp.first.containsMidPt()) {
@@ -371,6 +374,7 @@ Harmonics::updateHarmonics()
                 itemList kid = { num, "H" + QString::number(ph.first) };
                 kid[1]->setData(ph.first, Qt::UserRole + 1);
                 kid[1]->setData(getFactors(ph.first), Qt::ToolTipRole);
+                kid[0]->setData(QVariant::fromValue(hp.first), Qt::UserRole + 2);
                 // kid->setFlags(Qt::ItemIsSelectable);
                 it[0]->appendRow(kid);
             }
@@ -407,6 +411,7 @@ Harmonics::updateHarmonics()
                 kid[1]->setData(getFactors(ph.first), Qt::ToolTipRole);
                 kid[2]->setData(astroFont, Qt::FontRole);
                 kid[2]->setData(hp.first.names().join("-"), Qt::ToolTipRole);
+                kid[2]->setData(QVariant::fromValue(hp.first), Qt::UserRole + 2);
                 om.insert(spread, kid);
             }
         }
@@ -451,6 +456,31 @@ Harmonics::findIt(const QString& val)
 }
 
 void
+Harmonics::clearFocal()
+{
+    bool wasFocal = _focalIndex.isValid();
+    // Remove highlight from previously focal row
+    if (wasFocal) {
+        auto sim = tvm();
+        if (sim) {
+            auto idx = QModelIndex(_focalIndex);
+            int cols = sim->columnCount();
+            for (int c = 0; c < cols; ++c) {
+                auto* item = sim->itemFromIndex(
+                    sim->index(idx.row(), c, idx.parent()));
+                if (item) item->setBackground(QBrush());
+            }
+        }
+    }
+    _focalIndex = QPersistentModelIndex();
+    int targetFid = filesCount() > 1 ? 1 : 0;
+    if (file(targetFid) && wasFocal) {
+        file(targetFid)->setFocalPlanets({}, true);
+        emit updateHarmonics(1);
+    }
+}
+
+void
 Harmonics::clickedCell(const QModelIndex& inx)
 {
     QString  val;
@@ -467,7 +497,68 @@ Harmonics::clickedCell(const QModelIndex& inx)
         return false;
     };
 
+    // --- Extract (harmonic, PlanetSet) from any row regardless of sort mode ---
+    int          h  = 0;
+    A::PlanetSet ps;
+    auto extractRowData = [&]() {
+        switch (s_harmonicsOrder) {
+        case A::hscByHarmonic: {
+            // Child row: col0=spread, col1=planets (with UserRole+1=h, +2=ps)
+            // Parent row: col0="H4  2 items", col1="" (UserRole+1=h on col0)
+            // Overtone child (grandchild): col0="H2: spread", col1=planets
+            QModelIndex planetsInx;
+            if (inx.parent().isValid()) {
+                // Child or grandchild
+                planetsInx = inx.sibling(inx.row(), 1);
+                auto hv = planetsInx.data(Qt::UserRole + 1);
+                if (hv.isValid()) h = hv.toInt();
+                else {
+                    // Try parent's harmonic
+                    hv = inx.parent().data(Qt::UserRole + 1);
+                    if (hv.isValid()) h = hv.toInt();
+                }
+            } else {
+                // Top-level "H4" row — no specific aspect
+                auto hv = inx.data(Qt::UserRole + 1);
+                if (hv.isValid()) h = hv.toInt();
+                return;
+            }
+            auto psv = planetsInx.data(Qt::UserRole + 2);
+            if (psv.isValid()) ps = psv.value<A::PlanetSet>();
+            break;
+        }
+        case A::hscByPlanets: {
+            // Parent row: col0=glyphs (first-column-spanned), no child data
+            // Child row: col0=spread (UserRole+2=ps), col1="H4" (UserRole+1=h)
+            if (!inx.parent().isValid()) return; // top-level planet group
+            auto hInx = inx.sibling(inx.row(), 1);
+            auto hv   = hInx.data(Qt::UserRole + 1);
+            if (hv.isValid()) h = hv.toInt();
+            auto psInx = inx.sibling(inx.row(), 0);
+            auto psv   = psInx.data(Qt::UserRole + 2);
+            if (psv.isValid()) ps = psv.value<A::PlanetSet>();
+            break;
+        }
+        case A::hscByOrb: {
+            // Flat row: col0=spread, col1="H4" (UserRole+1=h),
+            //           col2=planets (UserRole+2=ps)
+            auto hInx = inx.sibling(inx.row(), 1);
+            auto hv   = hInx.data(Qt::UserRole + 1);
+            if (hv.isValid()) h = hv.toInt();
+            auto psInx = inx.sibling(inx.row(), 2);
+            auto psv   = psInx.data(Qt::UserRole + 2);
+            if (psv.isValid()) ps = psv.value<A::PlanetSet>();
+            break;
+        }
+        }
+    };
+    extractRowData();
+
+    auto* aw = MainWindow::theAstroWidget();
+    int targetFid = filesCount() > 1 ? 1 : 0;
+
     if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
+        // --- Ctrl+click: switch to H(h) with optional focal planets ---
         if (!v.isValid() && inx.parent().isValid()) {
             v = inx.parent().data(Qt::UserRole + 1);
             if (!v.isValid() && inx.parent().parent().isValid()) {
@@ -482,27 +573,91 @@ Harmonics::clickedCell(const QModelIndex& inx)
         if (v.isValid() || getHarmonic()) {
             emit updateHarmonics(v.toDouble());
         }
+        // Set focal planets if we have them
+        if (ps.size() > 1 && file(targetFid)) {
+            // Remove previous highlight
+            if (_focalIndex.isValid()) {
+                auto sim2 = tvm();
+                if (sim2) {
+                    auto idx = QModelIndex(_focalIndex);
+                    for (int c = 0, n = sim2->columnCount(); c < n; ++c) {
+                        auto* item = sim2->itemFromIndex(
+                            sim2->index(idx.row(), c, idx.parent()));
+                        if (item) item->setBackground(QBrush());
+                    }
+                }
+            }
+            _focalIndex = inx;
+            // Highlight focal row
+            auto sim = tvm();
+            if (sim) {
+                QBrush bg(QColor(113, 174, 236, 80));
+                for (int c = 0, n = sim->columnCount(); c < n; ++c) {
+                    auto* item = sim->itemFromIndex(
+                        sim->index(inx.row(), c, inx.parent()));
+                    if (item) item->setBackground(bg);
+                }
+            }
+            file(targetFid)->setFocalPlanets(ps, true);
+        } else if (file(targetFid)) {
+            clearFocal();
+        }
         if (val.startsWith("H")) {
             QTimer::singleShot(250, [this, val]() { emit needToFindIt(val); });
         }
         return;
     }
 
-    auto row = inx.row();
-    auto col = inx.column();
-    switch (s_harmonicsOrder) {
-    case A::hscByHarmonic: {
-        // col0 harmonic or spread, col1 planets
-        bool isSub      = inx.parent().isValid();
-        bool isOvertone = isSub && inx.parent().parent().isValid();
-        break;
+    // --- Regular click: focal aspect overlay ---
+    // Toggle off if re-clicking the same row
+    if (_focalIndex.isValid() && inx.parent() == _focalIndex.parent()
+        && inx.row() == _focalIndex.row())
+    {
+        clearFocal();
+        return;
     }
 
-    case A::hscByPlanets:
-        // col0 planets or spread, col1 harmonic
-        break;
+    if (ps.size() > 1 && aw && file(targetFid)) {
+        A::modalize<A::AspectSetId> aset(aw->overrideAspectSet(), -1);
+        bool hasMidpoint = std::any_of(ps.begin(), ps.end(),
+            [](const auto& cpid) { return cpid.isMidpt(); });
 
-    case A::hscByOrb: break;
+        if (hasMidpoint) {
+            aw->setHarmonicQuietly(h);
+            aset = A::topAspectSet().id + 1;
+        } else {
+            aw->setHarmonicQuietly(1);
+            aset = A::topAspectSet().id + h;
+        }
+        // Remove previous highlight without resetting harmonic
+        if (_focalIndex.isValid()) {
+            auto sim2 = tvm();
+            if (sim2) {
+                auto idx = QModelIndex(_focalIndex);
+                int cols = sim2->columnCount();
+                for (int c = 0; c < cols; ++c) {
+                    auto* item = sim2->itemFromIndex(
+                        sim2->index(idx.row(), c, idx.parent()));
+                    if (item) item->setBackground(QBrush());
+                }
+            }
+        }
+        _focalIndex = inx;
+        // Highlight the focal row with a subtle background
+        auto sim = tvm();
+        if (sim) {
+            QBrush bg(QColor(113, 174, 236, 80));
+            int cols = sim->columnCount();
+            for (int c = 0; c < cols; ++c) {
+                auto* item = sim->itemFromIndex(
+                    sim->index(inx.row(), c, inx.parent()));
+                if (item) item->setBackground(bg);
+            }
+        }
+        file(targetFid)->setFocalPlanets(ps, true);
+    } else {
+        // Clear focal on header/non-aspect rows
+        clearFocal();
     }
 }
 

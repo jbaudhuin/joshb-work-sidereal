@@ -181,6 +181,7 @@ class AstroWidget : public QWidget {
 
     friend class FilesBar;
     friend class Transits;
+    friend class Harmonics;
     friend class AstroFileHandler;
 };
 

@@ -485,6 +485,13 @@ AstroFile::change(AstroFile::Members members, bool affectChangedState)
 }
 
 void
+AstroFile::setFocalPlanets(const A::PlanetSet& fp, bool notify)
+{
+    _focalPlanets = fp;
+    if (notify) change(Harmonic, false);
+}
+
+void
 AstroFile::clearUnsavedState()
 {
     if (hasUnsavedChanges()) {

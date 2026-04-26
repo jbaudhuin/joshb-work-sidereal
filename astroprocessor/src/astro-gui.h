@@ -156,6 +156,7 @@ class AstroFile : public QObject, public A::EventStore {
     void setTimezoneLocked(bool locked);
 
     void setFocalPlanets(const A::PlanetSet& fp = {}) { _focalPlanets = fp; }
+    void setFocalPlanets(const A::PlanetSet& fp, bool notify);
     
     const A::EventTypeSet& getTransitEventOptions() const { return _transitEventOptions; }
     void setTransitEventOptions(const A::EventTypeSet& opts);

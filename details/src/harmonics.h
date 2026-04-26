@@ -2,6 +2,7 @@
 #define HARMONICS_H
 
 #include <QModelIndex>
+#include <QPersistentModelIndex>
 #include <Astroprocessor/Gui>
 
 class QTreeView;
@@ -48,12 +49,15 @@ public slots:
     void setCurrentPlanet(A::PlanetId, int);
 
 private:
+    void clearFocal();
+
     A::PlanetId _planet;
     int _fileIndex;
     bool _expandedAspects;
     bool _inhibitUpdate;
 
-    QTreeView*  _hview;
+    QTreeView*       _hview;
+    QPersistentModelIndex _focalIndex;
 
 };
 

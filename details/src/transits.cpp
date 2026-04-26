@@ -3803,6 +3803,8 @@ Transits::clickedCell(QModelIndex inx)
                 clickHarmonic = h;
                 aset = A::topAspectSet().id + 1;
             } else {
+                // Non-midpoint focal: show at H1 with override aspect set
+                MainWindow::theAstroWidget()->setHarmonicQuietly(1);
                 aset = A::topAspectSet().id + h;
             }
         }

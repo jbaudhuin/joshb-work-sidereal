@@ -243,6 +243,16 @@ QTabBar {
 	background-color: transparent;
 }
 
+QTabBar QToolButton {
+	padding: 0px;
+	margin: 0px;
+	min-width: 16px;
+	min-height: 16px;
+	border-radius: 2px;
+	color: #2C2C2C;
+	font-size: 13px;
+}
+
 QTabBar::tab {
 	background-color: #D8D8D8;
 	color: #2C2C2C;
