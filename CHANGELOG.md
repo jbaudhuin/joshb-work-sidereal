@@ -5,6 +5,8 @@ All notable changes to the sidereal branch of this project will be documented in
 ## [0.9.7] - 2026-04-26
 
 ### Added
+ - **Equatorial Transits**: Does equatorial transits incorporating "ex-precession" technique.
+ - **Faster transit updates**: Does better at caching and filtering event list to prevent unnecessary recomputation.
 - **Midpoint-to-Midpoint Patterns**: Chart wheel draws connecting lines between chord centers when two midpoint pairs share the same axis (A/B = C/D patterns), including orb-weighted line thickness
 - **Harmonics Focal Highlighting**: Clicking a harmonic entry highlights the row with a subtle blue background; Ctrl+click switches the chart wheel to the selected harmonic while setting focal planets
 - **Harmonics Overtone Navigation**: Clicking an overtone child entry jumps to the parent harmonic group and overlays the overtone aspect set on the chart wheel for direct visual inspection
