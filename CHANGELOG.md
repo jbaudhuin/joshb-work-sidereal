@@ -7,10 +7,11 @@ All notable changes to the sidereal branch of this project will be documented in
 ### Added
  - **Equatorial Transits**: Does equatorial transits incorporating "ex-precession" technique.
  - **Faster transit updates**: Does better at caching and filtering event list to prevent unnecessary recomputation.
-- **Midpoint-to-Midpoint Patterns**: Chart wheel draws connecting lines between chord centers when two midpoint pairs share the same axis (A/B = C/D patterns), including orb-weighted line thickness
-- **Harmonics Focal Highlighting**: Clicking a harmonic entry highlights the row with a subtle blue background; Ctrl+click switches the chart wheel to the selected harmonic while setting focal planets
-- **Harmonics Overtone Navigation**: Clicking an overtone child entry jumps to the parent harmonic group and overlays the overtone aspect set on the chart wheel for direct visual inspection
-- **AstroDateTimeEdit**: Continued refinement of date/time entry for historical charts, including BC dates and calendar-suffix handling
+ - **Midpoint-to-Midpoint Patterns**: Chart wheel draws connecting lines between chord centers when two midpoint pairs share the same axis (A/B = C/D patterns), including orb-weighted line thickness
+ - **Harmonics Focal Highlighting**: Clicking a harmonic entry highlights the row with a subtle blue background; Ctrl+click switches the chart wheel to the selected harmonic while setting focal planets
+ - **Harmonics Overtone Navigation**: Clicking an overtone child entry jumps to the parent harmonic group and overlays the overtone aspect set on the chart wheel for direct visual inspection
+ - **AstroDateTimeEdit**: Continued refinement of date/time entry for historical charts, including BC dates and calendar-suffix handling
+ - **Relocate events**: Although event list is tied to particular location, clicking on an individual event, editing the details (locking time-zone to relocate), will allow an individually relocated event chart.
 
 ### Fixed
 - **Focal State Cleanup**: Clearing focal planets now correctly resets the persisted aspect-set override and returns the chart harmonic to H1
