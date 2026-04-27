@@ -2,6 +2,21 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.7] - 2026-04-26
+
+### Added
+- **Midpoint-to-Midpoint Patterns**: Chart wheel draws connecting lines between chord centers when two midpoint pairs share the same axis (A/B = C/D patterns), including orb-weighted line thickness
+- **Harmonics Focal Highlighting**: Clicking a harmonic entry highlights the row with a subtle blue background; Ctrl+click switches the chart wheel to the selected harmonic while setting focal planets
+- **Harmonics Overtone Navigation**: Clicking an overtone child entry jumps to the parent harmonic group and overlays the overtone aspect set on the chart wheel for direct visual inspection
+- **AstroDateTimeEdit**: Continued refinement of date/time entry for historical charts, including BC dates and calendar-suffix handling
+
+### Fixed
+- **Focal State Cleanup**: Clearing focal planets now correctly resets the persisted aspect-set override and returns the chart harmonic to H1
+- **Harmonics Copy**: Copy keyboard shortcut uses widget-level shortcut context to prevent conflicts with other panels
+
+### Changed
+- Version bumped to 0.9.7
+
 ## [0.9.6] - 2026-03-21
 
 ### Added

@@ -1,5 +1,5 @@
 ZODIAC SIDEREAL - Astrological Software
-Version 0.9.6
+Version 0.9.7
 ========================================
 
 ABOUT
