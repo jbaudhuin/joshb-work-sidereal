@@ -24,6 +24,7 @@ namespace A
 /*static*/ QMap<HouseSystemId, HouseSystem> Data::houseSystems;
 /*static*/ QMap<ZodiacId, Zodiac>           Data::zodiacs;
 /*static*/ AspectSetId                      Data::topAspSet;
+static int s_dynAspTypeId = 0; // counter for on-demand harmonic aspect sets > H32
 /*static*/ QString                          Data::usedLang;
 /*static*/ QMap<PlanetId, GlyphName>        Data::signInfo;
 
@@ -157,6 +158,7 @@ Data::load(QString language)
                 }
             }
         }
+        s_dynAspTypeId = atype; // save for on-demand creation of H33+
     } // harmonic aspects
 
     f.setFileName("astroprocessor/hsystems.csv");
@@ -518,6 +520,54 @@ AspectsSet&
 Data::getAspectSet(AspectSetId set)
 {
     if (aspectSets.contains(set)) return aspectSets[set];
+
+    // On-demand creation for harmonic aspect sets beyond H32
+    if (topAspSet > 0 && set > topAspSet) {
+        unsigned h = (unsigned)(set - topAspSet);
+        AspectsSet& aset = aspectSets[set];
+        aset.id   = set;
+        aset.name = QString("H%1").arg(h);
+
+        unsigned           i = 1, j = 1;
+        std::set<unsigned> harmonics;
+        auto addAsp = [&](float angle) {
+            AspectType a;
+            a.set              = &aset;
+            a.id               = ++s_dynAspTypeId;
+            a.name             = QString("%1/%2").arg(j).arg(i);
+            a._harmonic        = i;
+            a.factors          = harmonics;
+            a.angle            = angle;
+            a._orb             = float(16) / i;
+            a.userData["good"] = QString::number(i);
+            aset.aspects[a.id] = a;
+        };
+
+        i = 1; j = 1;
+        addAsp(0); // conjunction
+
+        uintSSet hfac;
+        getAllFactorsAlt(h, hfac);
+        hfac.erase(1);
+
+        for (auto fit = hfac.begin(); fit != hfac.end(); ++fit) {
+            i         = *fit;
+            auto ifac = getAllFactors(i);
+            ifac.erase(1);
+            getPrimeFactors(i, harmonics);
+
+            auto ang = float(360) / i;
+            for (j = 1; j <= i / 2; ++j) {
+                auto jfac = getAllFactors(j);
+                jfac.erase(1);
+                bool common = false;
+                for (auto k : jfac)
+                    if ((common = ifac.count(k))) break;
+                if (!common && ifac.count(j) == 0) addAsp(ang * j);
+            }
+        }
+        return aset;
+    }
 
     return aspectSets[AspectSet_Default];
 }

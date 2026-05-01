@@ -1064,16 +1064,27 @@ Chart::aspectPen(const A::Aspect& asp)
     };
     static bool s_inited = false;
     if (!s_inited) {
-        // QColor rgb;
         for (unsigned i = 1, n = 32; i <= n; ++i) {
-            QString is  = QString::number(i);
-            brushes[is] = A::getHarmonicColor(i);
+            brushes[QString::number(i)] = A::getHarmonicColor(i);
+        }
+        s_inited = true;
+    }
+
+    // For h > 32: use theme-appropriate color on first encounter
+    if (!brushes.contains(tag)) {
+        bool ok;
+        if (tag.toInt(&ok), ok) {
+            brushes[tag] = ThemeManager::instance().getChartMidpointColor();
         }
     }
+
     auto        atOrb = asp.d->orb();
     qreal       thick = 3 * (atOrb - asp.orb) / atOrb;
     static QPen p;
-    p = QPen(brushes[tag], thick);
+    bool        ok;
+    int         h     = tag.toInt(&ok);
+    Qt::PenStyle style = (ok && h > 32) ? Qt::DashLine : Qt::SolidLine;
+    p = QPen(brushes[tag], thick, style);
     return p;
 }
 
