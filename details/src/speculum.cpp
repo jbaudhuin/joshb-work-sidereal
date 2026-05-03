@@ -76,6 +76,7 @@ Speculum::Speculum(QWidget* parent) :
     _filterActive(false),
     _filterOrbMinutes(4.0), // Default 4 minutes
     _showFixedStars(true),
+    _showParanNatalRows(false),
     m_timezone(0),
     _clickedRow(-1),
     _clickedCol(-1),
@@ -249,7 +250,12 @@ Speculum::filesUpdated(MembersList m)
     }
 
     while (m.size() < filesCount()) m.append(AstroFile::Member());
-    if (m[0] == 0) return;
+
+    // Skip only if every file reports zero changes
+    bool anyChanged = false;
+    for (const auto& member : m)
+        if (member) { anyChanged = true; break; }
+    if (!anyChanged) return;
 
     // Show/hide chart 2 button based on file count
     _chart2Btn->setVisible(filesCount() > 1);
@@ -259,6 +265,20 @@ Speculum::filesUpdated(MembersList m)
         _selectedChartIndex = 0;
         _chart1Btn->setChecked(true);
         _chart2Btn->setChecked(false);
+    }
+
+    // Auto-switch to chart 2 when it just became a paran chart, and back
+    // to chart 1 when the paran chart is replaced with a non-paran type.
+    if (filesCount() > 1 && m.size() > 1 && (m[1] & AstroFile::Type)) {
+        if (file(1)->getType() == TypeParan && _selectedChartIndex == 0) {
+            _selectedChartIndex = 1;
+            _chart1Btn->setChecked(false);
+            _chart2Btn->setChecked(true);
+        } else if (file(1)->getType() != TypeParan && _selectedChartIndex == 1) {
+            _selectedChartIndex = 0;
+            _chart1Btn->setChecked(true);
+            _chart2Btn->setChecked(false);
+        }
     }
 
     updateSpeculumDisplay();
@@ -319,31 +339,90 @@ Speculum::populateSpeculumTable()
 
     auto scope = file(_selectedChartIndex)->horoscope();
 
-    // Count planets (excluding MC and Asc)
-    int planetCount = 0;
-    for (const A::Planet& p : scope.planets) {
-        if (p.id != A::Planet_MC && p.id != A::Planet_Asc) {
-            planetCount++;
+    // Determine if the currently displayed chart is a paran chart.
+    // In a biwheel the paran file is file(1) and the natal is file(0);
+    // in transitsOnly mode both roles collapse onto file(0).
+    AstroFile* paranFile    = file(_selectedChartIndex);
+    bool       isParanChart = paranFile && paranFile->getType() == TypeParan;
+
+    // Build the set of transit-body PlanetIds for paran filtering
+    QSet<A::PlanetId> paranTransitPlanets;
+    if (isParanChart) {
+        for (const auto& entry : paranFile->getParanGroupPlanets()) {
+            if (entry.first == 0)
+                paranTransitPlanets.insert(entry.second);
         }
     }
 
-    // Add fixed stars if enabled
-    int totalRows = planetCount;
-    if (_showFixedStars) {
-        totalRows += scope.stars.count();
+    // The "natal" file for ex-precessed rows is the other chart in a biwheel
+    int        natalIdx  = 1 - _selectedChartIndex;
+    AstroFile* natalFile = (filesCount() > 1 && natalIdx >= 0) ? file(natalIdx) : nullptr;
+
+    // Count natal ex-precessed rows for Par=N charts (feature 3)
+    int  natalParanCount = 0;
+    bool showNatalRows   = isParanChart
+        && _showParanNatalRows
+        && paranFile->getOriginEventType() == A::etcParanatellontaToNatal
+        && natalFile != nullptr;
+    if (showNatalRows) {
+        for (const auto& entry : paranFile->getParanGroupPlanets()) {
+            if (entry.first == 1) natalParanCount++;
+        }
     }
+
+    // Count transit planet rows (filtered for paran charts)
+    int planetCount = 0;
+    for (const A::Planet& p : scope.planets) {
+        if (p.id == A::Planet_MC || p.id == A::Planet_Asc) continue;
+        if (isParanChart && !paranTransitPlanets.contains(p.id)) continue;
+        planetCount++;
+    }
+
+    // Add fixed stars if enabled (suppressed for paran charts — not relevant)
+    int totalRows = planetCount + natalParanCount;
+    if (_showFixedStars && !isParanChart)
+        totalRows += scope.stars.count();
 
     _table->setRowCount(totalRows);
 
-    // Populate planet rows
+    // Populate transit planet rows
     int row = 0;
     for (const A::Planet& p : scope.planets) {
         if (p.id == A::Planet_MC || p.id == A::Planet_Asc) continue;
+        if (isParanChart && !paranTransitPlanets.contains(p.id)) continue;
         addPlanetRow(p, row++);
     }
 
-    // Populate fixed star rows
-    if (_showFixedStars) {
+    // Populate natal ex-precessed rows for Par=N (right-justified italic)
+    if (showNatalRows) {
+        double jdNatal = A::getJulianDate(natalFile->getGMT());
+        double jdParan = A::getJulianDate(paranFile->getGMT());
+        double lat     = scope.inputData.location().y();
+        double lon     = scope.inputData.location().x();
+
+        for (const auto& entry : paranFile->getParanGroupPlanets()) {
+            if (entry.first != 1) continue;
+            A::PlanetId pid = entry.second;
+
+            const A::Planet* np = nullptr;
+            for (const A::Planet& p : natalFile->horoscope().planets) {
+                if (p.id == pid) { np = &p; break; }
+            }
+            if (!np) continue;
+
+            QDateTime angleTransit[4];
+            double    angleTransitRA[4];
+            A::computeNatalParanTransits(
+                np->equatorialPos.x(), np->equatorialPos.y(),
+                jdNatal, jdParan, lat, lon,
+                angleTransit, angleTransitRA);
+
+            addNatalParanRow(np->name, angleTransit, angleTransitRA, row++);
+        }
+    }
+
+    // Fixed star rows (suppressed for paran charts)
+    if (_showFixedStars && !isParanChart) {
         for (const A::Star& s : scope.stars) {
             addStarRow(s, row++);
         }
@@ -519,6 +598,54 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
             timeItem->setToolTip(tooltip);
         }
 
+        _table->setItem(row, col, timeItem);
+    }
+}
+
+void
+Speculum::addNatalParanRow(const QString& name,
+                           QDateTime      angleTransit[4],
+                           double         angleTransitRA[4],
+                           int            row)
+{
+    // Right-justified italic label to visually distinguish natal ex-precessed rows
+    QTableWidgetItem* nameItem = new QTableWidgetItem(name);
+    nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+    QFont nameFont;
+    nameFont.setBold(true);
+    nameFont.setItalic(true);
+    nameItem->setFont(nameFont);
+    nameItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    _table->setItem(row, 0, nameItem);
+
+    // Column order: Rise(0), MC(2), Set(1), IC(3) — matches addPlanetRow
+    static const int timeIndices[4] = { 0, 2, 1, 3 };
+    for (int col = 1; col <= 4; col++) {
+        int       timeIndex   = timeIndices[col - 1];
+        QDateTime transitTime = angleTransit[timeIndex];
+        QString   timeStr;
+
+        if (!transitTime.isValid()) {
+            timeStr = "    --    ";
+        } else if (_displayMode == A::DisplayLocalTime) {
+            timeStr = A::_formatTime(transitTime, m_timezone);
+        } else {
+            double raValue = angleTransitRA[timeIndex];
+            if (_displayMode == A::DisplaySiderealTime) {
+                timeStr = A::siderealTimeToString(raValue, A::HighPrecision);
+            } else {
+                timeStr = A::raToString(raValue, A::HighPrecision);
+            }
+        }
+
+        QTableWidgetItem* timeItem = new QTableWidgetItem(timeStr);
+        timeItem->setFlags(timeItem->flags() & ~Qt::ItemIsEditable);
+        timeItem->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        QFont monoFont;
+        monoFont.setStyleHint(QFont::Monospace);
+        monoFont.setItalic(true);
+        timeItem->setFont(monoFont);
+        timeItem->setData(Qt::UserRole, transitTime);
         _table->setItem(row, col, timeItem);
     }
 }
@@ -919,6 +1046,7 @@ Speculum::defaultSettings()
     AppSettings s;
     s.setValue("Mundane/includeFixedStars", true);
     s.setValue("Mundane/paranOrb", 1.0);
+    s.setValue("Mundane/showParanNatalRows", false);
     return s;
 }
 
@@ -929,13 +1057,15 @@ Speculum::currentSettings()
     s.setValue("Mundane/includeFixedStars", _showFixedStars);
     s.setValue("Mundane/paranOrb",
                _filterOrbMinutes / 4.0); // Convert minutes to degrees
+    s.setValue("Mundane/showParanNatalRows", _showParanNatalRows);
     return s;
 }
 
 void
 Speculum::applySettings(const AppSettings& s)
 {
-    _showFixedStars = s.value("Mundane/includeFixedStars", true).toBool();
+    _showFixedStars     = s.value("Mundane/includeFixedStars", true).toBool();
+    _showParanNatalRows = s.value("Mundane/showParanNatalRows", false).toBool();
 
     // Read orb in degrees and convert based on display mode
     double orbDegrees = s.value("Mundane/paranOrb", 1.0).toDouble();

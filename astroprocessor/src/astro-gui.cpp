@@ -124,6 +124,7 @@ AstroFile::typeToString(unsigned ft)
     case TypeFemale:        return "Female";
     case TypeEvent:         return "Event";
     case TypeReturn:        return "Return";
+    case TypeParan:         return "Paran";
     case TypeOther:         return "Other";
     default:                break;
     }
@@ -142,6 +143,7 @@ AstroFile::typeFromString(const QString& str)
     if (str == "Search") return TypeSearch;
     if (str == "Event") return TypeEvent;
     if (str == "Return") return TypeReturn;
+    if (str == "Paran") return TypeParan;
     return TypeOther;
 }
 

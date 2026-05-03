@@ -924,6 +924,7 @@ struct event {
     QDateTime   _dt;
     const Star* _star;
     unsigned    _pivot;
+    bool        _isNatal = false; // natal ex-precessed row — right-justified italic
 
     static int       _maxWidth;
     static QDateTime _radix;
@@ -935,25 +936,29 @@ struct event {
 
     event() : _star(NULL), _pivot(0) { }
 
-    event(const QDateTime& dt, const Star* planet, unsigned pivot) :
+    event(const QDateTime& dt, const Star* planet, unsigned pivot,
+          bool isNatal = false) :
         _dt(dt),
         _star(planet),
-        _pivot(pivot)
+        _pivot(pivot),
+        _isNatal(isNatal)
     {
     }
 
     event(const event& other) :
         _dt(other._dt),
         _star(other._star),
-        _pivot(other._pivot)
+        _pivot(other._pivot),
+        _isNatal(other._isNatal)
     {
     }
 
     event& operator=(const event& other)
     {
-        _dt    = other._dt;
-        _star  = other._star;
-        _pivot = other._pivot;
+        _dt     = other._dt;
+        _star   = other._star;
+        _pivot  = other._pivot;
+        _isNatal = other._isNatal;
         return *this;
     }
 
@@ -995,13 +1000,20 @@ struct event {
         if (planet) {
             nameCellStyle += " font-weight: bold;";
         }
+        // Natal ex-precessed rows: right-justified italic to distinguish from transit
+        if (_isNatal) {
+            nameCellStyle += " font-style: italic; text-align: right;";
+        }
 
         // Data cells don't get bold, just border and background
         QString dataCellStyle =
             "padding: " + padding + " 8px;" + borderStyle + backgroundColor;
+        if (_isNatal) {
+            dataCellStyle += " font-style: italic;";
+        }
 
         // Planet name with color emphasis for planets
-        if (planet) {
+        if (planet && !_isNatal) {
             ret += "<td style='" + nameCellStyle + " color: " + ThemeManager::instance().getHeadingColor() + ";'>"
                    + planetName + "</td>";
         } else {
@@ -1102,7 +1114,9 @@ describeParans(const AstroFileList& scopes,
                bool                 showAll,
                bool                 showFixedStars,
                double               paranOrb,
-               SpeculumDisplayMode  displayMode)
+               SpeculumDisplayMode  displayMode,
+               bool                 showParanNatalRows,
+               AstroFile*           natalContext)
 {
     // CONFIGURABLE: Cell padding for parans table - change this to adjust row
     // spacing Suggested values: "0px" (tight), "1px" (normal), "2px" (loose)
@@ -1142,6 +1156,18 @@ describeParans(const AstroFileList& scopes,
         }
     }
 
+    // For paran charts, use a time-proximity filter: only show angle-transit
+    // entries within paranOrb of the paran event time (stored as the chart's GMT).
+    // This naturally captures the specific paran-relevant angle per body, includes
+    // fixed stars in the cluster, and excludes the body's other angles (hours away).
+    bool isParanChart = file && file->getType() == TypeParan;
+    QDateTime paranTime;
+    qint64 paranOrbSecs = 0;
+    if (isParanChart) {
+        paranTime = file->getGMT();
+        paranOrbSecs = qint64(paranOrb * 240); // 1° orb = 240 sidereal seconds ≈ clock seconds
+    }
+
     QVector<event> events;
     events << event(scope.inputData.GMT(), NULL, 4); // radix
 
@@ -1157,13 +1183,9 @@ describeParans(const AstroFileList& scopes,
         if (p.id == Planet_MC || p.id == Planet_Asc) continue;
         unsigned u = 0;
         for (const QDateTime& dt : p.angleTransit) {
-            if (!dt.isValid()) {
-                u++;
-                continue;
-            }
-            if (p.name.length() > maxWidth) {
-                maxWidth = p.name.length();
-            }
+            if (!dt.isValid()) { u++; continue; }
+            if (isParanChart && qAbs(paranTime.secsTo(dt)) > paranOrbSecs) { u++; continue; }
+            if (p.name.length() > maxWidth) maxWidth = p.name.length();
             events << event(dt, p, u++);
         }
     }
@@ -1172,14 +1194,59 @@ describeParans(const AstroFileList& scopes,
         for (const Star& s : std::as_const(scope.stars)) {
             unsigned u = 0;
             for (const QDateTime& dt : s.angleTransit) {
-                if (!dt.isValid()) {
-                    u++;
-                    continue;
-                }
-                if (s.name.length() > maxWidth) {
-                    maxWidth = s.name.length();
-                }
+                if (!dt.isValid()) { u++; continue; }
+                if (isParanChart && qAbs(paranTime.secsTo(dt)) > paranOrbSecs) { u++; continue; }
+                if (s.name.length() > maxWidth) maxWidth = s.name.length();
                 events << event(dt, s, u++);
+            }
+        }
+    }
+
+    // Natal ex-precessed rows for Par=N charts (right-justified italic).
+    // The paran group identifies which natal bodies to compute (fileId=0 in biwheel);
+    // time-proximity then filters to only the angle within the paran cluster.
+    QVector<Star> natalStarStorage;
+    if (isParanChart && natalContext
+        && file->getOriginEventType() == etcParanatellontaToNatal)
+    {
+        double jdNatal = getJulianDate(natalContext->getGMT());
+        // Truncate to midnight UTC of the paran day so findAngleTransitJD
+        // searches [midnight, midnight+1) and doesn't miss morning transits.
+        // JD convention: midnight UTC = floor(jd + 0.5) - 0.5
+        double jdParanRaw = getJulianDate(file->getGMT());
+        double jdParan    = std::floor(jdParanRaw + 0.5) - 0.5;
+        double lat = scope.inputData.location().y();
+        double lon = scope.inputData.location().x();
+
+        for (const auto& entry : file->getParanGroupPlanets()) {
+            if (entry.first != 0) continue; // natal ex-precessed entries have fileId=0 in biwheel
+            PlanetId pid = entry.second;
+
+            const Planet* np = nullptr;
+            for (const Planet& p : natalContext->horoscope().planets) {
+                if (p.id == pid) { np = &p; break; }
+            }
+            if (!np) continue;
+
+            QDateTime angleTransit[4];
+            double    angleTransitRA[4];
+            computeNatalParanTransits(
+                np->equatorialPos.x(), np->equatorialPos.y(),
+                jdNatal, jdParan, lat, lon,
+                angleTransit, angleTransitRA);
+
+            Star ns;
+            ns.name = np->name;
+            natalStarStorage.append(ns);
+            const Star* starPtr = &natalStarStorage.last();
+
+            unsigned u = 0;
+            for (int m = 0; m < 4; ++m) {
+                if (!angleTransit[m].isValid()) { u++; continue; }
+                if (qAbs(paranTime.secsTo(angleTransit[m])) > paranOrbSecs) { u++; continue; }
+                if (starPtr->name.length() > maxWidth)
+                    maxWidth = starPtr->name.length();
+                events << event(angleTransit[m], starPtr, u++, /*isNatal=*/true);
             }
         }
     }

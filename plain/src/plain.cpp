@@ -100,6 +100,7 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
 
     showAllDiurnalEvents = false;
     includeFixedStars    = true;
+    showParanNatalRows   = false;
     aspectSortOrder      = A::SortByPlanets;
 
     QVBoxLayout* layout = new QVBoxLayout(this);
@@ -578,7 +579,9 @@ Plain::refresh()
                                       bool(articles & A::Article_DiurnalEvents),
                                       bool(articles & A::Article_FixedStars),
                                       paranOrb,
-                                      displayMode);
+                                      displayMode,
+                                      showParanNatalRows,
+                                      nullptr);
         } else if (filesCount() > 1) {
             // Chart #1 Parans
             if (showFirst && file(0) && file(0)->horoscope().planets.count()) {
@@ -593,10 +596,12 @@ Plain::refresh()
                                       bool(articles & A::Article_DiurnalEvents),
                                       bool(articles & A::Article_FixedStars),
                                       paranOrb,
-                                      displayMode);
+                                      displayMode,
+                                      showParanNatalRows,
+                                      nullptr);
             }
 
-            // Chart #2 Parans
+            // Chart #2 Parans — pass file(0) as natal context for Par=N filtering
             if (showSecond && file(1) && file(1)->horoscope().planets.count()) {
                 html += "<h2>"
                         + QObject::tr("Parans - Chart #2: %1")
@@ -609,7 +614,9 @@ Plain::refresh()
                                       bool(articles & A::Article_DiurnalEvents),
                                       bool(articles & A::Article_FixedStars),
                                       paranOrb,
-                                      displayMode);
+                                      displayMode,
+                                      showParanNatalRows,
+                                      file(0));
             }
         }
     }
@@ -678,6 +685,7 @@ Plain::defaultSettings()
     s.setValue("Mundane/showAllDiurnalEvents", false);
     s.setValue("Mundane/paranOrb", 1.0);
     s.setValue("Mundane/includeFixedStars", true);
+    s.setValue("Mundane/showParanNatalRows", false);
     s.setValue("Mundane/useApparentSun", true);
     s.setValue("Text/aspectSortOrder", unsigned(A::SortByPlanets));
     return s;
@@ -702,6 +710,7 @@ Plain::currentSettings()
     s.setValue("Mundane/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Mundane/paranOrb", paranOrb);
     s.setValue("Mundane/includeFixedStars", includeFixedStars);
+    s.setValue("Mundane/showParanNatalRows", showParanNatalRows);
     s.setValue("Mundane/useApparentSun", A::useApparentSun);
     s.setValue("Text/aspectSortOrder", unsigned(aspectSortOrder));
     return s;
@@ -740,6 +749,7 @@ Plain::applySettings(const AppSettings& s)
     showAllDiurnalEvents = s.value("Mundane/showAllDiurnalEvents").toBool();
     paranOrb             = s.value("Mundane/paranOrb").toDouble();
     includeFixedStars    = s.value("Mundane/includeFixedStars").toBool();
+    showParanNatalRows   = s.value("Mundane/showParanNatalRows").toBool();
     aspectSortOrder =
         A::AspectSortOrder(s.value("Text/aspectSortOrder").toUInt());
 
@@ -794,6 +804,8 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                          1. / 60. /*1 minute*/,
                          5.0 /*5 degrees*/);
     ed->addCheckBox("Mundane/includeFixedStars", tr("Include fixed stars"));
+    ed->addCheckBox("Mundane/showParanNatalRows",
+                    tr("Show natal ex-precessed positions in paran table"));
     ed->addComboBox("Mundane/useApparentSun",
                     tr("PSSR Sun mode"),
                     { { "Apparent Sun (RAAS)", true },

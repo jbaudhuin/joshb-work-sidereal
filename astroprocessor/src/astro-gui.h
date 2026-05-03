@@ -164,6 +164,12 @@ class AstroFile : public QObject, public A::EventStore {
     A::EventType getOriginEventType() const { return _originEventType; }
     void setOriginEventType(A::EventType et) { _originEventType = et; }
 
+    // For paran charts: the bodies that form the paran event.
+    // Each entry is (fileId, PlanetId): fileId 0 = transit, 1 = natal ex-precessed.
+    using ParanGroupEntry = QPair<int, A::PlanetId>;
+    const QVector<ParanGroupEntry>& getParanGroupPlanets() const { return _paranGroupPlanets; }
+    void setParanGroupPlanets(const QVector<ParanGroupEntry>& g) { _paranGroupPlanets = g; }
+
     const QMap<A::EventType, unsigned>& getTransitHarmonicRestrictions() const { return _transitHarmonicRestrictions; }
     void setTransitHarmonicRestrictions(const QMap<A::EventType, unsigned>& r) { _transitHarmonicRestrictions = r; }
 
@@ -354,6 +360,9 @@ class AstroFile : public QObject, public A::EventStore {
 
     // Originating event type (e.g. etcSolarReturn) for chart preset lookup
     A::EventType _originEventType = A::etcUnknownEvent;
+
+    // Paran group (populated when TypeParan chart is created from an event click)
+    QVector<ParanGroupEntry> _paranGroupPlanets;
 
     // Per-event-type harmonic restrictions (event type → max harmonic)
     QMap<A::EventType, unsigned> _transitHarmonicRestrictions;

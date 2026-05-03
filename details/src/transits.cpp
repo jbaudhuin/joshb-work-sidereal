@@ -417,6 +417,21 @@ class EventsTableModel : public QAbstractItemModel {
     static int fid(const A::PlanetLoc& ploc) { return ploc.planet.fileId(); }
     static int fid(const A::Loc& loc) { return -1; }
 
+    // Translate a paran angle-glyph desc (Almagest codepoint) to the
+    // human-readable abbreviation used in text contexts (tooltip, summary).
+    // Returns an empty string when desc is not a paran angle glyph.
+    static QString paranAngleToText(const QString& desc)
+    {
+        if (desc.length() != 1) return {};
+        switch (desc[0].unicode()) {
+        case 402:  return QStringLiteral("As");  // Asc  (ƒ)
+        case 8249: return QStringLiteral("Ds");  // Desc (‹)
+        case 77:   return QStringLiteral("Mc");  // MC   (M)
+        case 8225: return QStringLiteral("Ic");  // IC   (‡)
+        default:   return {};
+        }
+    }
+
     QString display(const A::ChartPlanetModeId& cpid) const
     {
         if (QString suff = modeToSuffix(cpid.mode()); suff.isEmpty()) {
@@ -432,8 +447,15 @@ class EventsTableModel : public QAbstractItemModel {
         if (auto suf = modeToSuffix(s.mode()); !suf.isEmpty()) {
             suff = "-" + suf;
         }
+        // For paran entries whose desc is an Almagest angle codepoint,
+        // substitute readable text so the tooltip renders correctly in a
+        // normal (non-glyph) font.
+        const QString angleText = paranAngleToText(s.desc);
+        const QString bodyDesc  = angleText.isEmpty()
+                                      ? s.description()
+                                      : s.planet.name() + "-" + angleText;
         return QString(s.planet.fileId() == 1 ? "<i>%1</i>" : "%1")
-                   .arg(s.description() + suff)
+                   .arg(bodyDesc + suff)
                + " "
                + A::zodiacPosition(s.rasiLoc(),
                                    _zodiac,
@@ -443,7 +465,7 @@ class EventsTableModel : public QAbstractItemModel {
 
     QString glyph(const A::ChartPlanetId& cpid) const { return cpid.glyph(); }
 
-    QString glyph(const A::PlanetLoc& s) const
+    QString glyph(const A::PlanetLoc& s, unsigned eventType = 0) const
     {
         const A::ChartPlanetId& cpid = s.planet;
         auto                    g    = cpid.glyph();
@@ -463,6 +485,12 @@ class EventsTableModel : public QAbstractItemModel {
             else if (desc == "p") desc = "="; // almagest p
             else if (desc == "n" || desc == "r") desc = "";
         }
+        // Parans render as <body-glyph> <angle-glyph> only — no longitude,
+        // no retrograde marker. desc already carries the Almagest angle
+        // codepoint set by findParans.
+        const bool isParan = (eventType == A::etcParanatellonta
+                              || eventType == A::etcParanatellontaToNatal);
+        if (isParan) return g + " " + desc;
         if (s.speed < 0 && !s.desc.startsWith("S")) {
             desc = "#" + desc; // retrograde
         }
@@ -480,16 +508,17 @@ class EventsTableModel : public QAbstractItemModel {
     QString summary(const A::PlanetLoc& s) const
     {
         auto str = s.planet.name();
-        
+
         // Add mode suffix if available (-r for natal, -p for progressed, etc.)
         QString suffix = modeToSuffix(s.mode());
         if (!suffix.isEmpty()) {
             str += "-" + suffix;
         }
-        
-        // Add descriptor if present (SD, SR, etc.)
+
+        // Add descriptor; translate paran angle glyphs to readable text.
         if (!s.desc.isEmpty()) {
-            str += "-" + s.desc;
+            const QString angleText = paranAngleToText(s.desc);
+            str += "-" + (angleText.isEmpty() ? s.desc : angleText);
         }
         
         return str;
@@ -510,7 +539,7 @@ class EventsTableModel : public QAbstractItemModel {
     }
 
     template <typename Iter>
-    QVariant glyphic(int role, Iter its) const
+    QVariant glyphic(int role, Iter its, unsigned eventType = 0) const
     {
         if (role == Qt::FontRole) {
             static QFont f("Almagest", 11);
@@ -521,7 +550,7 @@ class EventsTableModel : public QAbstractItemModel {
         for (auto it = its.first; it != its.second; ++it) {
             const auto& s = *it;
             if (role == Qt::DisplayRole || role == Qt::EditRole) {
-                sl << glyph(s);
+                sl << glyph(s, eventType);
             } else if (role == Qt::ToolTipRole) {
                 sl << display(s);
             } else if (role == SummaryRole) {
@@ -567,7 +596,7 @@ class EventsTableModel : public QAbstractItemModel {
     QVariant glyphicWithMode(int role, Iter its, DisplayMode mode, unsigned eventType = 0, bool isNatalTransitColumn = false) const
     {
         if (mode == A::EventOptions::DisplayGlyphs) {
-            return glyphic(role, its);
+            return glyphic(role, its, eventType);
         }
 
         if (role == Qt::FontRole) {
@@ -606,7 +635,7 @@ class EventsTableModel : public QAbstractItemModel {
                     sl << rulershipText;
                 } else {
                     // Fall back to glyph if no rulership
-                    sl << glyph(s);
+                    sl << glyph(s, eventType);
                 }
             } else if (role == Qt::ToolTipRole) {
                 sl << display(s);
@@ -834,6 +863,20 @@ class EventsTableModel : public QAbstractItemModel {
             }
 
         case transitBodyCol:
+            // Parans with no natal participation: render every body in the
+            // transit column. The default getTColIters/getNTColIters split
+            // for size==2 same-fid (faster vs slower) is wrong here because
+            // all bodies are transit; the user wants them grouped.
+            if ((et == A::etcParanatellonta || et == A::etcParanatellontaToNatal)
+                && !asp.locations().empty() && !mixedMode(asp.locations()))
+            {
+                return glyphicWithMode(role,
+                                       std::make_pair(asp.locations().begin(),
+                                                      asp.locations().end()),
+                                       _transitBodyColMode,
+                                       et,
+                                       false);
+            }
             // Default glyph display mode
             if (asp.locations().empty()) {
                 // goofiness due to different sorts for planets
@@ -861,6 +904,13 @@ class EventsTableModel : public QAbstractItemModel {
             if (role == Qt::ForegroundRole) {
                 if (mixedMode(asp.planets())) return ThemeManager::instance().getGoldColor();
                 // else falls through to default return
+                break;
+            }
+
+            // Parans with no natal participation: leave the natal column empty.
+            if ((et == A::etcParanatellonta || et == A::etcParanatellontaToNatal)
+                && !asp.locations().empty() && !mixedMode(asp.locations()))
+            {
                 break;
             }
 
@@ -1623,7 +1673,9 @@ class EventTypeFilterProxy : public QSortFilterProxyModel {
         if (et != A::etcTransitToTransit
             && et != A::etcTransitToNatal
             && et != A::etcTransitAspectPattern
-            && et != A::etcTransitNatalAspectPattern)
+            && et != A::etcTransitNatalAspectPattern
+            && et != A::etcParanatellonta
+            && et != A::etcParanatellontaToNatal)
             return true;
 
         double days = src->rowData(sourceRow).range().days();
@@ -3739,6 +3791,27 @@ Transits::restoreScrollPos()
     }
 }
 
+static QString paranAngleAbbrev(const QString& desc) {
+    if (!desc.isEmpty()) {
+        if (desc[0] == QChar(402))  return QStringLiteral("Asc");
+        if (desc[0] == QChar(8249)) return QStringLiteral("Ds");
+        if (desc == QLatin1String("M")) return QStringLiteral("Mc");
+        if (desc[0] == QChar(8225)) return QStringLiteral("Ic");
+    }
+    return QString();
+}
+
+static QString buildParanChartName(const A::HarmonicEvent& ev, bool biwheel) {
+    QStringList parts;
+    for (const auto& loc : ev.locations()) {
+        QString pname = loc.planet.name().remove(QLatin1Char(' ')).left(3);
+        if (biwheel && loc.planet.fileId() == 0) pname += QStringLiteral("-r");
+        QString angle = paranAngleAbbrev(loc.desc);
+        parts << pname + QLatin1Char(' ') + angle;
+    }
+    return QStringLiteral("Paran ") + parts.join(QStringLiteral(" + "));
+}
+
 void
 Transits::clickedCell(QModelIndex inx)
 {
@@ -3829,9 +3902,17 @@ Transits::clickedCell(QModelIndex inx)
     if (!dt.isValid()) return;
     auto    ev = _evm->rowData(srcInx.row());
     auto    et = ev.eventType();
+    // Focal-column click (transitBodyCol or natalTransitBodyCol) enables
+    // paran-chart pruning mode; other columns show the full paran table.
+    const bool paranFocalClick =
+        (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal)
+        && (srcInx.column() >= EventsTableModel::transitBodyCol);
     QString desc;
-    if (focal.empty()) desc = _evm->rowDesc(srcInx.row());
-    else {
+    if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
+        desc = buildParanChartName(ev, !transitsOnly());
+    } else if (focal.empty()) {
+        desc = _evm->rowDesc(srcInx.row());
+    } else {
         desc =
             inx.siblingAtColumn(EventsTableModel::harmonicCol).data().toString()
             + " " + describePlanetsForEvent(focal, et);
@@ -3850,9 +3931,18 @@ Transits::clickedCell(QModelIndex inx)
         file()->setFocalPlanets(focal);
         file()->setName(desc);
         file()->setGMT(dt);
-        // Set file type to Return for return events
+        // Set file type based on event type
         if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
             file()->setType(TypeReturn);
+        } else if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
+            if (paranFocalClick) {
+                file()->setType(TypeParan);
+                file()->setOriginEventType(et);
+                QVector<AstroFile::ParanGroupEntry> group;
+                for (const auto& loc : ev.locations())
+                    group.append({ loc.planet.fileId(), loc.planet.planetId() });
+                file()->setParanGroupPlanets(group);
+            }
         }
         // Don't emit updateFirst here — setGMT/setName/setFocalPlanets
         // already fire changed() which propagates to Chart and all other
@@ -3901,6 +3991,21 @@ Transits::clickedCell(QModelIndex inx)
         {
             taf->setType(TypeDerivedProg);
             taf->setBaseChart(file()->getGMT());
+        } else if (et == A::etcParanatellonta
+                   || et == A::etcParanatellontaToNatal)
+        {
+            if (paranFocalClick) {
+                taf->setType(TypeParan);
+                taf->setOriginEventType(et);
+                taf->setBaseChart(file()->getGMT());
+                QVector<AstroFile::ParanGroupEntry> group;
+                for (const auto& loc : ev.locations())
+                    group.append({ loc.planet.fileId(), loc.planet.planetId() });
+                taf->setParanGroupPlanets(group);
+            } else {
+                taf->setType(TypeOther);
+                taf->setBaseChart(file()->getGMT());
+            }
         } else {
             // For transit events (T=T, T=N, patterns, ingresses, etc.)
             // Set base chart to track natal relationship, but use TypeOther
@@ -3940,7 +4045,9 @@ Transits::doubleClickedCell(QModelIndex inx)
     if (!dt.isValid()) return;
     auto              ev   = _evm->rowData(row);
     auto              et   = ev.eventType();
-    auto              desc = _evm->rowDesc(row);
+    const QString desc = (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal)
+                         ? buildParanChartName(ev, !transitsOnly())
+                         : _evm->rowDesc(row);
     A::modalize<bool> noup(_inhibitUpdate);
     auto* aw = MainWindow::theAstroWidget();
     if (!aw) return;
@@ -3965,7 +4072,7 @@ Transits::doubleClickedCell(QModelIndex inx)
         } else {
             af->clearBaseChart();
         }
-    } else if (et == A::etcProgressedToProgressed 
+    } else if (et == A::etcProgressedToProgressed
         || et == A::etcProgressedToNatal
         || et == A::etcInnerProgressedToNatal
         || et == A::etcTransitToProgressed) {
@@ -3976,6 +4083,13 @@ Transits::doubleClickedCell(QModelIndex inx)
         } else {
             af->clearBaseChart();
         }
+    } else if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
+        af->setType(TypeParan);
+        // Store the paran group so the speculum can filter to these bodies
+        QVector<AstroFile::ParanGroupEntry> group;
+        for (const auto& loc : ev.locations())
+            group.append({ loc.planet.fileId(), loc.planet.planetId() });
+        af->setParanGroupPlanets(group);
     }
 
     // Apply chart preset if one exists for this event type

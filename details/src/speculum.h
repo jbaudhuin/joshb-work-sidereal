@@ -77,6 +77,10 @@ class Speculum : public AstroFileHandler {
     void populateSpeculumTable();
     void setupTableHeaders();
     void addPlanetRow(const A::Planet& planet, int row);
+    void addNatalParanRow(const QString& name,
+                         QDateTime      angleTransit[4],
+                         double         angleTransitRA[4],
+                         int            row);
     void addStarRow(const A::Star& star, int row);
     bool isTimeWithinOrb(const QDateTime& time1,
                          const QDateTime& time2,
@@ -102,6 +106,7 @@ class Speculum : public AstroFileHandler {
 
     // Settings
     bool        _showFixedStars;
+    bool        _showParanNatalRows;
     double      m_timezone;
     A::PlanetId _selectedPlanet;
     int         _fileIndex;

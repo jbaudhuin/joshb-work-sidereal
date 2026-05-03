@@ -309,6 +309,21 @@ exprecess_equatorial(double ra_t1_deg,
                      double jd_t2,
                      double dt_days = 0.01);
 
+/// Compute the 4 angle-transit times and RAs for a natal body at its
+/// ex-precessed position on the day containing d_jd, at the given location.
+/// angleTransit_out[0..3] = Asc/Desc/MC/IC QDateTimes (invalid if unavailable).
+/// angleTransitRA_out[0..3] = the body's RA at each transit (degrees).
+/// Returns true if at least one transit was found.
+bool
+computeNatalParanTransits(double natalRA_deg,
+                          double natalDec_deg,
+                          double jdNatal,
+                          double d_jd,
+                          double latitude,
+                          double longitudeE,
+                          QDateTime angleTransit_out[4],
+                          double    angleTransitRA_out[4]);
+
 float
 roundDegree(float deg); // returns 0...360
 const ZodiacSign&
@@ -398,6 +413,7 @@ struct EventOptions {
     unsigned patternsQuorum    = 3;
     qreal    patternsSpreadOrb = 8.;
     qreal    planetPairOrb     = 2.;
+    double   paranOrb          = 1.;
 
     bool patternsRestrictMoon           = true;
     bool filterLowerUnselectedHarmonics = true;
@@ -704,6 +720,7 @@ class AspectFinder : public QObject, public EventOptions {
     void findPatterns();
 
     void findStations();
+    void findParans();
     void findAspectsAndPatterns();
 
     bool isActive() const { return _numTasks != 0; }

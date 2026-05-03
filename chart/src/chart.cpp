@@ -506,8 +506,18 @@ Chart::updatePlanetsAndCusps(int fileIndex)
             tr("House %1<br>%2")
                 .arg(A::romanNum(i + 1))
                 .arg(A::zodiacPosition(cusp, file()->horoscope().zodiac)));
-        l->setToolTip(c->toolTip());
     };
+
+    // Par=N inner wheel: items exist (avoiding null-deref) but stay hidden.
+    if (filesCount() > 1 && fileIndex == 0
+        && file(1)->getOriginEventType() == A::etcParanatellontaToNatal)
+    {
+        for (int i = 0; i < 12; ++i) {
+            cuspides[fileIndex][i]->setVisible(false);
+            cuspideLabels[fileIndex][i]->setVisible(false);
+        }
+        return;
+    }
 
     switch (A::aspectMode) {
     case A::amcEquatorial: {
@@ -1043,6 +1053,18 @@ Chart::drawCuspides(int fileIndex)
         t->moveBy(endPointX + 5, 5);
         t->setTransformOriginPoint(t->boundingRect().center());
         cuspideLabels[fileIndex][i] = t;
+    }
+
+    // Par=N biwheel: suppress inner-wheel (natal) angles and house lines.
+    // The chart is computed at the current/locus location; the natal angles
+    // belong to the birth location and are meaningless here.
+    if (filesCount() > 1 && fileIndex == 0
+        && file(0)->getOriginEventType() == A::etcParanatellontaToNatal)
+    {
+        for (int i = 0; i < 12; ++i) {
+            cuspides[fileIndex][i]->setVisible(false);
+            cuspideLabels[fileIndex][i]->setVisible(false);
+        }
     }
 }
 

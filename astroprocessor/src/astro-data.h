@@ -35,6 +35,7 @@ enum FileType {
     TypeDerivedSA,
     TypeDerivedPD,
     TypeDerivedSearch,
+    TypeParan,
     TypeCount
 };
 
@@ -1610,6 +1611,17 @@ class NatalExprecessedPosition : public NatalPosition {
     bool          inMotion() const override { return true; }
     qreal         operator()(double jd, int h) override;
     PlanetLocMode mode() const override { return plmNatal; }
+
+    /// Ex-precessed RA/Dec at target epoch, without touching `loc`/`speed`.
+    /// Used by paran finder which needs natal RA/Dec for the mundane
+    /// angle-transit formula independent of the ecliptic-mode `loc` state.
+    void radecAt(double jd, double& ra, double& dec) const;
+
+    /// Like radecAt, but also returns dRA/dt and dDec/dt (degrees/day) at
+    /// the target epoch. Returns true on success.
+    bool radecSpeedAt(double jd,
+                      double& ra,    double& dec,
+                      double& dRAdt, double& dDecdt) const;
 };
 
 class TransitPosition : public InputPosition {

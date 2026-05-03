@@ -461,6 +461,29 @@ NatalExprecessedPosition::operator()(double jd, int h)
     return loc;
 }
 
+void
+NatalExprecessedPosition::radecAt(double jd, double& ra, double& dec) const
+{
+    double dRAdt, dDecdt;
+    radecSpeedAt(jd, ra, dec, dRAdt, dDecdt);
+}
+
+bool
+NatalExprecessedPosition::radecSpeedAt(double jd,
+                                       double& ra, double& dec,
+                                       double& dRAdt, double& dDecdt) const
+{
+    auto ep = exprecess_equatorial(
+        _natalRA, _natalDec,
+        _eclLon, _eclLat,
+        _jdNatal, jd);
+    ra     = ep.ra;
+    dec    = ep.dec;
+    dRAdt  = ep.raSpeed;
+    dDecdt = ep.decSpeed;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Horoscope::applyExprecession / clearExprecession
 // ---------------------------------------------------------------------------
@@ -4005,6 +4028,7 @@ EventOptions::EventOptions(const QVariantMap& map)
     planetPairOrb        = map.value("Events/planetPairOrb").toDouble();
     patternsQuorum       = map.value("Events/patternsQuorum").toUInt();
     patternsSpreadOrb    = map.value("Events/patternsSpreadOrb").toDouble();
+    paranOrb             = map.value("Mundane/paranOrb", 1.0).toDouble();
     patternsRestrictMoon = map.value("Events/patternsRestrictMoon").toBool();
     includeMidpoints     = map.value("Events/includeMidpoints").toBool();
     setShowStations(map.value("Events/showStations").toBool());
@@ -4533,6 +4557,22 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
         };
     }
 
+    // Paranatellonta: ensure transit (and, for Par=N, natal) bodies are in
+    // _alist. findParans() walks _alist directly and does not need _staff
+    // entries, so we just call the existing getters for their side effect.
+    // Idempotent against the calls below: getTransitPlanet/getNatalPlanet
+    // dedupe via transitIndex/natalIndex.
+    if (trans && (showParanatellonta() || showParanatellontaToNatal())) {
+        for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
+            getTransitPlanet(pid);
+        }
+    }
+    if (natal && showParanatellontaToNatal()) {
+        for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
+            getNatalPlanet(pid);
+        }
+    }
+
     if (trans
         && (showTransitsToTransits() || showTransitAspectPatterns()
             || showTransitNatalAspectPatterns() || showStations()
@@ -4979,6 +5019,21 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
             return { getTransitPlanet(pid), 't' };
         return { unsigned(-1), '\0' };
     };
+
+    // Paranatellonta: ensure transit (and, for Par=N, natal) bodies are in
+    // _alist whenever paran event types are enabled. Pattern syntax does
+    // not currently express paran clusters, so we rely on the toolbar
+    // toggles. findParans walks _alist directly; no _staff entries needed.
+    if (trans && (showParanatellonta() || showParanatellontaToNatal())) {
+        for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
+            getTransitPlanet(pid);
+        }
+    }
+    if (natal && showParanatellontaToNatal()) {
+        for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
+            getNatalPlanet(pid);
+        }
+    }
 
     // --- Shared deduplication across all sub-patterns ---
     QSet<QPair<unsigned,unsigned>> seen;
@@ -5998,6 +6053,690 @@ AspectFinder::findStations()
                         .arg(_alist[i]->description())
                         .arg(_alist[j]->description());
     }
+}
+
+// ---------------------------------------------------------------------------
+// Paranatellonta finder
+// ---------------------------------------------------------------------------
+// Daily at UTC midnight, for each transit body call swe_rise_trans to get the
+// 24-hour Asc/Desc/MC/IC times; for each natal body, ex-precess RA/Dec to the
+// day and apply the mundane formula at the natal location to derive transit
+// times. Cluster events whose times are within paranOrb*240 sec; track each
+// cluster's persistence across days; emit HarmonicEvent ranges. aspectMode is
+// modalized to amcEquatorial during detection so NatalExprecessedPosition
+// behaves uniformly regardless of the user's globally-selected mode.
+//
+// Angle index convention (matches Star::angleTransitMode):
+//   0 = Asc, 1 = Desc, 2 = MC, 3 = IC
+
+namespace {
+
+// Almagest-font codepoints used by `desc` so the existing glyphic renderer
+// (details/src/transits.cpp glyph()) draws angle markers without needing a
+// new translation table. The font already maps these codepoints to the
+// Asc/Desc/MC/IC glyphs (see astro-data.cpp:252-261).
+QString
+paranAngleDesc(int angle)
+{
+    switch (angle) {
+    case 0:  return QString(QChar(402));   // Asc (ƒ)
+    case 1:  return QString(QChar(8249));  // Desc (‹)
+    case 2:  return QStringLiteral("M");   // MC
+    case 3:  return QString(QChar(8225));  // IC (‡)
+    default: return QString();
+    }
+}
+
+struct ParanEntry {
+    int       aIdx;     ///< index into _alist
+    int       angle;    ///< 0=Asc 1=Desc 2=MC 3=IC
+    qint64    secOfDay; ///< seconds since UTC midnight of day d
+    QDateTime when;     ///< absolute datetime of the transit
+    bool      isNatal;
+};
+
+struct ParanState {
+    QDateTime    startDate;       ///< first day the paran was active (UTC midnight)
+    QDateTime    endDate;         ///< last day the paran was active (UTC midnight)
+    QDateTime    firstActiveDT;   ///< cluster-mean datetime on the first active day
+    QDateTime    lastActiveDT;    ///< cluster-mean datetime on the last active day
+    QDateTime    peakDateTime;    ///< calendar moment on the tightest day
+    double       peakJd;          ///< JD at peak (used to recompute display state)
+    qint64       tightestSpread;  ///< smallest seen seconds-spread of the cluster
+    EventType    type;
+    QVector<int> indices;         ///< _alist indices, sorted (aIdx, angle)
+    QVector<int> angles;          ///< parallel to indices
+};
+
+// Stable key identifying the same paran across days. Built from the cluster's
+// (aIdx, angle) pairs (sorted) plus the event type.
+QString
+makeParanKey(EventType type, const QVector<int>& sortedAIdx,
+             const QVector<int>& sortedAngles)
+{
+    QStringList parts;
+    parts.reserve(sortedAIdx.size() + 1);
+    parts << QString::number(int(type));
+    for (int i = 0; i < sortedAIdx.size(); ++i) {
+        parts << QStringLiteral("%1:%2").arg(sortedAIdx[i]).arg(sortedAngles[i]);
+    }
+    return parts.join(QLatin1Char('|'));
+}
+
+// Circular mean of cluster times-of-day, returned as seconds since UTC
+// midnight. Handles wraparound so a cluster straddling 23:50/00:10 yields
+// 00:00 rather than 12:00. Equivalent (up to the 360°/86400s scale) to
+// taking the circular mean of the cluster's RA values.
+qint64
+circularMeanSeconds(const QVector<int>& clusterEntries,
+                    const QVector<ParanEntry>& entries)
+{
+    double sumX = 0.0, sumY = 0.0;
+    for (int k : clusterEntries) {
+        double a = (double(entries[k].secOfDay) / 86400.0) * 2.0 * M_PI;
+        sumX += std::cos(a);
+        sumY += std::sin(a);
+    }
+    double mean = std::atan2(sumY, sumX);
+    if (mean < 0) mean += 2.0 * M_PI;
+    return qint64((mean / (2.0 * M_PI)) * 86400.0);
+}
+
+} // namespace
+
+// Body position provider: given a JD, populates ra, dec (degrees) and
+// dRAdt, dDecdt (degrees per day). Returns true on success.
+using BodyAtFn = std::function<bool(double jd,
+                                    double& ra,    double& dec,
+                                    double& dRAdt, double& dDecdt)>;
+
+// Find the JD within [d_jd, d_jd + 1) at which the body crosses angle m
+// (0=Asc, 1=Desc, 2=MC, 3=IC) at the given location. Returns false on
+// circumpolar (Asc/Desc only), non-convergence, or out-of-window result.
+static bool
+findAngleTransitJD(const BodyAtFn& bodyAt,
+                   double d_jd,
+                   double latitude,   // degrees
+                   double longitudeE, // degrees
+                   int    angleIdx,   // 0..3
+                   double& t_out)
+{
+    static constexpr double kSiderealRate = 360.98564736629; // degrees/day
+
+    double ra0, dec0, dRA0, dDec0;
+    if (!bodyAt(d_jd, ra0, dec0, dRA0, dDec0))
+        return false;
+
+    // Circumpolar check for Asc/Desc
+    if (angleIdx == 0 || angleIdx == 1) {
+        const double u0 = tand(dec0) * tand(latitude);
+        if (std::abs(u0) >= 1.0)
+            return false;
+    }
+
+    // Compute target LST (degrees) at which the body sits on angle m.
+    //
+    // Derivation: hour angle H = LST - RA; for a body at declination Dec
+    // and observer latitude φ, the diurnal-arc horizon condition is
+    // cos(H) = -tan(φ)·tan(Dec), giving H_rise = -(90° + AD) and
+    // H_set = +(90° + AD), where AD = asin(tan(φ)·tan(Dec)). Hence:
+    //   LST_Asc  = RA − AD − 90°
+    //   LST_Desc = RA + AD + 90°
+    //   LST_MC   = RA
+    //   LST_IC   = RA + 180°
+    // The existing calculatePlanet path at astro-calc.cpp:1809 encodes the
+    // same relation as RAMC + (OA - OAAC), which simplifies to OA - 90°
+    // since OAAC = RAMC + 90° always.
+    auto computeTarget = [&](double ra, double dec) -> double {
+        switch (angleIdx) {
+        case 0: { // Asc
+            const double AD = asind(tand(dec) * tand(latitude));
+            return swe_degnorm(ra - AD - 90.0);
+        }
+        case 1: { // Desc
+            const double AD = asind(tand(dec) * tand(latitude));
+            return swe_degnorm(ra + AD + 90.0);
+        }
+        case 2: // MC
+            return ra;
+        case 3: // IC
+            return swe_degnorm(ra + 180.0);
+        default:
+            return ra;
+        }
+    };
+
+    const double target0 = computeTarget(ra0, dec0);
+    const double LST0    = swe_degnorm(swe_sidtime(d_jd) * 15.0 + longitudeE);
+
+    double t = d_jd + swe_difdeg2n(target0, LST0) / kSiderealRate;
+    if (t < d_jd)       t += 1.0;
+    if (t >= d_jd + 1.0) t -= 1.0;
+
+    bool converged = false;
+    for (int iter = 0; iter < 6; ++iter) {
+        double ra, dec, dRAdt, dDecdt;
+        if (!bodyAt(t, ra, dec, dRAdt, dDecdt))
+            return false;
+
+        // Circumpolar check mid-iteration for Asc/Desc
+        if (angleIdx == 0 || angleIdx == 1) {
+            const double u = tand(dec) * tand(latitude);
+            if (std::abs(u) >= 1.0)
+                return false;
+        }
+
+        const double target = computeTarget(ra, dec);
+        const double LSTt   = swe_degnorm(swe_sidtime(t) * 15.0 + longitudeE);
+        const double f      = swe_difdeg2n(LSTt, target);
+
+        if (std::abs(f) < 1e-4) {
+            converged = true;
+            break;
+        }
+
+        // Derivative of target w.r.t. t
+        double dtarget_dt = dRAdt;
+        if (angleIdx == 0 || angleIdx == 1) {
+            const double u    = tand(dec) * tand(latitude);
+            const double cosd_dec = std::cos(dec * M_PI / 180.0);
+            const double sec2_dec = 1.0 / (cosd_dec * cosd_dec);
+            const double dAD_dt   = (sec2_dec * tand(latitude) / std::sqrt(1.0 - u * u)) * dDecdt;
+            dtarget_dt = (angleIdx == 0) ? dRAdt - dAD_dt : dRAdt + dAD_dt;
+        }
+
+        const double f_prime = kSiderealRate - dtarget_dt;
+        if (std::abs(f_prime) < 1e-10)
+            break;
+        t -= f / f_prime;
+    }
+
+    if (!converged) {
+        qDebug() << "findAngleTransitJD: Newton-Raphson did not converge for angleIdx"
+                 << angleIdx << "d_jd" << d_jd;
+        return false;
+    }
+
+    if (t < d_jd || t >= d_jd + 1.0)
+        return false;
+
+    t_out = t;
+    return true;
+}
+
+bool
+computeNatalParanTransits(double natalRA,
+                              double natalDec,
+                              double jdNatal,
+                              double d_jd,
+                              double latitude,
+                              double longitudeE,
+                              QDateTime angleTransit_out[4],
+                              double    angleTransitRA_out[4])
+{
+    for (int m = 0; m < 4; ++m) {
+        angleTransit_out[m]  = QDateTime();
+        angleTransitRA_out[m] = 0.0;
+    }
+
+    // Use the 4-param overload so ecliptic coords are derived from the tropical
+    // RA/Dec internally — avoids passing sidereal eclipticPos in sidereal mode.
+    BodyAtFn bodyAt = [natalRA, natalDec, jdNatal](
+        double tjd, double& ra, double& dec, double& dRAdt, double& dDecdt) -> bool
+    {
+        auto ep = exprecess_equatorial(natalRA, natalDec, jdNatal, tjd);
+        ra     = ep.ra;
+        dec    = ep.dec;
+        dRAdt  = ep.raSpeed;
+        dDecdt = ep.decSpeed;
+        return true;
+    };
+
+    bool any = false;
+    for (int m = 0; m < 4; ++m) {
+        double tjd;
+        if (!findAngleTransitJD(bodyAt, d_jd, latitude, longitudeE, m, tjd))
+            continue;
+        angleTransit_out[m] = dateTimeFromJulian(tjd);
+        double ra, dec, dRA, dDec;
+        if (bodyAt(tjd, ra, dec, dRA, dDec))
+            angleTransitRA_out[m] = ra;
+        any = true;
+    }
+    return any;
+}
+
+void
+AspectFinder::findParans()
+{
+    if (_alist.empty()) return;
+    bool wantTransitOnly  = showParanatellonta();
+    bool wantTransitNatal = showParanatellontaToNatal();
+    if (!wantTransitOnly && !wantTransitNatal) return;
+
+    // ------------------------------------------------------------------
+    // Locate the natal InputData (for ex-precession epoch) and the locus
+    // InputData (the current/transit location used for house/geopos calcs).
+    // OmnibusFinder pushes natal first; locus is derived from TransitPositions.
+    // ------------------------------------------------------------------
+    if (_ids.isEmpty()) return;
+    const InputData& natalIda = _ids.first();
+
+    // 1° = 4 min = 240 s sidereal time, mirroring astro-output.cpp:1208.
+    const double paranOrbDeg  = paranOrb;
+    const qint64 paranOrbSecs = qint64(paranOrbDeg * 240.0);
+
+    // ------------------------------------------------------------------
+    // Partition _alist into transit-body and natal-body indices, skipping
+    // angles, house cusps, ingresses, midpoints, and bodies that don't
+    // represent a celestial point with a swe_rise_trans-compatible sweNum.
+    // For natals in ecliptic mode, build a sidecar
+    // NatalExprecessedPosition that gives us ex-precessed RA/Dec via
+    // radecAt(); in equatorial mode the original entry is already a
+    // NatalExprecessedPosition.
+    // ------------------------------------------------------------------
+    QVector<int> transitIndices;
+    QVector<int> natalIndices;
+    QHash<int, std::shared_ptr<NatalExprecessedPosition>> natalSidecars;
+
+    for (int i = 0; i < int(_alist.size()); ++i) {
+        auto* base = _alist[i];
+        auto* pl   = dynamic_cast<PlanetLoc*>(base);
+        if (!pl) continue;
+        const PlanetId pid = pl->planet.planetId();
+        if (pl->planet.isMidpt()) continue;
+        if (pid >= Angles_Start) continue;       // skip Asc/MC/Desc/IC, houses, ingresses
+        if (pid <= Planet_None) continue;
+        // Lunar nodes don't rise/set in a meaningful astrological way;
+        // exclude them from paran detection.
+        if (pid == Planet_NorthNode || pid == Planet_SouthNode) continue;
+
+        if (auto* trans = dynamic_cast<TransitPosition*>(pl)) {
+            (void)trans;
+            transitIndices.append(i);
+        } else if (dynamic_cast<NatalExprecessedPosition*>(pl)) {
+            if (!wantTransitNatal) continue;
+            natalIndices.append(i);
+        } else if (dynamic_cast<NatalPosition*>(pl)) {
+            if (!wantTransitNatal) continue;
+            natalIndices.append(i);
+            natalSidecars[i] = std::make_shared<NatalExprecessedPosition>(
+                pl->planet, natalIda, "r");
+        }
+    }
+
+    if (transitIndices.isEmpty()) return; // need at least one transit for any paran type
+
+    // Resolve the locus (current/transit) location from the first TransitPosition.
+    // This is the geographic location used for all house/geopos calculations —
+    // NOT the natal birth location, which is only needed for ex-precession epoch.
+    const InputData* locusIdaPtr = nullptr;
+    for (int i : transitIndices) {
+        if (auto* tp = dynamic_cast<TransitPosition*>(_alist[i]))
+            { locusIdaPtr = &tp->input(); break; }
+    }
+    if (!locusIdaPtr) return;
+    const InputData& locusIda = *locusIdaPtr;
+    const double     locusLat = locusIda.location().y();
+    const double     locusLon = locusIda.location().x();
+    const double     locusAlt = locusIda.location().z();
+
+    auto getNatalRADec = [&](int aIdx, double jd, double& ra, double& dec) {
+        if (auto it = natalSidecars.find(aIdx); it != natalSidecars.end()) {
+            it.value()->radecAt(jd, ra, dec);
+            return true;
+        }
+        auto* base = _alist[aIdx];
+        if (auto* nep = dynamic_cast<NatalExprecessedPosition*>(base)) {
+            nep->radecAt(jd, ra, dec);
+            return true;
+        }
+        return false;
+    };
+
+    auto getNatalRADecSpeed = [&](int aIdx, double tjd,
+                                  double& ra, double& dec,
+                                  double& dRAdt, double& dDecdt) -> bool {
+        if (auto it = natalSidecars.find(aIdx); it != natalSidecars.end()) {
+            return it.value()->radecSpeedAt(tjd, ra, dec, dRAdt, dDecdt);
+        }
+        if (auto* nep = dynamic_cast<NatalExprecessedPosition*>(_alist[aIdx])) {
+            return nep->radecSpeedAt(tjd, ra, dec, dRAdt, dDecdt);
+        }
+        return false;
+    };
+
+    // ------------------------------------------------------------------
+    // Daily loop. aspectMode is modalized to equatorial so any (*trans)(jd,1)
+    // calls compute equatorial coordinates uniformly. The modalize is scoped
+    // strictly around the loop; event-payload finalization happens after it
+    // destructs so cloned PlanetLocs see _rasiLoc in the user's mode.
+    // ------------------------------------------------------------------
+    QMap<QString, ParanState> activeParans;
+    QVector<ParanState>       toEmit;
+
+    {
+        modalize<aspectModeType> amOverride(aspectMode, amcEquatorial);
+
+        const auto start = _range.first;
+        const auto end   = _range.second.addDays(1);
+        auto       d     = start.startOfDay().toUTC();
+        const auto e     = end.startOfDay().toUTC();
+
+        const double bjd = getJulianDate(d);
+        const double ejd = getJulianDate(e);
+        double       ljd = bjd;
+
+        while (d < e) {
+            QCoreApplication::processEvents();
+            if (_state == cancelRequestedState) break;
+            if (_state == pauseRequestedState) {
+                QThread::usleep(100000);
+                continue;
+            }
+
+            const double jd = getJulianDate(d);
+
+            // Progress emission (positive fraction during the daily walk).
+            if (jd - ljd >= 5.0) {
+                emit progress((ljd - bjd) / std::max(1.0, ejd - bjd));
+                ljd = jd;
+            }
+
+            QVector<ParanEntry> entries;
+            entries.reserve((transitIndices.size() + natalIndices.size()) * 4);
+
+            // -- Transit angle-transit times via Newton–Raphson -----------
+            for (int i : transitIndices) {
+                auto* trans = dynamic_cast<TransitPosition*>(_alist[i]);
+                if (!trans) continue;
+                const Planet& p      = getPlanet(trans->planet.planetId());
+                const int     sweNum = p.sweNum;
+                if (sweNum < 0) continue;
+                const PlanetId pid = trans->planet.planetId();
+
+                BodyAtFn bodyAt = [sweNum, pid](double tjd,
+                                                double& ra, double& dec,
+                                                double& dRAdt, double& dDecdt) -> bool {
+                    double xx[6];
+                    char errStr[256] = "";
+                    if (swe_calc_ut(tjd, sweNum,
+                                    SEFLG_SWIEPH | SEFLG_EQUATORIAL | SEFLG_SPEED,
+                                    xx, errStr) < 0)
+                        return false;
+                    ra     = xx[0];
+                    dec    = xx[1];
+                    dRAdt  = xx[3];
+                    dDecdt = xx[4];
+                    if (pid == Planet_SouthNode) {
+                        ra     = swe_degnorm(ra + 180.0);
+                        dec    = -dec;
+                        dDecdt = -dDecdt;
+                    }
+                    return true;
+                };
+
+                for (int m = 0; m < 4; ++m) {
+                    double tjd;
+                    if (!findAngleTransitJD(bodyAt, jd, locusLat, locusLon, m, tjd))
+                        continue;
+                    const QDateTime when = dateTimeFromJulian(tjd);
+                    const qint64    sec  = d.secsTo(when);
+                    if (sec < 0 || sec >= 86400) continue;
+                    entries.append({ i, m, sec, when, false });
+                }
+            }
+
+            // -- Natal angle-transit times via Newton–Raphson ------------
+            for (int i : natalIndices) {
+                BodyAtFn bodyAt = [&, i](double tjd,
+                                         double& ra, double& dec,
+                                         double& dRAdt, double& dDecdt) -> bool {
+                    return getNatalRADecSpeed(i, tjd, ra, dec, dRAdt, dDecdt);
+                };
+
+                for (int m = 0; m < 4; ++m) {
+                    double tjd;
+                    if (!findAngleTransitJD(bodyAt, jd, locusLat, locusLon, m, tjd))
+                        continue;
+                    const QDateTime when = dateTimeFromJulian(tjd);
+                    const qint64    sec  = d.secsTo(when);
+                    if (sec < 0 || sec >= 86400) continue;
+                    entries.append({ i, m, sec, when, true });
+                }
+            }
+
+            // -- Cluster by secOfDay within paranOrbSecs (circular) ------
+            std::sort(entries.begin(), entries.end(),
+                      [](const ParanEntry& a, const ParanEntry& b) {
+                          return a.secOfDay < b.secOfDay;
+                      });
+
+            QVector<QVector<int>> clusters;
+            if (!entries.isEmpty()) {
+                QVector<int> cur;
+                cur.append(0);
+                for (int k = 1; k < entries.size(); ++k) {
+                    if (entries[k].secOfDay - entries[k - 1].secOfDay
+                        <= paranOrbSecs)
+                    {
+                        cur.append(k);
+                    } else {
+                        clusters.append(cur);
+                        cur.clear();
+                        cur.append(k);
+                    }
+                }
+                if (!cur.isEmpty()) clusters.append(cur);
+
+                // Wrap: merge tail and head if last and first are within orb
+                // across midnight.
+                if (clusters.size() >= 2) {
+                    const ParanEntry& first =
+                        entries[clusters.first().first()];
+                    const ParanEntry& last = entries[clusters.last().last()];
+                    const qint64 wrapDelta =
+                        (86400 - last.secOfDay) + first.secOfDay;
+                    if (wrapDelta <= paranOrbSecs) {
+                        QVector<int> tail = clusters.takeLast();
+                        clusters.first() = tail + clusters.first();
+                    }
+                }
+            }
+
+            // -- Classify clusters and update active map -----------------
+            QSet<QString> currentKeys;
+
+            // Circular arc distance (seconds) between two angle-transit times.
+            auto pairwiseArc = [](qint64 sA, qint64 sB) -> qint64 {
+                qint64 d = qAbs(sA - sB);
+                return qMin(d, qint64(86400) - d);
+            };
+
+            // Track one sub-cluster (any size ≥ 2) given the entry indices.
+            // Handles quorum/type checks, key generation, spread, and
+            // activeParans insertion/update.  Idempotent: calling it for the
+            // same set of entries twice on the same day just inserts the key
+            // into currentKeys a second time, which is harmless.
+            auto trackSubCluster = [&](const QVector<int>& cEntries) {
+                QSet<int> distinctBodies;
+                bool      hasTrans = false, hasNatal = false;
+                for (int k : cEntries) {
+                    distinctBodies.insert(entries[k].aIdx);
+                    if (entries[k].isNatal) hasNatal = true;
+                    else hasTrans = true;
+                }
+                if (distinctBodies.size() < 2) return;
+
+                EventType type;
+                if (hasTrans && !hasNatal) {
+                    if (!wantTransitOnly) return;
+                    type = etcParanatellonta;
+                } else if (hasTrans && hasNatal) {
+                    if (!wantTransitNatal) return;
+                    type = etcParanatellontaToNatal;
+                } else {
+                    return; // pure natal
+                }
+
+                // Stable key from sorted (aIdx, angle) pairs.
+                QVector<std::pair<int, int>> kvpairs;
+                kvpairs.reserve(cEntries.size());
+                for (int k : cEntries)
+                    kvpairs.append({ entries[k].aIdx, entries[k].angle });
+                std::sort(kvpairs.begin(), kvpairs.end());
+                QVector<int> sIdx, sAng;
+                sIdx.reserve(kvpairs.size());
+                sAng.reserve(kvpairs.size());
+                for (const auto& pr : kvpairs) {
+                    sIdx.append(pr.first);
+                    sAng.append(pr.second);
+                }
+                const QString key = makeParanKey(type, sIdx, sAng);
+                currentKeys.insert(key);
+
+                // Spread = circular arc across all entries (max pairwise arc).
+                qint64 spread = 0;
+                for (int ai = 0; ai < cEntries.size(); ++ai) {
+                    for (int bi = ai + 1; bi < cEntries.size(); ++bi) {
+                        spread = qMax(spread,
+                                      pairwiseArc(entries[cEntries[ai]].secOfDay,
+                                                  entries[cEntries[bi]].secOfDay));
+                    }
+                }
+
+                const qint64    meanSec = circularMeanSeconds(cEntries, entries);
+                const QDateTime peakDT  = d.addSecs(meanSec);
+                const double    peakJd  = jd + double(meanSec) / 86400.0;
+
+                auto it = activeParans.find(key);
+                if (it == activeParans.end()) {
+                    ParanState ps;
+                    ps.startDate      = d;
+                    ps.endDate        = d;
+                    ps.firstActiveDT  = peakDT;
+                    ps.lastActiveDT   = peakDT;
+                    ps.peakDateTime   = peakDT;
+                    ps.peakJd         = peakJd;
+                    ps.tightestSpread = spread;
+                    ps.type           = type;
+                    ps.indices        = std::move(sIdx);
+                    ps.angles         = std::move(sAng);
+                    activeParans.insert(key, std::move(ps));
+                } else {
+                    ParanState& cur = it.value();
+                    cur.endDate     = d;
+                    cur.lastActiveDT = peakDT;
+                    if (spread < cur.tightestSpread) {
+                        cur.tightestSpread = spread;
+                        cur.peakDateTime   = peakDT;
+                        cur.peakJd         = peakJd;
+                    }
+                }
+            };
+
+            for (const auto& cluster : clusters) {
+                // Track the full cluster as one event.
+                trackSubCluster(cluster);
+
+                // Also track every valid 2-body sub-pair independently so
+                // that an existing paran persists when a new body briefly
+                // joins and enlarges the cluster.  Without this, the 2-body
+                // key disappears from currentKeys on the day the 3rd body
+                // arrives, which incorrectly closes the long-running event.
+                if (cluster.size() > 2) {
+                    for (int ai = 0; ai < cluster.size(); ++ai) {
+                        for (int bi = ai + 1; bi < cluster.size(); ++bi) {
+                            const qint64 arc =
+                                pairwiseArc(entries[cluster[ai]].secOfDay,
+                                            entries[cluster[bi]].secOfDay);
+                            if (arc > paranOrbSecs) continue; // not within orb
+                            trackSubCluster({ cluster[ai], cluster[bi] });
+                        }
+                    }
+                }
+            }
+
+            // Close any parans no longer present today.
+            for (auto it = activeParans.begin(); it != activeParans.end();) {
+                if (!currentKeys.contains(it.key())) {
+                    toEmit.append(it.value());
+                    it = activeParans.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            d = d.addDays(1);
+        }
+
+        // Flush any parans still active at end of range.
+        for (const auto& ps : activeParans) toEmit.append(ps);
+    }
+    // modalize<> destructs here; aspectMode restored to user setting.
+
+    if (_state == cancelRequestedState) return;
+
+    // ------------------------------------------------------------------
+    // Emit events. We re-evaluate transit positions at peak_jd in the
+    // user's now-restored aspectMode so cloned PlanetLocs carry _rasiLoc
+    // appropriate for downstream display (ecliptic for ecliptic users,
+    // equatorial for equatorial users). Natal positions already carry the
+    // correct _rasiLoc from chart calc time.
+    // ------------------------------------------------------------------
+    for (const auto& ps : toEmit) {
+        PlanetRangeBySpeed locs;
+
+        for (int n = 0; n < ps.indices.size(); ++n) {
+            const int aIdx  = ps.indices[n];
+            const int angle = ps.angles[n];
+            auto*     base  = _alist[aIdx];
+            auto*     orig  = dynamic_cast<PlanetLoc*>(base);
+            if (!orig) continue;
+
+            // Recompute transit positions at the peak moment in user's mode.
+            // Natal entries preserve their construction-time _rasiLoc.
+            if (auto* trans = dynamic_cast<TransitPosition*>(orig)) {
+                (*trans)(ps.peakJd, 1);
+            }
+
+            PlanetLoc payload(*orig); // sliced copy preserves planet, _rasiLoc, desc
+            payload.desc  = paranAngleDesc(angle);
+            // PlanetRangeBySpeed is a std::set keyed on |speed|; nudge each
+            // entry by a tiny per-slot epsilon to keep otherwise-equal speeds
+            // distinct (e.g. all-natal speeds are 0). The nudge preserves
+            // sign so the retrograde indicator (speed<0) keeps its meaning.
+            const qreal eps = 1e-9 * qreal(n + 1);
+            payload.speed   = orig->speed
+                            + (orig->speed < 0 ? -eps : eps);
+            locs.insert(payload);
+        }
+
+        if (locs.size() < 2) continue; // safety: quorum already enforced above
+
+        // Convert tightest cluster spread (seconds of LST) to degrees for the
+        // event's orb display: 1° = 4 min = 240 s sidereal time.
+        const qreal orbDeg = qreal(ps.tightestSpread) / 240.0;
+
+        auto& ev = _evs.safe_emplace_back(ps.peakDateTime,
+                                          unsigned(ps.type),
+                                          (unsigned char)1,
+                                          std::move(locs),
+                                          orbDeg);
+        // Range = first/last cluster-mean datetimes ± 2 × paran orb. Using
+        // the actual transit times (rather than UTC midnights) keeps short
+        // parans from getting an artificial 1-day duration when they sort
+        // by duration. The 2 × orb buffer represents the unsampled time
+        // before/after the first/last detected day during which the cluster
+        // was approaching or leaving the orb region — without it a paran
+        // detected on only one day would collapse to a single point.
+        const qint64    bufferSecs = 2 * paranOrbSecs;
+        const QDateTime rangeStart = ps.firstActiveDT.addSecs(-bufferSecs);
+        const QDateTime rangeEnd   = ps.lastActiveDT.addSecs(bufferSecs);
+        ev.setRange({ rangeStart, rangeEnd });
+    }
+
+    emit progress(1.0);
 }
 
 void
@@ -8186,6 +8925,11 @@ AspectFinder::findStuff()
     // for ex-precessed natal positions (equatorial mode).
     auto runFinder = [&]() {
         if (showStations()) findStations();
+        if (_state != cancelRequestedState
+            && (showParanatellonta() || showParanatellontaToNatal()))
+        {
+            findParans();
+        }
         if (_state != cancelRequestedState) findAspectsAndPatterns();
     };
 
