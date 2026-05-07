@@ -1162,10 +1162,9 @@ describeParans(const AstroFileList& scopes,
     // fixed stars in the cluster, and excludes the body's other angles (hours away).
     bool isParanChart = file && file->getType() == TypeParan;
     QDateTime paranTime;
-    qint64 paranOrbSecs = 0;
+    qint64 paranOrbSecs = qint64(paranOrb * 240); // 1° orb = 240 sidereal seconds ≈ clock seconds
     if (isParanChart) {
         paranTime = file->getGMT();
-        paranOrbSecs = qint64(paranOrb * 240); // 1° orb = 240 sidereal seconds ≈ clock seconds
     }
 
     QVector<event> events;
@@ -1202,15 +1201,28 @@ describeParans(const AstroFileList& scopes,
         }
     }
 
-    // Natal ex-precessed rows for Par=N charts (right-justified italic).
-    // The paran group identifies which natal bodies to compute (fileId=0 in biwheel);
-    // time-proximity then filters to only the angle within the paran cluster.
+    // Natal ex-precessed rows: shown in focused Par=N panels AND in the full
+    // listing when showParanNatalRows is set and a natal context is available.
+    // Focused mode filters by the specific paran event time; full-listing mode
+    // filters each natal angle transit by proximity to any return-planet transit.
     QVector<Star> natalStarStorage;
-    if (isParanChart && natalContext
-        && file->getOriginEventType() == etcParanatellontaToNatal)
-    {
+    const bool runNatalRows =
+        natalContext
+        && (isParanChart
+                ? (file->getOriginEventType() == etcParanatellontaToNatal)
+                : showParanNatalRows);
+    if (runNatalRows) {
+        // Full listing: collect return-planet event times for orb-filtering.
+        QVector<QDateTime> returnTimes;
+        if (!isParanChart) {
+            for (const auto& ev : events)
+                if (ev._star && dynamic_cast<const Planet*>(ev._star))
+                    returnTimes.append(ev._dt);
+        }
+
+        natalStarStorage.reserve(natalContext->horoscope().planets.size());
         double jdNatal = getJulianDate(natalContext->getGMT());
-        // Truncate to midnight UTC of the paran day so findAngleTransitJD
+        // Truncate to midnight UTC of the chart day so computeNatalParanTransits
         // searches [midnight, midnight+1) and doesn't miss morning transits.
         // JD convention: midnight UTC = floor(jd + 0.5) - 0.5
         double jdParanRaw = getJulianDate(file->getGMT());
@@ -1218,32 +1230,56 @@ describeParans(const AstroFileList& scopes,
         double lat = scope.inputData.location().y();
         double lon = scope.inputData.location().x();
 
-        for (const auto& entry : file->getParanGroupPlanets()) {
-            if (entry.first != 0) continue; // natal ex-precessed entries have fileId=0 in biwheel
-            PlanetId pid = entry.second;
+        for (const Planet& np : natalContext->horoscope().planets) {
+            PlanetId pid = np.id;
 
-            const Planet* np = nullptr;
-            for (const Planet& p : natalContext->horoscope().planets) {
-                if (p.id == pid) { np = &p; break; }
-            }
-            if (!np) continue;
+            double tropRA, tropDec;
+            if (!natalTropicalEquatorialPos(pid, jdNatal, tropRA, tropDec))
+                continue;
 
             QDateTime angleTransit[4];
             double    angleTransitRA[4];
             computeNatalParanTransits(
-                np->equatorialPos.x(), np->equatorialPos.y(),
+                tropRA, tropDec,
                 jdNatal, jdParan, lat, lon,
                 angleTransit, angleTransitRA);
 
             Star ns;
-            ns.name = np->name;
+            ns.name = np.name;
+            // Store RAMC at each transit time so sidereal-time/RA display lines up
+            // with other entries in the same paran group (all share the same RAMC
+            // within 1°). Using the body's own ex-precessed RA would be wrong for
+            // Asc/Desc crossings where body RA ≠ RAMC.
+            for (int i = 0; i < 4; ++i) {
+                if (angleTransit[i].isValid()) {
+                    double jd_i = getJulianDate(angleTransit[i]);
+                    ns.angleTransitRA[i] =
+                        swe_degnorm(swe_sidtime(jd_i) * 15.0 + lon);
+                }
+            }
             natalStarStorage.append(ns);
             const Star* starPtr = &natalStarStorage.last();
 
             unsigned u = 0;
             for (int m = 0; m < 4; ++m) {
                 if (!angleTransit[m].isValid()) { u++; continue; }
-                if (qAbs(paranTime.secsTo(angleTransit[m])) > paranOrbSecs) { u++; continue; }
+                bool pass;
+                if (isParanChart) {
+                    qint64 diff = qAbs(paranTime.secsTo(angleTransit[m]));
+                    qDebug() << "[paranNatal]" << np.name << "angle" << m
+                             << "transit=" << angleTransit[m].toUTC().toString("HH:mm:ss") << "UTC"
+                             << "paranTime=" << paranTime.toUTC().toString("HH:mm:ss") << "UTC"
+                             << "diff=" << diff << "orbSecs=" << paranOrbSecs
+                             << (diff <= paranOrbSecs ? "PASS" : "FILTERED");
+                    pass = (diff <= paranOrbSecs);
+                } else {
+                    pass = std::any_of(
+                        returnTimes.constBegin(), returnTimes.constEnd(),
+                        [&](const QDateTime& rt) {
+                            return qAbs(rt.secsTo(angleTransit[m])) <= paranOrbSecs;
+                        });
+                }
+                if (!pass) { u++; continue; }
                 if (starPtr->name.length() > maxWidth)
                     maxWidth = starPtr->name.length();
                 events << event(angleTransit[m], starPtr, u++, /*isNatal=*/true);
@@ -1330,6 +1366,17 @@ describeParans(const AstroFileList& scopes,
             }
             // Move iterator to the end of this group
             it = nit;
+        } else if (it->_isNatal) {
+            // Natal ex-precessed entries already passed the paranTime filter;
+            // render them directly. Only add a group separator if the previous
+            // printed entry is outside orb (i.e., this is a new cluster).
+            bool addBorder = anyPrinted
+                             && (lastPrinted == events.constEnd()
+                                 || qAbs(lastPrinted->_dt.secsTo(it->_dt)) > orb);
+            ret += it->fmt(tz, cellPadding, addBorder, displayMode);
+            lastPrinted = it;
+            anyPrinted  = true;
+            ++it;
         } else {
             ++it; // Skip non-planet, non-radix events when not showing all
         }

@@ -487,6 +487,7 @@ struct Houses {
     double             Asc, MC, RAMC, RAAC, RADC, OAAC, ODDC;
     double             Vx, EA, startSpeculum;
     double             halfMedium, halfImum;
+    double             eps;
     const HouseSystem* system;
 
     Houses()
@@ -496,6 +497,7 @@ struct Houses {
         Asc = MC = RAMC = RAAC = RADC = OAAC = ODDC = Vx = EA = startSpeculum =
             0;
         halfMedium = halfImum = 0;
+        eps = 23.4366;
     }
 
     Houses(const InputData& id);
@@ -528,10 +530,11 @@ struct Star {
         return configuredWithPlanet != Planet_None;
     }
 
-    QPointF horizontalPos; // x - azimuth (0... 360), y - height (0... 360)
-    QPointF eclipticPos;   // x - longitude (0... 360), y - latitude (0... 360)
-    QPointF equatorialPos; // x - rectascension, y - declination
-    double  distance;      // A.U. (astronomical units)
+    QPointF horizontalPos;       // x - azimuth (0... 360), y - height (0... 360)
+    QPointF eclipticPos;         // x - longitude (0... 360), y - latitude (0... 360)
+    QPointF equatorialPos;       // x - rectascension, y - declination
+    QPointF tropicalEclipticPos; // tropical ecl lon/lat for swe_house_pos; x=-1 means unset
+    double  distance;            // A.U. (astronomical units)
     qreal   pvPos;
     int     house;
 
@@ -542,6 +545,7 @@ struct Star {
         horizontalPos        = QPoint(0, 0);
         eclipticPos          = QPoint(0, 0);
         equatorialPos        = QPoint(0, 0);
+        tropicalEclipticPos  = QPointF(-1, 0);
         sweFlags             = 0;
         pvPos                = 0;
         distance             = 0;
@@ -2443,6 +2447,18 @@ struct Horoscope {
 
     /// True when ex-precessed equatorial overlays are active.
     bool exprecessApplied() const { return _exprecessApplied; }
+
+    /// Returns the natal-epoch (pre-ex-precession) equatorial position for
+    /// planet pid.  When ex-precession is not active, returns the planet's
+    /// current equatorialPos unchanged.
+    QPointF natalEquatorialPos(PlanetId pid) const {
+        if (_exprecessApplied) {
+            auto it = _savedPlanetEq.find(pid);
+            if (it != _savedPlanetEq.end()) return it->pos;
+        }
+        auto it2 = planets.find(pid);
+        return it2 != planets.end() ? it2->equatorialPos : QPointF{};
+    }
 
   private:
     struct SavedEquatorial {

@@ -309,6 +309,13 @@ exprecess_equatorial(double ra_t1_deg,
                      double jd_t2,
                      double dt_days = 0.01);
 
+/// Returns the tropical (non-sidereal) equatorial RA and Dec of a planet at
+/// jdNatal, matching the convention used by NatalExprecessedPosition.
+/// Handles the South Node mirror.  Returns false on SWE error.
+bool
+natalTropicalEquatorialPos(PlanetId pid, double jdNatal,
+                           double& ra_out, double& dec_out);
+
 /// Compute the 4 angle-transit times and RAs for a natal body at its
 /// ex-precessed position on the day containing d_jd, at the given location.
 /// angleTransit_out[0..3] = Asc/Desc/MC/IC QDateTimes (invalid if unavailable).

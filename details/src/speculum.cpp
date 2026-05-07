@@ -345,11 +345,12 @@ Speculum::populateSpeculumTable()
     AstroFile* paranFile    = file(_selectedChartIndex);
     bool       isParanChart = paranFile && paranFile->getType() == TypeParan;
 
-    // Build the set of transit-body PlanetIds for paran filtering
+    // Build the set of transit-body PlanetIds for paran filtering.
+    // fileId=1 entries are transit planets (from the transit chart, file index 1).
     QSet<A::PlanetId> paranTransitPlanets;
     if (isParanChart) {
         for (const auto& entry : paranFile->getParanGroupPlanets()) {
-            if (entry.first == 0)
+            if (entry.first == 1)
                 paranTransitPlanets.insert(entry.second);
         }
     }
@@ -366,7 +367,7 @@ Speculum::populateSpeculumTable()
         && natalFile != nullptr;
     if (showNatalRows) {
         for (const auto& entry : paranFile->getParanGroupPlanets()) {
-            if (entry.first == 1) natalParanCount++;
+            if (entry.first == 0) natalParanCount++;  // fileId=0 = natal planets
         }
     }
 
@@ -397,27 +398,37 @@ Speculum::populateSpeculumTable()
     if (showNatalRows) {
         double jdNatal = A::getJulianDate(natalFile->getGMT());
         double jdParan = A::getJulianDate(paranFile->getGMT());
+        // Search the same midnight-to-midnight window that findParans() uses,
+        // so the crossing times are consistent with the event that was found.
+        QDateTime paranDayUTC = paranFile->getGMT().toUTC();
+        paranDayUTC.setTime(QTime(0, 0, 0));
+        double jdMidnight = A::getJulianDate(paranDayUTC);
         double lat     = scope.inputData.location().y();
         double lon     = scope.inputData.location().x();
 
         for (const auto& entry : paranFile->getParanGroupPlanets()) {
-            if (entry.first != 1) continue;
+            if (entry.first != 0) continue;  // fileId=0 = natal planets from natalFile
             A::PlanetId pid = entry.second;
 
-            const A::Planet* np = nullptr;
+            QString planetName;
             for (const A::Planet& p : natalFile->horoscope().planets) {
-                if (p.id == pid) { np = &p; break; }
+                if (p.id == pid) { planetName = p.name; break; }
             }
-            if (!np) continue;
+            if (planetName.isEmpty()) continue;
+
+            // Get tropical (non-sidereal) natal RA/Dec — same convention as
+            // NatalExprecessedPosition._natalRA so exprecess_equatorial works correctly.
+            double tropRA, tropDec;
+            if (!A::natalTropicalEquatorialPos(pid, jdNatal, tropRA, tropDec)) continue;
 
             QDateTime angleTransit[4];
             double    angleTransitRA[4];
             A::computeNatalParanTransits(
-                np->equatorialPos.x(), np->equatorialPos.y(),
-                jdNatal, jdParan, lat, lon,
+                tropRA, tropDec,
+                jdNatal, jdMidnight, lat, lon,
                 angleTransit, angleTransitRA);
 
-            addNatalParanRow(np->name, angleTransit, angleTransitRA, row++);
+            addNatalParanRow(planetName, angleTransit, angleTransitRA, row++);
         }
     }
 

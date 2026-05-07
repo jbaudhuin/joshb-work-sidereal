@@ -402,7 +402,32 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         switch (A::aspectMode) {
         case A::amcEcliptic:      angle = b.eclipticPos.x(); break;
         case A::amcEquatorial:    angle = b.equatorialPos.x(); break;
-        case A::amcPrimeVertical: angle = b.pvPos; break;
+        case A::amcPrimeVertical: {
+            angle = b.pvPos;
+            if (filesCount() > 1 && b.tropicalEclipticPos.x() >= 0.0) {
+                int refIdx = -1;
+                if (fileIndex == 0 && circleStart == Start_Outer_Ascendant)
+                    refIdx = 1;
+                else if (fileIndex == 1 && circleStart == Start_Ascendent)
+                    refIdx = 0;
+                if (refIdx >= 0) {
+                    const auto& refHouses = file(refIdx)->horoscope().houses;
+                    double xpin[2] = { b.tropicalEclipticPos.x(),
+                                       b.tropicalEclipticPos.y() };
+                    char pvErr[256] = "";
+                    double hp = swe_house_pos(refHouses.RAMC,
+                                              file(refIdx)->getLocation().y(),
+                                              refHouses.eps,
+                                              'C', xpin, pvErr);
+                    if (hp >= 1.0 && hp <= 13.0) {
+                        angle = (hp - 1.0) / 12.0 * 360.0;
+                        if (b.id == A::Planet_SouthNode)
+                            angle = swe_degnorm(angle + 180.0);
+                    }
+                }
+            }
+            break;
+        }
         default:                  hide = true; break;
         }
 

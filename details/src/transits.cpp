@@ -490,7 +490,11 @@ class EventsTableModel : public QAbstractItemModel {
         // codepoint set by findParans.
         const bool isParan = (eventType == A::etcParanatellonta
                               || eventType == A::etcParanatellontaToNatal);
+        const bool isPattern =
+            (eventType == A::etcTransitAspectPattern
+             || eventType == A::etcTransitNatalAspectPattern);
         if (isParan) return g + " " + desc;
+        if (isPattern) return g;
         if (s.speed < 0 && !s.desc.startsWith("S")) {
             desc = "#" + desc; // retrograde
         }
@@ -559,6 +563,9 @@ class EventsTableModel : public QAbstractItemModel {
         }
 
         QString joint = ",";
+        if (eventType == A::etcParanatellonta || eventType == A::etcParanatellontaToNatal) {
+            joint += " ";
+        }
         if (role == Qt::ToolTipRole) joint = "-";
         else if (role == SummaryRole)
             joint = "=";
@@ -593,7 +600,11 @@ class EventsTableModel : public QAbstractItemModel {
     }
 
     template <typename Iter>
-    QVariant glyphicWithMode(int role, Iter its, DisplayMode mode, unsigned eventType = 0, bool isNatalTransitColumn = false) const
+    QVariant glyphicWithMode(int         role,
+                             Iter        its,
+                             DisplayMode mode,
+                             unsigned    eventType            = 0,
+                             bool        isNatalTransitColumn = false) const
     {
         if (mode == A::EventOptions::DisplayGlyphs) {
             return glyphic(role, its, eventType);
@@ -620,8 +631,8 @@ class EventsTableModel : public QAbstractItemModel {
         for (auto it = its.first; it != its.second; ++it) {
             const auto& s = *it;
             if (role == Qt::DisplayRole || role == Qt::EditRole) {
-                const A::ChartPlanetId& cpid = extractChartPlanetId(s);
-                QString                 rulershipText;
+                auto&&  cpid = extractChartPlanetId(s);
+                QString rulershipText;
                 if (mode == A::EventOptions::DisplayRulership) {
                     rulershipText = getHouseRulershipString(cpid);
                 } else if (mode
@@ -2875,13 +2886,23 @@ Transits::updateTimezone()
             // signal FilesBar to refresh the chart — but only if the user
             // hasn't manually relocated file(1) (indicated by timezone lock).
             if (!transitsAF()->isTimezoneLocked()) {
-                transitsAF()->suspendUpdate();
-                transitsAF()->setLocation(_location->location());
-                transitsAF()->setLocationName(_location->locationName());
-                transitsAF()->setTimezone(short(tz));
-                transitsAF()->resumeUpdate();
+                // Block filesUpdated so the changed() signal from resumeUpdate
+                // doesn't trigger updateTransits() early — before markEventsForRecalc().
+                // filesUpdated only recognises Location on file(1) as needing
+                // recalc when the file type is natal, which the transit file is not,
+                // so without _inhibitUpdate the cache check in updateTransits()
+                // would return the stale (old-location) events.
+                {
+                    A::modalize<bool> noup(_inhibitUpdate);
+                    transitsAF()->suspendUpdate();
+                    transitsAF()->setLocation(_location->location());
+                    transitsAF()->setLocationName(_location->locationName());
+                    transitsAF()->setTimezone(short(tz));
+                    transitsAF()->resumeUpdate();
+                }
 
                 stopThreads();
+                file(0)->markEventsForRecalc();
                 emit updateSecond(transitsAF());
             }
         }
@@ -3928,10 +3949,21 @@ Transits::clickedCell(QModelIndex inx)
     }
     if (!file()) return;  // guard against no file
     if (transitsOnly()) {
+        // In transitsOnly mode there is only one file (fileId=0), but TAP
+        // events store transit-body planets with fileId=1.  Remap so that
+        // calculateAspects() doesn't reject them via the fileId bounds check.
+        A::PlanetSet focalFixed;
+        for (auto cpid : focal) {
+            if (cpid.fileId() == 1) cpid.setFileId(0);
+            focalFixed.emplace(cpid);
+        }
+        focal = std::move(focalFixed);
         file()->setFocalPlanets(focal);
         file()->setName(desc);
         file()->setGMT(dt);
-        // Set file type based on event type
+        // Set file type based on event type.
+        // Always reset to TypeOther when not entering a specific typed mode so
+        // that a previous TypeParan doesn't persist and break filesUpdated().
         if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
             file()->setType(TypeReturn);
         } else if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
@@ -3939,15 +3971,22 @@ Transits::clickedCell(QModelIndex inx)
                 file()->setType(TypeParan);
                 file()->setOriginEventType(et);
                 QVector<AstroFile::ParanGroupEntry> group;
-                for (const auto& loc : ev.locations())
+                for (const auto& loc : ev.locations()) {
+                    qDebug() << "paranGroup fileId=" << loc.planet.fileId()
+                             << "planet=" << loc.planet.name();
                     group.append({ loc.planet.fileId(), loc.planet.planetId() });
+                }
                 file()->setParanGroupPlanets(group);
+            } else {
+                file()->setType(TypeOther);
             }
+        } else {
+            file()->setType(TypeOther);
         }
-        // Don't emit updateFirst here — setGMT/setName/setFocalPlanets
-        // already fire changed() which propagates to Chart and all other
-        // handlers.  updateFirst would route through FilesBar::openFile()
-        // which stops the running finder thread and resets the date range.
+        // Trigger a full chart rebuild so Chart picks up the focal planets
+        // and overrideAspectSet. FilesBar::openFile now guards stopThreads()
+        // and date-range reset behind !sameFile, so emitting here is safe.
+        emit updateFirst(file());
     } else {
         auto* taf = transitsAF();
         if (!taf) return;
@@ -3999,8 +4038,11 @@ Transits::clickedCell(QModelIndex inx)
                 taf->setOriginEventType(et);
                 taf->setBaseChart(file()->getGMT());
                 QVector<AstroFile::ParanGroupEntry> group;
-                for (const auto& loc : ev.locations())
+                for (const auto& loc : ev.locations()) {
+                    qDebug() << "paranGroup fileId=" << loc.planet.fileId()
+                             << "planet=" << loc.planet.name();
                     group.append({ loc.planet.fileId(), loc.planet.planetId() });
+                }
                 taf->setParanGroupPlanets(group);
             } else {
                 taf->setType(TypeOther);
@@ -4711,8 +4753,13 @@ Transits::filesUpdated(MembersList m)
     int  f   = 0;
     for (auto ml : m) {
         FileType type = file(f)->getType();
-        if (type < TypeSearch) {
-            if (f == 0 ? (type <= TypeReturn)
+        // TypeParan is used on transits-only single-file tabs; treat it like
+        // TypeOther so that GMT/Location changes and tab-switch diffs correctly
+        // trigger describePlanet().  Without this, type >= TypeSearch causes the
+        // entire block to be skipped, leaving the model empty after tab switch.
+        bool isTransitLike = (type < TypeSearch || type == TypeParan);
+        if (isTransitLike) {
+            if (f == 0 ? (type <= TypeReturn || type == TypeParan)
                        : (type == TypeMale || type == TypeFemale
                           || type == TypeEvent))
             {

@@ -4166,23 +4166,21 @@ FilesBar::openFile(AstroFile* af)
 {
     auto i = currentIndex();
     if (i != -1) {
-        // Stop any active transit finder threads before replacing the chart
-        if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>()) {
-            transits->stopThreads();
-        }
-        
-        // Only reset transit date range when actually replacing the file
-        // (not when the same file is being "re-opened" due to a location
-        // or timezone update — that would blow away the user's dates).
         bool sameFile = (files[currentIndex()].count() > 0
                          && files[currentIndex()][0] == af);
         if (!sameFile) {
+            // Stop finder threads and reset date range only when actually
+            // replacing the file — not when the same file is being
+            // "re-opened" (e.g. after a focal-planet click in transitsOnly mode).
+            if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>()) {
+                transits->stopThreads();
+            }
             auto today = QDate::currentDate();
             auto startOfMonth = QDate(today.year(), today.month(), 1);
             af->setTransitStartDate(startOfMonth);
             af->setTransitDuration("1 mo");
         }
-        
+
         files[currentIndex()][0] = af;
         updateTab(i);
     }

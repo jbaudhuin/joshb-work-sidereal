@@ -1183,6 +1183,7 @@ calculatePlanet(PlanetId         planet,
         // We may have had to get tropical position to get the
         // house position -- this API wants tropical longitude.
         // From there we fudge a prime vertical coordinate.
+        ret.tropicalEclipticPos = QPointF(xx[0], xx[1]);
         double housePos = swe_house_pos(RAMC, geopos[1], eps, 'C', xx, errStr);
         ret.pvPos       = (housePos - 1) / 12 * 360;
         if (ret.id == Planet_SouthNode) ret.pvPos = swe_degnorm(ret.pvPos + 180.);
@@ -1347,7 +1348,7 @@ calculatePlanet(PlanetId         planet,
 
         double jd0          = getJulianDate(input.GMT(), false, input.calendarType());
         double RAMC0        = houses.RAMC; // in degrees
-        double sidereal_day = 1; //0.99726958;  // days
+        double sidereal_day = /*1; / */0.99726958;  // days
 
         QString rastr = "Planet Angle Transits in RA of " + ret.name.left(3);
 
@@ -1514,6 +1515,7 @@ PlanetLoc::compute(const ChartPlanetId& planet, const InputData& ida, double jd)
                                               errStr);
                 pos           = (housePos - 1) / 12 * 360;
                 if (p.id == Planet_SouthNode) pos = swe_degnorm(pos + 180.);
+                speed         = xx[3];
             }
             break;
         }
@@ -1751,7 +1753,8 @@ calculateStar(const QString&   name,
             {
                 double housePos =
                     swe_house_pos(houses.RAMC, geopos[1], eps, 'C', pvxx, errStr);
-                ret.pvPos = (housePos - 1) / 12 * 360;
+                ret.pvPos               = (housePos - 1) / 12 * 360;
+                ret.tropicalEclipticPos = QPointF(pvxx[0], pvxx[1]);
             }
         }
 
@@ -1812,7 +1815,7 @@ calculateStar(const QString&   name,
 
             double jd0          = getJulianDate(input.GMT(), false, input.calendarType());
             double RAMC0        = houses.RAMC; // in degrees
-            double sidereal_day = 1; //0.99726958;  // days
+            double sidereal_day = /*1; / */0.99726958;  // days
 
 #if 0
             QString rastr = "Star Angle Transits in RA of " + ret.name.left(3);
@@ -1874,6 +1877,7 @@ calculateHouses(const InputData& input)
 
     swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
     double eps = xx[0];
+    ret.eps    = eps;
 
     double hcusps[14], ascmc[11];
 
@@ -1994,6 +1998,7 @@ calculateHouses(const InputData& input, double progressedMC)
 
     swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
     double eps = xx[0];
+    ret.eps    = eps;
 
     // Use the provided progressed MC
     ret.MC = progressedMC;
@@ -6265,6 +6270,29 @@ findAngleTransitJD(const BodyAtFn& bodyAt,
 }
 
 bool
+natalTropicalEquatorialPos(PlanetId pid, double jdNatal,
+                           double& ra_out, double& dec_out)
+{
+    const Planet& pDef = getPlanet(pid);
+    if (pDef.sweNum < 0) return false;
+
+    uint flags = (SEFLG_SWIEPH | pDef.sweFlags | SEFLG_EQUATORIAL | SEFLG_SPEED)
+                 & ~SEFLG_TRUEPOS & ~SEFLG_SIDEREAL;
+    double xx[6];
+    char   err[256] = "";
+    if (swe_calc_ut(jdNatal, pDef.sweNum, flags, xx, err) < 0)
+        return false;
+
+    ra_out  = xx[0];
+    dec_out = xx[1];
+    if (pid == Planet_SouthNode) {
+        ra_out  = swe_degnorm(ra_out + 180.0);
+        dec_out = -dec_out;
+    }
+    return true;
+}
+
+bool
 computeNatalParanTransits(double natalRA,
                               double natalDec,
                               double jdNatal,
@@ -6427,6 +6455,11 @@ AspectFinder::findParans()
         const double ejd = getJulianDate(e);
         double       ljd = bjd;
 
+        auto pairwiseArc = [](qint64 sA, qint64 sB) -> qint64 {
+            qint64 delta = qAbs(sA - sB);
+            return qMin(delta, qint64(86400) - delta);
+        };
+
         while (d < e) {
             QCoreApplication::processEvents();
             if (_state == cancelRequestedState) break;
@@ -6512,6 +6545,8 @@ AspectFinder::findParans()
                           return a.secOfDay < b.secOfDay;
                       });
 
+            static bool paranDbg = true;
+
             QVector<QVector<int>> clusters;
             if (!entries.isEmpty()) {
                 QVector<int> cur;
@@ -6546,12 +6581,6 @@ AspectFinder::findParans()
 
             // -- Classify clusters and update active map -----------------
             QSet<QString> currentKeys;
-
-            // Circular arc distance (seconds) between two angle-transit times.
-            auto pairwiseArc = [](qint64 sA, qint64 sB) -> qint64 {
-                qint64 d = qAbs(sA - sB);
-                return qMin(d, qint64(86400) - d);
-            };
 
             // Track one sub-cluster (any size ≥ 2) given the entry indices.
             // Handles quorum/type checks, key generation, spread, and
@@ -6608,6 +6637,40 @@ AspectFinder::findParans()
                 const qint64    meanSec = circularMeanSeconds(cEntries, entries);
                 const QDateTime peakDT  = d.addSecs(meanSec);
                 const double    peakJd  = jd + double(meanSec) / 86400.0;
+
+                if (paranDbg) {
+                    static const char* pName[] = {
+                        "Sun","Moon","Mercury","Venus","Mars","Jupiter","Saturn",
+                        "Uranus","Neptune","Pluto","NNode","SNode","Chiron",
+                        "Ceres","Pallas","Juno","Vesta"
+                    };
+                    static const char* aName[] = { "Asc","Desc","MC","IC" };
+                    auto bodyLabel = [&](int k) -> QString {
+                        const auto& e2 = entries[k];
+                        auto* pl = dynamic_cast<PlanetLoc*>(_alist[e2.aIdx]);
+                        int pid = pl ? (int)pl->planet.planetId() : -1;
+                        QString name = (pid >= 0 && pid < 17) ? pName[pid]
+                                                              : QString::number(pid);
+                        if (e2.isNatal) name += "-r";
+                        return name + " " + aName[e2.angle]
+                               + " (" + e2.when.toUTC().toString("HH:mm:ss") + " UTC)";
+                    };
+                    QStringList parts;
+                    for (int k : cEntries) parts << bodyLabel(k);
+                    // Consecutive gaps so we can see which pairs bridge the orb.
+                    QStringList gaps;
+                    for (int ki = 1; ki < cEntries.size(); ++ki) {
+                        qint64 g = entries[cEntries[ki]].secOfDay
+                                 - entries[cEntries[ki-1]].secOfDay;
+                        gaps << QString::number(g) + "s";
+                    }
+                    qDebug().noquote()
+                        << "[paran]" << d.toString("yyyy-MM-dd")
+                        << "spread=" << spread << "s"
+                        << "mean=" << peakDT.toUTC().toString("HH:mm:ss") << "UTC\n"
+                        << "  " << parts.join("\n   ")
+                        << "\n  gaps:" << gaps.join(", ");
+                }
 
                 auto it = activeParans.find(key);
                 if (it == activeParans.end()) {
@@ -6672,6 +6735,256 @@ AspectFinder::findParans()
 
         // Flush any parans still active at end of range.
         for (const auto& ps : activeParans) toEmit.append(ps);
+
+        // ================================================================
+        // Optional boundary extension.  Walk backward from the range start
+        // and forward from the range end to find the true in-orb brackets
+        // for parans that touched either boundary.  Only computes the body
+        // subset involved in pending clusters; stops per-paran as soon as
+        // it dissolves.  Capped at 183 days each direction.
+        //
+        // Controlled by includeTransitRange — set to false by callers that
+        // are supplementing an existing cache to avoid redundant searches.
+        // ================================================================
+        if (includeTransitRange && _state != cancelRequestedState) {
+
+            const QDateTime rangeStartDay = _range.first.startOfDay().toUTC();
+            const QDateTime rangeLastDay  = _range.second.startOfDay().toUTC();
+
+            // Returns entries for one day, limited to bodies in bodySubset.
+            auto computeDayEntriesExt = [&](const QDateTime& dayDT, double jd2,
+                                            const QSet<int>& bodySubset)
+                                            -> QVector<ParanEntry> {
+                QVector<ParanEntry> ent;
+                ent.reserve(int(bodySubset.size()) * 4);
+
+                for (int i : transitIndices) {
+                    if (!bodySubset.contains(i)) continue;
+                    auto* trans = dynamic_cast<TransitPosition*>(_alist[i]);
+                    if (!trans) continue;
+                    const Planet& p    = getPlanet(trans->planet.planetId());
+                    const int  swn     = p.sweNum;
+                    if (swn < 0) continue;
+                    const PlanetId pid2 = trans->planet.planetId();
+                    BodyAtFn bodyAt2 = [swn, pid2](double tjd,
+                                                    double& ra2, double& dec2,
+                                                    double& dRAdt2, double& dDecdt2) -> bool {
+                        double xx2[6]; char err2[256] = "";
+                        if (swe_calc_ut(tjd, swn,
+                                        SEFLG_SWIEPH | SEFLG_EQUATORIAL | SEFLG_SPEED,
+                                        xx2, err2) < 0)
+                            return false;
+                        ra2 = xx2[0]; dec2 = xx2[1]; dRAdt2 = xx2[3]; dDecdt2 = xx2[4];
+                        if (pid2 == Planet_SouthNode) {
+                            ra2 = swe_degnorm(ra2 + 180.0); dec2 = -dec2; dDecdt2 = -dDecdt2;
+                        }
+                        return true;
+                    };
+                    for (int m = 0; m < 4; ++m) {
+                        double tjd;
+                        if (!findAngleTransitJD(bodyAt2, jd2, locusLat, locusLon, m, tjd)) continue;
+                        const QDateTime when = dateTimeFromJulian(tjd);
+                        const qint64 sec = dayDT.secsTo(when);
+                        if (sec < 0 || sec >= 86400) continue;
+                        ent.append({ i, m, sec, when, false });
+                    }
+                }
+
+                for (int i : natalIndices) {
+                    if (!bodySubset.contains(i)) continue;
+                    BodyAtFn nBodyAt = [&, i](double tjd,
+                                              double& ra2, double& dec2,
+                                              double& dRAdt2, double& dDecdt2) -> bool {
+                        return getNatalRADecSpeed(i, tjd, ra2, dec2, dRAdt2, dDecdt2);
+                    };
+                    for (int m = 0; m < 4; ++m) {
+                        double tjd;
+                        if (!findAngleTransitJD(nBodyAt, jd2, locusLat, locusLon, m, tjd)) continue;
+                        const QDateTime when = dateTimeFromJulian(tjd);
+                        const qint64 sec = dayDT.secsTo(when);
+                        if (sec < 0 || sec >= 86400) continue;
+                        ent.append({ i, m, sec, when, true });
+                    }
+                }
+                return ent;
+            };
+
+            // Info about a paran cluster on one day.
+            struct ParanKeyInfo {
+                qint64    spread;
+                QDateTime peakDT;
+                double    peakJd;
+            };
+
+            // Clusters one day and returns map: paranKey -> ParanKeyInfo.
+            auto keysForDay = [&](const QDateTime& dayDT,
+                                   const QSet<int>& bodySubset)
+                                   -> QMap<QString, ParanKeyInfo> {
+                const double jd2 = getJulianDate(dayDT);
+                auto ent = computeDayEntriesExt(dayDT, jd2, bodySubset);
+                std::sort(ent.begin(), ent.end(), [](const ParanEntry& a, const ParanEntry& b) {
+                    return a.secOfDay < b.secOfDay;
+                });
+
+                QVector<QVector<int>> cls;
+                if (!ent.isEmpty()) {
+                    QVector<int> cur; cur.append(0);
+                    for (int k = 1; k < ent.size(); ++k) {
+                        if (ent[k].secOfDay - ent[k-1].secOfDay <= paranOrbSecs)
+                            cur.append(k);
+                        else { cls.append(cur); cur.clear(); cur.append(k); }
+                    }
+                    if (!cur.isEmpty()) cls.append(cur);
+                    if (cls.size() >= 2) {
+                        const qint64 wrapDelta =
+                            (86400 - ent[cls.last().last()].secOfDay) +
+                            ent[cls.first().first()].secOfDay;
+                        if (wrapDelta <= paranOrbSecs) {
+                            QVector<int> tail = cls.takeLast();
+                            cls.first() = tail + cls.first();
+                        }
+                    }
+                }
+
+                QMap<QString, ParanKeyInfo> result;
+                auto processCluster2 = [&](const QVector<int>& cEnt) {
+                    QSet<int> distinct; bool hasTr = false, hasNat = false;
+                    for (int k : cEnt) {
+                        distinct.insert(ent[k].aIdx);
+                        if (ent[k].isNatal) hasNat = true; else hasTr = true;
+                    }
+                    if (distinct.size() < 2) return;
+                    EventType et2;
+                    if      (hasTr && !hasNat) { if (!wantTransitOnly)  return; et2 = etcParanatellonta; }
+                    else if (hasTr &&  hasNat) { if (!wantTransitNatal) return; et2 = etcParanatellontaToNatal; }
+                    else return;
+
+                    QVector<std::pair<int,int>> kv;
+                    for (int k : cEnt) kv.append({ ent[k].aIdx, ent[k].angle });
+                    std::sort(kv.begin(), kv.end());
+                    QVector<int> sI, sA;
+                    for (const auto& pr : kv) { sI.append(pr.first); sA.append(pr.second); }
+                    const QString key = makeParanKey(et2, sI, sA);
+
+                    qint64 sp = 0;
+                    for (int ai = 0; ai < cEnt.size(); ++ai)
+                        for (int bi = ai+1; bi < cEnt.size(); ++bi)
+                            sp = qMax(sp, pairwiseArc(ent[cEnt[ai]].secOfDay,
+                                                       ent[cEnt[bi]].secOfDay));
+                    const qint64 ms  = circularMeanSeconds(cEnt, ent);
+                    const QDateTime pDT = dayDT.addSecs(ms);
+                    const double    pJd = jd2 + double(ms) / 86400.0;
+                    if (!result.contains(key))
+                        result.insert(key, { sp, pDT, pJd });
+                };
+
+                for (const auto& cl : cls) {
+                    processCluster2(cl);
+                    if (cl.size() > 2) {
+                        for (int ai = 0; ai < cl.size(); ++ai)
+                            for (int bi = ai+1; bi < cl.size(); ++bi) {
+                                if (pairwiseArc(ent[cl[ai]].secOfDay,
+                                                ent[cl[bi]].secOfDay) > paranOrbSecs)
+                                    continue;
+                                processCluster2({ cl[ai], cl[bi] });
+                            }
+                    }
+                }
+                return result;
+            };
+
+            // ---- BACKWARD EXTENSION ------------------------------------
+            {
+                QSet<int> backBodies;
+                struct BExt { ParanState* ps; bool done; };
+                QVector<BExt> backPending;
+                for (auto& ps : toEmit) {
+                    if (ps.startDate == rangeStartDay) {
+                        for (int idx : ps.indices) backBodies.insert(idx);
+                        backPending.append({ &ps, false });
+                    }
+                }
+
+                if (!backPending.isEmpty()) {
+                    QDateTime bd = rangeStartDay.addDays(-1);
+                    const QDateTime bLimit = rangeStartDay.addDays(-183);
+                    while (bd >= bLimit && _state != cancelRequestedState) {
+                        const bool anyAlive = std::any_of(
+                            backPending.constBegin(), backPending.constEnd(),
+                            [](const BExt& be) { return !be.done; });
+                        if (!anyAlive) break;
+                        QCoreApplication::processEvents();
+                        if (_state == pauseRequestedState) {
+                            QThread::usleep(100000);
+                            continue;
+                        }
+                        const auto dayKeys = keysForDay(bd, backBodies);
+                        for (auto& be : backPending) {
+                            if (be.done) continue;
+                            const QString key = makeParanKey(be.ps->type, be.ps->indices,
+                                                              be.ps->angles);
+                            const auto it = dayKeys.find(key);
+                            if (it == dayKeys.end()) { be.done = true; continue; }
+                            be.ps->startDate     = bd;
+                            be.ps->firstActiveDT = it->peakDT;
+                            if (it->spread < be.ps->tightestSpread) {
+                                be.ps->tightestSpread = it->spread;
+                                be.ps->peakDateTime   = it->peakDT;
+                                be.ps->peakJd         = it->peakJd;
+                            }
+                        }
+                        bd = bd.addDays(-1);
+                    }
+                }
+            }
+
+            // ---- FORWARD EXTENSION -------------------------------------
+            {
+                QSet<int> fwdBodies;
+                struct FExt { ParanState* ps; bool done; };
+                QVector<FExt> fwdPending;
+                for (auto& ps : toEmit) {
+                    if (ps.endDate == rangeLastDay) {
+                        for (int idx : ps.indices) fwdBodies.insert(idx);
+                        fwdPending.append({ &ps, false });
+                    }
+                }
+
+                if (!fwdPending.isEmpty()) {
+                    QDateTime fd = rangeLastDay.addDays(1);
+                    const QDateTime fLimit = rangeLastDay.addDays(183);
+                    while (fd <= fLimit && _state != cancelRequestedState) {
+                        const bool anyAlive = std::any_of(
+                            fwdPending.constBegin(), fwdPending.constEnd(),
+                            [](const FExt& fe) { return !fe.done; });
+                        if (!anyAlive) break;
+                        QCoreApplication::processEvents();
+                        if (_state == pauseRequestedState) {
+                            QThread::usleep(100000);
+                            continue;
+                        }
+                        const auto dayKeys = keysForDay(fd, fwdBodies);
+                        for (auto& fe : fwdPending) {
+                            if (fe.done) continue;
+                            const QString key = makeParanKey(fe.ps->type, fe.ps->indices,
+                                                              fe.ps->angles);
+                            const auto it = dayKeys.find(key);
+                            if (it == dayKeys.end()) { fe.done = true; continue; }
+                            fe.ps->endDate      = fd;
+                            fe.ps->lastActiveDT = it->peakDT;
+                            if (it->spread < fe.ps->tightestSpread) {
+                                fe.ps->tightestSpread = it->spread;
+                                fe.ps->peakDateTime   = it->peakDT;
+                                fe.ps->peakJd         = it->peakJd;
+                            }
+                        }
+                        fd = fd.addDays(1);
+                    }
+                }
+            }
+
+        } // end if (includeTransitRange)
+
     }
     // modalize<> destructs here; aspectMode restored to user setting.
 
