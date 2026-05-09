@@ -356,12 +356,19 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     auto overlap = [](QGraphicsItem* planet, QGraphicsItem* other, int rung) {
         // FIXME: should use some pi-based ratio to increase the
         // available space
-        qreal width = planet->boundingRect().width() * (11 - rung) / 41;
-        qreal pbeg  = planet->rotation() - width / 2;
-        qreal pend  = pbeg + width;
-        width       = other->boundingRect().width() * (11 - rung) / 41;
-        qreal obeg  = other->rotation() - width / 2;
-        qreal oend  = obeg + width;
+        qreal width   = planet->boundingRect().width() * (11 - rung) / 41;
+        qreal pcenter = planet->rotation();
+        qreal pbeg    = pcenter - width / 2;
+        qreal pend    = pbeg + width;
+        width         = other->boundingRect().width() * (11 - rung) / 41;
+        // Normalize other's center to within [-180, 180] of planet's center
+        // so that planets straddling the 0°/360° boundary are detected correctly.
+        qreal diff    = other->rotation() - pcenter;
+        while (diff >  180.0) diff -= 360.0;
+        while (diff < -180.0) diff += 360.0;
+        qreal ocenter = pcenter + diff;
+        qreal obeg    = ocenter - width / 2;
+        qreal oend    = obeg + width;
         if (pbeg > oend || obeg > pend || pend < obeg || oend < pbeg) {
             return false;
         }
