@@ -1506,7 +1506,26 @@ AstroWidget::setupSettingsEditor(AppSettingsEditor* ed)
                         tr("Default location:"),
                         SIGNAL(locationChanged()));
 
-    for (AstroFileHandler* h : handlers) h->setupSettingsEditor(ed);
+    // Call setupSettingsEditor in desired tab order: Chart, Tables, Events, Harmonics.
+    // A plain handlers loop would produce construction order (Harmonics, Events, Chart, Tables).
+    // Uses a type-tag lambda so each pass exits as soon as the first match is found.
+    QSet<AstroFileHandler*> calledHandlers;
+    auto callSetupFor = [&](auto* t) {
+        using T = std::remove_pointer_t<decltype(t)>;
+        for (AstroFileHandler* h : handlers) {
+            if (!qobject_cast<T*>(h)) continue;
+
+            h->setupSettingsEditor(ed);
+            calledHandlers.insert(h);
+            break;
+        }
+    };
+    callSetupFor((Chart*)    nullptr);
+    callSetupFor((Plain*)    nullptr);
+    callSetupFor((Transits*) nullptr);
+    callSetupFor((Harmonics*)nullptr);
+    for (AstroFileHandler* h : handlers)
+        if (!calledHandlers.contains(h)) h->setupSettingsEditor(ed);
 
     connect(ed,
             SIGNAL(apply(AppSettings&)),

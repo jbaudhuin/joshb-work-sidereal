@@ -164,18 +164,29 @@ Chart::Chart(QWidget* parent) : AstroFileHandler(parent)
                         chartRect().height() / sc2);
 
     view = new QGraphicsView(this);
-
     view->setScene(new QGraphicsScene());
     view->setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
-    // view->installEventFilter(this);
     view->scene()->installEventFilter(this);
     view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    view->setAcceptDrops(false); // Disable drops on the view so parent Chart widget handles them
+    view->setAcceptDrops(false);
+
+    declView = new QGraphicsView(this);
+    declView->setScene(new QGraphicsScene());
+    declView->setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
+    declView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    declView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    declView->setFixedHeight(declViewHeight);
+    declView->setFrameShape(QFrame::NoFrame);
+    declView->setAcceptDrops(false);
 
     QVBoxLayout* layout = new QVBoxLayout(this);
     layout->setContentsMargins(QMargins(0, 0, 0, 0));
-    layout->addWidget(view);
+    layout->setSpacing(0);
+    // Top spacer to clear the input-data widgets that overlay the chart pane.
+    layout->addSpacing(35);
+    layout->addWidget(view);       // stretch=1 implicit
+    layout->addWidget(declView);   // fixed height
     
     // Connect to theme changes to refresh chart colors
     connect(&ThemeManager::instance(),
@@ -187,8 +198,6 @@ Chart::Chart(QWidget* parent) : AstroFileHandler(parent)
 void
 Chart::fitInView()
 {
-    // QRect rect(chartRect.x() / zoom, chartRect.y() / zoom, chartRect.width()
-    // / zoom, chartRect.height() / zoom);
     view->fitInView(viewport, Qt::KeepAspectRatio);
 }
 
@@ -309,6 +318,7 @@ Chart::createScene()
 
     /*if (viewport.center() != QPointF(0,0)) */ fitInView();
     chartsCount = filesCount();
+    rebuildDeclinationStrip();
 }
 
 void
@@ -861,6 +871,214 @@ Chart::drawMidpointFigures()
 }
 
 void
+Chart::clearDeclinationStrip()
+{
+    declView->scene()->clear();
+    declStripItems.clear();
+    declMarkers.clear();
+    declGlyphs.clear();
+}
+
+int
+Chart::declBaselineY()
+{
+    return declStripAbove;   // scene Y of the axis line
+}
+
+float
+Chart::declXForDeg(float absDec)
+{
+    int viewW  = declView->viewport()->width();
+    int leftX  = declStripMargin;
+    int rightX = viewW - declStripMargin;
+    float t = qBound(0.0f, absDec / declMaxDeg, 1.0f);
+    return leftX + t * (rightX - leftX);
+}
+
+void
+Chart::rebuildDeclinationStrip()
+{
+    if (!chartsCount || !filesCount()) return;
+    clearDeclinationStrip();
+
+    int viewW = declView->viewport()->width();
+    if (viewW <= 0) return;
+    declView->scene()->setSceneRect(0, 0, viewW, declViewHeight);
+
+    drawDeclinationAxis();
+    for (int i = 0; i < filesCount(); ++i) drawDeclinationBodies(i);
+    layoutDeclinationGlyphs();
+}
+
+void
+Chart::drawDeclinationAxis()
+{
+    QGraphicsScene* s = declView->scene();
+    ThemeManager& theme = ThemeManager::instance();
+    QColor axisColor  = theme.getChartCircleColor();
+    QColor labelColor = theme.getChartCuspLabelColor(0);
+    QPen   penAxis(axisColor, 1.5);
+    QPen   penMajor(axisColor, 1.5);
+    QPen   penMedium(axisColor, 1.0);
+    QPen   penMinor(axisColor, 0.75);
+    QFont  labelFont("Times New Roman", 9, QFont::Normal);
+
+    int viewW    = declView->viewport()->width();
+    int leftX    = declStripMargin;
+    int rightX   = viewW - declStripMargin;
+    int baselineY = declBaselineY();
+
+    declStripItems << s->addLine(leftX, baselineY, rightX, baselineY, penAxis);
+
+    auto isMajor   = [](int t){ return t == 0 || t == 10 || t == 20; };
+    auto isMedium  = [](int t){ return t == 5 || t == 15 || t == 25; };
+    auto isLabeled = [](int t){ return t == 0 || t == 10 || t == 20 || t == 28; };
+
+    for (int t = 0; t <= int(declMaxDeg); ++t) {
+        int x = leftX + (float(t) / declMaxDeg) * (rightX - leftX);
+        QPen pen;
+        int len;
+        if      (isMajor(t))  { pen = penMajor;  len = 6; }
+        else if (isMedium(t)) { pen = penMedium; len = 4; }
+        else                  { pen = penMinor;  len = 2; }
+        declStripItems << s->addLine(x, baselineY - len, x, baselineY + len, pen);
+        if (isLabeled(t)) {
+            auto* lbl = s->addSimpleText(QString("%1°").arg(t), labelFont);
+            lbl->setBrush(labelColor);
+            lbl->setPos(x - lbl->boundingRect().width() / 2,
+                        baselineY + 7);
+            declStripItems << lbl;
+        }
+    }
+}
+
+void
+Chart::drawDeclinationBodies(int fileIndex)
+{
+    QFont planetFont     ("Almagest", 13, QFont::Bold);
+    QFont planetFontSmall("Almagest", 11, QFont::Bold);
+
+    QGraphicsScene* s = declView->scene();
+    int baselineY = declBaselineY();
+    int radius = 2;
+    QColor bgFill = ThemeManager::instance().getChartBackgroundColor();
+
+    // For biwheel/synastry, ex-precess file(0) declinations to file(1)'s
+    // epoch so both charts share a coordinate frame. The processor only
+    // auto-applies this in equatorial aspect mode (see
+    // AstroFileHandler::dispatchUpdate); here we cover all modes by
+    // computing on the fly when the horoscope hasn't already been mutated.
+    bool exprecessHere = false;
+    double jdNatal = 0, jdTarget = 0;
+    if (fileIndex == 0 && filesCount() > 1
+        && !file(0)->horoscope().exprecessApplied())
+    {
+        jdNatal = A::getJulianDate(
+            file(0)->horoscope().inputData.GMT(), false,
+            file(0)->horoscope().inputData.calendarType());
+        jdTarget = A::getJulianDate(
+            file(1)->horoscope().inputData.GMT(), false,
+            file(1)->horoscope().inputData.calendarType());
+        exprecessHere = true;
+    }
+
+    for (const auto& planet : file(fileIndex)->horoscope().planets) {
+        if (-1 == planet.id) continue;
+        if (planet.id >= A::Planet_Asc && planet.id <= A::House_12
+            && planet.id != A::Planet_MC)
+            continue;
+
+        float dec;
+        if (exprecessHere) {
+            auto ep = A::exprecess_equatorial(
+                planet.equatorialPos.x(), planet.equatorialPos.y(),
+                jdNatal, jdTarget);
+            dec = ep.dec;
+        } else {
+            dec = planet.equatorialPos.y();
+        }
+        float absDec = qMin(qAbs(dec), declMaxDeg);
+        float x      = declXForDeg(absDec);
+
+        auto* marker = s->addEllipse(-radius, -radius, 2 * radius, 2 * radius,
+                                     planetMarkerPen(planet, fileIndex));
+        marker->setBrush(bgFill);
+        marker->setPos(x, baselineY);
+        marker->setZValue(2);
+
+        int charIndex = planet.userData["fontChar"].toInt();
+        auto* text = s->addSimpleText(QChar(charIndex),
+                        planet.isReal ? planetFont : planetFontSmall);
+        text->setBrush(planetColor(planet, fileIndex));
+        text->setPen(planetShapeColor(planet, fileIndex));
+        text->setData(1, planet.id);
+        text->setData(2, fileIndex);
+        text->setData(3, dec);   // displayed declination (after any exprecession)
+        text->setZValue(3);
+
+        QString tip = QString("%1 decl %2%3°")
+                          .arg(planet.name)
+                          .arg(dec >= 0 ? "+" : "")
+                          .arg(QString::number(dec, 'f', 2));
+        marker->setToolTip(tip);
+        text  ->setToolTip(tip);
+
+        declMarkers[fileIndex][planet.id] = marker;
+        declGlyphs [fileIndex][planet.id] = text;
+    }
+}
+
+void
+Chart::layoutDeclinationGlyphs()
+{
+    int baselineY = declBaselineY();
+    int spacing = declGlyphSpacing;
+
+    struct Entry {
+        QGraphicsItem* glyph;
+        float          absDec;
+    };
+
+    // Collision avoidance is hemisphere-wide across ALL files so that file 0
+    // and file 1 glyphs push each other rather than overlap.
+    for (int hem = 0; hem < 2; ++hem) {
+        bool south = (hem == 0);
+        QList<Entry> bucket;
+        for (int fi = 0; fi < filesCount(); ++fi) {
+            const graphicsItemDict& glyphMap = declGlyphs[fi];
+            for (auto it = glyphMap.begin(); it != glyphMap.end(); ++it) {
+                float dec = it.value()->data(3).toFloat();
+                if ((dec < 0) != south) continue;
+                bucket.append({ it.value(), qMin(qAbs(dec), declMaxDeg) });
+            }
+        }
+        std::sort(bucket.begin(), bucket.end(),
+                  [](const Entry& a, const Entry& b){
+                      return a.absDec < b.absDec;
+                  });
+
+        // Per-rung last-X tracker; rung 0 = closest to axis.
+        QVector<float> rungLastX;
+        for (const Entry& e : bucket) {
+            float x = declXForDeg(e.absDec);
+            int rung = 0;
+            while (rung < rungLastX.size() && x - rungLastX[rung] < spacing)
+                rung++;
+            if (rung == rungLastX.size()) rungLastX.append(-1e9f);
+            rungLastX[rung] = x;
+
+            float gw = e.glyph->boundingRect().width();
+            float gh = e.glyph->boundingRect().height();
+            float gx = x - gw / 2;
+            float gy = south
+                ? baselineY - spacing * (rung + 1) - gh
+                : baselineY + declLabelClearance + spacing * rung;
+            e.glyph->setPos(gx, gy);
+        }
+    }
+}
+
+void
 Chart::clearScene()
 {
     qDebug() << "Clear scene";
@@ -875,7 +1093,7 @@ Chart::clearScene()
     signIcons.clear();
     // scene()->clear() already deleted the items, just clear tracking lists
     midpointFigures.clear();
-
+    clearDeclinationStrip();
 }
 
 QRect
@@ -1322,6 +1540,7 @@ void
 Chart::resizeEvent(QResizeEvent*)
 {
     fitInView();
+    rebuildDeclinationStrip();
 }
 
 AppSettings
@@ -1337,6 +1556,7 @@ Chart::defaultSettings()
     s.setValue("Circle/zodiacDropShadow", true);
     s.setValue("Circle/includeAsteroids", true);
     s.setValue("Circle/includeCentaurs", true);
+    s.setValue("Circle/displayDeclination", true);
     return s;
 }
 
@@ -1353,6 +1573,7 @@ Chart::currentSettings()
     s.setValue("Circle/zodiacDropShadow", zodiacDropShadow);
     s.setValue("Circle/includeAsteroids", includeAsteroids);
     s.setValue("Circle/includeCentaurs", includeCentaurs);
+    s.setValue("Circle/displayDeclination", displayDeclination);
     return s;
 }
 
@@ -1368,6 +1589,8 @@ Chart::applySettings(const AppSettings& s)
     zodiacDropShadow = s.value("Circle/zodiacDropShadow").toBool();
     includeAsteroids = s.value("Circle/includeAsteroids").toBool();
     includeCentaurs  = s.value("Circle/includeCentaurs").toBool();
+    displayDeclination = s.value("Circle/displayDeclination").toBool();
+    declView->setVisible(displayDeclination);
 
     refreshAll();
 }
@@ -1394,6 +1617,8 @@ Chart::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addSpacing(10);
     ed->addControl("Circle/includeAsteroids", tr("Display Juno etc.:"));
     ed->addControl("Circle/includeCentaurs", tr("Display Chiron:"));
+    ed->addSpacing(10);
+    ed->addControl("Circle/displayDeclination", tr("Display declination graph:"));
 }
 
 void

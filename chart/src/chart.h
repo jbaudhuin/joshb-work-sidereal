@@ -46,10 +46,12 @@ private:
     typedef QMap<A::PlanetId, QGraphicsItem*> graphicsItemDict;
 
     static const int defaultChartRadius = 250;
+    static const int wheelDownBiasPx    = 0;   ///< downward bias for input widgets
     int chartsCount;
     QRectF viewport, viewportBig;
     float zoom;
-    QGraphicsView* view;
+    QGraphicsView* view;       ///< wheel view (its own scene)
+    QGraphicsView* declView;   ///< declination strip view (its own scene)
     RotatingCircleItem* circle;
     //A::AspectList synAspects;
 
@@ -62,6 +64,7 @@ private:
     bool zodiacDropShadow;
     bool includeAsteroids;
     bool includeCentaurs;
+    bool displayDeclination;
 
     QMap<int, graphicsItemDict> cuspides;
     QMap<int, graphicsItemDict> cuspideLabels;
@@ -78,10 +81,30 @@ private:
     };
     QList<MidpointFigure>             midpointFigures;
 
+    /// Declination strip (horizontal axis below the wheel).
+    /// X = |declination|; southern bodies above the axis line, northern below.
+    static constexpr float declMaxDeg          = 28.0f;
+    static constexpr int   declMaxRungs        = 3;
+    static constexpr int   declGlyphSpacing    = 16;   ///< px between rungs
+    static constexpr int   declGlyphHeightApx  = 18;   ///< approx glyph bbox height
+    static constexpr int   declLabelClearance  = 24;   ///< px from baseline to north rung 0
+    static constexpr int   declStripAbove      = 4 + declMaxRungs * declGlyphSpacing
+                                                + declGlyphHeightApx;
+    static constexpr int   declStripBelow      = declLabelClearance
+                                                + (declMaxRungs - 1) * declGlyphSpacing
+                                                + declGlyphHeightApx + 4;
+    static constexpr int   declViewHeight      = declStripAbove + declStripBelow;
+    static constexpr int   declStripMargin     = 20;   ///< px L/R inset for axis line
+    QList<QGraphicsItem*>          declStripItems;  ///< axis line, ticks, labels
+    QMap<int, graphicsItemDict>    declMarkers;     ///< [fileIndex][PlanetId] -> ellipse
+    QMap<int, graphicsItemDict>    declGlyphs;      ///< [fileIndex][PlanetId] -> text
+
     float zodiacWidth() { return l_zodiacWidth * zoom; }
     float innerRadius(int fileIndex = 0);
     int cuspideLength(int fileIndex, int cusp);
     QRect chartRect();
+    int   declBaselineY();    ///< Y of the axis in declView scene coords
+    float declXForDeg(float absDec);
 
     int normalPlanetPosX(QGraphicsItem* planet, QGraphicsItem* marker);
     const QPen& aspectPen(const A::Aspect& asp);
@@ -97,6 +120,11 @@ private:
     void updateAspects();
     void drawMidpointFigures();
     void clearMidpointFigures();
+    void drawDeclinationAxis();
+    void drawDeclinationBodies(int fileIndex);
+    void layoutDeclinationGlyphs();
+    void clearDeclinationStrip();
+    void rebuildDeclinationStrip();
 
     void fitInView();
     void createScene();
