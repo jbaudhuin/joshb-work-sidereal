@@ -2,6 +2,24 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.8] - 2026-05-09
+
+### Added
+- **Paranatellonta Event Finding**: Detect and list paran events (planet-to-planet angular co-incidences) over a search range, with paran chart UI for visual inspection
+- **Declination Strip View**: New declination strip visualization in the Chart view showing planetary declinations side-by-side for parallel/contraparallel inspection
+- **Bi-Wheel Prime Vertical Display**: Corrected bi-wheel prime vertical display so that charts are properly coordinated — this mode is better for visualizing the angular coincidences of the paranatellontas
+- **Dynamic Harmonic Aspects & Styling**: Continued refinement of dynamic harmonic aspect display with improved per-harmonic styling on the chart wheel
+
+### Improved
+- **Paran Detection & Natal Positioning**: Better handling of natal body positions in paran detection, including sidereal RA correctness
+
+### Fixed
+- **Planet Overlap at 0°/360° Boundary**: Glyph layout no longer collides across the wraparound seam in the chart wheel
+- **Paran Natal Display (Par=N panel)**: Fixed three stacked bugs that hid natal bodies from the Par=N details panel — sidereal RA computation, a dangling pointer, and a render-loop skip
+
+### Changed
+- Version bumped to 0.9.8
+
 ## [0.9.7] - 2026-04-26
 
 ### Added

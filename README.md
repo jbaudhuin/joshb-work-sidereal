@@ -1,8 +1,8 @@
 **Zodiac** is an Astrological software for personal use.
 
-**Current Version**: 0.9.7 (April 26, 2026)
+**Current Version**: 0.9.8 (May 9, 2026)
 
-**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.7/Zodiac-0.9.7-installer.exe)
+**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.8/Zodiac-0.9.8-installer.exe)
 
 This sidereal branch was to experiment with certain feature ideas in sidereal and harmonic practice.
 
@@ -38,6 +38,9 @@ to-transits, transits-to-natal, returns-to-natal, and stations. For all harmonic
 * Added dynamic harmonic aspect display up to H32. That is, you can show all aspect lines from H1 to H32 on the chart-wheel. It is easy to add or subtract one or more of these harmonics as desired: just click on the appropriate button on the status bar. Ptolemaic aspects would be: 1 2 3 6 8.
 * Chart-wheel now shows aspect intensity by thickening the aspect line.
 * Improved glyph layout in chart-wheel. Still not perfect, but I think it's better.
+* **Paranatellonta event finding (v0.9.8)**: Detect and list paran events (planet-to-planet angular co-incidences) over a search range, with a dedicated paran chart UI for visual inspection.
+* **Declination strip view (v0.9.8)**: A declination strip visualization alongside the chart wheel, showing planetary declinations side-by-side for parallel/contraparallel inspection.
+* **Bi-wheel prime vertical display (v0.9.8)**: Corrected bi-wheel prime vertical display so that charts are properly coordinated. This mode is better for visualizing the angular coincidences of the paranatellontas.
 
 * **Font Installation Fix (v0.9.4.2)**: Fixed installer font installation that was failing to install required fonts
 * **Speculum Display Synchronization (v0.9.4.1)**: Display mode changes in Text view now propagate to Speculum dock widget
