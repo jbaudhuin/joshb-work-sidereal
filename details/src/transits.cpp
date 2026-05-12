@@ -3964,6 +3964,9 @@ Transits::clickedCell(QModelIndex inx)
         // Set file type based on event type.
         // Always reset to TypeOther when not entering a specific typed mode so
         // that a previous TypeParan doesn't persist and break filesUpdated().
+        // Clear originEventType up front so a prior paran-focal selection
+        // doesn't keep the chart wheel's cusps/axes hidden on the next click.
+        file()->setOriginEventType(A::etcUnknownEvent);
         if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
             file()->setType(TypeReturn);
         } else if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
@@ -4018,6 +4021,9 @@ Transits::clickedCell(QModelIndex inx)
         }
         // Set file type and base chart based on event type
         // Base chart stores the natal chart relationship for all event types
+        // Clear originEventType up front so a prior paran-focal selection
+        // doesn't keep the chart wheel's cusps/axes hidden on the next click.
+        taf->setOriginEventType(A::etcUnknownEvent);
         if (et == A::etcSolarReturn || et == A::etcLunarReturn
             || et == A::etcReturn)
         {
