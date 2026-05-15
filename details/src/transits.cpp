@@ -3825,7 +3825,11 @@ static QString paranAngleAbbrev(const QString& desc) {
 static QString buildParanChartName(const A::HarmonicEvent& ev, bool biwheel) {
     QStringList parts;
     for (const auto& loc : ev.locations()) {
-        QString pname = loc.planet.name().remove(QLatin1Char(' ')).left(3);
+        // For midpoint bodies keep the full "A/B" name; for solo planets use
+        // the standard 3-char abbreviation (removes trailing spaces first).
+        QString pname = loc.planet.isMidpt()
+                            ? loc.planet.name().remove(QLatin1Char(' '))
+                            : loc.planet.name().remove(QLatin1Char(' ')).left(3);
         if (biwheel && loc.planet.fileId() == 0) pname += QStringLiteral("-r");
         QString angle = paranAngleAbbrev(loc.desc);
         parts << pname + QLatin1Char(' ') + angle;

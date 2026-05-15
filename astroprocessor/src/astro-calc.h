@@ -882,6 +882,7 @@ class AspectFinder : public QObject, public EventOptions {
     hsets            _hsets;      ///< harmonic profiles
     searchPairList   _staff;
     ExactPatternList _exactPatterns; ///< exact N-body pattern searches
+    ParanPatternList _paranPatterns; ///< paran N-body pattern searches
     bool             _generalClustersEnabled = false; ///< true when findClusters() should scan
     bool             _patternMode = false; ///< true when initialized via pattern (not toolbar)
     unsigned         _evType = etcUnknownEvent;

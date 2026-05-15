@@ -1823,6 +1823,21 @@ struct ExactPatternSpec {
 
 typedef std::vector<ExactPatternSpec> ExactPatternList;
 
+/// Specifies a paranatellonta (paran) pattern search.
+/// Records a set of bodies that must be simultaneously on angles.
+/// Phase 1: angleMask stored but only body membership is checked.
+/// Phase 2: angleMask is honored — each entry must cross an allowed angle.
+struct ParanPatternSpec {
+    struct Entry {
+        unsigned alistIdx;  ///< index into AspectFinder::_alist
+        int      angleMask; ///< bitmask: 1=Asc, 2=Desc, 4=MC, 8=IC; 0xF = any
+    };
+    std::vector<Entry> entries; ///< bodies participating in this paran
+    EventType          et;      ///< etcParanatellonta or etcParanatellontaToNatal
+};
+
+using ParanPatternList = std::vector<ParanPatternSpec>;
+
 class PlanetProfile : public Loc, public std::deque<Loc*> {
     bool _forceMinimize = false;
 

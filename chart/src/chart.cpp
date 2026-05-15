@@ -15,6 +15,7 @@
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <math.h>
+#include <QtMath>
 #include <swephexp.h>
 #include "../../zodiac/src/slidewidget.h"
 
@@ -683,7 +684,36 @@ Chart::drawMidpointFigures()
 {
     clearMidpointFigures();
 
-    const auto& focalMPs = focalMidpoints();
+    {
+        QStringList fileTags;
+        for (int i = 0; i < filesCount(); ++i) {
+            fileTags << QString("[%1 type=%2 focal=%3]")
+                            .arg(i)
+                            .arg(file(i)->getType())
+                            .arg(file(i)->focalPlanets().size());
+        }
+        qDebug().noquote() << "[MPFIG-ENTRY]"
+            << "focalMidpoints=" << focalMidpoints().size()
+            << "filesCount=" << filesCount()
+            << "files=" << fileTags.join(" ");
+    }
+
+    // Build the working set of focal midpoints. For non-paran charts this is
+    // simply _focalMidpoints (populated by calculateAspects[Synastry]).  For
+    // paran charts the focal-aspect pipeline does NOT classify paran focal
+    // bodies as midpoint participants, so _focalMidpoints is empty even when
+    // the paran event named a midpoint. Read midpoint cpids straight from
+    // each paran file's focalPlanets() in that case.
+    QList<A::ChartPlanetId> focalMPs(focalMidpoints());
+    bool isParanChart = false;
+    for (int i = 0; i < filesCount(); ++i) {
+        if (file(i)->getType() != TypeParan) continue;
+        isParanChart = true;
+        for (const auto& cpid : file(i)->focalPlanets()) {
+            if (cpid.isMidpt() && !focalMPs.contains(cpid))
+                focalMPs.append(cpid);
+        }
+    }
     if (focalMPs.isEmpty()) return;
 
     QGraphicsScene* s = view->scene();
@@ -729,6 +759,22 @@ Chart::drawMidpointFigures()
         QPointF posC = markerC->sceneBoundingRect().center();
         QPointF chordCenter = (posB + posC) / 2.0;
 
+        {
+            const auto& dbgB = file(fid)->horoscope().planets.value(pid1);
+            const auto& dbgC = file(fid)->horoscope().planets.value(pid2);
+            qDebug() << "[MPFIG-CONST] cpid name=" << mpid.name()
+                     << "fid(mpid)=" << mpid.fileId()
+                     << "fid(used)=" << fid
+                     << "pid1=" << int(pid1) << "name=" << dbgB.name
+                     << "eclLon=" << dbgB.eclipticPos.x()
+                     << "eclLat=" << dbgB.eclipticPos.y()
+                     << "posB=" << posB
+                     << "; pid2=" << int(pid2) << "name=" << dbgC.name
+                     << "eclLon=" << dbgC.eclipticPos.x()
+                     << "eclLat=" << dbgC.eclipticPos.y()
+                     << "posC=" << posC;
+        }
+
         // Draw chord line between B and C
         MidpointFigure mf;
         mf.chordLine = s->addLine(QLineF(posB, posC), chordPen);
@@ -739,16 +785,60 @@ Chart::drawMidpointFigures()
         const auto& p1Data = file(fid)->horoscope().planets.value(pid1);
         const auto& p2Data = file(fid)->horoscope().planets.value(pid2);
 
-        double posB_ecl = p1Data.eclipticPos.x();
-        double posC_ecl = p2Data.eclipticPos.x();
-        double diff = swe_difdeg2n(posC_ecl, posB_ecl);
-        double midAngle = swe_degnorm(posB_ecl + diff / 2.0);
+        // Read the same coordinate `repose` used to place the constituent
+        // markers — otherwise in equatorial / prime-vertical modes the
+        // wheel rotates per equatorialPos/pvPos but midAngle stays in
+        // ecliptic, so the solid line drawn from the chord-center to
+        // mid-angle-on-ring lands at the wrong place.
+        auto aspectModeAngle = [](const A::Planet& b) -> double {
+            switch (A::aspectMode) {
+            case A::amcEquatorial:    return b.equatorialPos.x();
+            case A::amcPrimeVertical: return b.pvPos;
+            default:                  return b.eclipticPos.x();
+            }
+        };
+        double posB_ang = aspectModeAngle(p1Data);
+        double posC_ang = aspectModeAngle(p2Data);
+        double diff = swe_difdeg2n(posC_ang, posB_ang);
+        double midAngle = swe_degnorm(posB_ang + diff / 2.0);
         double farAngle = swe_degnorm(midAngle + 180.0);
 
         // Record for midpoint-to-midpoint pass
         int figIdx = midpointFigures.size();
         chords.append({ chordCenter, midAngle, figIdx,
                         QString("%1/%2").arg(p1Data.name, p2Data.name) });
+
+        // For paran charts the midpoint is a positional body, not part of an
+        // A=B/C ecliptic-aspect structure.  Draw a solid line from the chord
+        // centre to the actual midpoint position on the wheel — i.e. the
+        // point where a glyph at midAngle would render on file(fid)'s ring.
+        // Mirror the rotation math in updatePlanetsAndCusps (chart.cpp ~463):
+        //   marker is centred at scene origin with a local-frame point at
+        //   (-innerRadius(fid), 0), rotated by (circle->rotation() - eff)
+        //   where eff = clockwise ? (180 - angle) : angle.
+        if (isParanChart) {
+            // Project chordCenter outward to the inner ring. Because B and C
+            // sit on the same ring centered at scene origin, the direction
+            // from origin through their midpoint is the angular bisector —
+            // i.e. exactly where a glyph at midAngle would render, regardless
+            // of aspect mode (ecliptic / equatorial / PV / bi-wheel PV).
+            const qreal r = innerRadius(fid);
+            const qreal cLen = std::hypot(chordCenter.x(), chordCenter.y());
+            QPointF mpScene = (cLen > 1e-6)
+                ? QPointF(chordCenter.x() / cLen * r,
+                          chordCenter.y() / cLen * r)
+                : QPointF(-r, 0);
+
+            QPen solidPen(midpointColor, 1.5, Qt::SolidLine);
+            mf.toALine = s->addLine(QLineF(chordCenter, mpScene), solidPen);
+            mf.toALine->setZValue(0.5);
+
+            QString tip = tr("Midpoint paran: %1/%2").arg(p1Data.name, p2Data.name);
+            mf.chordLine->setToolTip(tip);
+            mf.toALine->setToolTip(tip);
+            midpointFigures.append(mf);
+            continue;
+        }
 
         // Search focal planets for the solo "A" planet closest to the
         // midpoint axis (check BOTH near and far midpoint = 180° opposite)
@@ -767,8 +857,9 @@ Chart::drawMidpointFigures()
                 int cfid = cpid.fileId();
                 if (cfid < 0) cfid = fi;
                 const auto aPlanet = file(cfid)->horoscope().planets.value(aPid);
-                double dNear = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
-                double dFar  = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), farAngle));
+                double aPos  = aspectModeAngle(aPlanet);
+                double dNear = fabs(swe_difdeg2n(aPos, midAngle));
+                double dFar  = fabs(swe_difdeg2n(aPos, farAngle));
                 double d = qMin(dNear, dFar);
                 if (d < bestOrb) {
                     bestOrb = d;
@@ -789,8 +880,9 @@ Chart::drawMidpointFigures()
                 int cfid = cpid.fileId();
                 if (cfid < 0) cfid = 1;
                 const auto aPlanet = file(cfid)->horoscope().planets.value(aPid);
-                double dNear = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), midAngle));
-                double dFar  = fabs(swe_difdeg2n(aPlanet.eclipticPos.x(), farAngle));
+                double aPos  = aspectModeAngle(aPlanet);
+                double dNear = fabs(swe_difdeg2n(aPos, midAngle));
+                double dFar  = fabs(swe_difdeg2n(aPos, farAngle));
                 double d = qMin(dNear, dFar);
                 if (d < bestOrb) {
                     bestOrb = d;

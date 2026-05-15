@@ -414,6 +414,49 @@ NatalExprecessedPosition::NatalExprecessedPosition(
 
         eclipticToEquatorial(_eclLon, 0.0, obliquity_t1,
                              _natalRA, _natalDec);
+    } else if (cpid.isMidpt()) {
+        // 4M. Midpoint: compute each constituent's natal ecliptic (lon, lat),
+        //     midpoint both components, then convert to RA/Dec.
+        const Planet& p1    = getPlanet(pid);
+        const Planet& p2    = getPlanet(cpid.planetId2());
+        uint          eclFlags = (SEFLG_SWIEPH | SEFLG_SPEED) & ~SEFLG_TRUEPOS
+                               & ~SEFLG_SIDEREAL & ~SEFLG_EQUATORIAL;
+        double        xx1[6], xx2[6];
+        swe_calc_ut(_jdNatal, p1.sweNum, eclFlags | (p1.sweFlags & ~SEFLG_EQUATORIAL), xx1, errStr);
+        swe_calc_ut(_jdNatal, p2.sweNum, eclFlags | (p2.sweFlags & ~SEFLG_EQUATORIAL), xx2, errStr);
+
+        double lon1 = xx1[0], lat1 = xx1[1];
+        double lon2 = xx2[0], lat2 = xx2[1];
+
+        // Longitude midpoint with ±180° shortest-arc wrap
+        if (lon1 - lon2 >= 180.0)  lon1 -= 360.0;
+        else if (lon2 - lon1 >= 180.0) lon2 -= 360.0;
+        _eclLon = swe_degnorm((lon1 + lon2) / 2.0);
+        if (cpid.isOppMidpt()) _eclLon = swe_degnorm(_eclLon + 180.0);
+
+        // Latitude midpoint: plain average (no wrap needed)
+        _eclLat = (lat1 + lat2) / 2.0;
+
+        eclipticToEquatorial(_eclLon, _eclLat, obliquity_t1, _natalRA, _natalDec);
+
+        qDebug().noquote() << "[MPNAT]"
+            << "cpid=" << cpid.name()
+            << "jdNatal=" << QString::number(_jdNatal, 'f', 4)
+            << "eps=" << QString::number(obliquity_t1, 'f', 4)
+            << "| p1=" << p1.name << "sweNum=" << p1.sweNum
+            << "sweFlags=0x" + QString::number(p1.sweFlags, 16)
+            << "lon1=" << QString::number(xx1[0], 'f', 4)
+            << "lat1=" << QString::number(xx1[1], 'f', 4)
+            << "| p2=" << p2.name << "sweNum=" << p2.sweNum
+            << "sweFlags=0x" + QString::number(p2.sweFlags, 16)
+            << "lon2=" << QString::number(xx2[0], 'f', 4)
+            << "lat2=" << QString::number(xx2[1], 'f', 4)
+            << "| post-wrap lon1=" << QString::number(lon1, 'f', 4)
+            << "lon2=" << QString::number(lon2, 'f', 4)
+            << "| _eclLon=" << QString::number(_eclLon, 'f', 4)
+            << "_eclLat=" << QString::number(_eclLat, 'f', 4)
+            << "_natalRA=" << QString::number(_natalRA, 'f', 4)
+            << "_natalDec=" << QString::number(_natalDec, 'f', 4);
     } else {
         // 4. True planets: get natal RA/Dec via SWE (equatorial, tropical)
         const Planet& p = getPlanet(pid);
@@ -4164,6 +4207,12 @@ EventOptions::eventPat()
         QString asprestr  = "(?<aspect>" + plmpeqre + ")";
         // Use generic plre so abbreviations like "Sat station" work
         QString stationre = "((?<station>(" + plre + "))\\s+station)";
+        // Paran clause: "Par Mars-t = Jup-r" or "Par Mars-t Asc = Jup-r MC"
+        // angleTok: longest alternatives first to avoid partial matches.
+        QString angleTok  = "(?:Asc|Desc|Ds|MC|IC|A|D|M|I)";
+        QString bodyAngle = "(?:" + plmpre + "(?:\\s+" + angleTok + ")?)";
+        QString paranre   = "(?<paran>(?:Par|Paran)\\s+" + bodyAngle
+                            + "(?:\\s*[=+]\\s*" + bodyAngle + ")+)";
         // Harmonic specifiers:
         //   H4      → hstrict="4"               (strict single harmonic)
         //   H4*     → hstrict="4", hstar="*"     (all divisors via getAllFactorsAlt)
@@ -4172,7 +4221,7 @@ EventOptions::eventPat()
         QString hre = "(H((?<hstrict>\\d+(\\.\\d+)?)(?<hstar>\\*)?" 
                       "|-(?<hmax>\\d+)"
                       "|\\{(?<hset>\\d+(,\\d+)*)\\})\\s+)?";
-        s_pat = "(" + stationre + "|" + hre + "("
+        s_pat = "(" + stationre + "|" + paranre + "|" + hre + "("
                 + plmpzposre + "|" + asprestr + "|" + commastr + ")" + ")";
     }
     return s_pat;
@@ -4972,6 +5021,11 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
             auto pid2 = getPlanetId(name2);
             if (pid1 == Planet_None || pid2 == Planet_None)
                 return { unsigned(-1), '\0' };
+            // ChartPlanetId's default ctor sets _oppMidpt=true whenever
+            // pid1 > pid2 (then swaps), so a user-typed "Ura/Mar" pattern
+            // would be silently converted to the opposition midpoint.
+            // Pre-sort so we always hit the non-opposition canonical path.
+            if (pid1 > pid2) std::swap(pid1, pid2);
 
             // Mode: prefer first suffix, then second, then default
             QChar suffix = (suf1 != '\0') ? suf1
@@ -5063,7 +5117,8 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
              << "comma=" << match.captured("comma")
              << "pos=" << match.captured("pos")
              << "sign=" << match.captured("sign")
-             << "posa=" << match.captured("posa");
+             << "posa=" << match.captured("posa")
+             << "paran=" << match.captured("paran");
 
     // Per-sub-pattern harmonic: use base hset unless H specifier is given
     //   H4       → strict single harmonic {4}
@@ -5128,11 +5183,31 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
 
     // --- Extract pattern components ---
     QString stationPat = match.captured("station");
+    QString paranPat   = match.captured("paran");
     QString bodyPat    = match.captured("body");
     QString aspectPat  = match.captured("aspect");
     QString commaPat   = match.captured("comma");
     bool    hasIngress = !match.captured("ingress").isEmpty();
     bool    hasReturn  = !match.captured("ret").isEmpty();
+
+    // --- Helper shared by paran and aspect/comma dispatch ---
+    // Resolves a group token to a planet list + implicit mode.
+    // Group tokens are exact, case-insensitive matches — checked BEFORE
+    // getPlanetId() which uses startsWith (so "N" would match Neptune).
+    //   OT = outer transit planets       IP = inner progressed planets
+    //   T  = all transit planets         P  = all progressed planets
+    //   N  = all natal planets           NA = natal angles (Asc/IC/Desc/MC)
+    auto resolveGroup = [&](const QString& body)
+        -> std::pair<QList<PlanetId>, QChar /*implicitMode*/> {
+        QString b = body.trimmed().toUpper();
+        if (b == "OT") return { getOuterPlanets(includeCentaurs), 't' };
+        if (b == "IP") return { getInnerPlanets(includeAsteroids), 'p' };
+        if (b == "T")  return { getPlanets(includeAsteroids, includeCentaurs), 't' };
+        if (b == "P")  return { getPlanets(includeAsteroids, includeCentaurs), 'p' };
+        if (b == "N")  return { getPlanets(includeAsteroids, includeCentaurs), 'r' };
+        if (b == "NA") return { getAngles(), 'r' };
+        return { {}, '\0' };
+    };
 
     // --- Dispatch by pattern type ---
 
@@ -5143,6 +5218,171 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
             auto pid = getPlanetId(stationPat);
             if (pid != Planet_None) getTransitPlanet(pid);
         }
+
+    } else if (!paranPat.isEmpty()) {
+        // "Par Mars-t = Jup-r", "Par OT + Ven-r", "Par Mars-t Asc + Jup-r MC", etc.
+        // Separators '=' and '+' are equivalent.
+        // Group tokens (OT, T, N, NA, IP, P) expand into one spec per member.
+        static QRegularExpression paranPfxRe("^(?:Par|Paran)\\s+",
+                                             QRegularExpression::CaseInsensitiveOption);
+        static QRegularExpression angleSfxRe("\\s+(Asc|Desc|Ds|MC|IC|A|D|M|I)$",
+                                             QRegularExpression::CaseInsensitiveOption);
+        // Map angle abbreviation → bitmask (bit N = angle index N: 0=Asc,1=Desc,2=MC,3=IC).
+        auto angleToMask = [](const QString& tok) -> int {
+            QString t = tok.trimmed().toLower();
+            if (t == "asc" || t == "a")               return 1;  // Asc  (m=0)
+            if (t == "desc" || t == "ds" || t == "d") return 2;  // Desc (m=1)
+            if (t == "mc"   || t == "m")               return 4;  // MC   (m=2)
+            if (t == "ic"   || t == "i")               return 8;  // IC   (m=3)
+            return 0xF;                                            // any
+        };
+
+        QString operandStr = paranPat;
+        operandStr.remove(paranPfxRe);
+        QStringList entryStrs = operandStr.split(QRegularExpression("\\s*[=+]\\s*"));
+        if (entryStrs.size() < 2) {
+            qWarning() << "[PATTERN] paran needs >= 2 entries:" << paranPat;
+            continue;
+        }
+
+        // Pre-scan: derive default mode.  Explicit -t present → untagged = -r;
+        // explicit -r only → untagged = -t (transit).  Group tokens' implicit
+        // modes also count (OT/T/IP/P → 't'; N/NA/P → check grpMode).
+        QChar defaultMode = 't';
+        {
+            bool anyR = false, anyT = false;
+            for (const auto& raw : std::as_const(entryStrs)) {
+                QString e = raw.trimmed();
+                QRegularExpressionMatch am = angleSfxRe.match(e);
+                if (am.hasMatch()) e = e.left(am.capturedStart()).trimmed();
+                if (e.contains('/')) continue;
+                // Group token?
+                auto [grpPlanets, grpMode] = resolveGroup(e);
+                if (!grpPlanets.isEmpty()) {
+                    if (grpMode == 'r') anyR = true;
+                    else if (grpMode == 't') anyT = true;
+                    continue;
+                }
+                auto parts = e.split('-');
+                if (parts.size() > 1 && !parts[1].trimmed().isEmpty()) {
+                    QChar suf = parts[1].trimmed().toLower().at(0);
+                    if (suf == 'r') anyR = true;
+                    else if (suf == 't') anyT = true;
+                }
+            }
+            if (anyT && !anyR) defaultMode = 'r';
+        }
+
+        // Parse each entry into (resolved _alist indices, angleMask).
+        // Group tokens expand to multiple indices; singletons give one.
+        // isGroup=true → contributes one member per spec (distribution);
+        // isGroup=false → every spec gets this index.
+        struct ParsedEntry {
+            QVector<unsigned> indices;
+            int               angleMask;
+            bool              isGroup;
+        };
+        QVector<ParsedEntry> parsedEntries;
+        bool anyNatal   = false;
+        bool anyTransit = false;
+        bool valid      = true;
+
+        for (const auto& raw : std::as_const(entryStrs)) {
+            QString entryStr  = raw.trimmed();
+            int     angleMask = 0xF;
+
+            QRegularExpressionMatch angleM = angleSfxRe.match(entryStr);
+            if (angleM.hasMatch()) {
+                angleMask = angleToMask(angleM.captured(1));
+                entryStr  = entryStr.left(angleM.capturedStart()).trimmed();
+            }
+
+            // Group token? Expand to all members, one per spec (distributed).
+            auto [grpPlanets, grpImplicitMode] = resolveGroup(entryStr);
+            if (!grpPlanets.isEmpty()) {
+                QChar mode = (grpImplicitMode != '\0') ? grpImplicitMode : defaultMode;
+                QVector<unsigned> idxs;
+                for (PlanetId pid : grpPlanets) {
+                    unsigned idx = unsigned(-1);
+                    if (mode == 'r' && natal) idx = getNatalPlanet(pid);
+                    else if (trans)           idx = getTransitPlanet(pid);
+                    if (idx != unsigned(-1)) idxs << idx;
+                }
+                if (idxs.isEmpty()) { valid = false; break; }
+                if (mode == 'r') anyNatal   = true;
+                else             anyTransit = true;
+                parsedEntries.append({ idxs, angleMask, true });
+                continue;
+            }
+
+            // Reject progressed.
+            {
+                auto parts = entryStr.split('-');
+                if (parts.size() > 1 && parts[1].trimmed().toLower() == "p") {
+                    qWarning() << "[PATTERN] progressed bodies not supported in paran:" << entryStr;
+                    valid = false;
+                    break;
+                }
+            }
+
+            auto [idx, mode] = resolvePlanet(entryStr, defaultMode);
+            if (idx == unsigned(-1)) {
+                qWarning() << "[PATTERN] unknown planet in paran pattern:" << entryStr;
+                valid = false;
+                break;
+            }
+            if (mode == 'r') anyNatal   = true;
+            else             anyTransit = true;
+            parsedEntries.append({ { idx }, angleMask, false });
+        }
+
+        if (!valid || parsedEntries.size() < 2) {
+            qDebug() << "[PATTERN] paran spec invalid or < 2 parsed entries, skipping";
+            continue;
+        }
+
+        EventType specEt = anyNatal ? etcParanatellontaToNatal : etcParanatellonta;
+        enable(specEt);
+
+        // Separate singleton entries (always present) from group entries
+        // (each contributes one member per spec via cross-product).
+        QVector<int> groupEIs, singletonEIs;
+        for (int i = 0; i < parsedEntries.size(); ++i)
+            (parsedEntries[i].isGroup ? groupEIs : singletonEIs) << i;
+
+        // Build cross-product of group entries.
+        QVector<QVector<unsigned>> combos;
+        combos << QVector<unsigned>{};
+        for (int gi : groupEIs) {
+            QVector<QVector<unsigned>> expanded;
+            for (const auto& combo : std::as_const(combos))
+                for (unsigned idx : parsedEntries[gi].indices) {
+                    auto ext = combo;
+                    ext << idx;
+                    expanded << ext;
+                }
+            combos = std::move(expanded);
+        }
+
+        // Emit one ParanPatternSpec per combo (or one if no groups).
+        int specsBefore = int(_paranPatterns.size());
+        for (const auto& combo : std::as_const(combos)) {
+            ParanPatternSpec spec;
+            spec.et = specEt;
+            for (int si : singletonEIs)
+                spec.entries.push_back({ parsedEntries[si].indices[0],
+                                         parsedEntries[si].angleMask });
+            int comboPos = 0;
+            for (int gi : groupEIs)
+                spec.entries.push_back({ combo[comboPos++],
+                                         parsedEntries[gi].angleMask });
+            if (spec.entries.size() >= 2)
+                _paranPatterns.push_back(std::move(spec));
+        }
+
+        qDebug() << "[PATTERN] paran registered:" << paranPat
+                 << "specs added:" << (int(_paranPatterns.size()) - specsBefore)
+                 << "et:" << specEt;
 
     } else if (!bodyPat.isEmpty() && hasIngress) {
         // "Mars ingress Aries" → transit planet paired with fixed sign position
@@ -5216,25 +5456,6 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         QChar   delim  = isCommaDelimited ? ',' : '=';
 
         auto tokens = rawPat.split(delim);
-
-        // --- Helper: resolve a group token to a planet list + implicit mode.
-        // Returns {planetIds, implicitMode} or empty list if not a group.
-        // Group tokens are exact, case-insensitive matches — checked BEFORE
-        // getPlanetId() which uses startsWith (so "N" would match Neptune).
-        //   OT = outer transit planets       IP = inner progressed planets
-        //   T  = all transit planets         P  = all progressed planets
-        //   N  = all natal planets           NA = natal angles (Asc/IC/Desc/MC)
-        auto resolveGroup = [&](const QString& body)
-            -> std::pair<QList<PlanetId>, QChar /*implicitMode*/> {
-            QString b = body.trimmed().toUpper();
-            if (b == "OT") return { getOuterPlanets(includeCentaurs), 't' };
-            if (b == "IP") return { getInnerPlanets(includeAsteroids), 'p' };
-            if (b == "T")  return { getPlanets(includeAsteroids, includeCentaurs), 't' };
-            if (b == "P")  return { getPlanets(includeAsteroids, includeCentaurs), 'p' };
-            if (b == "N")  return { getPlanets(includeAsteroids, includeCentaurs), 'r' };
-            if (b == "NA") return { getAngles(), 'r' };
-            return { {}, '\0' };
-        };
 
         // --- Helper: parse a raw token into body + suffix.
         // "Mars-t" → ("Mars", 't');  "OT" → ("OT", '\0')
@@ -6342,6 +6563,16 @@ AspectFinder::findParans()
     bool wantTransitNatal = showParanatellontaToNatal();
     if (!wantTransitOnly && !wantTransitNatal) return;
 
+    // When paran patterns are specified, only process the listed bodies.
+    const bool patternMode = !_paranPatterns.empty();
+    auto bodyAllowed = [&](unsigned alistIdx) -> bool {
+        if (!patternMode) return true;
+        for (const auto& spec : _paranPatterns)
+            for (const auto& e : spec.entries)
+                if (e.alistIdx == alistIdx) return true;
+        return false;
+    };
+
     // ------------------------------------------------------------------
     // Locate the natal InputData (for ex-precession epoch) and the locus
     // InputData (the current/transit location used for house/geopos calcs).
@@ -6372,12 +6603,14 @@ AspectFinder::findParans()
         auto* pl   = dynamic_cast<PlanetLoc*>(base);
         if (!pl) continue;
         const PlanetId pid = pl->planet.planetId();
-        if (pl->planet.isMidpt()) continue;
         if (pid >= Angles_Start) continue;       // skip Asc/MC/Desc/IC, houses, ingresses
         if (pid <= Planet_None) continue;
         // Lunar nodes don't rise/set in a meaningful astrological way;
         // exclude them from paran detection.
         if (pid == Planet_NorthNode || pid == Planet_SouthNode) continue;
+
+        // Pattern filter: when paran patterns are active, skip bodies not in any spec.
+        if (patternMode && !bodyAllowed(unsigned(i))) continue;
 
         if (auto* trans = dynamic_cast<TransitPosition*>(pl)) {
             (void)trans;
@@ -6487,6 +6720,49 @@ AspectFinder::findParans()
                 const int     sweNum = p.sweNum;
                 if (sweNum < 0) continue;
                 const PlanetId pid = trans->planet.planetId();
+
+                // ---- Midpoint transit body: 2-body BodyAtFn ----
+                if (trans->planet.isMidpt()) {
+                    const Planet& p2      = getPlanet(trans->planet.planetId2());
+                    const int     sweNum2 = p2.sweNum;
+                    if (sweNum2 < 0) continue;
+                    const bool     isOpp  = trans->planet.isOppMidpt();
+
+                    BodyAtFn bodyAt = [sweNum, sweNum2, isOpp](
+                        double tjd, double& ra, double& dec,
+                        double& dRAdt, double& dDecdt) -> bool {
+                        double xx1[6], xx2[6];
+                        char   errStr[256] = "";
+                        if (swe_calc_ut(tjd, sweNum,
+                                        SEFLG_SWIEPH | SEFLG_EQUATORIAL | SEFLG_SPEED,
+                                        xx1, errStr) < 0) return false;
+                        if (swe_calc_ut(tjd, sweNum2,
+                                        SEFLG_SWIEPH | SEFLG_EQUATORIAL | SEFLG_SPEED,
+                                        xx2, errStr) < 0) return false;
+                        double ra1 = xx1[0], dec1 = xx1[1], dRA1 = xx1[3], dDec1 = xx1[4];
+                        double ra2 = xx2[0], dec2 = xx2[1], dRA2 = xx2[3], dDec2 = xx2[4];
+                        // Shortest-arc midpoint in RA
+                        if (ra1 - ra2 >= 180.0)  ra1 -= 360.0;
+                        else if (ra2 - ra1 >= 180.0) ra2 -= 360.0;
+                        ra  = swe_degnorm((ra1 + ra2) / 2.0);
+                        if (isOpp) ra = swe_degnorm(ra + 180.0);
+                        dec    = (dec1 + dec2) / 2.0;
+                        dRAdt  = (dRA1 + dRA2) / 2.0;
+                        dDecdt = (dDec1 + dDec2) / 2.0;
+                        return true;
+                    };
+
+                    for (int m = 0; m < 4; ++m) {
+                        double tjd;
+                        if (!findAngleTransitJD(bodyAt, jd, locusLat, locusLon, m, tjd))
+                            continue;
+                        const QDateTime when = dateTimeFromJulian(tjd);
+                        const qint64    sec  = d.secsTo(when);
+                        if (sec < 0 || sec >= 86400) continue;
+                        entries.append({ i, m, sec, when, false });
+                    }
+                    continue; // handled — skip the single-body path below
+                }
 
                 BodyAtFn bodyAt = [sweNum, pid](double tjd,
                                                 double& ra, double& dec,
@@ -6606,6 +6882,31 @@ AspectFinder::findParans()
                     type = etcParanatellontaToNatal;
                 } else {
                     return; // pure natal
+                }
+
+                // Pattern filter: when _paranPatterns is set, this cluster must satisfy
+                // at least one spec.  Phase 2: the angle mask on each entry is honored.
+                if (patternMode) {
+                    bool satisfiedAnySpec = false;
+                    for (const auto& spec : _paranPatterns) {
+                        if (spec.et != type) continue;
+                        bool satisfiesSpec = true;
+                        for (const auto& se : spec.entries) {
+                            bool found = false;
+                            for (int k : cEntries) {
+                                if (unsigned(entries[k].aIdx) == se.alistIdx) {
+                                    // Check angle mask (bit N = 1 << angle-index N).
+                                    if (se.angleMask & (1 << entries[k].angle)) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!found) { satisfiesSpec = false; break; }
+                        }
+                        if (satisfiesSpec) { satisfiedAnySpec = true; break; }
+                    }
+                    if (!satisfiedAnySpec) return;
                 }
 
                 // Stable key from sorted (aIdx, angle) pairs.
@@ -7047,6 +7348,72 @@ AspectFinder::findParans()
         const QDateTime rangeStart = ps.firstActiveDT.addSecs(-bufferSecs);
         const QDateTime rangeEnd   = ps.lastActiveDT.addSecs(bufferSecs);
         ev.setRange({ rangeStart, rangeEnd });
+
+        // [PARANLBL] One line per finalized paran event (pre-UI-filter). For
+        // each participant: name, labelled angle (Asc/Desc/MC/IC), and — for
+        // midpoint bodies — the body's RA at peakJd plus locus RAasc/RAdsc/
+        // RAMC/RAIC, with the closest angle tagged so a label/wheel-position
+        // mismatch is obvious. Includes durationDays so you can filter to
+        // events that survive the SkipLessThanWeek (≥ 7d) proxy filter.
+        {
+            const double durationDays =
+                double(rangeStart.secsTo(rangeEnd)) / 86400.0;
+            double cusps[14], ascmc[11];
+            swe_houses_ex(ps.peakJd, SEFLG_SWIEPH,
+                          locusLat, locusLon, 'C', cusps, ascmc);
+            const double RAMC  = ascmc[2];
+            const double RAIC  = swe_degnorm(RAMC + 180.0);
+            const double RAasc = ascmc[4];
+            const double RAdsc = swe_degnorm(RAasc + 180.0);
+            const char*  lbl[4] = { "Asc", "Desc", "MC", "IC" };
+            const double targetRA[4] = { RAasc, RAdsc, RAMC, RAIC };
+
+            QStringList parts;
+            for (int n = 0; n < ps.indices.size(); ++n) {
+                const int aIdx  = ps.indices[n];
+                const int angle = ps.angles[n];
+                auto*     pl    = dynamic_cast<PlanetLoc*>(_alist[aIdx]);
+                if (!pl) continue;
+                QString tag = pl->planet.name() + " "
+                            + (dynamic_cast<NatalExprecessedPosition*>(pl) ||
+                               dynamic_cast<NatalPosition*>(pl) ? "-r " : "-t ")
+                            + lbl[angle];
+                if (pl->planet.isMidpt()) {
+                    double ra = 0, dec = 0, dRA = 0, dDec = 0;
+                    bool got = false;
+                    if (auto* nep =
+                            dynamic_cast<NatalExprecessedPosition*>(pl)) {
+                        got = nep->radecSpeedAt(ps.peakJd, ra, dec, dRA, dDec);
+                    } else if (auto it = natalSidecars.find(aIdx);
+                               it != natalSidecars.end()) {
+                        got = it.value()->radecSpeedAt(
+                            ps.peakJd, ra, dec, dRA, dDec);
+                    }
+                    // (Transit-midpoint RA/dec recomputed via swe in
+                    //  trackSubCluster; not re-derived here.)
+                    if (got) {
+                        double diff[4];
+                        for (int k = 0; k < 4; ++k)
+                            diff[k] = fabs(swe_difdeg2n(ra, targetRA[k]));
+                        int closestK = 0;
+                        for (int k = 1; k < 4; ++k)
+                            if (diff[k] < diff[closestK]) closestK = k;
+                        tag += QString(" [ra=%1 closest=%2%3]")
+                                   .arg(ra, 0, 'f', 3)
+                                   .arg(lbl[closestK])
+                                   .arg(closestK == angle ? "" : " MISMATCH");
+                    }
+                }
+                parts << tag;
+            }
+            qDebug().noquote() << "[PARANLBL]"
+                << "peak=" << ps.peakDateTime.toString(Qt::ISODate)
+                << "dur=" << QString::number(durationDays, 'f', 2) << "d"
+                << "spread=" << ps.tightestSpread << "s"
+                << "RAasc=" << QString::number(RAasc, 'f', 3)
+                << "RAMC="  << QString::number(RAMC,  'f', 3)
+                << "|" << parts.join(" + ");
+        }
     }
 
     emit progress(1.0);
