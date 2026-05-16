@@ -58,6 +58,7 @@ set(ASTROPROCESSOR_SOURCES
     astroprocessor/src/astro-output.cpp
     astroprocessor/src/astro-data.cpp
     astroprocessor/src/astro-calc.cpp
+    astroprocessor/src/citydb.cpp
     astroprocessor/src/csvreader.cpp
     astroprocessor/src/astrodatetimeedit.cpp
 )
@@ -69,6 +70,7 @@ set(ASTROPROCESSOR_HEADERS
     astroprocessor/src/astro-output.h
     astroprocessor/src/astro-data.h
     astroprocessor/src/astro-calc.h
+    astroprocessor/src/citydb.h
     astroprocessor/include/Astroprocessor/Output
     astroprocessor/include/Astroprocessor/Gui
     astroprocessor/include/Astroprocessor/Data

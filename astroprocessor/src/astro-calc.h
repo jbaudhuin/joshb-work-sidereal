@@ -331,6 +331,37 @@ computeNatalParanTransits(double natalRA_deg,
                           QDateTime angleTransit_out[4],
                           double    angleTransitRA_out[4]);
 
+/// A single natal-paran latitude row: which two natal bodies, which angle
+/// each, the latitude at which the paran crosses precisely, and the
+/// "is-it-present-in-the-natal-chart" orb measured at the natal location.
+struct ParanLatitudeRow {
+    PlanetId a;                ///< first body
+    int      angleA;           ///< 0=Asc 1=Desc 2=MC 3=IC
+    PlanetId b;                ///< second body
+    int      angleB;           ///< 0=Asc 1=Desc 2=MC 3=IC
+    double   latitude;         ///< signed degrees N (+) / S (-)
+    qint64   natalOrbSec;      ///< clock-seconds delta at natal location
+                               ///< (LST mode and LT mode both use this)
+    double   natalOrbDeg;      ///< RA-degrees delta at natal location
+    bool     present;          ///< abs(natalOrbDeg) <= paranOrbDeg
+    bool     hasNatalOrb;      ///< false if either angle-transit at natal
+                               ///< lat was circumpolar / unavailable
+};
+
+/// Enumerate every latitude at which a pair of natal bodies forms a paran
+/// (Asc/Desc/MC/IC × Asc/Desc/MC/IC), using ex-precessed natal RA/Dec.
+///
+/// Rows where *both* participants are MC or IC are excluded (those parans
+/// are latitude-independent — pure RA relations — and don't pin a latitude).
+///
+/// The returned `natalOrbSec`/`natalOrbDeg` measure how close the same pair
+/// of bodies comes to paran at the *natal* location, so the caller can flag
+/// which rows are currently active in the chart.
+void
+enumerateNatalParanLatitudes(const Horoscope& natal,
+                             double           paranOrbDeg,
+                             QVector<ParanLatitudeRow>& out);
+
 float
 roundDegree(float deg); // returns 0...360
 const ZodiacSign&

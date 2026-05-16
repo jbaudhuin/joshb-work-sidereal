@@ -4,6 +4,7 @@ SOURCES += \
     src/astro-output.cpp \
     src/astro-data.cpp \
     src/astro-calc.cpp \
+    src/citydb.cpp \
     src/csvreader.cpp
 
 HEADERS +=\
@@ -13,6 +14,7 @@ HEADERS +=\
     src/astro-output.h \
     src/astro-data.h \
     src/astro-calc.h \
+    src/citydb.h \
     include/Astroprocessor/Output \
     include/Astroprocessor/Gui \
     include/Astroprocessor/Data \

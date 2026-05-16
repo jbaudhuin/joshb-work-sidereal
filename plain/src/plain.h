@@ -28,6 +28,7 @@ class Plain : public AstroFileHandler {
     QAction*      describePower;
     QAction*      describeParans;
     QAction*      describeSpeculum;
+    QAction*      describeParanLats;
     QPushButton*  chart1Btn;
     QPushButton*  chart2Btn;
     QComboBox*    displayModeSelector;
@@ -37,6 +38,11 @@ class Plain : public AstroFileHandler {
     bool               includeFixedStars;
     bool               showParanNatalRows;
     double             paranOrb;
+    double             paranCityLatTol;
+    int                paranMaxCitiesPerRow;
+    bool               paranShowAbsent;
+    unsigned           paranCityPopMask;       ///< CityPopTier bitmask
+    unsigned           paranCityContinentMask; ///< CityContinent bitmask
     A::AspectSortOrder aspectSortOrder;
 
     // Cached aspects to avoid recalculating on every refresh

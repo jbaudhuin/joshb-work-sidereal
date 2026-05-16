@@ -25,7 +25,8 @@ enum Article {
     Article_Parans        = 0x20,
     Article_DiurnalEvents = 0x40,
     Article_FixedStars    = 0x80,
-    Article_Speculum      = 0x100
+    Article_Speculum      = 0x100,
+    Article_ParanLatitudes = 0x200
 };
 
 enum AnglePrecision { LowPrecision, NormalPrecision, HighPrecision };
@@ -107,6 +108,15 @@ QString
 describeSpeculum(const Horoscope&    scope,
                  bool                showFixedStars,
                  SpeculumDisplayMode displayMode = DisplayLocalTime);
+QString
+describeParanLatitudes(const Horoscope&    natal,
+                       double              paranOrbDeg,
+                       double              cityLatTolDeg,
+                       int                 maxCitiesPerRow,
+                       bool                showAbsent,
+                       unsigned            cityPopMask,
+                       unsigned            cityContinentMask,
+                       SpeculumDisplayMode displayMode = DisplayLocalTime);
 QString
 _formatTime(const QDateTime& dt, double tz);
 QString

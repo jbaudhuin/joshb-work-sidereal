@@ -6555,6 +6555,221 @@ computeNatalParanTransits(double natalRA,
     return any;
 }
 
+namespace
+{
+
+// Polynomial-LST form for a body at an angle:  LST = raOffset + signAD · AD(lat)
+// where AD(lat) = asin(tan(dec)·tan(lat)).  signAD is 0 for MC/IC.
+struct AngleLST {
+    double raOffset; // degrees, 0..360
+    int    signAD;   // -1 / 0 / +1
+};
+
+static AngleLST
+makeAngleLST(double ra, int angle)
+{
+    switch (angle) {
+    case 0: return { swe_degnorm(ra - 90.0),  -1 }; // Asc:  LST = RA − AD − 90°
+    case 1: return { swe_degnorm(ra + 90.0),  +1 }; // Desc: LST = RA + AD + 90°
+    case 2: return { swe_degnorm(ra),          0 }; // MC:   LST = RA
+    case 3: return { swe_degnorm(ra + 180.0),  0 }; // IC:   LST = RA + 180°
+    }
+    return { 0.0, 0 };
+}
+
+// Reduce signed degree difference to (−180°, 180°].
+static double
+wrapDelta(double d)
+{
+    while (d  >  180.0) d -= 360.0;
+    while (d <= -180.0) d += 360.0;
+    return d;
+}
+
+// Solve for latitude φ (degrees) s.t.
+//   sA·AD_A(φ) − sB·AD_B(φ) ≡ D  (mod 360°),
+// with AD_p(φ) = asin(tan(dec_p)·tan(φ)).  Limited to (−66.5°, 66.5°).
+// Returns false when no real solution exists (circumpolar, near-degenerate
+// declinations, or no root in the feasible range).
+static bool
+solveParanLatitude(double decA, double decB,
+                   int sA, int sB, double D,
+                   double& latOut)
+{
+    D = wrapDelta(D);
+
+    if (sA == 0 && sB == 0)
+        return false; // pure MC/IC: latitude-independent
+
+    if (sA == 0 || sB == 0) {
+        // One side latitude-independent. Solve the other directly.
+        const int    sNz   = (sA != 0) ? sA   : -sB; // sign on the AD term
+        const double decNz = (sA != 0) ? decA :  decB;
+        const double tanDec = tand(decNz);
+        if (std::abs(tanDec) < 1e-9) return false; // dec ~ 0: sin(AD)/tan(dec) blows up
+
+        const double targetAD = D / sNz; // degrees, ought to be in [−90,90]
+        if (std::abs(targetAD) > 90.0) return false;
+        const double tanLat = sind(targetAD) / tanDec;
+        const double lat    = atand(tanLat);
+        if (std::abs(lat) > 66.5) return false;
+        latOut = lat;
+        return true;
+    }
+
+    // Both bodies on Asc/Desc — Newton's method in φ.
+    double lat = 0.0;
+    for (int iter = 0; iter < 30; ++iter) {
+        const double tA = tand(decA) * tand(lat);
+        const double tB = tand(decB) * tand(lat);
+        if (std::abs(tA) >= 0.9999 || std::abs(tB) >= 0.9999) return false;
+
+        const double AD_A = asind(tA);
+        const double AD_B = asind(tB);
+        const double f    = wrapDelta(sA * AD_A - sB * AD_B - D);
+        if (std::abs(f) < 1e-5) {
+            if (std::abs(lat) > 66.5) return false;
+            latOut = lat;
+            return true;
+        }
+        const double sec2_lat = 1.0 / std::pow(std::cos(lat * DEGTORAD), 2);
+        const double dA = (tand(decA) * sec2_lat) / std::sqrt(1.0 - tA*tA);
+        const double dB = (tand(decB) * sec2_lat) / std::sqrt(1.0 - tB*tB);
+        const double fprime = sA * dA - sB * dB;
+        if (std::abs(fprime) < 1e-10) return false;
+
+        double step = f / fprime;
+        if (step >  20.0) step =  20.0;
+        if (step < -20.0) step = -20.0;
+        lat -= step;
+        if (lat >  66.5) lat =  66.5 - 0.01;
+        if (lat < -66.5) lat = -66.5 + 0.01;
+    }
+    return false;
+}
+
+} // namespace
+
+void
+enumerateNatalParanLatitudes(const Horoscope& natal,
+                             double           paranOrbDeg,
+                             QVector<ParanLatitudeRow>& out)
+{
+    out.clear();
+
+    const double jdNatal = getJulianDate(natal.inputData.GMT());
+    const double natalLat = natal.inputData.location().y();
+    const double natalLon = natal.inputData.location().x();
+
+    // Collect ex-precessed natal RA/Dec for every planet with a usable sweNum.
+    struct BodyEntry {
+        PlanetId pid;
+        double   ra;
+        double   dec;
+    };
+    QVector<BodyEntry> bodies;
+    bodies.reserve(natal.planets.size());
+
+    for (const Planet& p : std::as_const(natal.planets)) {
+        if (p.id >= Angles_Start) continue;
+        if (p.id <= Planet_None)  continue;
+        if (p.id == Planet_NorthNode || p.id == Planet_SouthNode) continue;
+        const Planet& pDef = getPlanet(p.id);
+        if (pDef.sweNum < 0) continue;
+
+        double ra, dec;
+        if (!natalTropicalEquatorialPos(p.id, jdNatal, ra, dec)) continue;
+        bodies.append({ p.id, ra, dec });
+    }
+
+    // Truncate natal JD to midnight UTC so computeNatalParanTransits() searches
+    // the day containing the natal moment (it scans [d_jd, d_jd + 1)).
+    const double jdNatalDay = std::floor(jdNatal + 0.5) - 0.5;
+
+    // Cache angle-transit times at the natal location, per body — used for
+    // the "natal orb" column.  Returns invalid QDateTime / NaN RA when the
+    // angle is circumpolar at the natal latitude.
+    QHash<PlanetId, std::array<QDateTime, 4>> natalTransits;
+    QHash<PlanetId, std::array<double, 4>>    natalTransitRA;
+    auto getNatalTransits = [&](PlanetId pid, double ra, double dec)
+        -> const std::array<QDateTime, 4>&
+    {
+        auto it = natalTransits.find(pid);
+        if (it != natalTransits.end()) return *it;
+        QDateTime at[4]; double rax[4];
+        computeNatalParanTransits(ra, dec, jdNatal, jdNatalDay,
+                                  natalLat, natalLon, at, rax);
+        std::array<QDateTime, 4> aArr;
+        std::array<double, 4>    rArr;
+        for (int i = 0; i < 4; ++i) { aArr[i] = at[i]; rArr[i] = rax[i]; }
+        natalTransitRA.insert(pid, rArr);
+        return *natalTransits.insert(pid, aArr);
+    };
+
+    for (int i = 0; i < bodies.size(); ++i) {
+        for (int j = i + 1; j < bodies.size(); ++j) {
+            const BodyEntry& A = bodies[i];
+            const BodyEntry& B = bodies[j];
+            for (int mA = 0; mA < 4; ++mA) {
+                for (int mB = 0; mB < 4; ++mB) {
+                    // Drop the pure RA-only cases (both participants are MC or IC).
+                    const bool aIsAxis = (mA == 2 || mA == 3);
+                    const bool bIsAxis = (mB == 2 || mB == 3);
+                    if (aIsAxis && bIsAxis) continue;
+
+                    const AngleLST la = makeAngleLST(A.ra, mA);
+                    const AngleLST lb = makeAngleLST(B.ra, mB);
+                    const double   D  = wrapDelta(lb.raOffset - la.raOffset);
+
+                    double lat;
+                    if (!solveParanLatitude(A.dec, B.dec, la.signAD, lb.signAD, D, lat))
+                        continue;
+
+                    ParanLatitudeRow row{};
+                    row.a       = A.pid;
+                    row.angleA  = mA;
+                    row.b       = B.pid;
+                    row.angleB  = mB;
+                    row.latitude = lat;
+
+                    // Compute natal-orb at the chart's actual location.
+                    const auto& atA = getNatalTransits(A.pid, A.ra, A.dec);
+                    const auto& atB = getNatalTransits(B.pid, B.ra, B.dec);
+                    const QDateTime& tA = atA[mA];
+                    const QDateTime& tB = atB[mB];
+                    if (tA.isValid() && tB.isValid()) {
+                        row.natalOrbSec = qAbs(tA.secsTo(tB));
+                        // RA delta: pull each body's RA at its own angle-transit.
+                        const double raA = natalTransitRA[A.pid][mA];
+                        const double raB = natalTransitRA[B.pid][mB];
+                        // Measure the LST delta: this is the clock-equivalent
+                        // angular distance between the two angle-transit moments.
+                        const AngleLST llA = makeAngleLST(raA, mA);
+                        const AngleLST llB = makeAngleLST(raB, mB);
+                        // Recompute AD at natal lat for the LST signature.
+                        auto lstAt = [&](const AngleLST& lp, double dec) {
+                            if (lp.signAD == 0) return lp.raOffset;
+                            return swe_degnorm(lp.raOffset
+                                + lp.signAD * asind(tand(dec) * tand(natalLat)));
+                        };
+                        const double lstA = lstAt(llA, A.dec);
+                        const double lstB = lstAt(llB, B.dec);
+                        row.natalOrbDeg = std::abs(wrapDelta(lstB - lstA));
+                        row.hasNatalOrb = true;
+                        row.present     = row.natalOrbDeg <= paranOrbDeg;
+                    } else {
+                        row.hasNatalOrb = false;
+                        row.present     = false;
+                        row.natalOrbSec = 0;
+                        row.natalOrbDeg = 0.0;
+                    }
+                    out.append(row);
+                }
+            }
+        }
+    }
+}
+
 void
 AspectFinder::findParans()
 {

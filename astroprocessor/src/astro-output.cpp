@@ -1,5 +1,6 @@
 ﻿#include "astro-output.h"
 #include "astro-calc.h"
+#include "citydb.h"
 #include "../../zodiac/src/thememanager.h"
 #include <QObject>
 #include <QRegularExpression>
@@ -1156,16 +1157,13 @@ describeParans(const AstroFileList& scopes,
         }
     }
 
-    // For paran charts, use a time-proximity filter: only show angle-transit
-    // entries within paranOrb of the paran event time (stored as the chart's GMT).
-    // This naturally captures the specific paran-relevant angle per body, includes
-    // fixed stars in the cluster, and excludes the body's other angles (hours away).
-    bool isParanChart = file && file->getType() == TypeParan;
-    QDateTime paranTime;
-    qint64 paranOrbSecs = qint64(paranOrb * 240); // 1° orb = 240 sidereal seconds ≈ clock seconds
-    if (isParanChart) {
-        paranTime = file->getGMT();
-    }
+    // For paran charts the focused view shows exactly the cluster of
+    // angle-transits anchored on the radix (the chart's GMT) — i.e. the same
+    // group the full-listing path would render around that radix.  We collect
+    // all candidate transits up-front and let the post-sort cluster walk
+    // determine membership; no static time-proximity filter is needed.
+    const bool isParanChart = file && file->getType() == TypeParan;
+    const qint64 paranOrbSecs = qint64(paranOrb * 240); // 1° = 240 sidereal seconds ≈ clock seconds
 
     QVector<event> events;
     events << event(scope.inputData.GMT(), NULL, 4); // radix
@@ -1183,7 +1181,6 @@ describeParans(const AstroFileList& scopes,
         unsigned u = 0;
         for (const QDateTime& dt : p.angleTransit) {
             if (!dt.isValid()) { u++; continue; }
-            if (isParanChart && qAbs(paranTime.secsTo(dt)) > paranOrbSecs) { u++; continue; }
             if (p.name.length() > maxWidth) maxWidth = p.name.length();
             events << event(dt, p, u++);
         }
@@ -1194,7 +1191,6 @@ describeParans(const AstroFileList& scopes,
             unsigned u = 0;
             for (const QDateTime& dt : s.angleTransit) {
                 if (!dt.isValid()) { u++; continue; }
-                if (isParanChart && qAbs(paranTime.secsTo(dt)) > paranOrbSecs) { u++; continue; }
                 if (s.name.length() > maxWidth) maxWidth = s.name.length();
                 events << event(dt, s, u++);
             }
@@ -1263,15 +1259,12 @@ describeParans(const AstroFileList& scopes,
             unsigned u = 0;
             for (int m = 0; m < 4; ++m) {
                 if (!angleTransit[m].isValid()) { u++; continue; }
+                // Focused paran view: collect all valid natal angle-transits;
+                // the post-sort cluster walk decides which ones belong.
+                // Full listing: filter by proximity to any return-planet transit.
                 bool pass;
                 if (isParanChart) {
-                    qint64 diff = qAbs(paranTime.secsTo(angleTransit[m]));
-                    qDebug() << "[paranNatal]" << np.name << "angle" << m
-                             << "transit=" << angleTransit[m].toUTC().toString("HH:mm:ss") << "UTC"
-                             << "paranTime=" << paranTime.toUTC().toString("HH:mm:ss") << "UTC"
-                             << "diff=" << diff << "orbSecs=" << paranOrbSecs
-                             << (diff <= paranOrbSecs ? "PASS" : "FILTERED");
-                    pass = (diff <= paranOrbSecs);
+                    pass = true;
                 } else {
                     pass = std::any_of(
                         returnTimes.constBegin(), returnTimes.constEnd(),
@@ -1289,7 +1282,50 @@ describeParans(const AstroFileList& scopes,
 
     std::sort(events.begin(), events.end());
 
-    QString ret = "<h2>" + QObject::tr("Parans") + "</h2>";
+    // Focused paran chart: keep only the cluster anchored on the *Radix* event,
+    // using the same anchor-chained adjacency the full-listing render loop uses.
+    // This guarantees the focused view matches whichever cluster produced the
+    // event — no centroid-vs-edge clipping.
+    if (isParanChart) {
+        const qint64 clusterOrbSecs = qint64(paranOrb * 240);
+
+        int radixIdx = -1;
+        for (int i = 0; i < events.size(); ++i) {
+            if (!events[i]._star) { radixIdx = i; break; }
+        }
+        if (radixIdx >= 0) {
+            auto isAnchor = [](const event& e) {
+                return !e._star || dynamic_cast<const Planet*>(e._star) != nullptr;
+            };
+
+            int leftAnchor = radixIdx;
+            int left       = radixIdx;
+            while (left > 0
+                   && qAbs(events[left - 1]._dt.secsTo(events[leftAnchor]._dt))
+                          <= clusterOrbSecs)
+            {
+                --left;
+                if (isAnchor(events[left])) leftAnchor = left;
+            }
+
+            int rightAnchor = radixIdx;
+            int right       = radixIdx;
+            while (right + 1 < events.size()
+                   && qAbs(events[right + 1]._dt.secsTo(events[rightAnchor]._dt))
+                          <= clusterOrbSecs)
+            {
+                ++right;
+                if (isAnchor(events[right])) rightAnchor = right;
+            }
+
+            QVector<event> pruned;
+            pruned.reserve(right - left + 1);
+            for (int i = left; i <= right; ++i) pruned.append(events[i]);
+            events = std::move(pruned);
+        }
+    }
+
+    QString ret = "<h2>" + QObject::tr("Directions") + "</h2>";
     ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
     ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
     ret += "<th style='padding: 4px 8px; text-align: left;'>"
@@ -1477,6 +1513,160 @@ describeSpeculum(const Horoscope&    scope,
 
     ret += "</table>";
     maxWidth = 0; // reset for next time...
+    return ret;
+}
+
+namespace
+{
+
+static QString
+angleAbbrev(int angle)
+{
+    switch (angle) {
+    case 0: return QObject::tr("Asc");
+    case 1: return QObject::tr("Dsc");
+    case 2: return QObject::tr("MC");
+    case 3: return QObject::tr("IC");
+    }
+    return QString();
+}
+
+// "HH:MM:SS"-ish for a clock-second delta — terse, dimmed when out of orb.
+static QString
+formatClockDelta(qint64 secs)
+{
+    const qint64 abss = std::abs(secs);
+    const int    m    = int(abss / 60);
+    const int    s    = int(abss % 60);
+    return QString("%1m %2s")
+        .arg(m)
+        .arg(s, 2, 10, QChar('0'));
+}
+
+} // namespace
+
+QString
+describeParanLatitudes(const Horoscope&    natal,
+                       double              paranOrbDeg,
+                       double              cityLatTolDeg,
+                       int                 maxCitiesPerRow,
+                       bool                showAbsent,
+                       unsigned            cityPopMask,
+                       unsigned            cityContinentMask,
+                       SpeculumDisplayMode displayMode)
+{
+    CityFilter cityFilter;
+    cityFilter.popTiers   = cityPopMask;
+    cityFilter.continents = cityContinentMask;
+
+    QVector<ParanLatitudeRow> rows;
+    enumerateNatalParanLatitudes(natal, paranOrbDeg, rows);
+
+    if (!showAbsent) {
+        rows.erase(std::remove_if(rows.begin(), rows.end(),
+                                  [](const ParanLatitudeRow& r) { return !r.present; }),
+                   rows.end());
+    }
+
+    // Sort strictly North → South (latitude descending).
+    std::sort(rows.begin(), rows.end(),
+              [](const ParanLatitudeRow& a, const ParanLatitudeRow& b) {
+                  return a.latitude > b.latitude;
+              });
+
+    QString ret = "<h2>" + QObject::tr("Parans") + "</h2>";
+    ret += "<p>"
+           + QObject::tr("Latitudes at which each natal-body pair forms a paran. "
+                         "MC/IC-only pairs are omitted (latitude-independent).")
+           + "</p>";
+
+    if (rows.isEmpty()) {
+        ret += "<p><em>" + QObject::tr("No parans found.") + "</em></p>";
+        return ret;
+    }
+
+    ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
+    ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>"
+           + QObject::tr("Paran") + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: right;'>"
+           + QObject::tr("Latitude") + "</th>";
+    QString orbHeader;
+    if (displayMode == DisplaySiderealTime)
+        orbHeader = QObject::tr("Natal Δ (ST)");
+    else if (displayMode == DisplayRightAscension)
+        orbHeader = QObject::tr("Natal Δ (RA)");
+    else
+        orbHeader = QObject::tr("Natal Δ (LT)");
+    ret += "<th style='padding: 4px 8px; text-align: right;'>" + orbHeader + "</th>";
+    ret += "<th style='padding: 4px 8px; text-align: left;'>"
+           + QObject::tr("Cities (±%1°)").arg(QString::number(cityLatTolDeg, 'f', 2)) + "</th>";
+    ret += "</tr>";
+
+    const QString headingColor = ThemeManager::instance().getHeadingColor();
+
+    for (const ParanLatitudeRow& r : std::as_const(rows)) {
+        const QString nameA = getPlanet(r.a).name;
+        const QString nameB = getPlanet(r.b).name;
+        const QString paranText = QString("%1 %2  +  %3 %4")
+                                      .arg(nameA, angleAbbrev(r.angleA),
+                                           nameB, angleAbbrev(r.angleB));
+
+        // Latitude with N/S.
+        const bool    north = r.latitude >= 0;
+        const QString latText = QString("%1° %2")
+                                    .arg(std::abs(r.latitude), 0, 'f', 2)
+                                    .arg(north ? QObject::tr("N") : QObject::tr("S"));
+
+        // Natal-orb cell.
+        QString orbText;
+        QString orbStyle = "padding: 2px 8px; text-align: right;";
+        if (!r.hasNatalOrb) {
+            orbText = QStringLiteral("—");
+            orbStyle += " color: #888;";
+        } else if (displayMode == DisplayRightAscension) {
+            orbText = QString("%1°").arg(r.natalOrbDeg, 0, 'f', 3);
+            if (!r.present) orbStyle += " color: #888;";
+        } else if (displayMode == DisplaySiderealTime) {
+            // 1° sidereal ≈ 4 minutes of sidereal time.
+            const double siderealSec = r.natalOrbDeg * 240.0;
+            orbText = formatClockDelta(static_cast<qint64>(std::round(siderealSec)));
+            if (!r.present) orbStyle += " color: #888;";
+        } else {
+            // Clock-time delta (LT mode): use the actual angle-transit clock difference.
+            orbText = formatClockDelta(r.natalOrbSec);
+            if (!r.present) orbStyle += " color: #888;";
+        }
+
+        // Cities list.
+        QString citiesText;
+        const QVector<CityRec> cities =
+            citiesNearLatitude(r.latitude, cityLatTolDeg, maxCitiesPerRow + 1, cityFilter);
+        if (cities.isEmpty()) {
+            citiesText = QStringLiteral("—");
+        } else {
+            QStringList parts;
+            parts.reserve(qMin(cities.size(), maxCitiesPerRow));
+            for (int i = 0; i < cities.size() && i < maxCitiesPerRow; ++i) {
+                parts << QString("%1, %2").arg(cities[i].name, cities[i].countryCode);
+            }
+            if (cities.size() > maxCitiesPerRow) parts << QStringLiteral("…");
+            citiesText = parts.join(QStringLiteral("; "));
+        }
+
+        QString rowStyle = r.present
+            ? " style='background-color: rgba(120,200,140,0.10);'"
+            : "";
+        ret += "<tr" + rowStyle + ">";
+        ret += "<td style='padding: 2px 8px; font-weight: bold; color: " + headingColor + ";'>"
+               + paranText + "</td>";
+        ret += "<td style='padding: 2px 8px; text-align: right;'>" + latText + "</td>";
+        ret += "<td style='" + orbStyle + "'>" + orbText + "</td>";
+        ret += "<td style='padding: 2px 8px;'>" + citiesText + "</td>";
+        ret += "</tr>";
+    }
+
+    ret += "</table>";
     return ret;
 }
 

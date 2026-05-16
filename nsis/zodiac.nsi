@@ -143,6 +143,9 @@ Section "Essential files" SecMain
   
   SetOutPath "$INSTDIR\swe"
   File ..\bin\swe\*
+
+  SetOutPath "$INSTDIR\data"
+  File ..\bin\data\*
   
   ; Note: settings.ini deliberately excluded - will be created by application on first run
   ; This avoids including personal user preferences in the installer

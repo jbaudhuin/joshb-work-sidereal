@@ -1,5 +1,6 @@
 ﻿#include "plain.h"
 #include "../../zodiac/src/thememanager.h"
+#include "../../astroprocessor/src/citydb.h"
 #include <Astroprocessor/Output>
 #include <QCheckBox>
 #include <QComboBox>
@@ -61,13 +62,23 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     describePower->setStatusTip(
         tr("Show dignity and deficient points for each planet"));
 
-    describeParans = toolbar->addAction(tr("Parans"));
+    describeParans = toolbar->addAction(tr("Directions"));
     describeParans->setCheckable(true);
     describeParans->setChecked(true);
+    describeParans->setStatusTip(
+        tr("Show natal parans rolled up against primary directions"));
 
-    describeSpeculum = toolbar->addAction(tr("Mundane"));
+    describeSpeculum = toolbar->addAction(tr("Speculum"));
     describeSpeculum->setCheckable(true);
     describeSpeculum->setChecked(true);
+    describeSpeculum->setStatusTip(
+        tr("Show rise/set/MC/IC times for each body"));
+
+    describeParanLats = toolbar->addAction(tr("Parans"));
+    describeParanLats->setCheckable(true);
+    describeParanLats->setChecked(false);
+    describeParanLats->setStatusTip(
+        tr("Show latitudes (and cities on them) at which each natal-body pair forms a paran"));
 
     toolbar->addSeparator();
 
@@ -101,6 +112,11 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     showAllDiurnalEvents = false;
     includeFixedStars    = true;
     showParanNatalRows   = false;
+    paranCityLatTol      = 0.5;
+    paranMaxCitiesPerRow = 8;
+    paranShowAbsent      = true;
+    paranCityPopMask       = A::CityPop_All;
+    paranCityContinentMask = A::CityCont_All;
     aspectSortOrder      = A::SortByPlanets;
 
     QVBoxLayout* layout = new QVBoxLayout(this);
@@ -119,6 +135,7 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     connect(describePower, &QAction::triggered, this, &Plain::refresh);
     connect(describeParans, &QAction::triggered, this, &Plain::refresh);
     connect(describeSpeculum, &QAction::triggered, this, &Plain::refresh);
+    connect(describeParanLats, &QAction::triggered, this, &Plain::refresh);
     connect(chart1Btn, &QPushButton::clicked, this, &Plain::refresh);
     connect(chart2Btn, &QPushButton::clicked, this, &Plain::refresh);
     connect(displayModeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
@@ -276,7 +293,8 @@ Plain::refresh()
                    | (A::Article_Parans * describeParans->isChecked())
                    | (A::Article_DiurnalEvents * showAllDiurnalEvents)
                    | (A::Article_Speculum * describeSpeculum->isChecked())
-                   | (A::Article_FixedStars * includeFixedStars);
+                   | (A::Article_FixedStars * includeFixedStars)
+                   | (A::Article_ParanLatitudes * describeParanLats->isChecked());
 
     // Get theme-appropriate row highlight color (subtle overlay for alternating rows/headers)
     QString rowHighlightColor;
@@ -586,7 +604,7 @@ Plain::refresh()
             // Chart #1 Parans
             if (showFirst && file(0) && file(0)->horoscope().planets.count()) {
                 html += "<h2>"
-                        + QObject::tr("Parans - Chart #1: %1")
+                        + QObject::tr("Directions - Chart #1: %1")
                               .arg(file(0)->getName())
                         + "</h2>";
                 AstroFileList file1List;
@@ -604,7 +622,7 @@ Plain::refresh()
             // Chart #2 Parans — pass file(0) as natal context for Par=N filtering
             if (showSecond && file(1) && file(1)->horoscope().planets.count()) {
                 html += "<h2>"
-                        + QObject::tr("Parans - Chart #2: %1")
+                        + QObject::tr("Directions - Chart #2: %1")
                               .arg(file(1)->getName())
                         + "</h2>";
                 AstroFileList file2List;
@@ -617,6 +635,47 @@ Plain::refresh()
                                       displayMode,
                                       showParanNatalRows,
                                       file(0));
+            }
+        }
+    }
+
+    // Display paran-latitudes table for selected charts
+    if (articles & A::Article_ParanLatitudes) {
+        if (filesCount() == 1 && scope.planets.count()) {
+            html += A::describeParanLatitudes(scope,
+                                              paranOrb,
+                                              paranCityLatTol,
+                                              paranMaxCitiesPerRow,
+                                              paranShowAbsent,
+                                              paranCityPopMask,
+                                              paranCityContinentMask,
+                                              displayMode);
+        } else if (filesCount() > 1) {
+            if (showFirst && file(0) && file(0)->horoscope().planets.count()) {
+                html += "<h3>"
+                        + QObject::tr("Chart #1: %1").arg(file(0)->getName())
+                        + "</h3>";
+                html += A::describeParanLatitudes(file(0)->horoscope(),
+                                                  paranOrb,
+                                                  paranCityLatTol,
+                                                  paranMaxCitiesPerRow,
+                                                  paranShowAbsent,
+                                                  paranCityPopMask,
+                                                  paranCityContinentMask,
+                                                  displayMode);
+            }
+            if (showSecond && file(1) && file(1)->horoscope().planets.count()) {
+                html += "<h3>"
+                        + QObject::tr("Chart #2: %1").arg(file(1)->getName())
+                        + "</h3>";
+                html += A::describeParanLatitudes(file(1)->horoscope(),
+                                                  paranOrb,
+                                                  paranCityLatTol,
+                                                  paranMaxCitiesPerRow,
+                                                  paranShowAbsent,
+                                                  paranCityPopMask,
+                                                  paranCityContinentMask,
+                                                  displayMode);
             }
         }
     }
@@ -678,12 +737,27 @@ Plain::defaultSettings()
     s.setValue("Text/describePower", false);
     s.setValue("Text/describeParans", true);
     s.setValue("Text/describeSpeculum", false);
+    s.setValue("Text/describeParanLats", false);
     s.setValue("Plain/chart1Visible", true);  // Default to showing both
     s.setValue("Plain/chart2Visible", true);  // Default to showing both
     s.setValue("Mundane/displayMode", unsigned(A::DisplayLocalTime));
     s.setValue("Mundane/primDirMode", unsigned(A::prdMundane));
     s.setValue("Mundane/showAllDiurnalEvents", false);
     s.setValue("Mundane/paranOrb", 1.0);
+    s.setValue("Mundane/paranCityLatTol", 0.5);
+    s.setValue("Mundane/paranMaxCitiesPerRow", 8);
+    s.setValue("Mundane/paranShowAbsent", true);
+    s.setValue("Mundane/paranCity_PopSmall",  true);
+    s.setValue("Mundane/paranCity_PopMedium", true);
+    s.setValue("Mundane/paranCity_PopLarge",  true);
+    s.setValue("Mundane/paranCity_PopHuge",   true);
+    s.setValue("Mundane/paranCity_ContAfrica",       true);
+    s.setValue("Mundane/paranCity_ContAsia",         true);
+    s.setValue("Mundane/paranCity_ContEurope",       true);
+    s.setValue("Mundane/paranCity_ContNorthAmerica", true);
+    s.setValue("Mundane/paranCity_ContSouthAmerica", true);
+    s.setValue("Mundane/paranCity_ContOceania",      true);
+    s.setValue("Mundane/paranCity_ContAntarctica",   true);
     s.setValue("Mundane/includeFixedStars", true);
     s.setValue("Mundane/showParanNatalRows", false);
     s.setValue("Mundane/useApparentSun", true);
@@ -702,6 +776,7 @@ Plain::currentSettings()
     s.setValue("Text/describePower", describePower->isChecked());
     s.setValue("Text/describeParans", describeParans->isChecked());
     s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
+    s.setValue("Text/describeParanLats", describeParanLats->isChecked());
     s.setValue("Plain/chart1Visible", chart1Btn->isChecked());
     s.setValue("Plain/chart2Visible", chart2Btn->isChecked());
     s.setValue("Mundane/displayMode",
@@ -709,6 +784,20 @@ Plain::currentSettings()
     s.setValue("Mundane/primDirMode", unsigned(A::primDirMode));
     s.setValue("Mundane/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Mundane/paranOrb", paranOrb);
+    s.setValue("Mundane/paranCityLatTol", paranCityLatTol);
+    s.setValue("Mundane/paranMaxCitiesPerRow", paranMaxCitiesPerRow);
+    s.setValue("Mundane/paranShowAbsent", paranShowAbsent);
+    s.setValue("Mundane/paranCity_PopSmall",  bool(paranCityPopMask & A::CityPop_Small));
+    s.setValue("Mundane/paranCity_PopMedium", bool(paranCityPopMask & A::CityPop_Medium));
+    s.setValue("Mundane/paranCity_PopLarge",  bool(paranCityPopMask & A::CityPop_Large));
+    s.setValue("Mundane/paranCity_PopHuge",   bool(paranCityPopMask & A::CityPop_Huge));
+    s.setValue("Mundane/paranCity_ContAfrica",       bool(paranCityContinentMask & A::CityCont_Africa));
+    s.setValue("Mundane/paranCity_ContAsia",         bool(paranCityContinentMask & A::CityCont_Asia));
+    s.setValue("Mundane/paranCity_ContEurope",       bool(paranCityContinentMask & A::CityCont_Europe));
+    s.setValue("Mundane/paranCity_ContNorthAmerica", bool(paranCityContinentMask & A::CityCont_NorthAmerica));
+    s.setValue("Mundane/paranCity_ContSouthAmerica", bool(paranCityContinentMask & A::CityCont_SouthAmerica));
+    s.setValue("Mundane/paranCity_ContOceania",      bool(paranCityContinentMask & A::CityCont_Oceania));
+    s.setValue("Mundane/paranCity_ContAntarctica",   bool(paranCityContinentMask & A::CityCont_Antarctica));
     s.setValue("Mundane/includeFixedStars", includeFixedStars);
     s.setValue("Mundane/showParanNatalRows", showParanNatalRows);
     s.setValue("Mundane/useApparentSun", A::useApparentSun);
@@ -726,6 +815,7 @@ Plain::applySettings(const AppSettings& s)
     describePower->setChecked(s.value("Text/describePower").toBool());
     describeParans->setChecked(s.value("Text/describeParans").toBool());
     describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
+    describeParanLats->setChecked(s.value("Text/describeParanLats").toBool());
 
     // Restore chart button states
     chart1Btn->setChecked(s.value("Plain/chart1Visible").toBool());
@@ -748,6 +838,22 @@ Plain::applySettings(const AppSettings& s)
 
     showAllDiurnalEvents = s.value("Mundane/showAllDiurnalEvents").toBool();
     paranOrb             = s.value("Mundane/paranOrb").toDouble();
+    paranCityLatTol      = s.value("Mundane/paranCityLatTol", 0.5).toDouble();
+    paranMaxCitiesPerRow = s.value("Mundane/paranMaxCitiesPerRow", 8).toInt();
+    paranShowAbsent      = s.value("Mundane/paranShowAbsent", true).toBool();
+    paranCityPopMask = 0u;
+    if (s.value("Mundane/paranCity_PopSmall",  true).toBool()) paranCityPopMask |= A::CityPop_Small;
+    if (s.value("Mundane/paranCity_PopMedium", true).toBool()) paranCityPopMask |= A::CityPop_Medium;
+    if (s.value("Mundane/paranCity_PopLarge",  true).toBool()) paranCityPopMask |= A::CityPop_Large;
+    if (s.value("Mundane/paranCity_PopHuge",   true).toBool()) paranCityPopMask |= A::CityPop_Huge;
+    paranCityContinentMask = 0u;
+    if (s.value("Mundane/paranCity_ContAfrica",       true).toBool()) paranCityContinentMask |= A::CityCont_Africa;
+    if (s.value("Mundane/paranCity_ContAsia",         true).toBool()) paranCityContinentMask |= A::CityCont_Asia;
+    if (s.value("Mundane/paranCity_ContEurope",       true).toBool()) paranCityContinentMask |= A::CityCont_Europe;
+    if (s.value("Mundane/paranCity_ContNorthAmerica", true).toBool()) paranCityContinentMask |= A::CityCont_NorthAmerica;
+    if (s.value("Mundane/paranCity_ContSouthAmerica", true).toBool()) paranCityContinentMask |= A::CityCont_SouthAmerica;
+    if (s.value("Mundane/paranCity_ContOceania",      true).toBool()) paranCityContinentMask |= A::CityCont_Oceania;
+    if (s.value("Mundane/paranCity_ContAntarctica",   true).toBool()) paranCityContinentMask |= A::CityCont_Antarctica;
     includeFixedStars    = s.value("Mundane/includeFixedStars").toBool();
     showParanNatalRows   = s.value("Mundane/showParanNatalRows").toBool();
     aspectSortOrder =
@@ -803,6 +909,31 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                          tr("Orb for paranatellontas"),
                          1. / 60. /*1 minute*/,
                          5.0 /*5 degrees*/);
+    ed->addDoubleSpinBox("Mundane/paranCityLatTol",
+                         tr("Paran-latitude city tolerance (degrees)"),
+                         0.05 /*~5.5 km*/,
+                         5.0 /*~550 km*/);
+    ed->addSpinBox("Mundane/paranMaxCitiesPerRow",
+                   tr("Max cities listed per paran-latitude row"),
+                   1,
+                   30);
+    ed->addCheckBox("Mundane/paranShowAbsent",
+                    tr("Show paran latitudes that are not present in the natal chart"));
+    ed->addCheckBox("Mundane/paranCity_PopSmall",
+                    tr("Cities: small (15k–100k)"));
+    ed->addCheckBox("Mundane/paranCity_PopMedium",
+                    tr("Cities: medium (100k–500k)"));
+    ed->addCheckBox("Mundane/paranCity_PopLarge",
+                    tr("Cities: large (500k–2M)"));
+    ed->addCheckBox("Mundane/paranCity_PopHuge",
+                    tr("Cities: huge (>2M)"));
+    ed->addCheckBox("Mundane/paranCity_ContAfrica",       tr("Cities in Africa"));
+    ed->addCheckBox("Mundane/paranCity_ContAsia",         tr("Cities in Asia"));
+    ed->addCheckBox("Mundane/paranCity_ContEurope",       tr("Cities in Europe"));
+    ed->addCheckBox("Mundane/paranCity_ContNorthAmerica", tr("Cities in North America"));
+    ed->addCheckBox("Mundane/paranCity_ContSouthAmerica", tr("Cities in South America"));
+    ed->addCheckBox("Mundane/paranCity_ContOceania",      tr("Cities in Oceania"));
+    ed->addCheckBox("Mundane/paranCity_ContAntarctica",   tr("Cities in Antarctica"));
     ed->addCheckBox("Mundane/includeFixedStars", tr("Include fixed stars"));
     ed->addCheckBox("Mundane/showParanNatalRows",
                     tr("Show natal ex-precessed positions in paran table"));
