@@ -6927,6 +6927,33 @@ AspectFinder::findParans()
             QVector<ParanEntry> entries;
             entries.reserve((transitIndices.size() + natalIndices.size()) * 4);
 
+            // Each (body, angle) has ~1.00274 sidereal transits per solar
+            // day, so on the ~one-day-per-year when LST_target crosses UTC
+            // midnight, a single solar day contains *two* transits.
+            // findAngleTransitJD's initial-guess clamping returns just one of
+            // them. Search a second anchor at jd+0.5 to catch the other; the
+            // late-day root will fall in [jd+0.5, jd+1) when present. Dedupe
+            // when both anchors converge to the same root.
+            auto collectDaily = [&](const BodyAtFn& bodyAt, int alistIdx,
+                                    bool isNatal) {
+                for (int m = 0; m < 4; ++m) {
+                    qint64 firstSec = -1;
+                    for (double anchor : { jd, jd + 0.5 }) {
+                        double tjd;
+                        if (!findAngleTransitJD(bodyAt, anchor, locusLat,
+                                                locusLon, m, tjd))
+                            continue;
+                        const QDateTime when = dateTimeFromJulian(tjd);
+                        const qint64    sec  = d.secsTo(when);
+                        if (sec < 0 || sec >= 86400) continue;
+                        if (firstSec >= 0 && qAbs(sec - firstSec) < 60)
+                            continue;
+                        entries.append({ alistIdx, m, sec, when, isNatal });
+                        firstSec = sec;
+                    }
+                }
+            };
+
             // -- Transit angle-transit times via Newton–Raphson -----------
             for (int i : transitIndices) {
                 auto* trans = dynamic_cast<TransitPosition*>(_alist[i]);
@@ -6967,15 +6994,7 @@ AspectFinder::findParans()
                         return true;
                     };
 
-                    for (int m = 0; m < 4; ++m) {
-                        double tjd;
-                        if (!findAngleTransitJD(bodyAt, jd, locusLat, locusLon, m, tjd))
-                            continue;
-                        const QDateTime when = dateTimeFromJulian(tjd);
-                        const qint64    sec  = d.secsTo(when);
-                        if (sec < 0 || sec >= 86400) continue;
-                        entries.append({ i, m, sec, when, false });
-                    }
+                    collectDaily(bodyAt, i, false);
                     continue; // handled — skip the single-body path below
                 }
 
@@ -7000,15 +7019,7 @@ AspectFinder::findParans()
                     return true;
                 };
 
-                for (int m = 0; m < 4; ++m) {
-                    double tjd;
-                    if (!findAngleTransitJD(bodyAt, jd, locusLat, locusLon, m, tjd))
-                        continue;
-                    const QDateTime when = dateTimeFromJulian(tjd);
-                    const qint64    sec  = d.secsTo(when);
-                    if (sec < 0 || sec >= 86400) continue;
-                    entries.append({ i, m, sec, when, false });
-                }
+                collectDaily(bodyAt, i, false);
             }
 
             // -- Natal angle-transit times via Newton–Raphson ------------
@@ -7019,15 +7030,7 @@ AspectFinder::findParans()
                     return getNatalRADecSpeed(i, tjd, ra, dec, dRAdt, dDecdt);
                 };
 
-                for (int m = 0; m < 4; ++m) {
-                    double tjd;
-                    if (!findAngleTransitJD(bodyAt, jd, locusLat, locusLon, m, tjd))
-                        continue;
-                    const QDateTime when = dateTimeFromJulian(tjd);
-                    const qint64    sec  = d.secsTo(when);
-                    if (sec < 0 || sec >= 86400) continue;
-                    entries.append({ i, m, sec, when, true });
-                }
+                collectDaily(bodyAt, i, true);
             }
 
             // -- Cluster by secOfDay within paranOrbSecs (circular) ------
@@ -7078,7 +7081,41 @@ AspectFinder::findParans()
             // activeParans insertion/update.  Idempotent: calling it for the
             // same set of entries twice on the same day just inserts the key
             // into currentKeys a second time, which is harmless.
-            auto trackSubCluster = [&](const QVector<int>& cEntries) {
+            auto trackSubCluster = [&](const QVector<int>& cEntriesRaw) {
+                // Dedupe by (aIdx, angle): when the same body+angle appears
+                // more than once in the cluster — true double-transit days
+                // (a body's LST_target crossing local midnight gives two
+                // solar-day transits), or wrap-merge pulling in a far-day
+                // sibling — keep one representative per (aIdx, angle), the
+                // entry whose secOfDay is closest (circularly) to the
+                // cluster's tentative mean. Without this, the cluster's key
+                // contains the body twice and splinters off from the long-
+                // running event's key.
+                QVector<int> cEntries;
+                {
+                    const qint64 meanSec0 =
+                        circularMeanSeconds(cEntriesRaw, entries);
+                    QHash<QPair<int, int>, int> rep;
+                    for (int k : cEntriesRaw) {
+                        QPair<int, int> bk(entries[k].aIdx, entries[k].angle);
+                        auto it = rep.find(bk);
+                        if (it == rep.end()) { rep.insert(bk, k); continue; }
+                        const qint64 dNew =
+                            pairwiseArc(entries[k].secOfDay, meanSec0);
+                        const qint64 dOld =
+                            pairwiseArc(entries[it.value()].secOfDay, meanSec0);
+                        if (dNew < dOld) it.value() = k;
+                    }
+                    cEntries.reserve(rep.size());
+                    for (auto it = rep.begin(); it != rep.end(); ++it)
+                        cEntries.append(it.value());
+                    std::sort(cEntries.begin(), cEntries.end(),
+                              [&](int a, int b) {
+                                  return entries[a].secOfDay
+                                       < entries[b].secOfDay;
+                              });
+                }
+
                 QSet<int> distinctBodies;
                 bool      hasTrans = false, hasNatal = false;
                 for (int k : cEntries) {
@@ -7218,19 +7255,79 @@ AspectFinder::findParans()
                 // Track the full cluster as one event.
                 trackSubCluster(cluster);
 
-                // Also track every valid 2-body sub-pair independently so
-                // that an existing paran persists when a new body briefly
-                // joins and enlarges the cluster.  Without this, the 2-body
-                // key disappears from currentKeys on the day the 3rd body
-                // arrives, which incorrectly closes the long-running event.
-                if (cluster.size() > 2) {
-                    for (int ai = 0; ai < cluster.size(); ++ai) {
-                        for (int bi = ai + 1; bi < cluster.size(); ++bi) {
-                            const qint64 arc =
-                                pairwiseArc(entries[cluster[ai]].secOfDay,
-                                            entries[cluster[bi]].secOfDay);
-                            if (arc > paranOrbSecs) continue; // not within orb
-                            trackSubCluster({ cluster[ai], cluster[bi] });
+                // Also track every valid sub-tuple of size 2..N-1
+                // (the full N-body cluster was tracked above). Without this,
+                // a long-running K-body paran disappears from currentKeys on
+                // a day when a (K+1)-th body briefly joins and enlarges the
+                // cluster, which incorrectly closes the long-running event.
+                //
+                // Subset rule: a sub-tuple is admissible iff, after sorting
+                // by secOfDay, all consecutive gaps are within paranOrbSecs
+                // (with circular wrap). This matches the chain-adjacency
+                // semantics the cluster-build itself uses — a stricter
+                // pairwise-all-in-orb rule would reject Sat-Plu chained via
+                // Jup, splintering long-running events that pattern-search
+                // (which restricts the body set so the cluster IS the
+                // subset) handles correctly.
+                //
+                // Cluster sizes >7 are gated to size-2 and size-(N-1) subsets
+                // to keep the power-set bounded; clusters that large are
+                // already pathological.
+                const int N = cluster.size();
+                if (N > 2) {
+                    auto pairsOK = [&](const QVector<int>& subEntries) {
+                        if (subEntries.size() < 2) return false;
+                        QVector<qint64> secs;
+                        secs.reserve(subEntries.size());
+                        for (int k : subEntries)
+                            secs.append(entries[k].secOfDay);
+                        std::sort(secs.begin(), secs.end());
+                        // Compute all gaps (linear + wrap) and find the
+                        // largest. The largest is the "outside" of the
+                        // cycle that the chain skips; the rest must each
+                        // be within orb.  Equivalent: second-largest <= orb.
+                        QVector<qint64> gaps;
+                        gaps.reserve(secs.size());
+                        for (int j = 1; j < secs.size(); ++j)
+                            gaps.append(secs[j] - secs[j - 1]);
+                        gaps.append((86400 - secs.last()) + secs.first());
+                        std::sort(gaps.begin(), gaps.end(),
+                                  std::greater<qint64>());
+                        return gaps.size() < 2 || gaps[1] <= paranOrbSecs;
+                    };
+
+                    const int maxFullEnum = 7;
+                    const int hiSize = (N <= maxFullEnum) ? (N - 1) : 2;
+
+                    for (int subSize = 2; subSize <= hiSize; ++subSize) {
+                        QVector<int> idx(subSize);
+                        for (int j = 0; j < subSize; ++j) idx[j] = j;
+                        while (true) {
+                            QVector<int> sub;
+                            sub.reserve(subSize);
+                            for (int j = 0; j < subSize; ++j)
+                                sub.append(cluster[idx[j]]);
+                            if (pairsOK(sub)) trackSubCluster(sub);
+
+                            int k = subSize - 1;
+                            while (k >= 0 && idx[k] == N - subSize + k) --k;
+                            if (k < 0) break;
+                            ++idx[k];
+                            for (int j = k + 1; j < subSize; ++j)
+                                idx[j] = idx[j - 1] + 1;
+                        }
+                    }
+
+                    // For large clusters, also track the (N-1)-body subsets
+                    // explicitly so a long-running (N-1)-body event survives
+                    // the transient join of an Nth body.
+                    if (N > maxFullEnum) {
+                        for (int drop = 0; drop < N; ++drop) {
+                            QVector<int> sub;
+                            sub.reserve(N - 1);
+                            for (int j = 0; j < N; ++j)
+                                if (j != drop) sub.append(cluster[j]);
+                            if (pairsOK(sub)) trackSubCluster(sub);
                         }
                     }
                 }
