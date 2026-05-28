@@ -1477,6 +1477,15 @@ struct PlanetLoc : public Loc {
                                            const InputData&     ida,
                                            double               jd);
 
+    /// Compute (lon, lat, lonSpeed) at jd.  Used by the Great-Circle event
+    /// finder, which needs both ecliptic longitude and latitude to evaluate
+    /// the 2D angular separation that GC aspects rely on.  Angles (Asc, Desc,
+    /// MC, IC) return lat == 0 (they live on the ecliptic).
+    static std::tuple<qreal, qreal, qreal>
+    computeWithLat(const ChartPlanetId& pid,
+                   const InputData&     ida,
+                   double               jd);
+
     QString description() const override
     {
         return desc.isEmpty() ? planet.name() : (planet.name() + "-" + desc);

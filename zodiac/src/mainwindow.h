@@ -20,6 +20,7 @@ class QActionGroup;
 class AstroFileEditor;
 class GeoSearchWidget;
 class QComboBox;
+class QToolButton;
 
 /* =========================== ASTRO FILE INFO
  * ====================================== */
@@ -77,6 +78,8 @@ class AstroWidget : public QWidget {
     QComboBox*               hsystemSelector;
     QComboBox*               aspectsSelector;
     QComboBox*               aspectModeSelector;
+    QToolButton*             gcToggle = nullptr;
+    QToolButton*             pvToggle = nullptr;
     QComboBox*               harmonicSelector;
     QToolBar*                dynAspectControls;
     QWidgetList              horoscopeControls;

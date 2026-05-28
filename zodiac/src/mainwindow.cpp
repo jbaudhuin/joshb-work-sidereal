@@ -1265,16 +1265,37 @@ AstroWidget::addHoroscopeControls()
     dynAspectControls->dumpObjectTree();
 #endif
 
-    for (unsigned i = A::amcGreatCircle; i < A::amcEND; ++i) {
-        aspectModeSelector->addItem(A::aspectModeType::toUserString(i), int(i));
-    }
+    // Primary frame combo: only the two mutually-exclusive frames.  The
+    // legacy Great-Circle and Prime-Vertical entries are demoted to
+    // orthogonal toggle buttons (see gcToggle / pvToggle below).
+    aspectModeSelector->addItem(A::aspectModeType::toUserString(A::amcEcliptic),
+                                int(A::amcEcliptic));
+    aspectModeSelector->addItem(A::aspectModeType::toUserString(A::amcEquatorial),
+                                int(A::amcEquatorial));
+
+    // GC and PV toggles -- visual styling lives in themes/*.qss; selectors
+    // match the objectName values "gcToggle" / "pvToggle".
+    gcToggle = new QToolButton();
+    gcToggle->setObjectName("gcToggle");
+    gcToggle->setText(tr("GC"));
+    gcToggle->setCheckable(true);
+    gcToggle->setAutoRaise(false);
+    gcToggle->setToolTip(tr("Great Circle aspects (3D angular separation)"));
+
+    pvToggle = new QToolButton();
+    pvToggle->setObjectName("pvToggle");
+    pvToggle->setText(tr("PV"));
+    pvToggle->setCheckable(true);
+    pvToggle->setAutoRaise(false);
+    pvToggle->setToolTip(tr("Prime Vertical chart display (does not affect events)"));
 
     for (int i = 1; i <= 16; ++i) {
         harmonicSelector->addItem(QString::number(i));
     }
 
     horoscopeControls << zodiacSelector << hsystemSelector << aspectsSelector
-                      << aspectModeSelector << harmonicSelector;
+                      << aspectModeSelector << gcToggle << pvToggle
+                      << harmonicSelector;
 
     harmonicSelector->setEditable(true);
 
@@ -1287,6 +1308,11 @@ AstroWidget::addHoroscopeControls()
                     SLOT(horoscopeControlChanged()));
         }
     }
+
+    connect(gcToggle, &QToolButton::toggled, this,
+            &AstroWidget::horoscopeControlChanged);
+    connect(pvToggle, &QToolButton::toggled, this,
+            &AstroWidget::horoscopeControlChanged);
 }
 
 void
@@ -1335,11 +1361,15 @@ AstroWidget::horoscopeControlChanged()
     auto aset = aspectsSelector->itemData(aspectsSelector->currentIndex()).toInt();
     // When _dynAspChange is set, the aspect set content changed (not its ID),
     // so force the AspectSet notification even if the ID is unchanged
+    const A::aspectModeEnum frame = A::aspectModeEnum(
+        aspectModeSelector->itemData(aspectModeSelector->currentIndex()).toInt());
     ds.apply(
         hsystemSelector->itemData(hsystemSelector->currentIndex()).toInt(),
         zodiacSelector->itemData(zodiacSelector->currentIndex()).toInt(),
         aset,
-        A::aspectModeEnum(aspectModeSelector->currentIndex()),
+        frame,
+        gcToggle->isChecked(),
+        pvToggle->isChecked(),
         _dynAspChange);
 
     // Harmonic is per-file — parse from combo and apply to all current files
@@ -1399,7 +1429,10 @@ AstroWidget::defaultSettings()
     s.setValue("Scope/houseSystem", 2); // Campanus
     s.setValue("Scope/aspectSet", 5); // Dynamic
     s.setValue("Scope/dynamic", "1, 2, 3, 4, 6, 8, 12"); // Ptolemaic
-    s.setValue("Scope/aspectMode", 1); // ecliptic
+    s.setValue("Scope/aspectMode", 1); // ecliptic (legacy key, kept for migration)
+    s.setValue("Scope/primaryFrame", int(A::amcEcliptic));
+    s.setValue("Scope/useGreatCircle", false);
+    s.setValue("Scope/usePrimeVertical", false);
     s.setValue("slide",
                slides->currentIndex()); // чтобы не возвращалась к первому
                                         // слайду после сброса настроек
@@ -1421,7 +1454,10 @@ AstroWidget::currentSettings()
     s.setValue("Scope/zodiac", zodiacSelector->currentIndex());
     s.setValue("Scope/houseSystem", hsystemSelector->currentIndex());
     s.setValue("Scope/aspectSet", aspectsSelector->currentIndex());
-    s.setValue("Scope/aspectMode", aspectModeSelector->currentIndex());
+    s.setValue("Scope/primaryFrame",
+               aspectModeSelector->itemData(aspectModeSelector->currentIndex()).toInt());
+    s.setValue("Scope/useGreatCircle", gcToggle->isChecked());
+    s.setValue("Scope/usePrimeVertical", pvToggle->isChecked());
 
     QVariant var;
     A::getDynAspState(var);
@@ -1442,7 +1478,38 @@ AstroWidget::applySettings(const AppSettings& s)
     zodiacSelector->setCurrentIndex(s.value("Scope/zodiac").toInt());
     hsystemSelector->setCurrentIndex(s.value("Scope/houseSystem").toInt());
     aspectsSelector->setCurrentIndex(s.value("Scope/aspectSet").toInt());
-    aspectModeSelector->setCurrentIndex(s.value("Scope/aspectMode").toInt());
+
+    // Decoupled aspect-mode controls.  Honor the three new keys if present;
+    // otherwise migrate from the legacy 4-value Scope/aspectMode.
+    A::aspectModeEnum loadedFrame = A::amcEcliptic;
+    bool              loadedGC    = false;
+    bool              loadedPV    = false;
+    if (s.contains("Scope/primaryFrame")) {
+        const int f = s.value("Scope/primaryFrame").toInt();
+        loadedFrame = (f == int(A::amcEquatorial))
+                          ? A::amcEquatorial : A::amcEcliptic;
+        loadedGC = s.value("Scope/useGreatCircle", false).toBool();
+        loadedPV = s.value("Scope/usePrimeVertical", false).toBool();
+    } else if (s.contains("Scope/aspectMode")) {
+        const int legacy = s.value("Scope/aspectMode").toInt();
+        switch (legacy) {
+        case int(A::amcGreatCircle):
+            loadedFrame = A::amcEcliptic;   loadedGC = true;  loadedPV = false; break;
+        case int(A::amcEcliptic):
+            loadedFrame = A::amcEcliptic;   loadedGC = false; loadedPV = false; break;
+        case int(A::amcEquatorial):
+            loadedFrame = A::amcEquatorial; loadedGC = false; loadedPV = false; break;
+        case int(A::amcPrimeVertical):
+            loadedFrame = A::amcEcliptic;   loadedGC = false; loadedPV = true;  break;
+        default: break;
+        }
+    }
+    {
+        const int idx = aspectModeSelector->findData(int(loadedFrame));
+        aspectModeSelector->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
+    gcToggle->setChecked(loadedGC);
+    pvToggle->setChecked(loadedPV);
 
     QString harm  = s.value("harmonic", 1).toString();
     int     index = harmonicSelector->findText(harm);
@@ -4545,13 +4612,13 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, QWidget* parent)
     for (QWidget* w : astroWidget->getHoroscopeControls()) {
         auto name = w->objectName();
         qDebug() << "Permanent widget added:" << w;
-        if (!qobject_cast<QComboBox*>(w)) {
-            for (auto btn : w->findChildren<QPushButton*>()) {
-                statusBar()->addPermanentWidget(btn);
-            }
+        if (qobject_cast<QComboBox*>(w) || qobject_cast<QToolButton*>(w)) {
+            statusBar()->addPermanentWidget(w);
             continue;
         }
-        statusBar()->addPermanentWidget(w);
+        for (auto btn : w->findChildren<QPushButton*>()) {
+            statusBar()->addPermanentWidget(btn);
+        }
     }
 
     A::AspectsSet* dynAspSet = nullptr;

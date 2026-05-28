@@ -38,12 +38,18 @@ class DisplaySettings : public QObject {
     A::ZodiacId      zodiac()      const { return _zodiac; }
     A::AspectSetId   aspectSet()   const { return _aspectSet; }
     A::aspectModeEnum aspectMode() const { return A::aspectMode; }
+    A::aspectModeEnum primaryFrame() const;
+    bool              useGreatCircle() const;
+    bool              usePrimeVerticalDisplay() const;
 
     // --- setters (emit changed() when value differs) ---
     void setHouseSystem(A::HouseSystemId);
     void setZodiac(A::ZodiacId);
     void setAspectSet(A::AspectSetId, bool force = false);
-    void setAspectMode(A::aspectModeEnum);
+    void setAspectMode(A::aspectModeEnum);  // legacy: maps to (frame, gc)
+    void setPrimaryFrame(A::aspectModeEnum);  // amcEcliptic or amcEquatorial
+    void setUseGreatCircle(bool);
+    void setUsePrimeVerticalDisplay(bool);
 
     /// Batch-update: set all four at once, emit a single changed() signal
     /// with the union of flags.  Used by toolbar / setupFile.
@@ -52,6 +58,15 @@ class DisplaySettings : public QObject {
                A::AspectSetId  aset,
                A::aspectModeEnum mode,
                bool forceAspect = false);
+
+    /// Batch-update with the new decoupled aspect-mode triple.
+    void apply(A::HouseSystemId hsys,
+               A::ZodiacId      zod,
+               A::AspectSetId   aset,
+               A::aspectModeEnum frame,
+               bool              gc,
+               bool              pvDisplay,
+               bool              forceAspect = false);
 
   signals:
     /// Emitted after one or more settings changed.
@@ -98,12 +113,16 @@ class AstroFile : public QObject, public A::EventStore {
         // --- Meta ---
         ChangedState = 0x1000,
 
+        // PV (prime-vertical) display toggle: changes chart wheel + aspect
+        // lines but does not invalidate events.
+        ChartDisplayMode = 0x2000,
+
         // --- Group masks ---
         FileData     = Name | Type | GMT | Timezone | Location
                        | LocationName | Comment,
         ViewSettings = HouseSystem | Zodiac | AspectSet | AspectMode
-                       | Harmonic,
-        All          = 0x1FFF
+                       | Harmonic | ChartDisplayMode,
+        All          = 0x3FFF
     };
 
     Q_DECLARE_FLAGS(Members, Member)

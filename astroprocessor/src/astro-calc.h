@@ -213,6 +213,46 @@ class aspectModeType {
 
 extern aspectModeType aspectMode;
 
+// Decoupled aspect-mode controls (replace the single 4-value combo).
+//
+// primaryFrame is the mutually-exclusive coordinate frame for the chart wheel
+// and for 1D-difference aspect math: amcEcliptic or amcEquatorial.
+//
+// useGreatCircle is an orthogonal modifier: when true, aspects are computed
+// as the 3D great-circle angle (frame-invariant) instead of a 1D coordinate
+// difference.  It legitimately changes event aspects.
+//
+// usePrimeVerticalDisplay is a display-only modifier: when true, the chart
+// wheel uses Campanus-derived PV positions and the chart-display aspect
+// lines are computed in PV.  It does NOT feed transit/event search and
+// toggling it does NOT invalidate cached events or parans.
+extern aspectModeEnum primaryFrame;           // amcEcliptic or amcEquatorial
+extern bool           useGreatCircle;
+extern bool           usePrimeVerticalDisplay;
+
+/// Effective aspect mode for event/transit computation and for "is this
+/// the same aspect" comparisons outside the chart-draw context.  Honors
+/// useGreatCircle but ignores PV.
+aspectModeEnum aspectModeForCompute();
+
+/// Chart-wheel positioning mode (where planets sit, how the wheel rotates,
+/// how cusps display).  PV overrides primaryFrame; GC has no positioning
+/// meaning and never appears here.
+aspectModeEnum aspectModeForChartDraw();
+
+/// Aspect math in chart-display context: PV if on, else aspectModeForCompute()
+/// (which honors GC).  Chart code wraps its calculateAspects() calls with
+///   modalize<aspectModeType> ovr(A::aspectMode, A::aspectModeForChartAspects());
+/// so that aspect-detection switches inside astro-calc.cpp see the right
+/// mode while the chart is drawing.
+aspectModeEnum aspectModeForChartAspects();
+
+/// Recompute the legacy A::aspectMode global from (primaryFrame, useGreatCircle).
+/// Called whenever any of the three sub-settings changes.  PV does NOT affect
+/// aspectMode — chart-draw consumers use modalize override or
+/// aspectModeForChartDraw() directly.
+void syncAspectMode();
+
 enum PrimDirMode { prdMundane, prdZodiacal, prdActive };
 extern PrimDirMode primDirMode;
 extern bool        useApparentSun;

@@ -64,6 +64,106 @@ sgn(T x)
 
 aspectModeType aspectMode { amcEcliptic };
 
+aspectModeEnum primaryFrame          = amcEcliptic;
+bool           useGreatCircle        = false;
+bool           usePrimeVerticalDisplay = false;
+
+aspectModeEnum
+aspectModeForCompute()
+{
+    if (useGreatCircle) return amcGreatCircle;
+    return primaryFrame;
+}
+
+aspectModeEnum
+aspectModeForChartDraw()
+{
+    // Positioning-only: GC is not a positioning concept (no GC case in the
+    // wheel-placement switches), so it does not appear here.  PV overrides
+    // primary frame for the chart wheel.
+    if (usePrimeVerticalDisplay) return amcPrimeVertical;
+    return primaryFrame;
+}
+
+aspectModeEnum
+aspectModeForChartAspects()
+{
+    // Aspect math in chart-display context: PV overrides everything; GC is
+    // honored otherwise.  Used by the modalize<aspectMode> wrap around
+    // chart.cpp's calculateAspects() call.
+    if (usePrimeVerticalDisplay) return amcPrimeVertical;
+    return aspectModeForCompute();
+}
+
+/// Raw great-circle angular separation in degrees, [0, 180].  Uses the
+/// proper spherical-law-of-cosines formula so it's accurate at any
+/// separation (not just the small-angle regime where sqrt(Δlon²+Δlat²)
+/// works).  Inputs in degrees.
+static inline qreal
+gcRawDistanceDeg(qreal lonA, qreal latA, qreal lonB, qreal latB)
+{
+    constexpr qreal d2r = M_PI / 180.0;
+    constexpr qreal r2d = 180.0 / M_PI;
+    const qreal la = latA * d2r;
+    const qreal lb = latB * d2r;
+    qreal dlon = (lonB - lonA) * d2r;
+    qreal c = std::sin(la) * std::sin(lb)
+              + std::cos(la) * std::cos(lb) * std::cos(dlon);
+    if (c >  1.0) c =  1.0;
+    if (c < -1.0) c = -1.0;
+    return std::acos(c) * r2d;
+}
+
+/// Folded GC distance for harmonic h: residual to the nearest H_h crossing
+/// in source-angle units (comparable to planetPairOrb / orbs in degrees).
+/// For h=1 returns the raw distance unchanged (only crossing is 0°).  For
+/// h>1, crossings live at k·(360°/h) ∩ [0°,180°] and the residual is the
+/// signed-then-absolute distance from rawDeg to the nearest crossing.
+static inline qreal
+gcHarmonicResidual(qreal rawDeg, unsigned h)
+{
+    if (h <= 1) return rawDeg;
+    qreal folded = std::fmod(rawDeg * qreal(h), 360.0);
+    if (folded > 180.0) folded -= 360.0;
+    if (folded < -180.0) folded += 360.0;
+    return std::abs(folded) / qreal(h);
+}
+
+/// Harmonic-folded great-circle angular separation between two locations
+/// at a given Julian date.  Used by the GC event finder's in-orb trigger
+/// when useGreatCircle is on.  For h=1 this is the conjunction distance;
+/// for h>1 it is the distance to the nearest H_h crossing (so e.g. an
+/// opposition reads as 0° in H2, a trine as 0° in H3).  Each Loc is
+/// queried for its own time context (natal Locs use their birth jd;
+/// transit/progressed Locs use the supplied jd).
+qreal
+gcAngularSeparation(Loc* a, Loc* b, double jd, unsigned h)
+{
+    auto pa = dynamic_cast<PlanetLoc*>(a);
+    auto pb = dynamic_cast<PlanetLoc*>(b);
+    if (!pa || !pb) return 360.0;
+    const InputData& iA = a->input();
+    const InputData& iB = b->input();
+    const double jdA = a->inMotion()
+                          ? jd
+                          : getJulianDate(iA.GMT(), false, iA.calendarType());
+    const double jdB = b->inMotion()
+                          ? jd
+                          : getJulianDate(iB.GMT(), false, iB.calendarType());
+    qreal lonA, latA, spdA, lonB, latB, spdB;
+    std::tie(lonA, latA, spdA) =
+        PlanetLoc::computeWithLat(pa->planet, iA, jdA);
+    std::tie(lonB, latB, spdB) =
+        PlanetLoc::computeWithLat(pb->planet, iB, jdB);
+    return gcHarmonicResidual(gcRawDistanceDeg(lonA, latA, lonB, latB), h);
+}
+
+void
+syncAspectMode()
+{
+    aspectMode = aspectModeForCompute();
+}
+
 /*static*/
 const aspectModeType&
 aspectModeType::current()
@@ -906,11 +1006,14 @@ float
 angle(const Star& body1, const Star& body2)
 {
     switch (aspectMode) {
-    case amcGreatCircle: {
-        float a = angle(body1.eclipticPos.x(), body2.eclipticPos.x());
-        float b = angle(body1.eclipticPos.y(), body2.eclipticPos.y());
-        return sqrt(a * a + b * b);
-    }
+    case amcGreatCircle:
+        // Spherical great-circle separation — same formula used by the GC
+        // event finder, so chart-side aspect matching agrees with reported
+        // events.
+        return float(gcRawDistanceDeg(body1.eclipticPos.x(),
+                                       body1.eclipticPos.y(),
+                                       body2.eclipticPos.x(),
+                                       body2.eclipticPos.y()));
     case amcEcliptic:
         return angle(body1.eclipticPos.x(), body2.eclipticPos.x());
     case amcEquatorial:
@@ -942,11 +1045,11 @@ float
 angle(const Star& body, QPointF coordinate)
 {
     switch (aspectMode) {
-    case amcGreatCircle: {
-        float a = angle(body.eclipticPos.x(), coordinate.x());
-        float b = angle(body.eclipticPos.y(), coordinate.y());
-        return sqrt(pow(a, 2) + pow(b, 2));
-    }
+    case amcGreatCircle:
+        return float(gcRawDistanceDeg(body.eclipticPos.x(),
+                                       body.eclipticPos.y(),
+                                       coordinate.x(),
+                                       coordinate.y()));
     case amcEcliptic:      return angle(body.eclipticPos.x(), coordinate.x());
     case amcEquatorial:    return angle(body.equatorialPos.x(), coordinate.x());
     case amcPrimeVertical: return angle(body.pvPos, coordinate.x());
@@ -1482,7 +1585,10 @@ PlanetLoc::compute(const ChartPlanetId& planet, const InputData& ida, double jd)
     auto getPos = [&](const Planet& p, qreal& speed) -> qreal {
         int   ret = ERR;
         qreal pos = 0.0;
-        switch (aspectMode) {
+        // Event/PlanetLoc positions follow the primary frame.  GC is purely
+        // an aspect-math modifier and does not change positions; PV is
+        // display-only and never appears in event positions.
+        switch (primaryFrame) {
         case amcEcliptic:
             if (p.id == Planet_Asc || p.id == Planet_Desc) {
                 std::tie(pos, speed) = getAscMC(0, trop);
@@ -1590,10 +1696,82 @@ PlanetLoc::compute(const InputData& ida)
     return compute(ida, getJulianDate(ida.GMT(), false, ida.calendarType()), -1);
 }
 
+/*static*/
+std::tuple<qreal, qreal, qreal>
+PlanetLoc::computeWithLat(const ChartPlanetId& planet,
+                          const InputData&     ida,
+                          double               jd)
+{
+    char  errStr[256] = "";
+    const Planet& p1(getPlanet(planet.planetId()));
+    uint  flags = (SEFLG_SWIEPH | p1.sweFlags) & ~SEFLG_TRUEPOS;
+    bool  trop  = true;
+    if (ida.zodiac() > 1) {
+        trop = false;
+        flags |= SEFLG_SIDEREAL;
+        swe_set_sid_mode(ida.zodiac() - 2, 0, 0);
+    }
+
+    qreal lon = 0, lat = 0, speed = 0;
+    if (p1.id == Planet_Asc || p1.id == Planet_Desc
+        || p1.id == Planet_MC || p1.id == Planet_IC)
+    {
+        double cusps[14], cuspspd[14], ascmc[11], ascmcspd[11];
+        auto   jdut    = getUTfromET(jd, ida.calendarType());
+        uint   hsflags = SEFLG_SWIEPH;
+        if (!trop) hsflags |= SEFLG_SIDEREAL;
+        swe_houses_ex2(jdut,
+                       hsflags,
+                       ida.location().y(),
+                       ida.location().x(),
+                       'C',
+                       cusps,
+                       ascmc,
+                       cuspspd,
+                       ascmcspd,
+                       errStr);
+        if (p1.id == Planet_Asc || p1.id == Planet_Desc) {
+            lon   = ascmc[0];
+            speed = ascmcspd[0];
+            if (p1.id == Planet_Desc) lon = swe_degnorm(lon + 180.);
+        } else {
+            lon   = ascmc[1];
+            speed = ascmcspd[1];
+            if (p1.id == Planet_IC) lon = swe_degnorm(lon + 180.);
+        }
+        lat = 0;
+    } else {
+        double xx[6];
+        swe_calc_ut(jd, p1.sweNum, flags, xx, errStr);
+        lon = xx[0];
+        lat = xx[1];
+        if (p1.id == Planet_SouthNode) lon = swe_degnorm(lon + 180.);
+        speed = xx[3];
+    }
+
+    if (planet.isMidpt()) {
+        qreal lon2 = 0, lat2 = 0, spd2 = 0;
+        std::tie(lon2, lat2, spd2) =
+            computeWithLat(ChartPlanetId(planet.fileId(),
+                                          planet.planetId2(),
+                                          Planet_None),
+                           ida, jd);
+        if (lon - lon2 >= 180.) lon -= 360.;
+        else if (lon2 - lon >= 180.) lon2 -= 360.;
+        lon   = swe_degnorm((lon + lon2) / 2.);
+        lat   = (lat + lat2) / 2.;
+        speed += spd2;
+        if (planet.isOppMidpt()) lon = swe_degnorm(lon + 180.);
+    }
+    return { lon, lat, speed };
+}
+
 qreal
 PlanetLoc::defaultSpeed() const
 {
-    switch (aspectMode) {
+    // Event default speed follows the primary frame (GC and PV do not change
+    // body speeds in the event pipeline).
+    switch (primaryFrame) {
     case amcEquatorial:
     case amcEcliptic:
         if (planet.isMidpt()) {
@@ -1603,7 +1781,6 @@ PlanetLoc::defaultSpeed() const
                             - p2.defaultEclipticSpeed.y());
         }
         return getPlanet(planet.planetId()).defaultEclipticSpeed.x();
-    case amcPrimeVertical: return -360;
     default:               return 0;
     }
 }
@@ -2701,12 +2878,12 @@ findHarmonics(const ChartPlanetMap& cpm,
                 if (h > 1) calculateHarmonic(h, p);
 
                 qreal loc;
-                if (aspectMode == amcEcliptic) {
-                    loc = p.eclipticPos.x();
-                } else if (aspectMode == amcEquatorial) {
+                // Positions follow primaryFrame; GC is aspect-math only,
+                // PV is display-only and never reaches the event pipeline.
+                if (primaryFrame == amcEquatorial) {
                     loc = p.equatorialPos.x();
                 } else {
-                    loc = p.pvPos;
+                    loc = p.eclipticPos.x();
                 }
                 allOfThem.insert(PlanetLoc(cpit.key(), loc));
 
@@ -2722,12 +2899,10 @@ findHarmonics(const ChartPlanetMap& cpm,
 
                     qreal loc1 = loc;
                     qreal loc2;
-                    if (aspectMode == amcEcliptic) {
-                        loc2 = p2.eclipticPos.x();
-                    } else if (aspectMode == amcEquatorial) {
+                    if (primaryFrame == amcEquatorial) {
                         loc2 = p2.equatorialPos.x();
                     } else {
-                        loc2 = p2.pvPos;
+                        loc2 = p2.eclipticPos.x();
                     }
 
                     if (loc1 > loc2) qSwap(loc1, loc2);
@@ -4491,7 +4666,7 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
     }
 
     // Cache natal-epoch values for ex-precession context (equatorial mode)
-    if (natal && aspectMode == amcEquatorial) {
+    if (natal && primaryFrame == amcEquatorial) {
         double xx[6];
         char   errStr[256];
         swe_calc(njd, SE_ECL_NUT, 0, xx, errStr);
@@ -4541,7 +4716,7 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
                 // NatalExprecessedPosition — the constructor computes their
                 // true RA/Dec from tropical ecliptic lon (lat=0).
                 // House cusps (>= Angles_End) remain excluded.
-                if (aspectMode == amcEquatorial && pid < Angles_End)
+                if (primaryFrame == amcEquatorial && pid < Angles_End)
                     pl = new NatalExprecessedPosition(cpid, _ids[natus], "r");
                 else
                     pl = new NatalPosition(cpid, _ids[natus], "r");
@@ -4945,7 +5120,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
     double njd = natal ? getJulianDate(_ids[natus].GMT()) : 0;
 
     // Cache natal-epoch values for ex-precession context (equatorial mode)
-    if (natal && aspectMode == amcEquatorial) {
+    if (natal && primaryFrame == amcEquatorial) {
         double xx[6];
         char   errStr[256];
         swe_calc(njd, SE_ECL_NUT, 0, xx, errStr);
@@ -4971,7 +5146,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         if (!natalIndex.contains(cpid)) {
             natalIndex[cpid] = _alist.size();
             // [ANGLE_PRECESSION] Angles (Asc–MC) now included; house cusps excluded.
-            if (aspectMode == amcEquatorial && pid < Angles_End)
+            if (primaryFrame == amcEquatorial && pid < Angles_End)
                 _alist.push_back(new NatalExprecessedPosition(cpid, _ids[natus], "r"));
             else
                 _alist.push_back(new NatalPosition(cpid, _ids[natus], "r"));
@@ -5868,6 +6043,11 @@ class PairAspectFinder : public EventFinderTask {
     bool            _useBZS;
     JDateRange      _useRange;
     bool            _ran = false;
+    // GC event refinement (set inside run() when the great-circle path
+    // succeeds): _gcOrb is the residual 2D angular separation at the brent
+    // minimum, in degrees.
+    bool            _isGCEvent = false;
+    qreal           _gcOrb     = 0.0;
 
   public:
     // Full constructor with precomputed deltas and speeds
@@ -5973,6 +6153,90 @@ class PairAspectFinder : public EventFinderTask {
         bool      bzhs      = false;
         bool      done      = false;
         bool      cancelled = false;
+
+        // Great-Circle event timing (all harmonics): minimize the harmonic-
+        // folded great-circle separation.  For h=1 this is just d = arccos(...);
+        // for h>1 it is the residual to the nearest H_h crossing.  Replaces
+        // the standard NR/brentZhangStage refinement, which assumes a 1D
+        // signed delta that crosses zero -- a poor fit for GC, where the
+        // objective is non-negative and the event is a local minimum.  The
+        // harmonic transform is applied to the 1D great-circle distance
+        // itself (latitude is already absorbed into d), so all harmonics
+        // are well-defined.
+        if (useGreatCircle) {
+            auto p1 = dynamic_cast<PlanetLoc*>(_loc1);
+            auto p2 = dynamic_cast<PlanetLoc*>(_loc2);
+            if (p1 && p2) {
+                const ChartPlanetId pid1 = p1->planet;
+                const ChartPlanetId pid2 = p2->planet;
+                const InputData&    ida1 = _loc1->input();
+                const InputData&    ida2 = _loc2->input();
+                const bool          m1   = _loc1->inMotion();
+                const bool          m2   = _loc2->inMotion();
+                const double        jdN1 =
+                    m1 ? 0.0
+                       : getJulianDate(ida1.GMT(), false, ida1.calendarType());
+                const double        jdN2 =
+                    m2 ? 0.0
+                       : getJulianDate(ida2.GMT(), false, ida2.calendarType());
+                unsigned count = 0;
+                auto     gcObj = [&](double jd) -> double {
+                    if (_finder->_state == AspectFinder::cancelRequestedState)
+                        throw int(1);
+                    ++count;
+                    qreal lon1, lat1, spd1, lon2, lat2, spd2;
+                    std::tie(lon1, lat1, spd1) =
+                        PlanetLoc::computeWithLat(pid1, ida1, m1 ? jd : jdN1);
+                    std::tie(lon2, lat2, spd2) =
+                        PlanetLoc::computeWithLat(pid2, ida2, m2 ? jd : jdN2);
+                    return gcHarmonicResidual(
+                        gcRawDistanceDeg(lon1, lat1, lon2, lat2), _h);
+                };
+                try {
+                    const double guess = 0.5 * (_jdStart + _jdEnd);
+                    brentGlobalMin(gcObj,
+                                   _jdStart,
+                                   _jdEnd,
+                                   guess,
+                                   /*m=*/1.0,
+                                   /*err=*/1e-9,
+                                   /*tol=*/1e-7,
+                                   tjd);
+                    const double minDist = gcObj(tjd);
+                    iter = count;
+                    // Accept the brent minimum only if it's within the
+                    // configured planet-pair orb (Events/planetPairOrb,
+                    // default 2 deg).  Using harmonicsMaxQOrb here lets in
+                    // events where bodies merely "approached and retrograded"
+                    // without actually conjuncting -- not what the user
+                    // expects from a transit event.
+                    const double hOrb = _finder->planetPairOrb;
+                    if (minDist <= hOrb) {
+                        done       = true;
+                        _gcOrb     = minDist;
+                        _isGCEvent = true;
+                        // Ensure the cloned Locs hold positions at tjd so
+                        // pack_event's PlanetRangeBySpeed snapshot shows the
+                        // bodies AT the brent minimum (not at jdEnd, where
+                        // the constructor last left them).
+                        poses.computePos(tjd, _h);
+                    }
+                }
+                catch (int) {
+                    return;
+                }
+                catch (...) {
+                    done = false;
+                }
+                if (done) goto pack_event;
+                // Either the brent residual is out of orb for this harmonic
+                // or the search threw -- in GC mode we never fall back to the
+                // 1D NR/BZS path, since that would emit the longitudinal-
+                // crossing time as if it were a true GC aspect.
+                return;
+            }
+        }
+
         if (!_useBZS) {
             try {
                 auto cps = [this,
@@ -6061,6 +6325,7 @@ class PairAspectFinder : public EventFinderTask {
             qDebug() << "Failed" << _d.date().toString() << _which.c_str()
                      << "after" << iter << "iteration(s) brentStageZhang";
         } else {
+pack_event:
             // Pack up event
             auto               qdt   = dateTimeFromJulian(tjd);
             auto               p1loc = dynamic_cast<PlanetLoc*>(poses[0]);
@@ -6069,7 +6334,8 @@ class PairAspectFinder : public EventFinderTask {
 
             auto         ch = static_cast<unsigned char>(_h);
             QMutexLocker ml(_evs.mutex());
-            auto&        ev = _evs.emplace_back(qdt, _et, ch, std::move(plr));
+            auto&        ev = _evs.emplace_back(qdt, _et, ch, std::move(plr),
+                                                 _isGCEvent ? _gcOrb : 0.0);
 
             if (_useRange != JDateRange()) {
                 ev.setRange({ dateTimeFromJulian(_useRange.first),
@@ -7912,7 +8178,17 @@ AspectFinder::findPriorStarts(AspectSearchState& state)
             const auto& hps = hit->first;
             const auto& ps  = hps.planets;
             auto        hwp = wp->profile(ps);
-            auto        orb = computeSpread(hps.harmonic, *hwp);
+            qreal       orb;
+            if (useGreatCircle && hwp->size() == 2) {
+                // Match the trigger used at the forward scan / collectingStrays:
+                // harmonic-folded great-circle residual, capped at planetPairOrb.
+                orb = gcAngularSeparation((*hwp)[0],
+                                          (*hwp)[1],
+                                          pjd,
+                                          hps.harmonic);
+            } else {
+                orb = computeSpread(hps.harmonic, *hwp);
+            }
             delete hwp;
             if (std::abs(orb) > planetPairOrb) {
                 state.inOrb[hps] = hit->second;
@@ -8439,7 +8715,16 @@ AspectFinder::findTransitPairs(AspectSearchState& state)
                 HarmonicPlanetSet hij { state.h, { bi->planetModeId(), bj->planetModeId() }, it->et };
 
                 auto hasit = state.inOrb.find(hij);
-                isInOrb    = std::abs(bd) <= planetPairOrb;
+                if (useGreatCircle) {
+                    // GC mode: trigger on the harmonic-folded great-circle
+                    // residual crossing planetPairOrb (in source-angle
+                    // units), mirroring the 1D threshold for non-GC.
+                    const qreal gcD = gcAngularSeparation(
+                        state.b[i], state.b[j], state.pjd, state.h);
+                    isInOrb = gcD <= planetPairOrb;
+                } else {
+                    isInOrb = std::abs(bd) <= planetPairOrb;
+                }
 #if 0
                             if (isInOrb)
                             qDebug() << QString("Found H%1 orb %2 of %3 at %4")
@@ -8460,6 +8745,29 @@ AspectFinder::findTransitPairs(AspectSearchState& state)
                     isInOrb          = true;
                 } else if (hasit != state.inOrb.end() && !isInOrb) {
                     hasit->second.range.second = state.jd;
+
+                    // GC mode: findAspects does not enqueue tasks for GC
+                    // pairs (would duplicate per-timestep), so create one
+                    // here with the full in-orb range as the search bounds.
+                    if (useGreatCircle && hasit->second.tasks.empty()) {
+                        QString w = QString("H%1 %2=%3 GC")
+                                        .arg(state.h)
+                                        .arg(state.b[i]->description())
+                                        .arg(state.b[j]->description());
+                        auto r = new PairAspectFinder(
+                            _alist[i],
+                            _alist[j],
+                            state.h,
+                            hasit->second.range.first,
+                            hasit->second.range.second,
+                            state.d,
+                            w.toStdString(),
+                            it->et,
+                            /*beQuiet=*/true,
+                            this);
+                        hasit->second.addTask(r);
+                    }
+
                     if (hasit->second.tasks.empty()) {
                         state.proximityLog[hasit->first].emplace(hasit->second,
                                                                   0);
@@ -8588,6 +8896,13 @@ AspectFinder::findAspects(AspectSearchState& state, modalize<bool>& mum)
                 PlanetProfile::computeDelta(_alist[i], _alist[j], state.h);
             std::tie(bd, bsp) =
                 PlanetProfile::computeDelta(state.b[i], state.b[j], state.h);
+            // GC mode: findTransitPairs tracks the in-orb period and
+            // creates a single task at the leave transition.  Skip the
+            // per-timestep enqueue here (would duplicate events).
+            if (useGreatCircle) {
+                stuff.erase(it++);
+                continue;
+            }
             if (sgn(ad) == sgn(bd) || (abs(ad) >= 90. || abs(bd) >= 90.)) {
                 localSkippedSign++;
                 if (!state.keep(i, false) || !state.keep(j, false)) {
@@ -9452,6 +9767,14 @@ AspectFinder::findAspectsAndPatterns()
                 bool good = bi->aspectable() || bj->aspectable();
                 std::tie(bd, bsp) =
                     PlanetProfile::computeDelta(bi, bj, state.h);
+                qreal gcD = 0;
+                bool  isInOrb;
+                if (useGreatCircle) {
+                    gcD     = gcAngularSeparation(bi, bj, state.jd, state.h);
+                    isInOrb = gcD <= planetPairOrb;
+                } else {
+                    isInOrb = std::abs(bd) <= planetPairOrb;
+                }
                 if (!st_quiet)
                     qDebug() << QString("H%1 %2 at %3 with orb %4")
                                     .arg(state.h)
@@ -9459,10 +9782,10 @@ AspectFinder::findAspectsAndPatterns()
                                              .names()
                                              .join('='))
                                     .arg(dtToString(state.d))
-                                    .arg(bd)
+                                    .arg(useGreatCircle ? gcD : bd)
                                     .toStdString()
                                     .c_str();
-                if (good && std::abs(bd) <= planetPairOrb) {
+                if (good && isInOrb) {
                     qDebug() << formatPlanetsEtc(*it, *state.useProf, _hsets)
                                     .c_str();
 
@@ -9679,16 +10002,54 @@ AspectFinder::findAspectsAndPatterns()
             for (auto hit = state.inOrb.begin(); hit != state.inOrb.end();) {
                 const auto& hps = hit->first;
                 auto        hwp = state.b.profile(hps.planets);
-                auto        orb = computeSpread(hps.harmonic /*harmonic*/, *hwp);
+                // GC mode: in-orb threshold is planetPairOrb against the
+                // harmonic-folded great-circle residual.
+                qreal orb;
+                qreal threshold = planetPairOrb;
+                if (useGreatCircle && hwp->size() == 2) {
+                    orb = gcAngularSeparation((*hwp)[0],
+                                              (*hwp)[1],
+                                              state.jd,
+                                              hps.harmonic);
+                } else {
+                    orb = computeSpread(hps.harmonic, *hwp);
+                }
                 delete hwp;
                 if (!st_quiet)
                 qDebug() << "PERF:   H" << hps.harmonic
                          << hps.planets.names().join("=")
                          << "current orb:" << orb
-                         << "(threshold:" << planetPairOrb << ")"
-                         << (orb > planetPairOrb ? "REMOVING" : "keeping");
-                if (orb > planetPairOrb) { // leaving orb
+                         << "(threshold:" << threshold << ")"
+                         << (orb > threshold ? "REMOVING" : "keeping");
+                if (orb > threshold) { // leaving orb
                     hit->second.range.second = state.pjd;
+
+                    // GC mode: findAspects didn't enqueue a task; create
+                    // one here with the full in-orb range as the search
+                    // bounds so the brent minimum is computed and packed
+                    // properly.
+                    if (useGreatCircle && hit->second.tasks.empty()) {
+                        auto* prof = _alist.profile(hps.planets);
+                        if (prof && prof->size() == 2) {
+                            QString w = QString("H%1 %2 GC-strays")
+                                            .arg(hps.harmonic)
+                                            .arg(hps.planets.names().join("="));
+                            auto r = new PairAspectFinder(
+                                (*prof)[0],
+                                (*prof)[1],
+                                hps.harmonic,
+                                hit->second.range.first,
+                                hit->second.range.second,
+                                dateTimeFromJulian(state.pjd),
+                                w.toStdString(),
+                                hps.eventType,
+                                /*beQuiet=*/true,
+                                this);
+                            hit->second.addTask(r);
+                        }
+                        delete prof;
+                    }
+
                     bool tooShort = skippablePeriod(hit->second.range);
                     bool any      = false;
                     for (auto r : hit->second.tasks) {

@@ -60,12 +60,81 @@ DisplaySettings::setAspectSet(A::AspectSetId s, bool force)
     }
 }
 
+A::aspectModeEnum
+DisplaySettings::primaryFrame() const
+{
+    return A::primaryFrame;
+}
+
+bool
+DisplaySettings::useGreatCircle() const
+{
+    return A::useGreatCircle;
+}
+
+bool
+DisplaySettings::usePrimeVerticalDisplay() const
+{
+    return A::usePrimeVerticalDisplay;
+}
+
 void
 DisplaySettings::setAspectMode(A::aspectModeEnum m)
 {
-    if (A::aspectMode != m) {
-        A::aspectMode = m;
+    // Legacy 4-value path: map onto the decoupled triple.
+    A::aspectModeEnum newFrame = A::primaryFrame;
+    bool              newGC    = A::useGreatCircle;
+    bool              newPV    = A::usePrimeVerticalDisplay;
+    switch (m) {
+    case A::amcGreatCircle:   newFrame = A::amcEcliptic;   newGC = true;  newPV = false; break;
+    case A::amcEcliptic:      newFrame = A::amcEcliptic;   newGC = false; newPV = false; break;
+    case A::amcEquatorial:    newFrame = A::amcEquatorial; newGC = false; newPV = false; break;
+    case A::amcPrimeVertical: newFrame = A::amcEcliptic;   newGC = false; newPV = true;  break;
+    default: break;
+    }
+
+    int flags = 0;
+    if (A::primaryFrame != newFrame) {
+        A::primaryFrame = newFrame; flags |= AstroFile::AspectMode;
+    }
+    if (A::useGreatCircle != newGC) {
+        A::useGreatCircle = newGC;  flags |= AstroFile::AspectMode;
+    }
+    if (A::usePrimeVerticalDisplay != newPV) {
+        A::usePrimeVerticalDisplay = newPV; flags |= AstroFile::ChartDisplayMode;
+    }
+    A::syncAspectMode();
+    if (flags) emit changed(flags);
+}
+
+void
+DisplaySettings::setPrimaryFrame(A::aspectModeEnum f)
+{
+    if (f != A::amcEcliptic && f != A::amcEquatorial) return;
+    if (A::primaryFrame != f) {
+        A::primaryFrame = f;
+        A::syncAspectMode();
         emit changed(AstroFile::AspectMode);
+    }
+}
+
+void
+DisplaySettings::setUseGreatCircle(bool gc)
+{
+    if (A::useGreatCircle != gc) {
+        A::useGreatCircle = gc;
+        A::syncAspectMode();
+        emit changed(AstroFile::AspectMode);
+    }
+}
+
+void
+DisplaySettings::setUsePrimeVerticalDisplay(bool pv)
+{
+    if (A::usePrimeVerticalDisplay != pv) {
+        A::usePrimeVerticalDisplay = pv;
+        // PV does not affect aspectMode global; no syncAspectMode() needed.
+        emit changed(AstroFile::ChartDisplayMode);
     }
 }
 
@@ -76,12 +145,48 @@ DisplaySettings::apply(A::HouseSystemId hsys,
                        A::aspectModeEnum mode,
                        bool forceAspect)
 {
+    // Legacy entry point: decompose 4-value mode into the decoupled triple.
+    A::aspectModeEnum frame = A::primaryFrame;
+    bool              gc    = A::useGreatCircle;
+    bool              pv    = A::usePrimeVerticalDisplay;
+    switch (mode) {
+    case A::amcGreatCircle:   frame = A::amcEcliptic;   gc = true;  pv = false; break;
+    case A::amcEcliptic:      frame = A::amcEcliptic;   gc = false; pv = false; break;
+    case A::amcEquatorial:    frame = A::amcEquatorial; gc = false; pv = false; break;
+    case A::amcPrimeVertical: frame = A::amcEcliptic;   gc = false; pv = true;  break;
+    default: break;
+    }
+    apply(hsys, zod, aset, frame, gc, pv, forceAspect);
+}
+
+void
+DisplaySettings::apply(A::HouseSystemId hsys,
+                       A::ZodiacId      zod,
+                       A::AspectSetId   aset,
+                       A::aspectModeEnum frame,
+                       bool              gc,
+                       bool              pvDisplay,
+                       bool              forceAspect)
+{
     int flags = 0;
     if (_houseSystem != hsys) { _houseSystem = hsys; flags |= AstroFile::HouseSystem; }
     if (_zodiac != zod)       { _zodiac = zod;       flags |= AstroFile::Zodiac; }
     if (_aspectSet != aset || forceAspect)
                               { _aspectSet = aset;   flags |= AstroFile::AspectSet; }
-    if (A::aspectMode != mode){ A::aspectMode = mode; flags |= AstroFile::AspectMode; }
+    if (frame != A::amcEcliptic && frame != A::amcEquatorial) {
+        frame = A::amcEcliptic;
+    }
+    if (A::primaryFrame != frame) {
+        A::primaryFrame = frame; flags |= AstroFile::AspectMode;
+    }
+    if (A::useGreatCircle != gc) {
+        A::useGreatCircle = gc;  flags |= AstroFile::AspectMode;
+    }
+    if (A::usePrimeVerticalDisplay != pvDisplay) {
+        A::usePrimeVerticalDisplay = pvDisplay;
+        flags |= AstroFile::ChartDisplayMode;
+    }
+    A::syncAspectMode();
     if (flags) emit changed(flags);
 }
 
@@ -676,10 +781,11 @@ AstroFile::setAspectSet(A::AspectSetId set, bool force)
 void
 AstroFile::setAspectMode(const A::aspectModeType& mode)
 {
-    if (getAspectMode() != mode) {
-        A::aspectMode = mode;
-        change(AspectMode);
-    }
+    // Route legacy 4-value path through DisplaySettings so the decoupled
+    // (primaryFrame, useGreatCircle, usePrimeVerticalDisplay) state stays
+    // in sync.  ChangedFlags propagate via the standard signal path.
+    DisplaySettings::instance().setAspectMode(A::aspectModeEnum(mode));
+    change(AspectMode);
 }
 
 AstroFile::Members
@@ -902,7 +1008,14 @@ AstroFileHandler::calculateAspects()
 
     A::AspectSetId aspset = -1;
     const auto&    curr(A::EventOptions::current());
-    if (fp.size() < curr.patternsQuorum) {
+    // GC + 2-body focal: skip cluster expansion. The click in transits.cpp
+    // already armed the H_h override aspect set; findClusters operates in 1D
+    // longitudinal harmonic space and won't recognize a GC pair as a cluster
+    // anyway. Just use the override directly so an H_h GC event displays its
+    // H_h aspect line.
+    if (A::useGreatCircle && fp.size() == 2) {
+        aspset = MainWindow::theAstroWidget()->overrideAspectSet();
+    } else if (fp.size() < curr.patternsQuorum) {
         bool        skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
         A::uintSSet hs   = A::dynAspState();
         qreal       useOrb =
@@ -1004,6 +1117,47 @@ AstroFileHandler::calculateSynastryAspects()
     if (fp.empty()) fp = file(1)->focalPlanets();
 
     const auto& curr(A::EventOptions::current());
+    // GC + 2-body: honor the H_h override aspect set armed by the events
+    // table click (see comment in calculateAspects()).
+    if (A::useGreatCircle && fp.size() == 2) {
+        aspset = MainWindow::theAstroWidget()->overrideAspectSet();
+        const auto& asps = A::getAspectSet(
+            aspset == -1 ? file(0)->horoscope().inputData.aspectSet() : aspset);
+        A::ChartPlanetPtrMap planets;
+        _syntheticMidpointPlanets.clear();
+        _focalMidpoints.clear();
+        for (const auto& cpid : fp) {
+            auto fid = cpid.fileId();
+            if (fid < 0 || fid >= filesCount()) continue;
+            if (cpid.isMidpt()) {
+                auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
+                auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
+                if (p1 && p2) {
+                    A::Planet synth;
+                    synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
+                    synth.name = p1->name + "/" + p2->name;
+                    synth.isReal = false;
+                    double diff = swe_difdeg2n(p2->eclipticPos.x(), p1->eclipticPos.x());
+                    synth.eclipticPos.setX(swe_degnorm(p1->eclipticPos.x() + diff / 2.0));
+                    synth.eclipticPos.setY((p1->eclipticPos.y() + p2->eclipticPos.y()) / 2.0);
+                    double raDiff = swe_difdeg2n(p2->equatorialPos.x(), p1->equatorialPos.x());
+                    synth.equatorialPos.setX(swe_degnorm(p1->equatorialPos.x() + raDiff / 2.0));
+                    synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
+                    double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
+                    synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
+                    _syntheticMidpointPlanets.append(synth);
+                    planets.emplace(cpid, &_syntheticMidpointPlanets.last());
+                    _focalMidpoints.append(cpid);
+                }
+            } else {
+                auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
+                planets.emplace(cpid, pp);
+            }
+        }
+        auto alist = A::calculateAspects(asps, planets);
+        A::setOrbFactor(1);
+        return alist;
+    }
     if (fp.size() < curr.patternsQuorum) {
         bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End)
                     || (fp.size() == 2

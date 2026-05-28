@@ -337,7 +337,7 @@ Chart::updateScene()
     case Start_Outer_Ascendant:
     case Start_Ascendent:       {
         const auto& houses = file(useReturnAsc ? 1 : 0)->horoscope().houses;
-        switch (A::aspectMode) {
+        switch (A::aspectModeForChartDraw()) {
         case A::amcEquatorial:    rotate = houses.RAAC; break;
         case A::amcPrimeVertical: rotate = 0; break;
         default:
@@ -417,7 +417,7 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     auto repose = [&](auto b,
                       bool hide) -> std::pair<QGraphicsItem*, QGraphicsItem*> {
         qreal angle = 0.0;
-        switch (A::aspectMode) {
+        switch (A::aspectModeForChartDraw()) {
         case A::amcEcliptic:      angle = b.eclipticPos.x(); break;
         case A::amcEquatorial:    angle = b.equatorialPos.x(); break;
         case A::amcPrimeVertical: {
@@ -562,7 +562,7 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         return;
     }
 
-    switch (A::aspectMode) {
+    switch (A::aspectModeForChartDraw()) {
     case A::amcEquatorial: {
         const auto& houses = file(fileIndex)->horoscope().houses;
         qDebug() << "[ANGLE_PRECESSION] chart cusps fileIndex=" << fileIndex
@@ -616,6 +616,12 @@ void
 Chart::updateAspects()
 {
     int  i = 0;
+    // Chart-display aspects honor the PV display toggle; events/transits do
+    // not.  Override A::aspectMode for the duration of the aspect calc so
+    // the switch ladders inside astro-calc.cpp see the chart-aspect mode
+    // (PV if PV-on, else the normal compute mode which honors GC).
+    A::modalize<A::aspectModeType> drawCtx(A::aspectMode,
+                                            A::aspectModeForChartAspects());
     auto list =
         (filesCount() == 1 ? calculateAspects() : calculateSynastryAspects());
     for (const A::Aspect& asp : std::as_const(list)) {
@@ -791,7 +797,7 @@ Chart::drawMidpointFigures()
         // ecliptic, so the solid line drawn from the chord-center to
         // mid-angle-on-ring lands at the wrong place.
         auto aspectModeAngle = [](const A::Planet& b) -> double {
-            switch (A::aspectMode) {
+            switch (A::aspectModeForChartDraw()) {
             case A::amcEquatorial:    return b.equatorialPos.x();
             case A::amcPrimeVertical: return b.pvPos;
             default:                  return b.eclipticPos.x();

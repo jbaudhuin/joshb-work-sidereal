@@ -240,6 +240,16 @@ QTabBar {
 	background-color: transparent;
 }
 
+QTabBar QToolButton {
+	padding: 0px;
+	margin: 0px;
+	min-width: 16px;
+	min-height: 16px;
+	border-radius: 2px;
+	color: #b5bfdf;
+	font-size: 13px;
+}
+
 QTabBar::tab {
 	background-color: #2a2a2a;
 	color: #b5bfdf;
@@ -353,6 +363,34 @@ QToolButton.transit-btn-wide,
 QToolButton[objectName="transitBtnWide"] {
 	min-width: 70px;
 	font-size: 10px;
+}
+
+/* Status-bar aspect-mode modifiers (GC, PV).  Coexist visually with the
+   nearby QComboBox controls: flat 4px-radius border, compact padding, and
+   the system highlight color when checked. */
+QToolButton#gcToggle,
+QToolButton#pvToggle {
+	background: #424242;
+	border: 1px solid #585F6A;
+	border-radius: 4px;
+	padding: 3px 6px;
+	margin-bottom: 3px;
+	min-width: 0;
+	color: #EEEEEE;
+	font: bold 9pt;
+}
+
+QToolButton#gcToggle:hover,
+QToolButton#pvToggle:hover {
+	background: #585F6A;
+}
+
+QToolButton#gcToggle:checked,
+QToolButton#pvToggle:checked {
+	background: palette(highlight);
+	border-color: palette(highlight);
+	color: palette(highlighted-text);
+	padding: 3px 6px;
 }
 
 /* =========================== AstroDatabase ================================= */
