@@ -426,7 +426,8 @@ Speculum::populateSpeculumTable()
             A::computeNatalParanTransits(
                 tropRA, tropDec,
                 jdNatal, jdMidnight, lat, lon,
-                angleTransit, angleTransitRA);
+                angleTransit, angleTransitRA,
+                /*jdAnchor=*/jdParan);
 
             addNatalParanRow(planetName, angleTransit, angleTransitRA, row++);
         }

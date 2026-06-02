@@ -1560,10 +1560,11 @@ class EventTypeFilterProxy : public QSortFilterProxyModel {
     {
         if (_skipByDuration == s) return;
         _skipByDuration = s;
-        if (!_patternActive) {
-            beginFilterChange();
-            endFilterChange();
-        }
+        // Re-run the filter even in pattern mode: the duration gate now
+        // applies there too (see filterAcceptsRow), so a skip-level change
+        // must invalidate the proxy regardless of pattern state.
+        beginFilterChange();
+        endFilterChange();
     }
 
     A::EventOptions::skipper skipByDuration() const { return _skipByDuration; }
@@ -1621,11 +1622,20 @@ class EventTypeFilterProxy : public QSortFilterProxyModel {
         // Always accept child (coincidence) rows
         if (sourceParent.isValid()) return true;
 
-        // Pattern mode: finder already computed exactly what was asked for
-        if (_patternActive) return true;
-
         auto* src = qobject_cast<EventsTableModel*>(sourceModel());
         if (!src) return true;
+
+        // Pattern mode: finder already computed exactly the event TYPES (and
+        // harmonics) asked for, so the type/harmonic gates don't apply. But
+        // "Skip by duration" is an independent display preference that should
+        // still hide short-lived events the same way it does on the toolbar
+        // path — otherwise pattern searches leak sub-threshold parans/transits.
+        if (_patternActive) {
+            if (_skipByDuration != A::EventOptions::SkipNone
+                && !durationAccepted(sourceRow, src))
+                return false;
+            return true;
+        }
 
         // --- Event-type gate ---
         if (!_enabled.empty()) {

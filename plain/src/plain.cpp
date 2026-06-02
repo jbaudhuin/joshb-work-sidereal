@@ -329,7 +329,27 @@ Plain::refresh()
     html += "</head><body>";
 
     auto scope = file()->horoscope();
-    html += "<h1>" + QObject::tr("%1 sign").arg(scope.zodiac.name) + "</h1>";
+
+    // Chart calculation summary (replaces the old loud "<zodiac> sign" banner).
+    {
+        html += "<h3>" + QObject::tr("Chart Calculation") + "</h3>";
+        html += "<p>";
+        if (scope.zodiac.id == A::Zodiac_Tropical) {
+            html += "<strong>" + QObject::tr("Zodiac:") + "</strong> "
+                    + QObject::tr("Tropical");
+        } else {
+            html += "<strong>" + QObject::tr("Ayanamsha:") + "</strong> "
+                    + scope.zodiac.name;
+        }
+        html += "<br><strong>" + QObject::tr("Aspect set:") + "</strong> "
+                + file()->getAspectSet().name;
+        QString aspMode = A::usePrimeVerticalDisplay
+                              ? QObject::tr("Prime Vertical")
+                              : A::aspectMode.asUserString();
+        html += "<br><strong>" + QObject::tr("Aspect mode:") + "</strong> "
+                + aspMode;
+        html += "</p>";
+    }
 
     // Display input data for selected charts
     if (articles & A::Article_Input) {
@@ -593,6 +613,7 @@ Plain::refresh()
     // Display parans for selected charts
     if (articles & A::Article_Parans) {
         if (filesCount() == 1 && scope.planets.count()) {
+            html += "<h2>" + QObject::tr("Directions") + "</h2>";
             html += A::describeParans(files(),
                                       bool(articles & A::Article_DiurnalEvents),
                                       bool(articles & A::Article_FixedStars),
@@ -642,6 +663,7 @@ Plain::refresh()
     // Display paran-latitudes table for selected charts
     if (articles & A::Article_ParanLatitudes) {
         if (filesCount() == 1 && scope.planets.count()) {
+            html += "<h2>" + QObject::tr("Parans") + "</h2>";
             html += A::describeParanLatitudes(scope,
                                               paranOrb,
                                               paranCityLatTol,
@@ -652,9 +674,10 @@ Plain::refresh()
                                               displayMode);
         } else if (filesCount() > 1) {
             if (showFirst && file(0) && file(0)->horoscope().planets.count()) {
-                html += "<h3>"
-                        + QObject::tr("Chart #1: %1").arg(file(0)->getName())
-                        + "</h3>";
+                html += "<h2>"
+                        + QObject::tr("Parans - Chart #1: %1")
+                              .arg(file(0)->getName())
+                        + "</h2>";
                 html += A::describeParanLatitudes(file(0)->horoscope(),
                                                   paranOrb,
                                                   paranCityLatTol,
@@ -665,17 +688,39 @@ Plain::refresh()
                                                   displayMode);
             }
             if (showSecond && file(1) && file(1)->horoscope().planets.count()) {
-                html += "<h3>"
-                        + QObject::tr("Chart #2: %1").arg(file(1)->getName())
-                        + "</h3>";
-                html += A::describeParanLatitudes(file(1)->horoscope(),
-                                                  paranOrb,
-                                                  paranCityLatTol,
-                                                  paranMaxCitiesPerRow,
-                                                  paranShowAbsent,
-                                                  paranCityPopMask,
-                                                  paranCityContinentMask,
-                                                  displayMode);
+                html += "<h2>"
+                        + QObject::tr("Parans - Chart #2: %1")
+                              .arg(file(1)->getName())
+                        + "</h2>";
+                const A::Horoscope* natalCtx =
+                    (showParanNatalRows && file(0)
+                     && file(0)->horoscope().planets.count())
+                    ? &file(0)->horoscope()
+                    : nullptr;
+                // For Chart #2 we treat file(1) as the *transit* context and
+                // file(0) as the natal source.  Pass natal as the first arg
+                // (its planets supply the ex-precessed natal participant)
+                // and the transit horoscope as the optional transitCtx.
+                if (natalCtx) {
+                    html += A::describeParanLatitudes(*natalCtx,
+                                                      paranOrb,
+                                                      paranCityLatTol,
+                                                      paranMaxCitiesPerRow,
+                                                      paranShowAbsent,
+                                                      paranCityPopMask,
+                                                      paranCityContinentMask,
+                                                      displayMode,
+                                                      &file(1)->horoscope());
+                } else {
+                    html += A::describeParanLatitudes(file(1)->horoscope(),
+                                                      paranOrb,
+                                                      paranCityLatTol,
+                                                      paranMaxCitiesPerRow,
+                                                      paranShowAbsent,
+                                                      paranCityPopMask,
+                                                      paranCityContinentMask,
+                                                      displayMode);
+                }
             }
         }
     }

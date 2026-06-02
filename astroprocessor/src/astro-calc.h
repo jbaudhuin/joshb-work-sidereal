@@ -361,6 +361,14 @@ natalTropicalEquatorialPos(PlanetId pid, double jdNatal,
 /// angleTransit_out[0..3] = Asc/Desc/MC/IC QDateTimes (invalid if unavailable).
 /// angleTransitRA_out[0..3] = the body's RA at each transit (degrees).
 /// Returns true if at least one transit was found.
+///
+/// Because a body crosses each angle ~1.0027 times per solar day, the
+/// [d_jd, d_jd+1) window can contain *two* roots on the ~one-day-per-year when
+/// the target LST straddles the window boundary. When jdAnchor >= 0 the root
+/// nearest jdAnchor (typically the chart's radix JD) is returned for each
+/// angle, so a focused paran display anchored near a UTC-day boundary doesn't
+/// land on the ~23h56m-distant twin. jdAnchor < 0 preserves the legacy
+/// single-anchor (earliest in-window root) behavior.
 bool
 computeNatalParanTransits(double natalRA_deg,
                           double natalDec_deg,
@@ -369,7 +377,8 @@ computeNatalParanTransits(double natalRA_deg,
                           double latitude,
                           double longitudeE,
                           QDateTime angleTransit_out[4],
-                          double    angleTransitRA_out[4]);
+                          double    angleTransitRA_out[4],
+                          double    jdAnchor = -1.0);
 
 /// A single natal-paran latitude row: which two natal bodies, which angle
 /// each, the latitude at which the paran crosses precisely, and the
@@ -386,6 +395,8 @@ struct ParanLatitudeRow {
     bool     present;          ///< abs(natalOrbDeg) <= paranOrbDeg
     bool     hasNatalOrb;      ///< false if either angle-transit at natal
                                ///< lat was circumpolar / unavailable
+    bool     aIsNatal = true;  ///< false => body A is a transit body
+    bool     bIsNatal = true;  ///< false => body B is a transit body
 };
 
 /// Enumerate every latitude at which a pair of natal bodies forms a paran
@@ -397,10 +408,17 @@ struct ParanLatitudeRow {
 /// The returned `natalOrbSec`/`natalOrbDeg` measure how close the same pair
 /// of bodies comes to paran at the *natal* location, so the caller can flag
 /// which rows are currently active in the chart.
+///
+/// When `transitCtx` is non-null, ADDITIONAL rows are emitted for every
+/// transit-body × natal-body pair, using the transit body's RA/Dec at
+/// `transitCtx->inputData.GMT()` and the natal body's RA/Dec ex-precessed
+/// to that same epoch.  natalOrb is then measured at the *transit*
+/// location.  Rows emitted from this pass have aIsNatal=false, bIsNatal=true.
 void
 enumerateNatalParanLatitudes(const Horoscope& natal,
                              double           paranOrbDeg,
-                             QVector<ParanLatitudeRow>& out);
+                             QVector<ParanLatitudeRow>& out,
+                             const Horoscope* transitCtx = nullptr);
 
 float
 roundDegree(float deg); // returns 0...360

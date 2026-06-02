@@ -41,6 +41,8 @@ Makefile.*
 /bin/imageformats/
 /bin/iconengines/
 /bin/generic/
+/bin/translations/
+/bin/qml/
 /etc
 /nsis/*.psd
 /nsis/*.exe

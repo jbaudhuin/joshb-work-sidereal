@@ -1238,7 +1238,8 @@ describeParans(const AstroFileList& scopes,
             computeNatalParanTransits(
                 tropRA, tropDec,
                 jdNatal, jdParan, lat, lon,
-                angleTransit, angleTransitRA);
+                angleTransit, angleTransitRA,
+                /*jdAnchor=*/jdParanRaw);
 
             Star ns;
             ns.name = np.name;
@@ -1325,8 +1326,9 @@ describeParans(const AstroFileList& scopes,
         }
     }
 
-    QString ret = "<h2>" + QObject::tr("Directions") + "</h2>";
-    ret += "<table style='border-collapse: collapse; font-family: monospace;'>";
+    // Note: the section header (e.g. "Directions - Chart #2: …") is supplied
+    // by the caller so it can include chart context; we emit only the table.
+    QString ret = "<table style='border-collapse: collapse; font-family: monospace;'>";
     ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
     ret += "<th style='padding: 4px 8px; text-align: left;'>"
            + QObject::tr("Planet") + "</th>";
@@ -1553,14 +1555,28 @@ describeParanLatitudes(const Horoscope&    natal,
                        bool                showAbsent,
                        unsigned            cityPopMask,
                        unsigned            cityContinentMask,
-                       SpeculumDisplayMode displayMode)
+                       SpeculumDisplayMode displayMode,
+                       const Horoscope*    transitCtx)
 {
     CityFilter cityFilter;
     cityFilter.popTiers   = cityPopMask;
     cityFilter.continents = cityContinentMask;
 
     QVector<ParanLatitudeRow> rows;
-    enumerateNatalParanLatitudes(natal, paranOrbDeg, rows);
+    enumerateNatalParanLatitudes(natal, paranOrbDeg, rows, transitCtx);
+
+    // Transit×natal rows are noisier than t×t / natal×natal because of the
+    // cross-product cardinality.  Tighten the present-test for those rows
+    // to paranOrb/2 — the time-coincidence between a moving transiter and
+    // a static natal point is inherently looser than two natal points.
+    if (transitCtx) {
+        const double txrOrbDeg = paranOrbDeg * 0.5;
+        for (ParanLatitudeRow& r : rows) {
+            const bool isTxR = !r.aIsNatal && r.bIsNatal;
+            if (isTxR && r.hasNatalOrb)
+                r.present = r.natalOrbDeg <= txrOrbDeg;
+        }
+    }
 
     if (!showAbsent) {
         rows.erase(std::remove_if(rows.begin(), rows.end(),
@@ -1574,8 +1590,9 @@ describeParanLatitudes(const Horoscope&    natal,
                   return a.latitude > b.latitude;
               });
 
-    QString ret = "<h2>" + QObject::tr("Parans") + "</h2>";
-    ret += "<p>"
+    // Note: the section header (e.g. "Parans - Chart #2: …") is supplied by the
+    // caller so it can include chart context; we emit only the description+table.
+    QString ret = "<p>"
            + QObject::tr("Latitudes at which each natal-body pair forms a paran. "
                          "MC/IC-only pairs are omitted (latitude-independent).")
            + "</p>";
@@ -1605,9 +1622,14 @@ describeParanLatitudes(const Horoscope&    natal,
 
     const QString headingColor = ThemeManager::instance().getHeadingColor();
 
+    const bool labelEpoch = (transitCtx != nullptr);
     for (const ParanLatitudeRow& r : std::as_const(rows)) {
-        const QString nameA = getPlanet(r.a).name;
-        const QString nameB = getPlanet(r.b).name;
+        QString nameA = getPlanet(r.a).name;
+        QString nameB = getPlanet(r.b).name;
+        if (labelEpoch) {
+            nameA += r.aIsNatal ? QStringLiteral("-r") : QStringLiteral("-t");
+            nameB += r.bIsNatal ? QStringLiteral("-r") : QStringLiteral("-t");
+        }
         const QString paranText = QString("%1 %2  +  %3 %4")
                                       .arg(nameA, angleAbbrev(r.angleA),
                                            nameB, angleAbbrev(r.angleB));
@@ -1654,9 +1676,13 @@ describeParanLatitudes(const Horoscope&    natal,
             citiesText = parts.join(QStringLiteral("; "));
         }
 
-        QString rowStyle = r.present
-            ? " style='background-color: rgba(120,200,140,0.10);'"
-            : "";
+        QString rowStyle;
+        if (r.present) {
+            const bool isTxR = !r.aIsNatal && r.bIsNatal;
+            rowStyle = isTxR
+                ? " style='background-color: rgba(230,150,60,0.12);'"  // orange-tint for transit×natal
+                : " style='background-color: rgba(120,200,140,0.10);'"; // green for self-self
+        }
         ret += "<tr" + rowStyle + ">";
         ret += "<td style='padding: 2px 8px; font-weight: bold; color: " + headingColor + ";'>"
                + paranText + "</td>";
