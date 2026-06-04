@@ -180,6 +180,7 @@ class Transits : public AstroFileHandler {
         A::EventTypeSet             searchedTypes;
         A::ADateRange               searchedRange;
         A::uintSSet                 searchedHarmonics;
+        unsigned                    searchedSkip = 0;  // skip-by-duration level used
     };
     QHash<AstroFile*, FinderState> _finders;   // All active/paused finders
 
@@ -245,7 +246,19 @@ class Transits : public AstroFileHandler {
     // Options dialog only sets EventOptions::globalDefaults() for newly opened tabs
     // Global settings (orbs, skipByDuration, etc.) are read from EventOptions::current()
     A::EventTypeSet _tabEventOptions;
-    
+
+    // Per-tab skip-by-duration level (mirrors AstroFile::_transitSkipByDuration).
+    // SkipNone means "show all"; the duration toolbar button toggles between
+    // SkipNone and _lastSkipLevel.
+    A::EventOptions::skipper _tabSkipByDuration = A::EventOptions::SkipNone;
+    // Remembered level for the duration button when toggled off, so re-enabling
+    // restores the user's last choice rather than defaulting.
+    A::EventOptions::skipper _lastSkipLevel = A::EventOptions::SkipLessThanWeek;
+
+    // When true (default), changes reconcile (recompute/filter) immediately.
+    // When false, changes accumulate and the Refresh button lights up instead.
+    bool _autoReconcile = true;
+
     // Toolbar actions for event filters
     QAction* _actStations = nullptr;
     QAction* _actReturns = nullptr;
@@ -264,7 +277,18 @@ class Transits : public AstroFileHandler {
     QAction* _actHouseIngress = nullptr;
     QAction* _actParanatellonta = nullptr;
     QAction* _actParanatellontaToNatal = nullptr;
-    QAction* _actAutoRecalc = nullptr;
+
+    // Skip-by-duration split button (1d / 1w / 1m), modeled on the T=N button
+    QToolButton* _btnSkipDuration = nullptr;
+    QAction* _actSkip1d = nullptr;
+    QAction* _actSkip1w = nullptr;
+    QAction* _actSkip1m = nullptr;
+
+    // Refresh / auto-reconcile split button (replaces the old auto-recalc toggle).
+    // Checkable: the checked highlight indicates pending (stale) changes; the
+    // dropdown holds the "Auto" toggle.
+    QToolButton* _btnRefresh = nullptr;
+    QAction* _actAuto = nullptr;         // dropdown: toggle auto-reconcile
     
     bool _transitToNatalShowsOuter = false;  // Track T=N vs OT=N state
     bool _progressedToNatalShowsInner = true;  // Track P=N vs IP=N state (default inner)
@@ -283,6 +307,41 @@ class Transits : public AstroFileHandler {
     /// Launch a scoped finder for only the specified event types.
     /// Appends results to the existing event list (no clear).
     void launchScopedFinder(const A::EventTypeSet& types);
+
+    /// Current date range of the view ([_start, _end]).
+    A::ADateRange currentRange() const;
+
+    /// Event types not adequately cached for the current types/range/skip —
+    /// derived from the EventStore manifest.  Empty in pattern mode (the
+    /// pattern finder computes its own set; the proxy accepts all rows).
+    A::EventTypeSet desiredStale() const;
+
+    /// True when a recompute would change the displayed events: either a hard
+    /// invalidation is pending (needsEventsRecalc) or the manifest doesn't
+    /// cover the desired types/range/skip.
+    bool needsRefresh() const;
+
+    /// Bring the displayed events in line with the desired settings.  When
+    /// auto-reconcile is off, just updates the Refresh button's lit state.
+    void reconcile();
+
+    /// Enable/highlight the Refresh button iff needsRefresh().
+    void updateRefreshButtonState();
+
+    /// Persist tab options to file(0), update the proxy filter, then reconcile.
+    /// `added` == true means an event type was just enabled, which always forces
+    /// a recompute (some types only compute as part of the full scan, so we can't
+    /// rely on manifest-derived staleness here).  `added` == false (a type was
+    /// disabled) is filter-only — the proxy hides the rows, no recompute.
+    /// Replaces the former saveEventOptionsAndRecalc lambda.
+    void saveEventOptionsAndReconcile(bool added);
+
+    /// Apply a new skip-by-duration level: update proxy (instant hide/show),
+    /// persist, and reconcile (relaxing may recompute; tightening is filter-only).
+    void applySkipByDuration(A::EventOptions::skipper s);
+
+    /// Sync the duration split button's checked state and label from _tabSkipByDuration.
+    void updateSkipDurationButton();
 };
 
 #endif // Harmonics_H

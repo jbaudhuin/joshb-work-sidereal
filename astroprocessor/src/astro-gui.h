@@ -180,6 +180,12 @@ class AstroFile : public QObject, public A::EventStore {
     const A::EventTypeSet& getTransitEventOptions() const { return _transitEventOptions; }
     void setTransitEventOptions(const A::EventTypeSet& opts);
 
+    A::EventOptions::skipper getTransitSkipByDuration() const { return _transitSkipByDuration; }
+    void setTransitSkipByDuration(A::EventOptions::skipper s);
+
+    bool getTransitAutoReconcile() const { return _transitAutoReconcile; }
+    void setTransitAutoReconcile(bool on);
+
     A::EventType getOriginEventType() const { return _originEventType; }
     void setOriginEventType(A::EventType et) { _originEventType = et; }
 
@@ -376,6 +382,13 @@ class AstroFile : public QObject, public A::EventStore {
     
     // Per-file event type filter for Transits view
     A::EventTypeSet _transitEventOptions;
+
+    // Per-file skip-by-duration level for Transits view
+    A::EventOptions::skipper _transitSkipByDuration = A::EventOptions::SkipNone;
+
+    // Per-file auto-reconcile (auto-refresh) preference for Transits view.
+    // When false, events are recomputed only on explicit Refresh.
+    bool _transitAutoReconcile = true;
 
     // Originating event type (e.g. etcSolarReturn) for chart preset lookup
     A::EventType _originEventType = A::etcUnknownEvent;

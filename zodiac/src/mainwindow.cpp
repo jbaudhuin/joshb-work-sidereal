@@ -4314,6 +4314,7 @@ FilesBar::openFileInNewTabWithTransits(const AFileInfo& fi, AstroFile* af)
     // writes transit state on file(0).
     if (!af->getTransitEventOptions().empty())
         file1->setTransitEventOptions(af->getTransitEventOptions());
+    file1->setTransitSkipByDuration(af->getTransitSkipByDuration());
     if (!af->getTransitDuration().isEmpty())
         file1->setTransitDuration(af->getTransitDuration());
     if (!af->getTransitStartDate().isNull())
@@ -5721,7 +5722,20 @@ MainWindow::restoreSession()
                         }
                         af->setTransitEventOptions(eventOpts);
                     }
-                    
+
+                    // Restore per-tab skip-by-duration level
+                    if (settings.contains(fileGroup + "transitSkipByDuration")) {
+                        af->setTransitSkipByDuration(
+                            static_cast<A::EventOptions::skipper>(
+                                settings.value(fileGroup + "transitSkipByDuration").toUInt()));
+                    }
+
+                    // Restore per-tab auto-reconcile preference
+                    if (settings.contains(fileGroup + "transitAutoReconcile")) {
+                        af->setTransitAutoReconcile(
+                            settings.value(fileGroup + "transitAutoReconcile").toBool());
+                    }
+
                     if (j == 0) {
                         filesBar->addFile(af);
                     } else {
@@ -6160,7 +6174,14 @@ FilesBar::saveFilesToSession()
             } else {
                 settings.setValue("transitEventOptions", QVariant());
             }
-            
+
+            // Save per-tab skip-by-duration level
+            settings.setValue("transitSkipByDuration",
+                              static_cast<unsigned>(af->getTransitSkipByDuration()));
+
+            // Save per-tab auto-reconcile preference
+            settings.setValue("transitAutoReconcile", af->getTransitAutoReconcile());
+
             settings.endGroup(); // End File group
         }
     }

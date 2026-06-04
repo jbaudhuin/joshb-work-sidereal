@@ -40,6 +40,8 @@
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QStringListModel>
+#include <QStyleOptionToolButton>
+#include <QStylePainter>
 #include <QStyledItemDelegate>
 #include <QTextDocument>
 #include <QThreadPool>
@@ -58,8 +60,77 @@ using namespace std::chrono;
 
 namespace
 {
+// QToolButton whose text is drawn left-aligned instead of centered.  Plain
+// QToolButton always centers its label via the style (it ignores the
+// `text-align` stylesheet property, unlike QPushButton), which leaves a front
+// gap on split buttons that are sized for their widest label.  We keep the
+// native frame + dropdown arrow but paint the label left-aligned, so any slack
+// falls between the label and the arrow rather than in front of the text.
+class LeftToolButton : public QToolButton
+{
+  public:
+    using QToolButton::QToolButton;
+
+    /// Force an explicit label color (overrides the palette role).  Used by the
+    /// Refresh button, whose amber/green background needs a fixed black/white
+    /// label.  Pass an invalid QColor to revert to palette-based coloring.
+    void setTextColor(const QColor& c) { _textColor = c; update(); }
+
+  protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QStylePainter            p(this);
+        QStyleOptionToolButton   opt;
+        initStyleOption(&opt);
+
+        // Draw everything (frame, background, checked highlight, menu arrow)
+        // except the auto-centered label.
+        QStyleOptionToolButton bg = opt;
+        bg.text.clear();
+        bg.icon = QIcon();
+        p.drawComplexControl(QStyle::CC_ToolButton, bg);
+
+        if (opt.text.isEmpty()) return;
+
+        // SC_ToolButton is the main (non-arrow) sub-area in MenuButtonPopup
+        // mode; draw the label left-aligned within it.
+        QRect r = style()->subControlRect(QStyle::CC_ToolButton, &opt,
+                                          QStyle::SC_ToolButton, this);
+        r.adjust(4, 0, -2, 0);   // small left inset, keep clear of the arrow
+
+        if (_textColor.isValid()) {
+            p.setPen(_textColor);
+            p.drawText(r, Qt::AlignLeft | Qt::AlignVCenter, opt.text);
+            return;
+        }
+        // Use the highlighted text color when checked so the label stays legible
+        // against the checked-state highlight background.
+        QPalette::ColorRole role = (opt.state & QStyle::State_On)
+                                 ? QPalette::HighlightedText
+                                 : QPalette::ButtonText;
+        p.drawItemText(r, Qt::AlignLeft | Qt::AlignVCenter, palette(),
+                       isEnabled(), opt.text, role);
+    }
+
+  private:
+    QColor _textColor;
+};
+
+// Short label for the skip-by-duration toolbar button.
+inline
+QString
+skipLabel(A::EventOptions::skipper s)
+{
+    switch (s) {
+    case A::EventOptions::SkipLessThanDay:   return QStringLiteral("1d");
+    case A::EventOptions::SkipLessThanWeek:  return QStringLiteral("1w");
+    case A::EventOptions::SkipLessThanMonth: return QStringLiteral("1m");
+    default:                                 return QStringLiteral("1w");
+    }
+}
+
 // Helper functions for event type strings
-inline 
+inline
 QString
 eventTypeBrief(A::EventType et)
 {
@@ -2009,78 +2080,96 @@ Transits::Transits(QWidget* parent) :
     if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(copyTableAction))) {
         btn->setStyleSheet("QToolButton { font-weight: normal; font-size: 14pt; min-width: 28px; min-height: 24px; padding: 1px; margin: 0px; }");
     }
-    
-    // Auto-recalc toggle - use text symbol since icons aren't showing
-    _actAutoRecalc = toolbar->addAction("↻");
-    _actAutoRecalc->setCheckable(true);
-    _actAutoRecalc->setChecked(true);  // Default to on
-    _actAutoRecalc->setToolTip("Auto-recalculate when event filters change");
-    // Override styling for the symbol button
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actAutoRecalc))) {
-        btn->setStyleSheet("QToolButton { font-weight: normal; font-size: 14pt; min-width: 28px; min-height: 24px; padding: 1px; margin: 0px; }");
-    }
-    
-    // When auto-recalc is re-enabled, check if there are pending changes
-    connect(_actAutoRecalc, &QAction::triggered, this, [this](bool checked) {
-        if (checked) {
-            // Check if any files need recalc
-            bool needsRecalc = false;
-            for (int i = 0, n = filesCount(); i < n; ++i) {
-                if (file(i)->needsEventsRecalc()) {
-                    needsRecalc = true;
-                    break;
-                }
-            }
-            if (needsRecalc) {
-                qDebug() << "Auto-recalc re-enabled with pending changes, triggering update";
-                updateTransits();
-            } else {
-                qDebug() << "Auto-recalc re-enabled with no pending changes";
-            }
-        }
+
+    // Skip-by-duration split button (1d / 1w / 1m).  Placed second — right after
+    // the copy-report button — so it stays visible rather than being buried at
+    // the end of the long filter row.  Checkable main button toggles duration
+    // filtering on/off; the dropdown picks the threshold; the main text shows the
+    // active level.  Per-tab filter that mirrors AstroFile::_transitSkipByDuration.
+    _btnSkipDuration = new LeftToolButton(toolbar);
+    _btnSkipDuration->setText(skipLabel(_lastSkipLevel));
+    _btnSkipDuration->setCheckable(true);
+    _btnSkipDuration->setPopupMode(QToolButton::MenuButtonPopup);
+    _btnSkipDuration->setToolTip("Hide short-lived events — click to toggle, dropdown to pick threshold (1d/1w/1m)");
+    _btnSkipDuration->setStyleSheet("QToolButton { min-width: 30px !important; }");
+
+    auto* skipMenu = new QMenu(_btnSkipDuration);
+    auto* skipGroup = new QActionGroup(skipMenu);
+    skipGroup->setExclusive(true);
+    _actSkip1d = skipMenu->addAction("1d");
+    _actSkip1d->setCheckable(true);
+    _actSkip1d->setToolTip("Hide events shorter than 1 day");
+    skipGroup->addAction(_actSkip1d);
+    _actSkip1w = skipMenu->addAction("1w");
+    _actSkip1w->setCheckable(true);
+    _actSkip1w->setToolTip("Hide events shorter than 1 week");
+    skipGroup->addAction(_actSkip1w);
+    _actSkip1m = skipMenu->addAction("1m");
+    _actSkip1m->setCheckable(true);
+    _actSkip1m->setToolTip("Hide events shorter than 1 month");
+    skipGroup->addAction(_actSkip1m);
+    _btnSkipDuration->setMenu(skipMenu);
+    toolbar->addWidget(_btnSkipDuration);
+
+    // Main toggle: on → apply remembered level; off → SkipNone (show all).
+    connect(_btnSkipDuration, &QToolButton::toggled, this, [this](bool on) {
+        applySkipByDuration(on ? _lastSkipLevel : A::EventOptions::SkipNone);
+        updateSkipDurationButton();
     });
-    
-    toolbar->addSeparator();
-    
-    // Helper to save event options and optionally trigger recalc.
-    // filterAdded == true  → a new event type was enabled  → recalc needed
-    // filterAdded == false → an event type was disabled     → keep existing
-    //                         events visible, only persist the option change
-    auto saveEventOptionsAndRecalc = [this](bool filterAdded) {
-        // Guard: prevent the changed() signals from setTransitPattern /
-        // setTransitEventOptions from cascading into filesUpdated() and
-        // clobbering the model.  We handle the proxy update ourselves.
-        {
+
+    // Dropdown: pick the threshold.  Selecting a level remembers it and, if the
+    // button is on, applies it; if off, turns filtering on at that level.
+    connect(skipGroup, &QActionGroup::triggered, this, [this](QAction* a) {
+        if      (a == _actSkip1d) _lastSkipLevel = A::EventOptions::SkipLessThanDay;
+        else if (a == _actSkip1w) _lastSkipLevel = A::EventOptions::SkipLessThanWeek;
+        else if (a == _actSkip1m) _lastSkipLevel = A::EventOptions::SkipLessThanMonth;
+        applySkipByDuration(_lastSkipLevel);
+        updateSkipDurationButton();
+    });
+
+    // Refresh / auto-reconcile split button (replaces the old ↻ auto-recalc
+    // toggle).  Main button click reconciles pending changes now; its background
+    // is yellow when a recompute is pending and green when up to date (set in
+    // updateRefreshButtonState).  The dropdown holds the "Auto" toggle that
+    // pauses/resumes automatic reconciliation.
+    _btnRefresh = new LeftToolButton(toolbar);
+    _btnRefresh->setText("⟳");
+    _btnRefresh->setPopupMode(QToolButton::MenuButtonPopup);
+    _btnRefresh->setToolTip("Refresh now — recompute pending changes.\nYellow = recompute pending, green = up to date.\nDropdown: toggle auto-refresh.");
+
+    auto* refreshMenu = new QMenu(_btnRefresh);
+    _actAuto = refreshMenu->addAction("Auto");
+    _actAuto->setCheckable(true);
+    _actAuto->setChecked(_autoReconcile);
+    _actAuto->setToolTip("Automatically recompute when event filters change");
+    _btnRefresh->setMenu(refreshMenu);
+    toolbar->addWidget(_btnRefresh);
+
+    // Main button: explicit user refresh — reconcile even if Auto is off.
+    connect(_btnRefresh, &QToolButton::clicked, this, [this](bool) {
+        A::modalize<bool> forceAuto(_autoReconcile, true);
+        reconcile();
+        updateRefreshButtonState();
+    });
+
+    // Dropdown Auto toggle: pause/resume; flush any pending delta on resume.
+    connect(_actAuto, &QAction::triggered, this, [this](bool checked) {
+        _autoReconcile = checked;
+        if (filesCount() > 0 && file(0)) {
             A::modalize<bool> guard(_inhibitUpdate, true);
-
-            if (filesCount() > 0 && file(0)) {
-                file(0)->setTransitPattern(_input->currentText().trimmed());
-                file(0)->setTransitEventOptions(_tabEventOptions);
-            }
-        }   // ~guard restores _inhibitUpdate
-
-        // If a pattern is active, toolbar changes only affect saved prefs;
-        // the proxy is in pattern-active mode (accepts all rows), so there's
-        // nothing to filter/recompute until the pattern is cleared.
-        if (_filterProxy->patternActive()) return;
-
-        // Always update the proxy filter so rows hide/show immediately
-        _filterProxy->setEnabledEventTypes(_tabEventOptions);
-
-        if (filterAdded) {
-            // Only trigger recomputation if the manifest shows the
-            // newly-enabled type(s) were never searched.  If they were
-            // searched (even with zero results), the proxy reveal suffices.
-            if (filesCount() > 0 && file(0)) {
-                auto missing = file(0)->missingTypes(_tabEventOptions);
-                if (!missing.empty()
-                    && _actAutoRecalc && _actAutoRecalc->isChecked()) {
-                    // Launch a scoped finder for only the missing types —
-                    // existing events stay in place.
-                    launchScopedFinder(missing);
-                }
-            }
+            file(0)->setTransitAutoReconcile(checked);   // persist per-tab
         }
+        if (checked) reconcile();
+        updateRefreshButtonState();
+    });
+
+    toolbar->addSeparator();
+
+    // Thin forwarder retained so the event-filter button connects below can
+    // keep their (bool checked) signature; the new member reconciles based on
+    // the derived EventStore manifest state rather than a passed-in flag.
+    auto saveEventOptionsAndRecalc = [this](bool checked) {
+        saveEventOptionsAndReconcile(checked);
     };
     
     // Stations button
@@ -2136,12 +2225,12 @@ Transits::Transits(QWidget* parent) :
     });
     
     // T=N dropdown button with menu
-    _btnTransitToNatal = new QToolButton(toolbar);
+    _btnTransitToNatal = new LeftToolButton(toolbar);
     _btnTransitToNatal->setText("T=N");
     _btnTransitToNatal->setCheckable(true);
     _btnTransitToNatal->setPopupMode(QToolButton::MenuButtonPopup);
     _btnTransitToNatal->setToolTip("Transit to Natal aspects - click to toggle, dropdown to select mode");
-    _btnTransitToNatal->setStyleSheet("QToolButton { min-width: 48px !important; }");
+    _btnTransitToNatal->setStyleSheet("QToolButton { min-width: 44px !important; }");
     
     auto* transitNatalMenu = new QMenu(_btnTransitToNatal);
     
@@ -2261,12 +2350,12 @@ Transits::Transits(QWidget* parent) :
     });
     
     // IP=N/P=N dropdown button with menu
-    _btnProgressedToNatal = new QToolButton(toolbar);
+    _btnProgressedToNatal = new LeftToolButton(toolbar);
     _btnProgressedToNatal->setText("IP=N");
     _btnProgressedToNatal->setCheckable(true);
     _btnProgressedToNatal->setPopupMode(QToolButton::MenuButtonPopup);
     _btnProgressedToNatal->setToolTip("Progressed to Natal aspects - click to toggle, dropdown to select mode");
-    _btnProgressedToNatal->setStyleSheet("QToolButton { min-width: 52px !important; }");
+    _btnProgressedToNatal->setStyleSheet("QToolButton { min-width: 46px !important; }");
     
     auto* progressedNatalMenu = new QMenu(_btnProgressedToNatal);
     
@@ -2418,7 +2507,7 @@ Transits::Transits(QWidget* parent) :
         else _tabEventOptions.erase(A::etcParanatellontaToNatal);
         saveEventOptionsAndRecalc(checked);
     });
-    
+
     // Initialize toolbar state from tab event options
     updateToolbarFromEventOptions();
     
@@ -2509,13 +2598,12 @@ Transits::Transits(QWidget* parent) :
         auto dd = sd.daysTo(_end->date()) / 2;
         if (dd) {
             _start->setDate(sd.addDays(-dd));
-            // Mark events for recalc and honor auto-recalc state
+            // Date-range change is a hard invalidation (manifest can't model it)
             for (int i = 0, n = filesCount(); i < n; ++i) {
                 file(i)->markEventsForRecalc();
             }
-            if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
-                updateTransits();
-            }
+            // reconcile() recomputes now if Auto is on, else lights Refresh.
+            reconcile();
         }
     });
 
@@ -2524,13 +2612,12 @@ Transits::Transits(QWidget* parent) :
         auto dd = _start->date().daysTo(ed) / 2;
         if (dd) {
             _end->setDate(ed.addDays(dd));
-            // Mark events for recalc and honor auto-recalc state
+            // Date-range change is a hard invalidation (manifest can't model it)
             for (int i = 0, n = filesCount(); i < n; ++i) {
                 file(i)->markEventsForRecalc();
             }
-            if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
-                updateTransits();
-            }
+            // reconcile() recomputes now if Auto is on, else lights Refresh.
+            reconcile();
         }
     });
 
@@ -2961,6 +3048,16 @@ Transits::updateTransits()
         return;
     }
 
+    // Auto-reconcile off ("compute on demand"): don't recompute automatically.
+    // Any existing events stay as-is and the Refresh button surfaces the pending
+    // state (yellow).  The explicit Refresh button force-enables _autoReconcile,
+    // so a user-initiated refresh still computes.
+    if (!_autoReconcile) {
+        qDebug() << "[UPDATE TRANSITS] Auto-reconcile off — skipping automatic recompute";
+        updateRefreshButtonState();
+        return;
+    }
+
     // Restore location from the canonical tab source FIRST (before cache check).
     // The canonical events-table location lives in file(0)->transitLocation /
     // the _location dock-widget.  file(1) is a *consumer* of that location —
@@ -3207,6 +3304,7 @@ Transits::updateTransits()
             // Create EventOptions with global settings but tab-specific event filter
             A::EventOptions opts = A::EventOptions::current();
             opts.enabledEvents = _tabEventOptions;
+            opts.skipByDuration = _tabSkipByDuration;  // tab-specific duration filter
             opts.harmonicRestrictions = file(0)->getTransitHarmonicRestrictions();
             qDebug() << "[UPDATE TRANSITS] EventOptions: T=T:" << (opts.enabledEvents.count(A::etcTransitToTransit) > 0)
                      << "T=N:" << (opts.enabledEvents.count(A::etcTransitToNatal) > 0)
@@ -3221,6 +3319,7 @@ Transits::updateTransits()
         // Create EventOptions with global settings but tab-specific event filter
         A::EventOptions opts = A::EventOptions::current();
         opts.enabledEvents = _tabEventOptions;
+        opts.skipByDuration = _tabSkipByDuration;  // tab-specific duration filter
         opts.harmonicRestrictions = file(0)->getTransitHarmonicRestrictions();
         qDebug() << "[UPDATE TRANSITS] EventOptions: T=T:" << (opts.enabledEvents.count(A::etcTransitToTransit) > 0)
                  << "T=N:" << (opts.enabledEvents.count(A::etcTransitToNatal) > 0)
@@ -3242,10 +3341,10 @@ Transits::updateTransits()
 #endif
     if (!af) return;
 
-    // Sync proxy with the skip level used for this computation
-    _filterProxy->setSkipByDuration(A::EventOptions::current().skipByDuration);
-    _filterProxy->setComputedSkipLevel(A::EventOptions::current().skipByDuration);
-    
+    // Sync proxy with the skip level used for this computation (tab-specific)
+    _filterProxy->setSkipByDuration(_tabSkipByDuration);
+    _filterProxy->setComputedSkipLevel(_tabSkipByDuration);
+
     qDebug() << "[UPDATE TRANSITS] OmnibusFinder created with EventOptions:";
     qDebug() << "  showTransitsToTransits:" << af->showTransitsToTransits();
     qDebug() << "  showTransitsToNatalPlanets:" << af->showTransitsToNatalPlanets();
@@ -3296,6 +3395,7 @@ Transits::updateTransits()
         fs.searchedTypes      = usePattern ? A::EventTypeSet{} : _tabEventOptions;
         fs.searchedRange      = r;
         fs.searchedHarmonics  = hs;
+        fs.searchedSkip       = static_cast<unsigned>(_tabSkipByDuration);
         _finders[ownerFile]   = fs;
 
         // Clean up the map entry if the file is destroyed while finder is paused
@@ -3330,6 +3430,142 @@ Transits::updateTransits()
     qDebug() << "========================================";
 }
 
+A::ADateRange
+Transits::currentRange() const
+{
+    return A::ADateRange { _start->date(), _end->date() };
+}
+
+A::EventTypeSet
+Transits::desiredStale() const
+{
+    if (filesCount() == 0 || !file(0)) return {};
+    // Pattern mode: the pattern finder computes its own set and the proxy
+    // accepts all rows, so there's no type/skip-based recompute to derive.
+    if (_filterProxy && _filterProxy->patternActive()) return {};
+    return file(0)->staleTypes(_tabEventOptions, currentRange(),
+                               static_cast<unsigned>(_tabSkipByDuration));
+}
+
+bool
+Transits::needsRefresh() const
+{
+    if (filesCount() == 0 || !file(0)) return false;
+    // Hard invalidations (orbs/location/date-range) keep using the existing
+    // flag; the manifest covers the type/range/skip axes.
+    return file(0)->needsEventsRecalc() || !desiredStale().empty();
+}
+
+void
+Transits::updateRefreshButtonState()
+{
+    if (!_btnRefresh) return;
+    // Yellow when a recompute is pending, green when the view is up to date.
+    bool stale = needsRefresh();
+    const char* bg = stale ? "#E0B000" /*amber*/ : "#3FA34D" /*green*/;
+    // Background via stylesheet; the label color is applied by LeftToolButton's
+    // custom paint (the stylesheet `color` doesn't reach its drawText).
+    _btnRefresh->setStyleSheet(QString(
+        "QToolButton { font-weight: normal; font-size: 13pt; "
+        "min-width: 28px; min-height: 24px; padding: 1px; margin: 0px; "
+        "background-color: %1; }").arg(bg));
+    if (auto* b = static_cast<LeftToolButton*>(_btnRefresh))
+        b->setTextColor(stale ? Qt::black : Qt::white);
+}
+
+void
+Transits::reconcile()
+{
+    if (!_autoReconcile || filesCount() == 0 || !file(0)) {
+        updateRefreshButtonState();
+        return;
+    }
+
+    // Any staleness — hard invalidation (orbs/location/date-range) or a derived
+    // type/range/skip change — triggers a full recompute.  A full updateTransits
+    // is correct for every event type; the scoped-append optimization is not,
+    // because several types (stations, ingresses, returns) are only produced as
+    // a byproduct of the full transit scan and compute to nothing in isolation.
+    // Batching (pause Auto, toggle several filters, Refresh once) is the cure for
+    // the cost of repeated full recomputes.
+    if (file(0)->needsEventsRecalc() || !desiredStale().empty())
+        updateTransits();
+    else
+        updateRefreshButtonState();
+}
+
+void
+Transits::saveEventOptionsAndReconcile(bool added)
+{
+    // Guard: prevent changed() signals from setTransit* cascading into
+    // filesUpdated() and clobbering the model — we drive the proxy ourselves.
+    {
+        A::modalize<bool> guard(_inhibitUpdate, true);
+        if (filesCount() > 0 && file(0)) {
+            file(0)->setTransitPattern(_input->currentText().trimmed());
+            file(0)->setTransitEventOptions(_tabEventOptions);
+            file(0)->setTransitSkipByDuration(_tabSkipByDuration);
+        }
+    }
+
+    // If a pattern is active, toolbar changes only affect saved prefs; the
+    // proxy accepts all rows, so there's nothing to filter/recompute.
+    if (_filterProxy && _filterProxy->patternActive()) {
+        updateRefreshButtonState();
+        return;
+    }
+
+    // Update the proxy filter so rows hide/show immediately.
+    if (_filterProxy) _filterProxy->setEnabledEventTypes(_tabEventOptions);
+
+    // Enabling a type always needs a (full) recompute to bring in its events —
+    // mark it explicitly rather than trusting manifest-derived staleness, since
+    // some types (stations/ingresses/returns) compute only as part of the full
+    // scan.  Disabling a type is filter-only (the proxy already hid the rows).
+    if (added && filesCount() > 0 && file(0))
+        file(0)->markEventsForRecalc();
+
+    reconcile();
+}
+
+void
+Transits::applySkipByDuration(A::EventOptions::skipper s)
+{
+    if (_tabSkipByDuration == s) {
+        updateRefreshButtonState();
+        return;
+    }
+    // Relaxing (lower enum value = shorter threshold = more events kept) needs a
+    // recompute: the now-wanted shorter events were never computed.  Tightening
+    // is filter-only — the proxy just hides more rows.
+    bool relaxing = static_cast<unsigned>(s)
+                  < static_cast<unsigned>(_tabSkipByDuration);
+    _tabSkipByDuration = s;
+    if (filesCount() > 0 && file(0)) {
+        A::modalize<bool> guard(_inhibitUpdate, true);
+        file(0)->setTransitSkipByDuration(s);
+    }
+    // Instant hide/show in the proxy regardless of whether a recompute follows.
+    if (_filterProxy) _filterProxy->setSkipByDuration(s);
+    if (relaxing && filesCount() > 0 && file(0))
+        file(0)->markEventsForRecalc();
+    reconcile();
+}
+
+void
+Transits::updateSkipDurationButton()
+{
+    if (!_btnSkipDuration) return;
+    bool on = (_tabSkipByDuration != A::EventOptions::SkipNone);
+    auto lvl = on ? _tabSkipByDuration : _lastSkipLevel;
+    QSignalBlocker block(_btnSkipDuration);
+    _btnSkipDuration->setChecked(on);
+    _btnSkipDuration->setText(skipLabel(lvl));
+    if (_actSkip1d) _actSkip1d->setChecked(lvl == A::EventOptions::SkipLessThanDay);
+    if (_actSkip1w) _actSkip1w->setChecked(lvl == A::EventOptions::SkipLessThanWeek);
+    if (_actSkip1m) _actSkip1m->setChecked(lvl == A::EventOptions::SkipLessThanMonth);
+}
+
 /// Launch a scoped finder that computes only the specified event types.
 /// Unlike updateTransits(), this does NOT clear existing events — results
 /// are appended to file(0)->events() and the model is updated incrementally.
@@ -3360,6 +3596,7 @@ Transits::launchScopedFinder(const A::EventTypeSet& types)
     // Build EventOptions restricted to only the missing types
     A::EventOptions opts = A::EventOptions::current();
     opts.enabledEvents        = types;
+    opts.skipByDuration       = _tabSkipByDuration;  // tab-specific duration filter
     opts.harmonicRestrictions = file(0)->getTransitHarmonicRestrictions();
 
     qDebug() << "========================================";
@@ -3375,9 +3612,9 @@ Transits::launchScopedFinder(const A::EventTypeSet& types)
     }
     if (!af) return;
 
-    // Sync proxy settings
-    _filterProxy->setSkipByDuration(A::EventOptions::current().skipByDuration);
-    _filterProxy->setComputedSkipLevel(A::EventOptions::current().skipByDuration);
+    // Sync proxy settings (tab-specific skip level)
+    _filterProxy->setSkipByDuration(_tabSkipByDuration);
+    _filterProxy->setComputedSkipLevel(_tabSkipByDuration);
 
     // The model already has events — ensure evs reference is registered
     // (it may have been cleared on a prior tab switch and re-added).
@@ -3420,6 +3657,7 @@ Transits::launchScopedFinder(const A::EventTypeSet& types)
     fs.searchedTypes      = types;
     fs.searchedRange      = r;
     fs.searchedHarmonics  = hs;
+    fs.searchedSkip       = static_cast<unsigned>(_tabSkipByDuration);
     _finders[ownerFile]   = fs;
 
     // Clean up on file destruction
@@ -3532,7 +3770,8 @@ Transits::onCompleted()
                 ownerFile->ingestEvents(ownerFile->events());
                 ownerFile->recordSearch(completedState.searchedTypes,
                                         completedState.searchedRange,
-                                        completedState.searchedHarmonics);
+                                        completedState.searchedHarmonics,
+                                        completedState.searchedSkip);
             }
         }
         // Don't touch _active/_activeFinder — they belong to the CURRENT tab.
@@ -3573,7 +3812,8 @@ Transits::onCompleted()
             file(0)->ingestEvents(file(0)->events());
             file(0)->recordSearch(completedState.searchedTypes,
                                   completedState.searchedRange,
-                                  completedState.searchedHarmonics);
+                                  completedState.searchedHarmonics,
+                                  completedState.searchedSkip);
             qDebug() << "[ON COMPLETED] Manifest recorded:"
                      << completedState.searchedTypes.size() << "types,"
                      << file(0)->events().size() << "events";
@@ -3597,6 +3837,10 @@ Transits::onCompleted()
         }
     }
     
+    // Recompute finished — the manifest now covers the searched scope, so
+    // clear the Refresh button's stale highlight.
+    updateRefreshButtonState();
+
     qDebug() << "[ON COMPLETED] Cleanup complete";
 #else
     const A::Horoscope& scope(file()->horoscope());
@@ -4521,13 +4765,11 @@ Transits::onDateRangeChanged()
         file(0)->setTransitStartDate(_start->date());
         file(0)->setTransitDuration(_duration->text());
         
-        // Mark that events need recalculation
+        // Mark that events need recalculation (hard invalidation)
         file(0)->markEventsForRecalc();
     }
-    // Honor auto-recalc state
-    if (_actAutoRecalc && _actAutoRecalc->isChecked()) {
-        updateTransits();
-    }
+    // reconcile() recomputes now if Auto is on, else lights the Refresh button.
+    reconcile();
 }
 
 void
@@ -4670,6 +4912,7 @@ Transits::filesUpdated(MembersList m)
         if (_previousFile && _previousFile != file(0)) {
             qDebug() << "[FILES UPDATED] Saving event options from previous file" << _previousFile->getName();
             _previousFile->setTransitEventOptions(_tabEventOptions);
+            _previousFile->setTransitSkipByDuration(_tabSkipByDuration);
             _previousFile->setTransitPattern(_input->currentText());
         }
         
@@ -4686,6 +4929,18 @@ Transits::filesUpdated(MembersList m)
                 qDebug() << "  No saved options, using global defaults";
                 _tabEventOptions = A::EventOptions::globalDefaults();
                 file(0)->setTransitEventOptions(_tabEventOptions);
+            }
+
+            // Load per-tab skip-by-duration level for the new file
+            _tabSkipByDuration = file(0)->getTransitSkipByDuration();
+            if (_tabSkipByDuration != A::EventOptions::SkipNone)
+                _lastSkipLevel = _tabSkipByDuration;
+
+            // Load per-tab auto-reconcile preference for the new file
+            _autoReconcile = file(0)->getTransitAutoReconcile();
+            if (_actAuto) {
+                QSignalBlocker b(_actAuto);
+                _actAuto->setChecked(_autoReconcile);
             }
 
             // Restore per-event-type harmonic restrictions
@@ -4723,8 +4978,8 @@ Transits::filesUpdated(MembersList m)
             _lastUsedPattern = file(0)->getTransitPattern();
             _filterProxy->setPatternActive(!_lastUsedPattern.isEmpty());
             _filterProxy->setEnabledHarmonics(A::dynAspState());
-            _filterProxy->setSkipByDuration(A::EventOptions::current().skipByDuration);
-            
+            _filterProxy->setSkipByDuration(_tabSkipByDuration);  // tab-specific
+
             _previousFile = file(0);
         } else if (file(0) && !_previousFile) {
             // First time seeing any file — initialize _previousFile
@@ -4998,10 +5253,10 @@ Transits::applySettings(const AppSettings& s)
     // Get reference to global settings singleton
     A::EventOptions& curr(A::EventOptions::current());
 
-    // Check if skipByDuration changed — may be filter-only
-    auto newSkip = A::EventOptions::skipper(
-        s.value("Events/skipByDuration").toUInt());
-    bool skipChanged = (newSkip != curr.skipByDuration);
+    // Note: skipByDuration is now a per-tab setting controlled by the toolbar
+    // duration button; the dialog combo only sets the default for newly opened
+    // files (via the global singleton below).  It does NOT recompute the
+    // current tab.
 
     // Check if any settings changed that would require recalculation
     bool changed =
@@ -5023,19 +5278,6 @@ Transits::applySettings(const AppSettings& s)
          || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
                 != curr.includeOnlyInnerProgressionsToNatal);
 
-    // skipByDuration: if the new level is >= the computed level (i.e., more
-    // restrictive or same), a proxy-filter update suffices.  Only when
-    // relaxing below the computed level do we need to recompute.
-    bool skipNeedsRecalc = false;
-    if (skipChanged) {
-        if (newSkip < _filterProxy->computedSkipLevel()) {
-            // Less restrictive — events below old threshold were never computed
-            skipNeedsRecalc = true;
-        }
-        // Either way, include in "changed" so the global opts get written
-        // and the proxy filter gets updated below
-    }
-    changed = changed || skipNeedsRecalc;
     bool changedExpanded =
         (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
          || s.value("Events/expandShowAspectPatterns").toBool()
@@ -5069,10 +5311,6 @@ Transits::applySettings(const AppSettings& s)
             file(0)->markEventsForRecalc();
             updateTransits();
         }
-    } else if (skipChanged) {
-        // skipByDuration changed but no recompute needed (more restrictive
-        // or same as computed level) — just update the proxy filter
-        _filterProxy->setSkipByDuration(curr.skipByDuration);
     } else if (changedExpanded) {
         // updateExpanded(); ?
     }
@@ -5242,6 +5480,10 @@ Transits::updateToolbarFromEventOptions()
     
     updateTransitToNatalButtonState();
     updateProgressedToNatalButtonState();
+
+    // Sync the duration split button and the Refresh button's lit state.
+    updateSkipDurationButton();
+    updateRefreshButtonState();
 }
 
 void

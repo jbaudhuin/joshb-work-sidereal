@@ -73,3 +73,14 @@ object_script.*.*
 **/.cache
 build/
 builds/
+
+# Some other weird stuff
+swe/swemini.c
+swe/swepcalc.c
+swe/swepcalc.h
+swe/swepdate.c
+swe/swetest.c
+PSSR.md
+The PSSR.txt
+CLAUDE.md
+.claude/

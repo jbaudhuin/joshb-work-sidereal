@@ -207,6 +207,7 @@ AstroFile::AstroFile(QObject* parent) : QObject(parent)
     _timezoneLocked    = false;
     _transitTimezone     = 0;
     _transitEventOptions = A::EventOptions::globalDefaults();  // Initialize new file from global defaults
+    _transitSkipByDuration = A::EventOptions::current().skipByDuration;  // seed new tab's duration from Events settings
     qDebug() << "Created file" << getName();
 }
 
@@ -366,6 +367,13 @@ AstroFile::save()
         file.setValue("transitEventOptions", sl);
     }
 
+    // Save per-file skip-by-duration level
+    file.setValue("transitSkipByDuration",
+                  static_cast<unsigned>(_transitSkipByDuration));
+
+    // Save per-file auto-reconcile preference
+    file.setValue("transitAutoReconcile", _transitAutoReconcile);
+
     qDebug() << "Saved" << getName() << "to" << fileName();
 
     clearUnsavedState();
@@ -522,6 +530,17 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
         _transitEventOptions = A::EventOptions::globalDefaults();
     }
 
+    // Load per-file skip-by-duration level (default to global for older files)
+    if (file.contains("transitSkipByDuration")) {
+        _transitSkipByDuration = static_cast<A::EventOptions::skipper>(
+            file.value("transitSkipByDuration").toUInt());
+    } else {
+        _transitSkipByDuration = A::EventOptions::current().skipByDuration;
+    }
+
+    // Load per-file auto-reconcile preference (default on for older files)
+    _transitAutoReconcile = file.value("transitAutoReconcile", true).toBool();
+
     clearUnsavedState();
     if (/*!recalculate*/ !isEmpty())
         resumeUpdate() /*holdUpdateMembers = None*/; // if empty file is just
@@ -563,6 +582,26 @@ AstroFile::setTransitEventOptions(const A::EventTypeSet& opts)
         change(ChangedState, true);  // Mark as modified
         // Don't save automatically - only save when user explicitly saves the chart
         // Transit event options are preserved via session state
+    }
+}
+
+void
+AstroFile::setTransitSkipByDuration(A::EventOptions::skipper s)
+{
+    if (_transitSkipByDuration != s) {
+        _transitSkipByDuration = s;
+        change(ChangedState, true);  // Mark as modified
+        // Preserved via session state; persisted on explicit save.
+    }
+}
+
+void
+AstroFile::setTransitAutoReconcile(bool on)
+{
+    if (_transitAutoReconcile != on) {
+        _transitAutoReconcile = on;
+        change(ChangedState, true);  // Mark as modified
+        // Preserved via session state; persisted on explicit save.
     }
 }
 

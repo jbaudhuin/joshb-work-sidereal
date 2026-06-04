@@ -2377,6 +2377,12 @@ struct EventStoreData {
     HarmonicEvents events;
     uintSSet       harmonics;   ///< which harmonics were searched
     bool           searched = false; ///< true after a finder run included this type
+    /// Finest skip-by-duration level ever computed for this type, as the
+    /// numeric value of A::EventOptions::skipper (0 == SkipNone, least
+    /// restrictive / most events).  Stored as unsigned to keep this header
+    /// decoupled from astro-calc.h (which includes us, not vice-versa).
+    /// Meaningful only when `searched` is true.
+    unsigned       computedSkip = 0;
 };
 
 struct EventUpdateData {
@@ -2409,11 +2415,25 @@ class EventStore : public EventStoreBase {
     EventTypeSet searchedTypes() const;
     EventTypeSet missingTypes(const EventTypeSet& wanted) const;
 
+    /// Finest skip-by-duration level computed for `eventType` (numeric value
+    /// of A::EventOptions::skipper; 0 == SkipNone).  Returns 0 if unsearched.
+    unsigned     computedSkipFor(unsigned eventType) const;
+
+    /// Types in `wanted` that are not adequately cached for the given range
+    /// and desired skip level: either never searched over `range`, or searched
+    /// only at a more restrictive skip level than `desiredSkip` (so shorter
+    /// events the user now wants were never computed).  Generalizes
+    /// missingTypes() to cover the date-range and skip-level cache axes.
+    EventTypeSet staleTypes(const EventTypeSet& wanted,
+                            const ADateRange&   range,
+                            unsigned            desiredSkip) const;
+
     /// Record that a finder searched for the given event types over the
-    /// specified date range using the given harmonic set.
+    /// specified date range using the given harmonic set and skip level.
     void recordSearch(const EventTypeSet& types,
                       const ADateRange&   range,
-                      const uintSSet&     harmonics);
+                      const uintSSet&     harmonics,
+                      unsigned            skip = 0);
 
     /// Clear all manifest metadata (marks everything as unsearched).
     /// Call when a full recomputation is required.

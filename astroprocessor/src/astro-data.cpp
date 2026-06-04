@@ -1172,10 +1172,35 @@ EventStore::missingTypes(const EventTypeSet& wanted) const
     return result;
 }
 
+unsigned
+EventStore::computedSkipFor(unsigned eventType) const
+{
+    auto it = find(eventType);
+    return (it != end() && it->searched) ? it->computedSkip : 0u;
+}
+
+EventTypeSet
+EventStore::staleTypes(const EventTypeSet& wanted,
+                       const ADateRange&   range,
+                       unsigned            desiredSkip) const
+{
+    EventTypeSet result;
+    for (auto et : wanted) {
+        auto key = static_cast<unsigned>(et);
+        // Stale if never searched over this range, or searched only at a more
+        // restrictive level than now wanted (desiredSkip < computed level means
+        // the user wants shorter-duration events that were never computed).
+        if (!wasSearched(key, range) || desiredSkip < computedSkipFor(key))
+            result.insert(et);
+    }
+    return result;
+}
+
 void
 EventStore::recordSearch(const EventTypeSet& types,
                          const ADateRange&   range,
-                         const uintSSet&     harmonics)
+                         const uintSSet&     harmonics,
+                         unsigned            skip)
 {
     for (auto et : types) {
         auto key = static_cast<unsigned>(et);
@@ -1183,6 +1208,10 @@ EventStore::recordSearch(const EventTypeSet& types,
         if (it == end()) {
             it = insert(key, {});
         }
+        // computedSkip = finest (lowest) level ever computed for this type.
+        // On first search adopt `skip`; thereafter keep the minimum.
+        it->computedSkip = it->searched ? std::min(it->computedSkip, skip)
+                                        : skip;
         it->searched = true;
         it->ranges.insert(range);
         it->harmonics.insert(harmonics.begin(), harmonics.end());
@@ -1197,6 +1226,7 @@ EventStore::clearManifest()
         it->ranges.clear();
         it->harmonics.clear();
         it->events.clear();
+        it->computedSkip = 0;
     }
 }
 
