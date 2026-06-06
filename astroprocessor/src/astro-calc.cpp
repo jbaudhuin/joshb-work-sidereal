@@ -7360,6 +7360,16 @@ AspectFinder::findParans()
         const QDateTime rangeStartDay0 = start.startOfDay().toUTC();
         const QDateTime rangeLastDay0  = _range.second.startOfDay().toUTC();
 
+        // The actual last day-grid instant the walk processes. The walk starts
+        // exactly on rangeStartDay0 but, because of the
+        // `e = _range.second.addDays(1).startOfDay()` upper bound combined with
+        // the day-grid alignment, the LAST processed day can be one grid-day
+        // beyond rangeLastDay0. The forward boundary-extension must key off the
+        // day the walk truly stopped on (lastWalkedDay), not the derived
+        // rangeLastDay — otherwise `endDate == rangeLastDay` is never true for
+        // any still-active event and the forward pass finds nothing.
+        QDateTime lastWalkedDay;
+
         const double bjd = getJulianDate(d);
         const double ejd = getJulianDate(e);
         double       ljd = bjd;
@@ -7378,6 +7388,8 @@ AspectFinder::findParans()
             }
 
             const double jd = getJulianDate(d);
+
+            lastWalkedDay = d;
 
             // Progress emission (positive fraction during the daily walk).
             if (jd - ljd >= 5.0) {
@@ -7844,6 +7856,35 @@ AspectFinder::findParans()
                 QVector<ParanEntry> ent;
                 ent.reserve(int(bodySubset.size()) * 4);
 
+                // Mirror the in-range walk's collectDaily: probe both anchors
+                // { jd2, jd2+0.5 } so the diurnal twin (a body's target-LST
+                // crossing local midnight gives two solar-day transits) is
+                // caught here too. Without this the extension's single-anchor
+                // finder returns the wrong twin near a day boundary, the
+                // cluster key diverges from the in-range key, and the
+                // boundary extension marks the paran done prematurely —
+                // cutting long events off just past the range end with the
+                // peak frozen at the terminal day.
+                auto probeExt = [&](const BodyAtFn& bodyAt, int alistIdx,
+                                    bool isNatal) {
+                    for (int m = 0; m < 4; ++m) {
+                        qint64 firstSec = -1;
+                        for (double anchor : { jd2, jd2 + 0.5 }) {
+                            double tjd;
+                            if (!findAngleTransitJD(bodyAt, anchor, locusLat,
+                                                    locusLon, m, tjd))
+                                continue;
+                            const QDateTime when = dateTimeFromJulian(tjd);
+                            const qint64    sec  = dayDT.secsTo(when);
+                            if (sec < 0 || sec >= 86400) continue;
+                            if (firstSec >= 0 && qAbs(sec - firstSec) < 60)
+                                continue;
+                            ent.append({ alistIdx, m, sec, when, isNatal });
+                            firstSec = sec;
+                        }
+                    }
+                };
+
                 for (int i : transitIndices) {
                     if (!bodySubset.contains(i)) continue;
                     auto* trans = dynamic_cast<TransitPosition*>(_alist[i]);
@@ -7866,14 +7907,7 @@ AspectFinder::findParans()
                         }
                         return true;
                     };
-                    for (int m = 0; m < 4; ++m) {
-                        double tjd;
-                        if (!findAngleTransitJD(bodyAt2, jd2, locusLat, locusLon, m, tjd)) continue;
-                        const QDateTime when = dateTimeFromJulian(tjd);
-                        const qint64 sec = dayDT.secsTo(when);
-                        if (sec < 0 || sec >= 86400) continue;
-                        ent.append({ i, m, sec, when, false });
-                    }
+                    probeExt(bodyAt2, i, false);
                 }
 
                 for (int i : natalIndices) {
@@ -7883,14 +7917,7 @@ AspectFinder::findParans()
                                               double& dRAdt2, double& dDecdt2) -> bool {
                         return getNatalRADecSpeed(i, tjd, ra2, dec2, dRAdt2, dDecdt2);
                     };
-                    for (int m = 0; m < 4; ++m) {
-                        double tjd;
-                        if (!findAngleTransitJD(nBodyAt, jd2, locusLat, locusLon, m, tjd)) continue;
-                        const QDateTime when = dateTimeFromJulian(tjd);
-                        const qint64 sec = dayDT.secsTo(when);
-                        if (sec < 0 || sec >= 86400) continue;
-                        ent.append({ i, m, sec, when, true });
-                    }
+                    probeExt(nBodyAt, i, true);
                 }
                 return ent;
             };
@@ -7964,16 +7991,70 @@ AspectFinder::findParans()
                         result.insert(key, { sp, pDT, pJd });
                 };
 
+                // Enumerate exactly the same sub-tuples the in-range walk's
+                // trackSubCluster does, so the keys produced here match the
+                // keys the daily walk produced. The previous version emitted
+                // only the full cluster plus strictly-pairwise size-2 pairs,
+                // which (a) never produced 3+body subset keys and (b) used a
+                // stricter pair-orb test than the walk's chain adjacency. As a
+                // result, any multi-body paran whose cluster gained an extra
+                // member on a boundary-extension day — or any chain-adjacent
+                // pair inside a larger cluster — lost its key, so the
+                // backward/forward extension marked it done and froze its
+                // start/end (and peak) at the range boundary. Mirror the walk:
+                // full cluster + all admissible sub-tuples (size 2..N-1) by
+                // chain adjacency, capped like the walk.
+                auto pairsOK = [&](const QVector<int>& subEnt) -> bool {
+                    if (subEnt.size() < 2) return false;
+                    QVector<qint64> secs;
+                    secs.reserve(subEnt.size());
+                    for (int k : subEnt) secs.append(ent[k].secOfDay);
+                    std::sort(secs.begin(), secs.end());
+                    QVector<qint64> gaps;
+                    gaps.reserve(secs.size());
+                    for (int j = 1; j < secs.size(); ++j)
+                        gaps.append(secs[j] - secs[j - 1]);
+                    gaps.append((86400 - secs.last()) + secs.first());
+                    std::sort(gaps.begin(), gaps.end(), std::greater<qint64>());
+                    return gaps.size() < 2 || gaps[1] <= paranOrbSecs;
+                };
+
                 for (const auto& cl : cls) {
                     processCluster2(cl);
-                    if (cl.size() > 2) {
-                        for (int ai = 0; ai < cl.size(); ++ai)
-                            for (int bi = ai+1; bi < cl.size(); ++bi) {
-                                if (pairwiseArc(ent[cl[ai]].secOfDay,
-                                                ent[cl[bi]].secOfDay) > paranOrbSecs)
-                                    continue;
-                                processCluster2({ cl[ai], cl[bi] });
+
+                    const int N = cl.size();
+                    if (N > 2) {
+                        const int maxFullEnum = 7;
+                        const int hiSize = (N <= maxFullEnum) ? (N - 1) : 2;
+
+                        for (int subSize = 2; subSize <= hiSize; ++subSize) {
+                            QVector<int> idx(subSize);
+                            for (int j = 0; j < subSize; ++j) idx[j] = j;
+                            while (true) {
+                                QVector<int> sub;
+                                sub.reserve(subSize);
+                                for (int j = 0; j < subSize; ++j)
+                                    sub.append(cl[idx[j]]);
+                                if (pairsOK(sub)) processCluster2(sub);
+
+                                int k = subSize - 1;
+                                while (k >= 0 && idx[k] == N - subSize + k) --k;
+                                if (k < 0) break;
+                                ++idx[k];
+                                for (int j = k + 1; j < subSize; ++j)
+                                    idx[j] = idx[j - 1] + 1;
                             }
+                        }
+
+                        if (N > maxFullEnum) {
+                            for (int drop = 0; drop < N; ++drop) {
+                                QVector<int> sub;
+                                sub.reserve(N - 1);
+                                for (int j = 0; j < N; ++j)
+                                    if (j != drop) sub.append(cl[j]);
+                                if (pairsOK(sub)) processCluster2(sub);
+                            }
+                        }
                     }
                 }
                 return result;
@@ -8026,19 +8107,26 @@ AspectFinder::findParans()
 
             // ---- FORWARD EXTENSION -------------------------------------
             {
+                // Key off the day the walk actually stopped on, not the
+                // derived rangeLastDay (which can be one grid-day short — see
+                // firstWalkedDay/lastWalkedDay note above). Fall back to
+                // rangeLastDay if the walk never ran.
+                const QDateTime fwdAnchorDay =
+                    lastWalkedDay.isNull() ? rangeLastDay : lastWalkedDay;
+
                 QSet<int> fwdBodies;
                 struct FExt { ParanState* ps; bool done; };
                 QVector<FExt> fwdPending;
                 for (auto& ps : toEmit) {
-                    if (ps.endDate == rangeLastDay) {
+                    if (ps.endDate == fwdAnchorDay) {
                         for (int idx : ps.indices) fwdBodies.insert(idx);
                         fwdPending.append({ &ps, false });
                     }
                 }
 
                 if (!fwdPending.isEmpty()) {
-                    QDateTime fd = rangeLastDay.addDays(1);
-                    const QDateTime fLimit = rangeLastDay.addDays(183);
+                    QDateTime fd = fwdAnchorDay.addDays(1);
+                    const QDateTime fLimit = fwdAnchorDay.addDays(183);
                     while (fd <= fLimit && _state != cancelRequestedState) {
                         const bool anyAlive = std::any_of(
                             fwdPending.constBegin(), fwdPending.constEnd(),

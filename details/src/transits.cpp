@@ -503,6 +503,87 @@ class EventsTableModel : public QAbstractItemModel {
         }
     }
 
+    // Map a paran angle-glyph desc (Almagest codepoint) to an angle index:
+    // 0=Asc, 1=Desc, 2=MC, 3=IC; -1 when desc is not an angle glyph.
+    static int paranAngleIndex(const QString& desc)
+    {
+        if (desc.length() != 1) return -1;
+        switch (desc[0].unicode()) {
+        case 402:  return 0;  // Asc
+        case 8249: return 1;  // Desc
+        case 77:   return 2;  // MC
+        case 8225: return 3;  // IC
+        default:   return -1;
+        }
+    }
+
+    // Build the Asp-column string for a paran from its body locations.
+    // Emits one letter per occupied angle (A/D/M/I, in that order),
+    // lowercase when a single body sits on the angle and uppercase when two
+    // or more do.  For Par=N the transit-side and natal-side letters are
+    // split with a colon (transit:natal); natal bodies are those on fileId 0.
+    template <typename Locs>
+    static QString paranAngleString(const Locs& locs, A::EventType et)
+    {
+        // counts[side][angleIdx]: side 0 = transit, side 1 = natal.
+        int counts[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+        for (const auto& loc : locs) {
+            int ai = paranAngleIndex(loc.desc);
+            if (ai < 0) continue;
+            int side = (loc.planet.fileId() == 0) ? 1 : 0;
+            ++counts[side][ai];
+        }
+        static const char letters[4] = {'A', 'D', 'M', 'I'};
+        auto sideStr = [&](int s0, int s1) {
+            QString s;
+            for (int i = 0; i < 4; ++i) {
+                int n = counts[s0][i] + (s1 >= 0 ? counts[s1][i] : 0);
+                if (n == 0) continue;
+                QChar c = QLatin1Char(letters[i]);
+                s += (n >= 2) ? c : c.toLower();
+            }
+            return s;
+        };
+        if (et == A::etcParanatellontaToNatal) {
+            // U+22C5 DOT OPERATOR, spaced; reads as transit . natal
+            return sideStr(0, -1) + " " + QChar(0x22C5) + " " + sideStr(1, -1);
+        }
+        // Plain paran: all bodies are transit; combine both fileId buckets.
+        return sideStr(0, 1);
+    }
+
+    // Verbose, tooltip-friendly version of paranAngleString(): spells out the
+    // angle names (asc/desc/mc/ic), capitalised when two or more bodies sit on
+    // the angle.  Within a chart side multiple angles are joined with '+';
+    // Par=N splits the transit and natal sides with a spaced dot operator.
+    template <typename Locs>
+    static QString paranAngleVerbose(const Locs& locs, A::EventType et)
+    {
+        int counts[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+        for (const auto& loc : locs) {
+            int ai = paranAngleIndex(loc.desc);
+            if (ai < 0) continue;
+            int side = (loc.planet.fileId() == 0) ? 1 : 0;
+            ++counts[side][ai];
+        }
+        static const char* names[4] = {"asc", "desc", "mc", "ic"};
+        auto sideStr = [&](int s0, int s1) {
+            QStringList parts;
+            for (int i = 0; i < 4; ++i) {
+                int n = counts[s0][i] + (s1 >= 0 ? counts[s1][i] : 0);
+                if (n == 0) continue;
+                QString w = QString::fromLatin1(names[i]);
+                if (n >= 2) w[0] = w[0].toUpper();
+                parts << w;
+            }
+            return parts.join("+");
+        };
+        if (et == A::etcParanatellontaToNatal) {
+            return sideStr(0, -1) + " " + QChar(0x22C5) + " " + sideStr(1, -1);
+        }
+        return sideStr(0, 1);
+    }
+
     QString display(const A::ChartPlanetModeId& cpid) const
     {
         if (QString suff = modeToSuffix(cpid.mode()); suff.isEmpty()) {
@@ -889,6 +970,10 @@ class EventsTableModel : public QAbstractItemModel {
 
         case harmonicCol:
             if (role == Qt::ToolTipRole) {
+                if (et == A::etcParanatellonta
+                    || et == A::etcParanatellontaToNatal)
+                    return A::degreeToString(asp.orb(), A::HighPrecision)
+                        + "\n" + paranAngleVerbose(asp.locations(), et);
                 if (singleColumn(asp.locations())) return "station";
                 if (asp.orb() != qreal() /*asp.locations().empty()*/) {
                     return QString("H%1 %2")
@@ -927,6 +1012,11 @@ class EventsTableModel : public QAbstractItemModel {
 #endif
                 return f;
             }
+            // Parans: show the angle-position abbreviation (e.g. "am",
+            // "aM", "m:a") rather than the meaningless H1.
+            if (et == A::etcParanatellonta
+                || et == A::etcParanatellontaToNatal)
+                return paranAngleString(asp.locations(), et);
             // Display H# (optionally with ratio in parentheses)
             // Orb is shown in tooltip, not in the cell
             {
@@ -4220,6 +4310,11 @@ Transits::clickedCell(QModelIndex inx)
             focalFixed.emplace(cpid);
         }
         focal = std::move(focalFixed);
+        // Batch all member changes into a single filesUpdated emitted on
+        // resume.  Otherwise setGMT() (a tracked member) triggers the chart
+        // redraw before setParanGroupPlanets() below runs, so the wheel draws
+        // the previous click's paran group — an off-by-one stale figure.
+        file()->suspendUpdate();
         file()->setFocalPlanets(focal);
         file()->setName(desc);
         file()->setGMT(dt);
@@ -4248,6 +4343,8 @@ Transits::clickedCell(QModelIndex inx)
         } else {
             file()->setType(TypeOther);
         }
+        // Flush the batched changes (group/type now in place) as one update.
+        file()->resumeUpdate();
         // Trigger a full chart rebuild so Chart picks up the focal planets
         // and overrideAspectSet. FilesBar::openFile now guards stopThreads()
         // and date-range reset behind !sameFile, so emitting here is safe.

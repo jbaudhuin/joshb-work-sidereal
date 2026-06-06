@@ -81,6 +81,14 @@ private:
     };
     QList<MidpointFigure>             midpointFigures;
 
+    /// Paran focal visualization: a neutral hub at the wheel center with a
+    /// spoke to each involved body's marker (radix and/or transit wheel).
+    struct ParanFigure {
+        QGraphicsEllipseItem*       hub = nullptr;  ///< central node
+        QList<QGraphicsLineItem*>   spokes;         ///< hub -> each body marker
+    };
+    QList<ParanFigure>               paranFigures;
+
     /// Declination strip (horizontal axis below the wheel).
     /// X = |declination|; southern bodies above the axis line, northern below.
     static constexpr float declMaxDeg          = 28.0f;
@@ -120,6 +128,8 @@ private:
     void updateAspects();
     void drawMidpointFigures();
     void clearMidpointFigures();
+    void drawParanFigures();
+    void clearParanFigures();
     void drawDeclinationAxis();
     void drawDeclinationBodies(int fileIndex);
     void layoutDeclinationGlyphs();

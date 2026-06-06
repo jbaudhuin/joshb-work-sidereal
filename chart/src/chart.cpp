@@ -969,6 +969,88 @@ Chart::drawMidpointFigures()
 }
 
 void
+Chart::clearParanFigures()
+{
+    for (auto& pf : paranFigures) {
+        for (auto* spoke : pf.spokes) {
+            if (spoke) view->scene()->removeItem(spoke);
+            delete spoke;
+        }
+        if (pf.hub) view->scene()->removeItem(pf.hub);
+        delete pf.hub;
+    }
+    paranFigures.clear();
+}
+
+void
+Chart::drawParanFigures()
+{
+    clearParanFigures();
+
+    QGraphicsScene* s       = view->scene();
+    QColor          neutral = ThemeManager::instance().getChartMidpointColor();
+
+    // For bi-wheels (fid > 0) the planet marker carries an inner-circle child;
+    // draw to it so spokes terminate on the inner wheel like aspect lines.
+    auto innerMarker = [&](int fi, A::PlanetId pid) -> QGraphicsItem* {
+        auto* m = planetMarkers.value(fi).value(pid);
+        if (!m) return nullptr;
+        if (fi > 0 && !m->childItems().isEmpty())
+            return m->childItems().first();
+        return m;
+    };
+
+    for (int i = 0; i < filesCount(); ++i) {
+        if (file(i)->getType() != TypeParan) continue;
+
+        // The full set of bodies that participated in the paran event, each
+        // tagged with the file (radix=0 / transit=1) it belongs to.
+        const auto& group = file(i)->getParanGroupPlanets();
+        if (group.size() < 2) continue;
+
+        struct Spoke { QPointF end; QString name; };
+        QVector<Spoke> spokes;
+        for (const auto& entry : group) {
+            int fid = entry.first;
+            if (fid < 0) fid = 0;
+            // In transit-only mode the chart has a single file but the event
+            // stores transit bodies under fileId 1; collapse any unrenderable
+            // file index to 0 so the marker resolves on the lone wheel.
+            if (fid >= filesCount()) fid = 0;
+            QGraphicsItem* m = innerMarker(fid, entry.second);
+            if (!m && fid != 0) m = innerMarker(0, entry.second);
+            // A marker hidden this draw (e.g. a body with no valid prime-
+            // vertical position) keeps its stale rotation/position; never
+            // anchor a spoke to it.
+            if (!m || !m->isVisible()) continue;
+            spokes.append({ m->sceneBoundingRect().center(),
+                            file(fid)->horoscope().planets.value(entry.second).name });
+        }
+        if (spokes.size() < 2) continue;
+
+        ParanFigure pf;
+
+        // Spokes radiate from the wheel center (scene origin) to each body.
+        QPen spokePen(neutral, 1.5, Qt::SolidLine);
+        for (const auto& sp : spokes) {
+            auto* line = s->addLine(QLineF(QPointF(0, 0), sp.end), spokePen);
+            line->setZValue(0.5);
+            line->setToolTip(file(i)->getName() + "  →  " + sp.name);
+            pf.spokes.append(line);
+        }
+
+        // Hub: a filled neutral node, larger than the 2px proxy markers.
+        const qreal hubR = 5.0 * zoom;
+        pf.hub = s->addEllipse(-hubR, -hubR, 2 * hubR, 2 * hubR,
+                               QPen(neutral, 1.0), QBrush(neutral));
+        pf.hub->setZValue(1.5);
+        pf.hub->setToolTip(file(i)->getName());
+
+        paranFigures.append(pf);
+    }
+}
+
+void
 Chart::clearDeclinationStrip()
 {
     declView->scene()->clear();
@@ -1191,6 +1273,7 @@ Chart::clearScene()
     signIcons.clear();
     // scene()->clear() already deleted the items, just clear tracking lists
     midpointFigures.clear();
+    paranFigures.clear();
     clearDeclinationStrip();
 }
 
@@ -1523,6 +1606,7 @@ Chart::refreshAll()
 
     updateAspects();
     drawMidpointFigures();
+    drawParanFigures();
 }
 
 void
@@ -1575,6 +1659,7 @@ Chart::filesUpdated(MembersList m)
     if (updAspects) {
         updateAspects();
         drawMidpointFigures();
+        drawParanFigures();
     }
 }
 
@@ -1605,6 +1690,7 @@ Chart::viewSettingsUpdated(MembersList m)
         for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
         updateAspects();
         drawMidpointFigures();
+        drawParanFigures();
     }
 }
 
