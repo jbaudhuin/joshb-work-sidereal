@@ -3048,17 +3048,10 @@ Transits::updateTransits()
         return;
     }
 
-    // Auto-reconcile off ("compute on demand"): don't recompute automatically.
-    // Any existing events stay as-is and the Refresh button surfaces the pending
-    // state (yellow).  The explicit Refresh button force-enables _autoReconcile,
-    // so a user-initiated refresh still computes.
-    if (!_autoReconcile) {
-        qDebug() << "[UPDATE TRANSITS] Auto-reconcile off — skipping automatic recompute";
-        updateRefreshButtonState();
-        return;
-    }
-
-    // Restore location from the canonical tab source FIRST (before cache check).
+    // Restore location from the canonical tab source FIRST — before the
+    // auto-reconcile gate below.  This is a pure display/state sync (no event
+    // recompute), so it must run on every tab switch even when Auto is off;
+    // otherwise the _location widget keeps showing the previous tab's location.
     // The canonical events-table location lives in file(0)->transitLocation /
     // the _location dock-widget.  file(1) is a *consumer* of that location —
     // we never read file(1)'s location back into the canonical store.
@@ -3115,6 +3108,17 @@ Transits::updateTransits()
             transitsAF()->setTimezone(file(0)->getTransitTimezone());
             transitsAF()->resumeUpdate();
         }
+    }
+
+    // Auto-reconcile off ("compute on demand"): don't recompute automatically.
+    // Any existing events stay as-is and the Refresh button surfaces the pending
+    // state (yellow).  The explicit Refresh button force-enables _autoReconcile,
+    // so a user-initiated refresh still computes.  (Location sync above already
+    // ran, so the widget reflects the current tab regardless.)
+    if (!_autoReconcile) {
+        qDebug() << "[UPDATE TRANSITS] Auto-reconcile off — skipping automatic recompute";
+        updateRefreshButtonState();
+        return;
     }
 
     // Process pending UI events (repaints, etc.) before doing heavy work

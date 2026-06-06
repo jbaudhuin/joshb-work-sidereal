@@ -217,7 +217,7 @@ class AstroDatabase : public QFrame {
 
   private:
     enum entryType { unknownType, fileType, dirType, dbType, sessionType };
-    enum { PathRole = Qt::UserRole + 1, TypeRole };
+    enum { PathRole = Qt::UserRole + 1, TypeRole, SessionPathRole };
 
     FileTreeView*          fileList;
     QStandardItemModel*    dirModel;
@@ -348,6 +348,7 @@ class FilesBar : public QTabBar {
     FilesBar(QWidget* parent = nullptr);
 
     void                 setAskToSave(bool b) { askToSave = b; }
+    bool                 getAskToSave() const { return askToSave; }
     AstroFile*           findOpenFile(const QString& dir, const QString& name);
     void                 refreshTabForFile(AstroFile* file);
     const AstroFileList& currentFiles()
@@ -368,13 +369,18 @@ public:
     // Session info structure
     struct SessionInfo {
         QString filename;      // e.g., "session-1734124800.ini"
-        QDateTime timestamp;
+        QDateTime timestamp;   // last-saved time (preferred display date)
+        QDateTime inaugurated; // creation time (for tooltips)
         int tabCount;
         QString name;          // Optional user-defined name
-        
+
         // Format session info for display
         QString displayName() const;
     };
+
+    // Format a timestamp as a friendly relative/absolute string
+    // (e.g. "Today at 2:30 PM", "Mon 14 Dec 2:30 PM").
+    static QString friendlyTimestamp(const QDateTime& dt);
     
     // Get the directory where session files are stored (same as user charts)
     static QString sessionDirectory();
@@ -397,13 +403,21 @@ public:
     
     // Add session to MRU in sessions.ini
     static void addToMRU(const QString& sessionFile);
+
+    // Remove a session from the MRU (e.g. when a throwaway session is discarded)
+    static void removeFromMRU(const QString& sessionFile);
     
     // Get list of recent sessions from sessions.ini
     static QList<SessionInfo> getRecentSessions(int maxCount = 10);
     
-    // Initialize session file on app launch
-    static QString initializeSession(bool isNewSession);
-    
+    // Create a fresh timestamped auto-session file, set it current, and stamp
+    // its inauguration time.  Returns the new file path.
+    static QString newAutoSessionFile();
+
+    // True if a session file has already been explicitly set (e.g. via
+    // --load-session) — distinguishes that case from a cold normal launch.
+    static bool hasExplicitCurrentSession();
+
     // Read API key from APIKey.ini
     static QString readAPIKey();
     
@@ -435,6 +449,7 @@ class MainWindow : public QMainWindow, public Customizable {
   private:
     bool _skipRestore;
     bool _launchedWithNew;  // Track if launched with --new flag
+    bool _autoRestore;      // Track if launched with --auto-restore flag
     bool _isServerInstance; // Track if this instance is running the single-instance server
     bool askToSave;
 
@@ -457,6 +472,17 @@ class MainWindow : public QMainWindow, public Customizable {
     
     void saveSession();
     void restoreSession();
+    // True if the current session holds anything worth persisting (a saved
+    // chart or unsaved edits) — false for a pristine "Untitled"-only session.
+    bool sessionWorthKeeping() const;
+    // Resolve which session to open at launch (handles --new / --auto-restore /
+    // --load-session and the named-session restore prompt).  Sets the current
+    // session file and may set _skipRestore / _pendingRestoreDialog.  Returns
+    // the chosen session file path.
+    QString chooseStartupSession();
+    // Show the session-picker list dialog; returns the chosen session file path
+    // (absolute), or an empty string if cancelled / none available.
+    QString pickSessionFile();
     bool hasOtherInstances();  // Check if other instances are running
     
     // Session management methods
@@ -501,11 +527,11 @@ class MainWindow : public QMainWindow, public Customizable {
     void paintEvent(QPaintEvent* event) override;
 
   public:
-    MainWindow(bool skipRestore = false, bool isServerInstance = true, QWidget* parent = nullptr);
+    MainWindow(bool skipRestore = false, bool isServerInstance = true, bool autoRestore = false, QWidget* parent = nullptr);
 
     const std::string& APIKey() const { return _APIKey; }
 
-    static MainWindow*  instance(bool skipRestore = false, bool isServerInstance = true, const QString& sessionFile = QString());
+    static MainWindow*  instance(bool skipRestore = false, bool isServerInstance = true, bool autoRestore = false, const QString& sessionFile = QString());
     static AstroWidget* theAstroWidget() { return instance()->astroWidget; }
 };
 

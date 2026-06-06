@@ -270,17 +270,21 @@ main(int argc, char* argv[])
     // Check for command-line flags to skip session restore and allow multiple instances
     qDebug() << "Parsing command-line arguments...";
     bool skipRestore = false;
+    bool autoRestore = false; // Restore most-recent session without prompting
     bool allowMultipleInstances = false;
     QString sessionFile; // Optional session file to restore
     QStringList args = originalArgs; // Use saved args, not QApplication's modified version
     qDebug() << "originalArgs:" << originalArgs;
     for (int i = 1; i < args.size(); ++i) {
         QString lower = args[i].toLower();
-        if (lower == "--new" || lower == "-new" || lower == "/new" || 
+        if (lower == "--new" || lower == "-new" || lower == "/new" ||
             lower == "/n" || lower == "--norestore") {
             qDebug() << "Found --new flag";
             skipRestore = true;
             allowMultipleInstances = true;
+        } else if (lower == "--auto-restore" || lower == "-auto-restore" || lower == "/auto-restore") {
+            qDebug() << "Found --auto-restore flag";
+            autoRestore = true;
         } else if (lower == "--load-session" || lower == "-load-session" || lower == "/load-session" ||
                    lower == "--restore" || lower == "-restore" || lower == "/restore") {
             // Next argument should be the session file
@@ -294,6 +298,7 @@ main(int argc, char* argv[])
     }
     
     qDebug() << "skipRestore:" << skipRestore;
+    qDebug() << "autoRestore:" << autoRestore;
     qDebug() << "allowMultipleInstances:" << allowMultipleInstances;
     qDebug() << "sessionFile:" << sessionFile;
     
@@ -315,8 +320,17 @@ main(int argc, char* argv[])
         qDebug() << "Multiple instances allowed - skipping single instance check";
     }
     
+    // Initialize and apply the theme to the application BEFORE constructing the
+    // window, so startup dialogs shown during construction (the session prompt
+    // and the "Choose…" picker) are themed.
+    ThemeManager& themeManager = ThemeManager::instance();
+    QSettings themeSettings(QSettings::IniFormat, QSettings::UserScope, "Astroprocessor", "Zodiac");
+    QString savedTheme = themeSettings.value("theme", "dark").toString();
+    themeManager.setTheme(savedTheme, false);
+    themeManager.applyToApplication(&a);
+
     qDebug() << "Creating MainWindow instance...";
-    std::unique_ptr<MainWindow> mw(MainWindow::instance(skipRestore, isServerInstance, sessionFile));
+    std::unique_ptr<MainWindow> mw(MainWindow::instance(skipRestore, isServerInstance, autoRestore, sessionFile));
     MainWindow&                 w = *mw;
     
     // Connect raise signal if single instance mode
@@ -343,18 +357,7 @@ main(int argc, char* argv[])
         });
     }
 
-    // Initialize and apply theme using ThemeManager
-    ThemeManager& themeManager = ThemeManager::instance();
-    
-    // Load theme preference from settings
-    QSettings settings(QSettings::IniFormat, QSettings::UserScope, "Astroprocessor", "Zodiac");
-    QString savedTheme = settings.value("theme", "dark").toString();
-    themeManager.setTheme(savedTheme, false);
-    
-    // Apply theme to application
-    themeManager.applyToApplication(&a);
-    
-    // Propagate theme to main window
+    // Propagate theme to main window (theme already applied to the app above)
     themeManager.propagateThemeProperty(&w);
 
     w.show();
