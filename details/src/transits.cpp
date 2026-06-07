@@ -1258,17 +1258,43 @@ class EventsTableModel : public QAbstractItemModel {
                 if (a->locations().size() > b->locations().size()) return false;
                 return (a->locations() < b->locations()); // planetRange
 
-            case harmonicCol:
-                if (a->harmonic() < b->harmonic()) return true; // harmonic
-                if (a->harmonic() > b->harmonic()) return false;
-                if (a->dateTime() < b->dateTime()) return true; // date-time
-                if (a->dateTime() > b->dateTime()) return false;
-                if (a->orb() < b->orb()) return true; // orb
+            case harmonicCol: {
+                // Primary: group by event type
+                if (a->eventType() < b->eventType()) return true;
+                if (a->eventType() > b->eventType()) return false;
+
+                const auto et        = a->eventType();
+                const bool isParan   = (et == A::etcParanatellonta
+                                        || et == A::etcParanatellontaToNatal);
+                const bool isPattern = (et == A::etcTransitAspectPattern
+                                        || et == A::etcTransitNatalAspectPattern);
+
+                // Transits: harmonic before orb; patterns/parans: orb first
+                if (!isParan && !isPattern) {
+                    if (a->harmonic() < b->harmonic()) return true;
+                    if (a->harmonic() > b->harmonic()) return false;
+                }
+                if (a->orb() < b->orb()) return true;
                 if (a->orb() > b->orb()) return false;
-                if (a->locations().size() < b->locations().size()) // planetSet
-                    return true;
+
+                // Parans: Asp string as next tiebreaker
+                if (isParan) {
+                    auto sa = paranAngleString(a->locations(), et);
+                    auto sb = paranAngleString(b->locations(), et);
+                    if (sa < sb) return true;
+                    if (sa > sb) return false;
+                }
+
+                // Duration tiebreaker (longer duration = more powerful = earlier)
+                auto dura = a->range().first.isValid() ? a->range().days() : 0.0;
+                auto durb = b->range().first.isValid() ? b->range().days() : 0.0;
+                if (dura > durb) return true;
+                if (dura < durb) return false;
+
+                if (a->locations().size() < b->locations().size()) return true;
                 if (a->locations().size() > b->locations().size()) return false;
-                return (a->locations() < b->locations()); // planetRange
+                return (a->locations() < b->locations());
+            }
 
             case transitBodyCol:
             case natalTransitBodyCol:
