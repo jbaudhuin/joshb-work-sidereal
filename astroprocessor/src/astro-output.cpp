@@ -1068,9 +1068,8 @@ struct event {
                    + _formatTime(_dt, tz) + "</td>";
         }
 
-        // Angular date calculation (PD or PSSR) - skip in sidereal/RA modes and progressed charts
-        if (_star && displayMode == DisplayLocalTime && !_isProgressed) {
-            // i.e., not radix, not progressed, and local time mode
+        // Angular date calculation (PD or PSSR) - all display modes
+        if (_star && !_isProgressed) {
             // Get the star/planet's RA and the angle RA
             double planetRA = _star->equatorialPos.x();
             double angleRA = _star->angleTransitRA[_pivot];

@@ -4846,8 +4846,36 @@ MainWindow::chooseStartupSession()
         QPushButton* chooseBtn =
             box.addButton(tr("Choose…"), QMessageBox::ActionRole);
         box.setDefaultButton(openBtn);
+
+        // Countdown on the Open button so the user can just wait instead of
+        // clicking.  10 seconds feels right — enough time to intercept, not so
+        // long that it feels like staring at a spinner.
+        int remaining = 10;
+        QTimer countdown;
+        countdown.setInterval(1000);
+        connect(&countdown, &QTimer::timeout, [&]() {
+            --remaining;
+            if (remaining <= 0) {
+                countdown.stop();
+                // Re-apply the original label so the clickedButton check below
+                // matches, then simulate the open path by clearing the dialog's
+                // result so we fall through to the in-place restore.
+                box.done(QMessageBox::NoButton);
+            } else {
+                openBtn->setText(tr("Open in %1s").arg(remaining));
+            }
+        });
+        countdown.start();
+
+        // If the user presses Enter on the default button while the countdown is
+        // still running, cancel the timer and handle the click normally.
+        connect(&box, &QMessageBox::buttonClicked, [&]() {
+            countdown.stop();
+        });
+
         box.exec();
 
+        // If the timer ran out (done(NoButton)), fall through to open.
         QAbstractButton* clicked = box.clickedButton();
         if (clicked == newBtn) {
             qDebug() << "Startup prompt: New Session";
@@ -4867,7 +4895,8 @@ MainWindow::chooseStartupSession()
             _skipRestore = true;
             return SessionManager::newAutoSessionFile();
         }
-        // openBtn (or dialog dismissed): fall through to open in place.
+        // openBtn clicked, Enter pressed, countdown expired, or dialog dismissed:
+        // fall through to open in place.
         qDebug() << "Startup prompt: Open" << mostRecent;
     }
 
