@@ -3038,8 +3038,15 @@ calculateBaseChartHarmonic(Horoscope& scope)
     scope.houses  = scope.housesOrig;
     scope.planets = scope.planetsOrig;
 
-    const InputData& input(scope.inputData);
-    if (scope.harmonic != 1.0 && aspectMode != amcGreatCircle) {
+    // Harmonic multiplication is a chart-positioning concern (it rewrites the
+    // ecliptic/equatorial/PV longitudes the wheel draws from), so it must apply
+    // whenever harmonic != 1 regardless of useGreatCircle.  GC only governs
+    // aspect *math* (computed from the un-multiplied planetsOrig), not where the
+    // bodies sit — see aspectModeForChartDraw() doc in astro-calc.h.  The old
+    // `aspectMode != amcGreatCircle` guard was a holdover from the legacy
+    // 4-value aspectMode and left harmonic charts un-multiplied (drawn at H1)
+    // whenever GC was on.
+    if (scope.harmonic != 1.0) {
         calculateHarmonic(scope.harmonic, scope.houses, scope.planets);
     } else {
         findPlanetStarConfigs(scope.planets, scope.stars);

@@ -1045,15 +1045,21 @@ AstroFileHandler::calculateAspects()
         return scope.aspects;
     }
 
-    A::AspectSetId aspset = -1;
+    A::AspectSetId aspset   = -1;
+    A::AspectSetId override  = MainWindow::theAstroWidget()->overrideAspectSet();
     const auto&    curr(A::EventOptions::current());
-    // GC + 2-body focal: skip cluster expansion. The click in transits.cpp
-    // already armed the H_h override aspect set; findClusters operates in 1D
-    // longitudinal harmonic space and won't recognize a GC pair as a cluster
-    // anyway. Just use the override directly so an H_h GC event displays its
-    // H_h aspect line.
-    if (A::useGreatCircle && fp.size() == 2) {
-        aspset = MainWindow::theAstroWidget()->overrideAspectSet();
+    // An explicitly-armed override aspect set (from a harmonics/pattern or
+    // transits click) reflects a deliberate H_h selection and must win over
+    // findClusters cluster-expansion — otherwise small (< patternsQuorum)
+    // 2-body and midpoint patterns fall through to the default aspect set and
+    // their H_h aspect never draws.
+    if (override != -1) {
+        aspset = override;
+    } else if (A::useGreatCircle && fp.size() == 2) {
+        // GC + 2-body focal: skip cluster expansion. findClusters operates in
+        // 1D longitudinal harmonic space and won't recognize a GC pair as a
+        // cluster anyway.
+        aspset = override;
     } else if (fp.size() < curr.patternsQuorum) {
         bool        skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
         A::uintSSet hs   = A::dynAspState();
@@ -1081,7 +1087,7 @@ AstroFileHandler::calculateAspects()
         }
         A::setOrbFactor(useOrb / A::harmonicsMaxQOrb());
     } else {
-        aspset = MainWindow::theAstroWidget()->overrideAspectSet();
+        aspset = override;
     }
 
     const auto& asps =
@@ -1155,11 +1161,14 @@ AstroFileHandler::calculateSynastryAspects()
     auto fp = file(1)->focalPlanets();
     if (fp.empty()) fp = file(1)->focalPlanets();
 
+    A::AspectSetId override = MainWindow::theAstroWidget()->overrideAspectSet();
     const auto& curr(A::EventOptions::current());
-    // GC + 2-body: honor the H_h override aspect set armed by the events
-    // table click (see comment in calculateAspects()).
-    if (A::useGreatCircle && fp.size() == 2) {
-        aspset = MainWindow::theAstroWidget()->overrideAspectSet();
+    // An explicitly-armed override (harmonics/pattern or events click), or a
+    // GC 2-body focal, takes the direct path: build the focal planet map and
+    // draw with the H_h override set, bypassing findClusters expansion (see
+    // comment in calculateAspects()).
+    if (override != -1 || (A::useGreatCircle && fp.size() == 2)) {
+        aspset = override;
         const auto& asps = A::getAspectSet(
             aspset == -1 ? file(0)->horoscope().inputData.aspectSet() : aspset);
         A::ChartPlanetPtrMap planets;
