@@ -107,6 +107,9 @@ No automated test suite exists yet. The `swetest.c` file is a Swiss Ephemeris te
 
 ## Creating a New Release
 
+> The full, authoritative procedure (including major/minor/minuscule version semantics) lives
+> in the `release` skill at `.claude/skills/release/SKILL.md`. Keep this table in sync with it.
+
 When cutting a new version (e.g. 0.9.5 → 0.9.6), update **all** of the following files:
 
 ### Required version-bump files

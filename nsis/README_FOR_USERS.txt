@@ -1,5 +1,5 @@
 ZODIAC SIDEREAL - Astrological Software
-Version 0.9.8
+Version 0.9.8.1
 ========================================
 
 ABOUT
@@ -9,10 +9,10 @@ Zodiac Sidereal is a comprehensive astrological charting application featuring:
 - Harmonic charts and analysis
 - Transit calculations
 - Primary directions and parans
-- Paranatellonta event finding
-- Fixed star conjunctions
+- Paranatellonta event finding ("paransits")
+- Fixed star conjunctions and parans
 - Declination strip view
-- Bi-wheel prime vertical display
+- Bi-wheel prime vertical display ("mundoscope")
 - Event search and timing
 - Multiple chart types and display options
 
@@ -120,8 +120,8 @@ See CHANGELOG.txt or visit the GitHub repository for version history.
 
 VERSION INFORMATION
 ===================
-Version: 0.9.8
-Build Date: 2026-05-09
+Version: 0.9.8.1
+Build Date: 2026-06-10
 License: GPL v3
 Website: https://github.com/jbaudhuin/joshb-work-sidereal
 

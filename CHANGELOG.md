@@ -2,6 +2,28 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.8.1] - 2026-06-10
+
+### Added
+- **Great Circle & Prime Vertical Aspects**: Added GC and PV aspect support and decoupled the aspect mode so these can be selected independently
+- **City Database & Paran Latitude**: Built-in city database with paran-latitude lookup for locating paran events by place
+- **Midpoint & Pattern Parans**: Paran pattern parsing plus midpoint-paran support for richer paran searches
+- **Per-Tab Skip-by-Duration & Auto-Refresh**: Each tab can skip events shorter than a chosen duration and auto-refresh on demand
+- **Broad Angular Date Calculation & Startup Open Timer**: Wider angular date-range computation and a startup timer that opens the prior session
+
+### Improved
+- **Harmonic Aspects**: Harmonics are now always applied, with override aspects preferred over computed ones
+- **Harmonic Column Sorting**: Refined sorting logic for harmonic columns
+- **Paran Detection**: Better paran boundary handling, added probes and visuals, and improved transit-to-natal paran support
+- **Session Handling**: Refactored session startup, restore, and most-recently-used (MRU) handling
+
+### Fixed
+- **Fractured Paransits**: Fixed problem where paran-transits were improperly split into multiple time periods, rather than a single range of time "in orb".
+- **Hidden Cusps**: Clear `originEventType` so stale event types no longer hide house cusps
+
+### Changed
+- Version bumped to 0.9.8.1
+
 ## [0.9.8] - 2026-05-09
 
 ### Added
