@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "thememanager.h"
+#include "crashhandler.h"
 #include <QApplication>
 #include <QMessageBox>
 #include <QDebug>
@@ -218,6 +219,20 @@ main(int argc, char* argv[])
     a.setApplicationName("Zodiac");
     a.setApplicationVersion("v0.9.8.1 (build 2026-06-10)");
 
+    // Install post-mortem crash capture before any real work. On Windows this
+    // writes a minidump + symbolized stack trace to %LOCALAPPDATA%\Zodiac\crashes
+    // when the process dies unexpectedly; on next launch the user is offered the
+    // report to send on. No-op on other platforms.
+    CrashHandler::install(a.applicationVersion());
+
+    // Self-test: `zodiac --crashtest` deliberately faults so the crash-capture
+    // pipeline (minidump + symbolized trace) can be validated on demand. Does
+    // nothing unless the flag is explicitly passed.
+    if (originalArgs.contains("--crashtest", Qt::CaseInsensitive)) {
+        volatile int* p = nullptr;
+        *p = 42;
+    }
+
     // Debug: Show current working directory and application path
     auto cwd        = QDir::currentPath();
     qDebug() << "current path:" << cwd;
@@ -361,6 +376,11 @@ main(int argc, char* argv[])
     themeManager.propagateThemeProperty(&w);
 
     w.show();
+
+    // If a previous run left a crash report, offer to bundle and reveal it now
+    // that we're in a healthy process with the UI up.
+    CrashHandler::checkForPendingReports();
+
     int result = a.exec();
     
     // Cleanup

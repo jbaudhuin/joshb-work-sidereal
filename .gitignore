@@ -46,6 +46,7 @@ Makefile.*
 /etc
 /nsis/*.psd
 /nsis/*.exe
+/nsis/symbols/
 *.user
 /build-Qt*/*
 /build-*/*
@@ -84,3 +85,4 @@ PSSR.md
 The PSSR.txt
 CLAUDE.md
 .claude/
+memory/

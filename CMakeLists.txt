@@ -136,6 +136,7 @@ set(ZODIAC_SOURCES
     zodiac/src/help.cpp
     zodiac/src/slidewidget.cpp
     zodiac/src/thememanager.cpp
+    zodiac/src/crashhandler.cpp
 )
 
 set(ZODIAC_HEADERS
@@ -144,6 +145,7 @@ set(ZODIAC_HEADERS
     zodiac/src/help.h
     zodiac/src/slidewidget.h
     zodiac/src/thememanager.h
+    zodiac/src/crashhandler.h
 )
 
 # Create the executable with all sources
@@ -198,6 +200,13 @@ if(UNIX)
     )
 endif()
 
+# Windows: dbghelp provides MiniDumpWriteDump / StackWalk64 for the crash handler
+if(WIN32)
+    target_link_libraries(zodiac PRIVATE
+        dbghelp
+    )
+endif()
+
 # Build type specific definitions
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_definitions(zodiac PRIVATE
@@ -228,6 +237,36 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set_target_properties(zodiac PROPERTIES
         CXX_VISIBILITY_PRESET default
         VISIBILITY_INLINES_HIDDEN OFF
+    )
+endif()
+
+# Emit debug symbols for optimized builds too, so post-mortem crash dumps from
+# release builds can be symbolized. /Zi generates a PDB while keeping full
+# optimization; /OPT:REF /OPT:ICF undo the linker's debug-mode bloat so the
+# binary stays a genuine release build. Archive the resulting zodiac.pdb
+# alongside each shipped build -- the minidump references it by GUID.
+# Generator expressions cover both single- and multi-config generators.
+if(MSVC)
+    target_compile_options(zodiac PRIVATE
+        $<$<CONFIG:Release>:/Zi>
+        $<$<CONFIG:RelWithDebInfo>:/Zi>
+    )
+    target_link_options(zodiac PRIVATE
+        $<$<CONFIG:Release>:/DEBUG;/OPT:REF;/OPT:ICF>
+        $<$<CONFIG:RelWithDebInfo>:/DEBUG;/OPT:REF;/OPT:ICF>
+    )
+elseif(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # llvm-mingw (this project's default kit): clang defaults to DWARF, which the
+    # crash handler's DbgHelp/StackWalk64 cannot read. -gcodeview emits CodeView
+    # and lld's --pdb writes a real PDB next to the .exe so crash dumps symbolize
+    # in-process. Optimization is unaffected.
+    target_compile_options(zodiac PRIVATE
+        $<$<CONFIG:Release>:-g;-gcodeview>
+        $<$<CONFIG:RelWithDebInfo>:-g;-gcodeview>
+    )
+    target_link_options(zodiac PRIVATE
+        $<$<CONFIG:Release>:-g;-Wl,--pdb=$<TARGET_FILE_DIR:zodiac>/zodiac.pdb>
+        $<$<CONFIG:RelWithDebInfo>:-g;-Wl,--pdb=$<TARGET_FILE_DIR:zodiac>/zodiac.pdb>
     )
 endif()
 

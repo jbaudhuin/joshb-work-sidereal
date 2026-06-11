@@ -6,13 +6,15 @@ SOURCES += src/main.cpp \
        src/mainwindow.cpp \
     src/help.cpp \
     src/slidewidget.cpp \
-    src/thememanager.cpp
+    src/thememanager.cpp \
+    src/crashhandler.cpp
 
 HEADERS  += src/mainwindow.h \
     $$PWD/src/afileinfo.h \
     src/help.h \
     src/slidewidget.h \
-    src/thememanager.h
+    src/thememanager.h \
+    src/crashhandler.h
 
 ## win icon, etc
 win32: RC_FILE = app.rc

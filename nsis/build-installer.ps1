@@ -382,6 +382,30 @@ if (-not $SkipBuild) {
                 Write-Host "  Location: $($installer.DirectoryName)" -ForegroundColor Gray
                 Write-Host "  Size: $([math]::Round($installer.Length / 1MB, 2)) MB" -ForegroundColor Gray
             }
+
+            # Archive the debug symbols (PDB) alongside the installer. The in-app
+            # crash handler writes minidumps that can only be symbolized with the
+            # exact PDB from that build (matched by GUID), so a copy is kept for
+            # every shipped installer. Stored in a per-version subfolder keeping
+            # the original "zodiac.pdb" name, so a debugger auto-resolves it when
+            # symbols\<version> is on the symbol path (and versions never clobber).
+            $PdbSource = Join-Path $BinDir "zodiac.pdb"
+            if (Test-Path $PdbSource) {
+                $PdbDestDir = Join-Path (Join-Path $NSISDir "symbols") $Version
+                New-Item -ItemType Directory -Force -Path $PdbDestDir | Out-Null
+                $PdbDest = Join-Path $PdbDestDir "zodiac.pdb"
+                Copy-Item $PdbSource $PdbDest -Force
+                Write-Host ""
+                Write-Host "Debug symbols archived:" -ForegroundColor Cyan
+                Write-Host "  File: $PdbDest" -ForegroundColor White
+                Write-Host "  Size: $([math]::Round((Get-Item $PdbDest).Length / 1MB, 2)) MB" -ForegroundColor Gray
+                Write-Host "  (Add symbols\$Version to your debugger's symbol path to load it.)" -ForegroundColor Gray
+            } else {
+                Write-Host ""
+                Write-Host "WARNING: zodiac.pdb not found in bin/" -ForegroundColor Yellow
+                Write-Host "  Crash reports from this build will not be symbolizable." -ForegroundColor Yellow
+                Write-Host "  Build Release with the PDB-enabled flags (see CMakeLists.txt) to produce it." -ForegroundColor Yellow
+            }
         } else {
             Write-Host ""
             Write-Host "ERROR: Installer compilation failed" -ForegroundColor Red
