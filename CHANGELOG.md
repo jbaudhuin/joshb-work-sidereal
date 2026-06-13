@@ -2,6 +2,15 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.8.2] - 2026-06-12
+
+### Added
+- **Crash Reporting**: Release builds now capture a minidump and a symbolized stack trace to `%LOCALAPPDATA%\Zodiac\crashes` when the app closes unexpectedly. On the next launch you're offered to bundle the report into a single zip and reveal it for sending. A `--crashtest` flag is available to validate the pipeline.
+
+### Changed
+- Version bumped to 0.9.8.2
+- Debug symbols (PDB) are now generated for release builds and archived per-version by the installer script so crash reports can be symbolized.
+
 ## [0.9.8.1] - 2026-06-10
 
 ### Added

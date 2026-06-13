@@ -217,7 +217,7 @@ main(int argc, char* argv[])
     setbuf(stderr, nullptr);
 #endif
     a.setApplicationName("Zodiac");
-    a.setApplicationVersion("v0.9.8.1 (build 2026-06-10)");
+    a.setApplicationVersion("v0.9.8.2 (build 2026-06-12)");
 
     // Install post-mortem crash capture before any real work. On Windows this
     // writes a minidump + symbolized stack trace to %LOCALAPPDATA%\Zodiac\crashes
