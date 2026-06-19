@@ -4235,11 +4235,22 @@ Transits::clickedCell(QModelIndex inx)
     bool mbtn = (btns & Qt::MiddleButton);
     bool lbtn = (btns & Qt::LeftButton);
     bool ctrl = (QApplication::keyboardModifiers() & Qt::ControlModifier);
+    // Alt widens the purview: instead of arming the event's H_h override
+    // aspect set (which draws *only* that one focal aspect), leave the
+    // override at -1 so calculateAspects()/calculateSynastryAspects() take
+    // the cluster-expansion path and draw all the tight aspects/interaspects
+    // around the focal bodies.  (Matches the post-click Alt+zoom behavior,
+    // where the override has already been restored to -1.)
+    bool alt  = (QApplication::keyboardModifiers() & Qt::AltModifier);
     if (lbtn && ctrl) lbtn = false, mbtn = true;
 
     auto* aw = MainWindow::theAstroWidget();
     if (!aw) return;
     A::modalize<A::AspectSetId> aset(aw->overrideAspectSet(), -1);
+    // Default to "exactly this" drawing; enabled below for the event types
+    // that want the bigger picture (every focal type except the TA/TNA
+    // aspect-pattern events, which draw precisely the clicked pattern).
+    A::modalize<bool> fexp(aw->focalExpand(), false);
     A::PlanetSet focal;
     double clickHarmonic = 0;  // non-zero when we quietly set harmonic
     if (inx.column() == EventsTableModel::harmonicCol) {
@@ -4269,12 +4280,13 @@ Transits::clickedCell(QModelIndex inx)
                 //
                 // Set override BEFORE setHarmonicQuietly — it triggers
                 // change(Harmonic) which redraws the chart synchronously.
-                aset = A::topAspectSet().id + 1;
+                if (!alt) aset = A::topAspectSet().id + 1;
                 MainWindow::theAstroWidget()->setHarmonicQuietly(h);
                 clickHarmonic = h;
             } else {
                 // Non-midpoint focal: show at H1 with override aspect set
-                aset = A::topAspectSet().id + h;
+                // (unless Alt asks for the expanded purview — see above).
+                if (!alt) aset = A::topAspectSet().id + h;
                 MainWindow::theAstroWidget()->setHarmonicQuietly(1);
             }
         }
@@ -4301,6 +4313,12 @@ Transits::clickedCell(QModelIndex inx)
     if (!dt.isValid()) return;
     auto    ev = _evm->rowData(srcInx.row());
     auto    et = ev.eventType();
+    // TA/TNA are harmonic aspect-PATTERN events: draw precisely the clicked
+    // pattern ("exactly this").  Every other focal event (T=N, returns,
+    // parans, …) wants the clicked aspect plus the other aspects involving its
+    // bodies — the bigger picture — so enable focal expansion for those.
+    aw->focalExpand() = (et != A::etcTransitAspectPattern
+                         && et != A::etcTransitNatalAspectPattern);
     // Focal-column click (transitBodyCol or natalTransitBodyCol) enables
     // paran-chart pruning mode; other columns show the full paran table.
     const bool paranFocalClick =

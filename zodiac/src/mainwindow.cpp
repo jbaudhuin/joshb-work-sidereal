@@ -1881,51 +1881,99 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
     updateList();
 }
 
-void
-AstroDatabase::saveDatabaseState()
+QSet<QString>
+AstroDatabase::currentExpandedPaths()
 {
-    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
-    settings.beginGroup("Database");
-    
-    // Save scroll position
-    QScrollBar* vbar = fileList->verticalScrollBar();
-    if (vbar) {
-        settings.setValue("scrollPosition", vbar->value());
-    }
-    
-    // Clear old expansion state
-    settings.remove("expanded");
-    
-    // Recursively save expanded state for all directories
-    std::function<void(const QModelIndex&)> saveExpansion = [&](const QModelIndex& index) {
+    QSet<QString> expanded;
+
+    std::function<void(const QModelIndex&)> walk = [&](const QModelIndex& index) {
         if (!index.isValid()) return;
-        
+
         QStandardItem* item = dirModel->itemFromIndex(index);
         auto itemType = item ? item->data(TypeRole).toUInt() : 0;
         if (item && (itemType == dirType || itemType == dbType)) {
             QString path = item->data(PathRole).toString();
             QModelIndex proxyIndex = searchProxy->mapFromSource(index);
-            bool expanded = fileList->isExpanded(proxyIndex);
-            
-            if (expanded && !path.isEmpty()) {
-                settings.setValue(QString("expanded/%1").arg(path), true);
+            if (!path.isEmpty() && fileList->isExpanded(proxyIndex)) {
+                expanded.insert(path);
             }
-            
-            // Recursively save children
+
+            // Recursively collect children
             for (int i = 0; i < item->rowCount(); ++i) {
                 QStandardItem* child = item->child(i);
                 if (child && child->data(TypeRole).toUInt() == dirType) {
-                    saveExpansion(dirModel->indexFromItem(child));
+                    walk(dirModel->indexFromItem(child));
                 }
             }
         }
     };
-    
-    // Save expansion state for all top-level folders and their children
+
     for (int i = 0; i < dirModel->rowCount(); ++i) {
-        saveExpansion(dirModel->index(i, 0));
+        walk(dirModel->index(i, 0));
     }
-    
+    return expanded;
+}
+
+void
+AstroDatabase::captureExpansionSnapshot()
+{
+    _expandSnapshot = currentExpandedPaths();
+}
+
+void
+AstroDatabase::applyExpansionSnapshot()
+{
+    std::function<void(const QModelIndex&)> walk = [&](const QModelIndex& index) {
+        if (!index.isValid()) return;
+
+        QStandardItem* item = dirModel->itemFromIndex(index);
+        auto itemType = item ? item->data(TypeRole).toUInt() : 0;
+        if (item && (itemType == dirType || itemType == dbType)) {
+            QString path = item->data(PathRole).toString();
+            QModelIndex proxyIndex = searchProxy->mapFromSource(index);
+            fileList->setExpanded(proxyIndex,
+                                  !path.isEmpty() && _expandSnapshot.contains(path));
+
+            // Recursively restore children
+            for (int i = 0; i < item->rowCount(); ++i) {
+                QStandardItem* child = item->child(i);
+                if (child && child->data(TypeRole).toUInt() == dirType) {
+                    walk(dirModel->indexFromItem(child));
+                }
+            }
+        }
+    };
+
+    for (int i = 0; i < dirModel->rowCount(); ++i) {
+        walk(dirModel->index(i, 0));
+    }
+}
+
+void
+AstroDatabase::saveDatabaseState()
+{
+    QSettings settings(SessionManager::settingsFile(), QSettings::IniFormat);
+    settings.beginGroup("Database");
+
+    // While a search is active the tree is force-expanded to reveal matches, so
+    // the live expansion/scroll state doesn't reflect the user's real layout.
+    // Persist the pre-search snapshot instead, and leave scrollPosition as-is.
+    if (!_searchActive) {
+        QScrollBar* vbar = fileList->verticalScrollBar();
+        if (vbar) {
+            settings.setValue("scrollPosition", vbar->value());
+        }
+    }
+
+    // Clear old expansion state
+    settings.remove("expanded");
+
+    const QSet<QString> expanded =
+        _searchActive ? _expandSnapshot : currentExpandedPaths();
+    for (const QString& path : expanded) {
+        settings.setValue(QString("expanded/%1").arg(path), true);
+    }
+
     settings.endGroup();
 }
 
@@ -1978,7 +2026,26 @@ AstroDatabase::restoreDatabaseState()
 void
 AstroDatabase::searchFilter(const QString& nf)
 {
+    const bool wasActive = _searchActive;
+    const bool nowActive = !nf.isEmpty();
+
+    // Snapshot the user's real expansion state the moment a search begins, so we
+    // can restore it when the search is cleared.
+    if (nowActive && !wasActive) {
+        captureExpansionSnapshot();
+    }
+
     searchProxy->setFilterRegularExpression(nf);
+
+    if (nowActive) {
+        // Recursive filtering keeps only matches plus their ancestor folders, so
+        // expanding everything reveals exactly the matches and nothing else.
+        fileList->expandAll();
+    } else if (wasActive) {
+        applyExpansionSnapshot();
+    }
+
+    _searchActive = nowActive;
 }
 
 AFileInfoList
@@ -4752,8 +4819,29 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, bool autoRestore
             SLOT(openFileInNewTabWithTransits(const AFileInfo&, AstroFile*)));
     }
 
-    // Load settings from current session file
-    loadSettings(SessionManager::currentSessionFile());
+    // Load settings from current session file.
+    //
+    // A fresh "New Session" mints a brand-new auto-session whose file already
+    // exists on disk (newAutoSessionFile() pre-stamps it with an "inaugurated"
+    // key) but carries none of the curated preferences. Loading from it would
+    // leave every value at the raw library defaults — a weird window size (empty
+    // Window/Geometry), no panels (empty Window/State), and an uncurated
+    // zodiac/aspect setup. So when we're not restoring this session's tabs
+    // (_skipRestore), seed those preferences from the most-recent session
+    // instead, so the user inherits their last-curated layout. Only the settings
+    // are carried over — tabs are still skipped (see the _skipRestore branch
+    // below).
+    QString settingsSource = SessionManager::currentSessionFile();
+    if (_skipRestore) {
+        QString recent = SessionManager::getMostRecentSession();
+        if (!recent.isEmpty() && recent != settingsSource
+            && QFile::exists(recent)) {
+            qDebug() << "New session: seeding settings from most-recent session"
+                     << recent;
+            settingsSource = recent;
+        }
+    }
+    loadSettings(settingsSource);
     qDebug() << "_skipRestore =" << _skipRestore;
     if (!_skipRestore) {
         qDebug() << "Calling restoreSession()...";

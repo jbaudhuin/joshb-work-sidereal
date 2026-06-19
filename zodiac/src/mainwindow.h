@@ -5,6 +5,7 @@
 #include <QTabBar>
 #include <QDockWidget>
 #include <QTreeView>
+#include <QSet>
 
 #include <Astroprocessor/Gui>
 #include "help.h"
@@ -109,6 +110,18 @@ class AstroWidget : public QWidget {
     {
         static A::AspectSetId s_override = -1;
         return s_override;
+    }
+
+    // When true, a focal click draws the clicked aspect PLUS every other
+    // aspect involving either focal body (the "bigger picture", via
+    // findClusters need=fp).  When false (the default), the focal click draws
+    // only the clicked aspect/pattern among the focal bodies ("exactly this",
+    // via the override direct path) — the behavior wanted for harmonic-pattern
+    // selections (harmonics table, TA/TNA events) and midpoints.
+    bool& focalExpand()
+    {
+        static bool s_focalExpand = false;
+        return s_focalExpand;
     }
 
   protected:
@@ -226,6 +239,8 @@ class AstroDatabase : public QFrame {
     QLineEdit*             search;
     QString                _renamingOldName;
     QString                _renamingDir;
+    bool                   _searchActive = false;
+    QSet<QString>          _expandSnapshot; // expansion state captured when a search began
 
   protected:
     void keyPressEvent(QKeyEvent*) override;
@@ -270,6 +285,11 @@ class AstroDatabase : public QFrame {
   public:
     void saveDatabaseState();
     void restoreDatabaseState();
+
+  private:
+    QSet<QString> currentExpandedPaths(); // live expansion state, as a set of paths
+    void captureExpansionSnapshot();      // snapshot expansion before a search expands the tree
+    void applyExpansionSnapshot();        // restore the snapshot when a search is cleared
 
   signals:
     void fileRemoved(const AFileInfo&);

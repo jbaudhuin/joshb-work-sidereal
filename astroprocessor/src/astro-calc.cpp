@@ -8506,14 +8506,18 @@ AspectFinder::findNewStarts(AspectSearchState&              state,
         if (!collectingStrays && _generalClustersEnabled) {
             PlanetProfile* prof = &state.b;
             if (useProf.get()) prof = useProf.get();
-            // Build exclusion set: natal-only patterns AND progressed planets
-            // (we don't support progressed aspect patterns yet)
-            PlanetSet excludeFromPatterns = !showTransitNatalAspectPatterns() ? state.nats : PlanetSet {};
-            excludeFromPatterns.insert(state.progs.begin(), state.progs.end());
+            // NOTE: findClusters()'s set parameter is `need` (inclusion: a
+            // cluster must contain at least one member), NOT an exclusion set.
+            // Progressed bodies are already kept out of the scan by
+            // excludeProgressed=true below, and natal-only clusters are dropped
+            // by skipAllNatalOnly/containsAnyTrans, so no positive requirement
+            // is wanted here. Passing progressed/natal bodies as `need` (as the
+            // old code did) made every cluster impossible to satisfy the moment
+            // P=P was enabled, silently dropping all transit aspect patterns.
             hpc = findClusters(state.h,
                                *prof,
                                patternsQuorum,
-                               excludeFromPatterns,
+                               PlanetSet {},
                                state.skipAllNatalOnly,
                                patternsRestrictMoon,
                                patternsSpreadOrb,

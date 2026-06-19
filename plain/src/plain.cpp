@@ -16,9 +16,158 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextBrowser>
+#include <QFont>
+#include <QTextDocumentFragment>
+#include <QTextFormat>
+#include <QTextTable>
+#include <QTextTableCell>
 #include <QToolBar>
 #include <QVBoxLayout>
 #include "../../zodiac/src/slidewidget.h"
+
+/* ============================== REPORT BROWSER
+ * ======================================== */
+
+// QTextBrowser subclass that produces portable clipboard content when the user
+// copies cells out of one of the report tables (Directions, Speculum, etc.).
+//
+// Qt's default rich-text copy serializes the selection as a fragment of its own
+// HTML dialect: every table cell is wrapped in a <p> with margins (which Word
+// renders as a blank line after each row) and the monospace font is dropped, and
+// the markup is exotic enough that Gmail discards it and falls back to the
+// plain-text flavor (one cell per line). We instead emit a clean <table> with an
+// explicit monospace font plus a tab-delimited plain-text version, so both Word
+// and Gmail paste a proper table.
+class ReportBrowser : public QTextBrowser {
+  public:
+    using QTextBrowser::QTextBrowser;
+
+  protected:
+    QMimeData* createMimeDataFromSelection() const override;
+};
+
+QMimeData*
+ReportBrowser::createMimeDataFromSelection() const
+{
+    QTextCursor cur = textCursor();
+    if (!cur.hasSelection())
+        return QTextBrowser::createMimeDataFromSelection();
+
+    const int selStart = cur.selectionStart();
+    const int selEnd   = cur.selectionEnd();
+
+    // In a read-only browser a mouse drag yields a plain linear selection rather
+    // than a rectangular cell block, so we locate the table from the selection
+    // endpoints rather than relying on QTextCursor::selectedTableCells().
+    QTextCursor probe(document());
+    probe.setPosition(selStart);
+    QTextTable* table = probe.currentTable();
+    if (!table) {
+        probe.setPosition(selEnd);
+        table = probe.currentTable();
+    }
+    if (!table)
+        return QTextBrowser::createMimeDataFromSelection();
+
+    QTextTableCell startCell = table->cellAt(selStart);
+    QTextTableCell endCell   = table->cellAt(selEnd);
+
+    // Selection confined to a single cell: leave normal text copy alone.
+    if (startCell.isValid() && endCell.isValid()
+        && startCell.row() == endCell.row()
+        && startCell.column() == endCell.column())
+        return QTextBrowser::createMimeDataFromSelection();
+
+    int firstRow = startCell.isValid() ? startCell.row() : 0;
+    int lastRow  = endCell.isValid() ? endCell.row() : table->rows() - 1;
+    if (firstRow > lastRow) std::swap(firstRow, lastRow);
+
+    const int     cols    = table->columns();
+    const int     headerRows = table->format().headerRowCount();
+    // Generic monospace lets each target (Gmail etc.) use its own configured
+    // monospace font; the doubled keyword sidesteps the browser quirk that
+    // otherwise shrinks a lone "monospace". Carried on the cell and on a <span>
+    // around the run. (Word ignores font here regardless and is fixed up with
+    // its "No Spacing" style.)
+    const QString fontCss = "font-family:monospace,monospace;font-size:10pt;";
+
+    // Wrap in a full document: Chrome/Gmail's clipboard reader rejects a bare
+    // <table> fragment and falls back to plain text, whereas Word is lenient.
+    QString html = "<html><head><meta charset=\"utf-8\"></head><body>";
+    html += "<table cellspacing=\"0\" style=\"border-collapse:collapse;"
+            + fontCss + "\">";
+    QString tsv;
+
+    for (int r = firstRow; r <= lastRow; ++r) {
+        const bool headerRow = r < headerRows;
+        const char* tag = headerRow ? "th" : "td";
+
+        // Cluster separators in the report are drawn as a top border on the
+        // first row of each group; carry that through so pasted output keeps the
+        // visual grouping (a blank line in the plain-text flavor).
+        bool separator = false;
+        QTextTableCell c0 = table->cellAt(r, 0);
+        if (c0.isValid()) {
+            QTextTableCellFormat cf = c0.format().toTableCellFormat();
+            separator = cf.hasProperty(QTextFormat::TableCellTopBorder)
+                        && cf.topBorder() > 0.0;
+        }
+        if (separator && r > firstRow)
+            tsv += '\n';
+
+        const QString cellBorder =
+            separator ? "border-top:1px solid #777;" : QString();
+
+        html += "<tr>";
+        QStringList rowCells;
+        for (int c = 0; c < cols; ++c) {
+            QTextTableCell cell = table->cellAt(r, c);
+            QString text;
+            // Per-cell run style carries the bold/italic the report applies:
+            // bold to planet (vs. fixed-star) names and header cells, italic to
+            // natal angle-transit rows. Read from the cell's character format.
+            QString runStyle = fontCss;
+            if (cell.isValid()) {
+                QTextCursor cc = cell.firstCursorPosition();
+                cc.setPosition(cell.lastCursorPosition().position(),
+                               QTextCursor::KeepAnchor);
+                text = cc.selection().toPlainText().trimmed();
+
+                const QTextCharFormat ccf = cc.charFormat();
+                if (ccf.fontWeight() > QFont::Normal)
+                    runStyle += "font-weight:bold;";
+                if (ccf.fontItalic())
+                    runStyle += "font-style:italic;";
+            }
+            rowCells << text;
+            // <p margin:0> drops the paragraph spacing Word would otherwise add;
+            // the <span> carries the monospace font and bold/italic.
+            html += '<';
+            html += tag;
+            html += " style=\"padding:0px 10px;text-align:left;white-space:pre;";
+            html += cellBorder;
+            html += fontCss;
+            html += "\"><p style=\"margin:0;mso-line-height-rule:exactly;"
+                    "line-height:1.0;\"><span style=\"";
+            html += runStyle;
+            html += "\">";
+            html += text.toHtmlEscaped();
+            html += "</span></p></";
+            html += tag;
+            html += '>';
+        }
+        html += "</tr>";
+
+        tsv += rowCells.join('\t');
+        tsv += '\n';
+    }
+    html += "</table></body></html>";
+
+    QMimeData* md = new QMimeData;
+    md->setHtml(html);
+    md->setText(tsv);
+    return md;
+}
 
 /* ================================== WIDGET
  * ======================================== */
@@ -106,7 +255,7 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     toolbar->insertWidget(describeInput, chart2Btn);
     chart2Btn->setVisible(false); // Initially hidden until 2nd chart loaded
 
-    view = new QTextBrowser();
+    view = new ReportBrowser();
     view->setAcceptDrops(false); // Disable drops on the view so parent Plain widget handles them
 
     showAllDiurnalEvents = false;

@@ -6,6 +6,8 @@
 #include <QMetaType>
 #include <QTimeZone>
 
+#include <deque>
+
 #include "astro-data.h"
 #include "astro-calc.h"
 #include "appsettings.h"
@@ -427,7 +429,12 @@ class AstroFileHandler : public QWidget, public Customizable {
 
     /// Synthetic Planet objects for midpoints in focal aspect calculation.
     /// Lifetime must span the aspect drawing cycle.
-    QList<A::Planet> _syntheticMidpointPlanets;
+    /// std::deque (not QList/QVector) is required: we store pointers to its
+    /// elements (&...back()) into the aspect planet maps while still appending,
+    /// and deque guarantees those pointers stay valid across push_back. A
+    /// contiguous container would reallocate and dangle them -> bad_alloc when
+    /// the corrupt Planet's QString name is later rendered.
+    std::deque<A::Planet> _syntheticMidpointPlanets;
     /// Midpoint ChartPlanetIds found in the current focal set.
     QList<A::ChartPlanetId> _focalMidpoints;
 

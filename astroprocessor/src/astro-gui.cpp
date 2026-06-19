@@ -1045,92 +1045,138 @@ AstroFileHandler::calculateAspects()
         return scope.aspects;
     }
 
-    A::AspectSetId aspset   = -1;
-    A::AspectSetId override  = MainWindow::theAstroWidget()->overrideAspectSet();
+    // Mirror of calculateSynastryAspects() for the single-file chart.  See the
+    // long comment there for the full rationale; the only difference is there
+    // is no transit file, so skipAllNatalOnly is always false (otherwise the
+    // Alt whole-chart path would reject every cluster).
+    bool alt = (QApplication::keyboardModifiers() & Qt::AltModifier);
+
+    A::AspectSetId override = MainWindow::theAstroWidget()->overrideAspectSet();
+    bool           expand   = MainWindow::theAstroWidget()->focalExpand();
     const auto&    curr(A::EventOptions::current());
-    // An explicitly-armed override aspect set (from a harmonics/pattern or
-    // transits click) reflects a deliberate H_h selection and must win over
-    // findClusters cluster-expansion — otherwise small (< patternsQuorum)
-    // 2-body and midpoint patterns fall through to the default aspect set and
-    // their H_h aspect never draws.
-    if (override != -1) {
-        aspset = override;
-    } else if (A::useGreatCircle && fp.size() == 2) {
-        // GC + 2-body focal: skip cluster expansion. findClusters operates in
-        // 1D longitudinal harmonic space and won't recognize a GC pair as a
-        // cluster anyway.
-        aspset = override;
-    } else if (fp.size() < curr.patternsQuorum) {
-        bool        skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End);
-        A::uintSSet hs   = A::dynAspState();
-        qreal       useOrb =
-            fp.size() > 2 ? curr.patternsSpreadOrb : curr.expandShowOrb;
 
-        auto hpc = A::findClusters(hs,
-                                   { &file(0)->horoscope().planetsOrig },
-                                   qMax(size_t(2), fp.size()),
-                                   skip ? A::PlanetSet() : fp,
-                                   false,
-                                   false /*curr.patternsRestrictMoon*/,
-                                   useOrb);
-
-        for (const auto& h_pc : hpc) {
-            const auto& pc = h_pc.second;
-            for (const auto& p_c : pc) {
-                const auto& pl = p_c.first;
-                qDebug() << QString("H%1 %2 %3")
-                                .arg(h_pc.first)
-                                .arg(p_c.second)
-                                .arg(pl.names().join('='));
-                fp.insert(pl.begin(), pl.end());
-            }
-        }
-        A::setOrbFactor(useOrb / A::harmonicsMaxQOrb());
-    } else {
-        aspset = override;
-    }
-
-    const auto& asps =
-        A::getAspectSet(aspset == -1 ? input.aspectSet() : aspset);
-    A::ChartPlanetPtrMap planets;
-    // A::setOrbFactor(curr.patternsSpreadOrb / A::harmonicsMaxQOrb());
-    _syntheticMidpointPlanets.clear();
-    _focalMidpoints.clear();
-    for (const auto& cpid : fp) {
+    auto buildMidpointSynth = [&](const A::ChartPlanetId& cpid) -> A::Planet* {
         auto fid = cpid.fileId();
-        if (fid < 0) continue;
-        if (cpid.isMidpt()) {
-            // Create a synthetic Planet at the midpoint of the two constituents
-            auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
-            auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
-            if (p1 && p2) {
-                A::Planet synth;
-                synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
-                synth.name = p1->name + "/" + p2->name;
-                synth.isReal = false;
-                // Compute near midpoint in ecliptic
-                double diff = swe_difdeg2n(p2->eclipticPos.x(), p1->eclipticPos.x());
-                synth.eclipticPos.setX(swe_degnorm(p1->eclipticPos.x() + diff / 2.0));
-                synth.eclipticPos.setY((p1->eclipticPos.y() + p2->eclipticPos.y()) / 2.0);
-                // Compute near midpoint in equatorial
-                double raDiff = swe_difdeg2n(p2->equatorialPos.x(), p1->equatorialPos.x());
-                synth.equatorialPos.setX(swe_degnorm(p1->equatorialPos.x() + raDiff / 2.0));
-                synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
-                // Compute near midpoint in prime vertical
-                double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
-                synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
-                _syntheticMidpointPlanets.append(synth);
-                planets.emplace(cpid, &_syntheticMidpointPlanets.last());
-                _focalMidpoints.append(cpid);
+        if (fid < 0 || fid >= filesCount()) return nullptr;
+        auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
+        auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
+        if (!p1 || !p2) return nullptr;
+        A::Planet synth;
+        synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
+        synth.name = p1->name + "/" + p2->name;
+        synth.isReal = false;
+        double diff = swe_difdeg2n(p2->eclipticPos.x(), p1->eclipticPos.x());
+        synth.eclipticPos.setX(swe_degnorm(p1->eclipticPos.x() + diff / 2.0));
+        synth.eclipticPos.setY((p1->eclipticPos.y() + p2->eclipticPos.y()) / 2.0);
+        double raDiff = swe_difdeg2n(p2->equatorialPos.x(), p1->equatorialPos.x());
+        synth.equatorialPos.setX(swe_degnorm(p1->equatorialPos.x() + raDiff / 2.0));
+        synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
+        double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
+        synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
+        _syntheticMidpointPlanets.push_back(synth);
+        return &_syntheticMidpointPlanets.back();
+    };
+
+    bool hasMidpoint = std::any_of(fp.begin(), fp.end(),
+                                   [](const auto& c) { return c.isMidpt(); });
+
+    // Direct ("exactly this") path: midpoints, GC 2-body, or a non-expanding
+    // focal selection (harmonics table, TA/TNA aspect-pattern events).
+    if (hasMidpoint || (A::useGreatCircle && fp.size() == 2)
+        || (!alt && !expand)) {
+        const auto& asps =
+            A::getAspectSet(override == -1 ? input.aspectSet() : override);
+        A::ChartPlanetPtrMap planets;
+        _syntheticMidpointPlanets.clear();
+        _focalMidpoints.clear();
+        for (const auto& cpid : fp) {
+            auto fid = cpid.fileId();
+            if (fid < 0 || fid >= filesCount()) continue;
+            if (cpid.isMidpt()) {
+                if (auto* s = buildMidpointSynth(cpid)) {
+                    planets.emplace(cpid, s);
+                    _focalMidpoints.append(cpid);
+                }
+            } else {
+                planets.emplace(cpid,
+                                file(fid)->horoscope().getPlanet(cpid.planetId()));
             }
-        } else {
-            auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
-            planets.emplace(cpid, pp);
         }
+        qreal useOrb = fp.size() > 2 ? curr.patternsSpreadOrb : curr.expandShowOrb;
+        A::setOrbFactor(useOrb / A::harmonicsMaxQOrb());
+        auto alist = A::calculateAspects(asps, planets);
+        A::setOrbFactor(1);
+        return alist;
     }
-    auto alist = A::calculateAspects(asps, planets);
-    A::setOrbFactor(1);
-    return alist;
+
+    // findClusters path: simple expanding click (need=fp, "bigger picture") or
+    // Alt (need={}, whole chart).  Draw each cluster at its own harmonic.
+    {
+        // One consistent orb regardless of focal-set size (see matching
+        // comment in calculateSynastryAspects()).
+        qreal useOrb = curr.expandShowOrb;
+        A::uintSSet hs = A::dynAspState();
+        if (override != -1) {
+            int oh = override - A::topAspectSet().id;
+            if (oh > 1) hs.insert(unsigned(oh));
+        }
+        A::PlanetProfile pf { &file(0)->horoscope().planetsOrig };
+        A::setOrbFactor(useOrb / A::harmonicsMaxQOrb());
+        QList<A::Aspect> alist;
+        _syntheticMidpointPlanets.clear();
+        _focalMidpoints.clear();
+        auto hpc = A::findClusters(hs,
+                                   pf,
+                                   size_t(2),
+                                   alt ? A::PlanetSet() : fp,
+                                   false /*skipAllNatalOnly: no transit file*/,
+                                   false /*restrictMoon*/,
+                                   useOrb);
+        for (const auto& h_pc : hpc) {
+            auto         h  = h_pc.first;
+            const auto&  pc = h_pc.second;
+            A::PlanetSet ps;
+            for (const auto& p_c : pc) ps.insert(p_c.first.begin(), p_c.first.end());
+            A::ChartPlanetPtrMap planets;
+            for (const auto& cpid : ps) {
+                auto fid = cpid.fileId();
+                if (fid < 0 || fid >= filesCount()) continue;
+                if (cpid.isMidpt()) {
+                    if (auto* s = buildMidpointSynth(cpid)) {
+                        planets.emplace(cpid, s);
+                        _focalMidpoints.append(cpid);
+                    }
+                } else {
+                    planets.emplace(cpid,
+                                    file(fid)->horoscope().getPlanet(cpid.planetId()));
+                }
+            }
+            auto clusterAspects =
+                A::calculateAspects(A::getAspectSet(A::topAspectSet().id + h),
+                                    planets);
+            if (alt) {
+                alist << clusterAspects;
+            } else {
+                // Keep only aspects involving a focal body (see the matching
+                // comment in calculateSynastryAspects()).
+                A::PlanetSet focalSet(fp);
+                for (const auto& asp : clusterAspects) {
+                    bool involvesFocal = false;
+                    for (const auto& kv : planets) {
+                        if (kv.second != asp.planet1 && kv.second != asp.planet2)
+                            continue;
+                        if (focalSet.contains(kv.first)) {
+                            involvesFocal = true;
+                            break;
+                        }
+                    }
+                    if (involvesFocal) alist << asp;
+                }
+            }
+        }
+        A::setOrbFactor(1);
+        return alist;
+    }
 }
 
 A::AspectList
@@ -1162,12 +1208,30 @@ AstroFileHandler::calculateSynastryAspects()
     if (fp.empty()) fp = file(1)->focalPlanets();
 
     A::AspectSetId override = MainWindow::theAstroWidget()->overrideAspectSet();
+    bool           expand   = MainWindow::theAstroWidget()->focalExpand();
     const auto& curr(A::EventOptions::current());
-    // An explicitly-armed override (harmonics/pattern or events click), or a
-    // GC 2-body focal, takes the direct path: build the focal planet map and
-    // draw with the H_h override set, bypassing findClusters expansion (see
-    // comment in calculateAspects()).
-    if (override != -1 || (A::useGreatCircle && fp.size() == 2)) {
+
+    // The direct path builds the focal planet map and draws with the H_h
+    // override set, "exactly this" — only the clicked aspect/pattern among the
+    // focal bodies.  It is taken for:
+    //   * midpoint focal sets and GC 2-body focals — findClusters operates on
+    //     real-planet positions in 1D longitudinal harmonic space and can't
+    //     cluster synthetic midpoint cpids or recognize a GC pair; and
+    //   * any non-expanding focal selection (harmonics table, TA/TNA aspect-
+    //     pattern events): focalExpand() is false, so the user sees precisely
+    //     the pattern they clicked, no incidental aspects to other bodies.
+    //
+    // Expanding focal clicks (focalExpand()==true: T=N/R/SR/LR/Par/…) and any
+    // Alt+click instead fall through to findClusters below: need=fp draws the
+    // clicked aspect AND every other aspect involving either focal body ("the
+    // bigger picture"), need={} (Alt) draws all whole-chart clusters.  The
+    // clicked event's harmonic is folded into the search set there so its
+    // specific aspect is always found even if that harmonic isn't in the
+    // active dynAspState.
+    bool hasMidpoint = std::any_of(fp.begin(), fp.end(),
+                                   [](const auto& c) { return c.isMidpt(); });
+    if (hasMidpoint || (A::useGreatCircle && fp.size() == 2)
+        || (!alt && !expand)) {
         aspset = override;
         const auto& asps = A::getAspectSet(
             aspset == -1 ? file(0)->horoscope().inputData.aspectSet() : aspset);
@@ -1193,8 +1257,8 @@ AstroFileHandler::calculateSynastryAspects()
                     synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
                     double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
                     synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
-                    _syntheticMidpointPlanets.append(synth);
-                    planets.emplace(cpid, &_syntheticMidpointPlanets.last());
+                    _syntheticMidpointPlanets.push_back(synth);
+                    planets.emplace(cpid, &_syntheticMidpointPlanets.back());
                     _focalMidpoints.append(cpid);
                 }
             } else {
@@ -1202,28 +1266,41 @@ AstroFileHandler::calculateSynastryAspects()
                 planets.emplace(cpid, pp);
             }
         }
+        // Draw the focal aspect(s) at the same generous orb the cluster
+        // expansion path uses for these H_h sets.  Without this the direct
+        // path inherits whatever orb factor was left in global state plus
+        // the (often tight) static H_h set orb, so a focal aspect the
+        // events/harmonics table detected at a wider orb — e.g. an H4/H8
+        // return aspect that is close but not exact — silently fails to draw.
+        qreal useOrb = fp.size() > 2 ? curr.patternsSpreadOrb
+                                     : curr.expandShowOrb;
+        A::setOrbFactor(useOrb / A::harmonicsMaxQOrb());
         auto alist = A::calculateAspects(asps, planets);
         A::setOrbFactor(1);
         return alist;
     }
-    if (fp.size() < curr.patternsQuorum) {
-        bool skip = fp.containsAny(A::Ingresses_Start, A::Ingresses_End)
-                    || (fp.size() == 2
-                        && fp.begin()->planetId() == fp.rbegin()->planetId());
-        A::uintSSet hs;
-        qreal       useOrb =
-            fp.size() > 2 ? curr.patternsSpreadOrb : curr.expandShowOrb;
-#if 0
-        uint h;
-        bool ok;
-        if (false
-                && asps.name.startsWith("H")
-                && ((h = asps.name.midRef(1).toUInt(&ok)), ok))
-        {
-            hs.insert(h);
-        } else
-#endif
-        hs = A::dynAspState();
+    // Every focal click that reached here (i.e. not a midpoint or GC 2-body)
+    // is drawn through findClusters:
+    //   * simple click -> need=fp: the clicked aspect plus every other aspect
+    //     involving either focal body (the "bigger picture").
+    //   * Alt+click    -> need={}: all close-aspect clusters in the chart.
+    // The quorum is irrelevant here — a 3-body paran should still show the
+    // pairwise aspects to each of its bodies — so we always take this path.
+    {
+        // Use one consistent orb for the bigger-picture/whole-chart search,
+        // independent of how many bodies are in the focal set.  (Previously a
+        // 3+ body focal — e.g. a 3-body paran — silently switched to the much
+        // wider patternsSpreadOrb, so two otherwise-identical paran clicks
+        // would show different aspects purely because of focal-set size.)
+        qreal useOrb = curr.expandShowOrb;
+        A::uintSSet hs = A::dynAspState();
+        // Make sure the clicked event's own harmonic is searched, even if it
+        // isn't in the active dynAspState; otherwise its specific aspect (e.g.
+        // an H3 trine behind a paran) would never be found and drawn.
+        if (override != -1) {
+            int oh = override - A::topAspectSet().id;
+            if (oh > 1) hs.insert(unsigned(oh));
+        }
 
         A::PlanetProfile pf { &file(0)->horoscope().planetsOrig,
                               &file(1)->horoscope().planetsOrig };
@@ -1231,11 +1308,19 @@ AstroFileHandler::calculateSynastryAspects()
         QList<A::Aspect> alist;
         _syntheticMidpointPlanets.clear();
         _focalMidpoints.clear();
+        // Minimum cluster size 2: we want every pairwise aspect (a clicked
+        // body to whatever else it aspects), not only clusters as wide as the
+        // focal set (which for a 3-body paran would otherwise hide each pair).
         auto             hpc = A::findClusters(hs,
                                    pf,
-                                   qMax(size_t(2), fp.size()),
-                                   /*skip &&*/ alt ? A::PlanetSet() : fp,
-                                   true /*skipAllNatalOnly*/,
+                                   size_t(2),
+                                   alt ? A::PlanetSet() : fp,
+                                   // Simple click (need=fp): keep aspects
+                                   // involving a focal body even if they're
+                                   // natal-to-natal ("any aspect to Ven-r").
+                                   // Alt (whole chart): drop the static natal
+                                   // web, show only transit-involving clusters.
+                                   alt /*skipAllNatalOnly*/,
                                    false /*curr.patternsRestrictMoon*/,
                                    useOrb);
         for (const auto& h_pc : hpc) {
@@ -1270,8 +1355,8 @@ AstroFileHandler::calculateSynastryAspects()
                         synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
                         double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
                         synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
-                        _syntheticMidpointPlanets.append(synth);
-                        planets.emplace(cpid, &_syntheticMidpointPlanets.last());
+                        _syntheticMidpointPlanets.push_back(synth);
+                        planets.emplace(cpid, &_syntheticMidpointPlanets.back());
                         _focalMidpoints.append(cpid);
                     }
                 } else {
@@ -1280,7 +1365,30 @@ AstroFileHandler::calculateSynastryAspects()
                 }
             }
             const auto& asps = A::getAspectSet(A::topAspectSet().id + h);
-            alist << A::calculateAspects(asps, planets);
+            auto clusterAspects = A::calculateAspects(asps, planets);
+            if (alt) {
+                // Whole-chart: draw every aspect in the cluster.
+                alist << clusterAspects;
+            } else {
+                // Bigger picture: a cluster survived need=fp because it
+                // CONTAINS a focal body, but calculateAspects() draws every
+                // pairwise aspect within it — including pairs of non-focal
+                // bodies that merely share the cluster.  Keep only aspects
+                // that actually involve a focal body.
+                A::PlanetSet focalSet(fp);
+                for (const auto& asp : clusterAspects) {
+                    bool involvesFocal = false;
+                    for (const auto& kv : planets) {
+                        if (kv.second != asp.planet1 && kv.second != asp.planet2)
+                            continue;
+                        if (focalSet.contains(kv.first)) {
+                            involvesFocal = true;
+                            break;
+                        }
+                    }
+                    if (involvesFocal) alist << asp;
+                }
+            }
         }
 
         // findClusters doesn't know about midpoint ChartPlanetIds, so any
@@ -1308,56 +1416,14 @@ AstroFileHandler::calculateSynastryAspects()
                 synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
                 double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
                 synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
-                _syntheticMidpointPlanets.append(synth);
+                _syntheticMidpointPlanets.push_back(synth);
                 _focalMidpoints.append(cpid);
             }
         }
 
         A::setOrbFactor(1);
         return alist;
-    } else {
-        aspset = MainWindow::theAstroWidget()->overrideAspectSet();
-        A::setOrbFactor(1);
     }
-
-    const auto& asps = A::getAspectSet(
-        aspset == -1 ? file(0)->horoscope().inputData.aspectSet() : aspset);
-    // const auto& asps = aspset != -1? A::getAspectSet(aspset) :
-    // file(0)->getAspectSet();
-    A::ChartPlanetPtrMap planets;
-    _syntheticMidpointPlanets.clear();
-    _focalMidpoints.clear();
-    for (const auto& cpid : fp) {
-        auto fid = cpid.fileId();
-        if (fid < 0) continue;
-        if (cpid.isMidpt()) {
-            auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
-            auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
-            if (p1 && p2) {
-                A::Planet synth;
-                synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
-                synth.name = p1->name + "/" + p2->name;
-                synth.isReal = false;
-                double diff = swe_difdeg2n(p2->eclipticPos.x(), p1->eclipticPos.x());
-                synth.eclipticPos.setX(swe_degnorm(p1->eclipticPos.x() + diff / 2.0));
-                synth.eclipticPos.setY((p1->eclipticPos.y() + p2->eclipticPos.y()) / 2.0);
-                double raDiff = swe_difdeg2n(p2->equatorialPos.x(), p1->equatorialPos.x());
-                synth.equatorialPos.setX(swe_degnorm(p1->equatorialPos.x() + raDiff / 2.0));
-                synth.equatorialPos.setY((p1->equatorialPos.y() + p2->equatorialPos.y()) / 2.0);
-                double pvDiff = swe_difdeg2n(p2->pvPos, p1->pvPos);
-                synth.pvPos = swe_degnorm(p1->pvPos + pvDiff / 2.0);
-                _syntheticMidpointPlanets.append(synth);
-                planets.emplace(cpid, &_syntheticMidpointPlanets.last());
-                _focalMidpoints.append(cpid);
-            }
-        } else {
-            auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
-            planets.emplace(cpid, pp);
-        }
-    }
-    auto alist = A::calculateAspects(asps, planets);
-    A::setOrbFactor(1);
-    return alist;
 }
 
 MembersList
