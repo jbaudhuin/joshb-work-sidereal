@@ -795,6 +795,10 @@ Harmonics::filesUpdated(MembersList m)
         return;
     }
 
+    // While scrubbing (wheel drag / animation), skip the heavy harmonic search
+    // (findHarmonics to H=240). The catch-up recompute on scrub-exit refreshes.
+    if (A::isScrubbing()) return;
+
     // View settings (Harmonic, AspectSet, HouseSystem) are handled
     // by viewSettingsUpdated() which we override to ignore.
     // Any file-data change triggers a full redraw.

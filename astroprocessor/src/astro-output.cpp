@@ -1200,11 +1200,24 @@ describeParans(const AstroFileList& scopes,
     // listing when showParanNatalRows is set and a natal context is available.
     // Focused mode filters by the specific paran event time; full-listing mode
     // filters each natal angle transit by proximity to any return-planet transit.
+    //
+    // For a transit-only Par chart presented as the second wheel of a biwheel
+    // whose first wheel is a natal/Event chart, also include the radix bodies
+    // that happen to be in the focal paran — even though they aren't part of the
+    // (transit-only) event — when showParanNatalRows is set. The focused-cluster
+    // filter below then keeps only those actually in the radix cluster.
+    const bool natalCtxIsRadix =
+        natalContext
+        && (natalContext->getType() == TypeMale
+            || natalContext->getType() == TypeFemale
+            || natalContext->getType() == TypeEvent);
     QVector<Star> natalStarStorage;
     const bool runNatalRows =
         natalContext
         && (isParanChart
-                ? (file->getOriginEventType() == etcParanatellontaToNatal)
+                ? (file->getOriginEventType() == etcParanatellontaToNatal
+                   || (file->getOriginEventType() == etcParanatellonta
+                       && showParanNatalRows && natalCtxIsRadix))
                 : showParanNatalRows);
     if (runNatalRows) {
         // Full listing: collect return-planet event times for orb-filtering.

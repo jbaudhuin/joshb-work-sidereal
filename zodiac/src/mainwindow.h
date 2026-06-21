@@ -22,6 +22,7 @@ class AstroFileEditor;
 class GeoSearchWidget;
 class QComboBox;
 class QToolButton;
+class QLabel;
 
 /* =========================== ASTRO FILE INFO
  * ====================================== */
@@ -199,6 +200,7 @@ class AstroWidget : public QWidget {
     friend class Transits;
     friend class Harmonics;
     friend class AstroFileHandler;
+    friend class MainWindow;  // Aspect Range Navigator drives focalExpand()
 };
 
 /* =========================== ASTRO FILE DATABASE
@@ -479,6 +481,25 @@ class MainWindow : public QMainWindow, public Customizable {
     QDockWidget*   databaseDockWidget;
     QToolBar *     toolBar, *toolBar2, *helpToolBar;
     QMenu*         panelsMenu;
+
+    // Paran cycling transport — a draggable/floatable toolbar that steps the
+    // current paran chart's moving file through its in-orb occurrences. Always
+    // present; disabled when the current tab is not a paran chart.
+    QToolBar* paranToolBar   = nullptr;
+    QAction*  _paranFirst    = nullptr;
+    QAction*  _paranPrev     = nullptr;
+    QAction*  _paranPeak     = nullptr;
+    QAction*  _paranNext     = nullptr;
+    QAction*  _paranLast     = nullptr;
+    QLabel*   _paranLabel    = nullptr;
+    int       _paranOccIndex = -1;
+    QList<QMetaObject::Connection> _paranConns; // to current files' changed()
+
+    void       buildParanToolBar();
+    AstroFile* paranMovingFile() const;
+    void       rewireParanTransport();  // re-subscribe to current files' changed()
+    void       updateParanTransport();  // reconcile enable/label with current chart
+    void       paranStep(int mode);     // -2 first, -1 prev, 0 peak, +1 next, +2 last
 
     std::string _APIKey;
     

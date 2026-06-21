@@ -173,6 +173,7 @@ aspectModeType::current()
 
 PrimDirMode primDirMode = prdMundane;
 bool useApparentSun = true;
+bool scrubbing = false;
 
 bool
 isSolarReturn(const QString& chartName)
@@ -1415,7 +1416,11 @@ calculatePlanet(PlanetId         planet,
     double st = swe_degnorm(ret.equatorialPos.x());
     swe_split_deg(st, 0, &deg, &min, &sec, &frac, &sgn);
 
-    if (primDirMode == prdActive) {
+    // While scrubbing, skip the expensive rise/set angle-transit solve (4×
+    // swe_rise_trans + 4× swe_calc_ut per body); fall to the cheap analytic
+    // branch. The wheel never needs these times; the catch-up recompute on
+    // scrub-exit restores exact prdActive values.
+    if (primDirMode == prdActive && !scrubbing) {
         for (Star::angleTransitMode m = Star::atAsc; m < Star::numAngles;
              m                        = Star::angleTransitMode(m + 1))
         {
@@ -1978,7 +1983,7 @@ calculateStar(const QString&   name,
             }
         }
 
-        if (primDirMode == prdActive) {
+        if (primDirMode == prdActive && !scrubbing) {
             double rettm;
             int    eflg = SEFLG_SWIEPH;
 
@@ -6608,6 +6613,10 @@ struct ParanState {
     EventType    type;
     QVector<int> indices;         ///< _alist indices, sorted (aIdx, angle)
     QVector<int> angles;          ///< parallel to indices
+    /// One entry per active day: (cluster-mean datetime, cluster spread secs).
+    /// These are the moments the focal cluster is in orb — harvested for the
+    /// paran-cycling slider. Appended once per day (guarded on day advance).
+    QVector<QPair<QDateTime, qint64>> occurrences;
 };
 
 // Stable key identifying the same paran across days. Built from the cluster's
@@ -7283,6 +7292,22 @@ AspectFinder::findParans()
         const QDateTime rangeEnd   = ps.lastActiveDT.addSecs(bufferSecs);
         ev.setRange({ rangeStart, rangeEnd });
 
+        // Per-day in-orb moments of the focal cluster (for paran cycling),
+        // converting each day's spread from seconds of LST to degrees. Sort
+        // chronologically: the boundary-extension passes append earlier/later
+        // days out of order relative to the in-range walk.
+        QVector<QPair<QDateTime, qint64>> sortedOcc = ps.occurrences;
+        std::sort(sortedOcc.begin(), sortedOcc.end(),
+                  [](const QPair<QDateTime, qint64>& a,
+                     const QPair<QDateTime, qint64>& b) {
+                      return a.first < b.first;
+                  });
+        QVector<QPair<QDateTime, qreal>> occ;
+        occ.reserve(sortedOcc.size());
+        for (const auto& o : sortedOcc)
+            occ.append({ o.first, qreal(o.second) / 240.0 });
+        ev.setOccurrences(std::move(occ));
+
         // [PARANLBL] One line per finalized paran event (pre-UI-filter). For
         // each participant: name, labelled angle (Asc/Desc/MC/IC), and — for
         // midpoint bodies — the body's RA at peakJd plus locus RAasc/RAdsc/
@@ -7718,9 +7743,16 @@ AspectFinder::findParans()
                     ps.type           = type;
                     ps.indices        = std::move(sIdx);
                     ps.angles         = std::move(sAng);
+                    ps.occurrences.append({ peakDT, spread });
                     activeParans.insert(key, std::move(ps));
                 } else {
                     ParanState& cur = it.value();
+                    // Record this day's crossing once. trackSubCluster can fire
+                    // multiple times per day for the same key (sub-tuple
+                    // enumeration), so guard on day advance — cur.endDate is
+                    // still the previous day until set below.
+                    if (cur.endDate != d)
+                        cur.occurrences.append({ peakDT, spread });
                     cur.endDate     = d;
                     cur.lastActiveDT = peakDT;
                     if (spread < cur.tightestSpread) {
@@ -8106,6 +8138,10 @@ AspectFinder::findParans()
                                 be.ps->peakDateTime   = it->peakDT;
                                 be.ps->peakJd         = it->peakJd;
                             }
+                            // Harvest this extended day's in-orb moment too, so
+                            // the occurrence list spans the full (extended)
+                            // range. Order is fixed by the sort in emitParan.
+                            be.ps->occurrences.append({ it->peakDT, it->spread });
                         }
                         bd = bd.addDays(-1);
                     }
@@ -8158,6 +8194,8 @@ AspectFinder::findParans()
                                 fe.ps->peakDateTime   = it->peakDT;
                                 fe.ps->peakJd         = it->peakJd;
                             }
+                            // Harvest this extended day's in-orb moment too.
+                            fe.ps->occurrences.append({ it->peakDT, it->spread });
                         }
                         fd = fd.addDays(1);
                     }

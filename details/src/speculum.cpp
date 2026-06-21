@@ -249,6 +249,10 @@ Speculum::filesUpdated(MembersList m)
         return;
     }
 
+    // While scrubbing (wheel drag / animation), skip the speculum rebuild;
+    // the catch-up recompute on scrub-exit refreshes it once.
+    if (A::isScrubbing()) return;
+
     while (m.size() < filesCount()) m.append(AstroFile::Member());
 
     // Skip only if every file reports zero changes

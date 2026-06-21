@@ -197,6 +197,18 @@ class AstroFile : public QObject, public A::EventStore {
     const QVector<ParanGroupEntry>& getParanGroupPlanets() const { return _paranGroupPlanets; }
     void setParanGroupPlanets(const QVector<ParanGroupEntry>& g) { _paranGroupPlanets = g; }
 
+    // Paran cycling: per-day in-orb moments of the focal cluster + that day's
+    // orb°, copied from the clicked paran event. Transient (not persisted) —
+    // regenerated whenever a paran event is clicked.
+    const QVector<QPair<QDateTime, qreal>>& getParanOccurrences() const
+    {
+        return _paranOccurrences;
+    }
+    void setParanOccurrences(const QVector<QPair<QDateTime, qreal>>& o)
+    {
+        _paranOccurrences = o;
+    }
+
     const QMap<A::EventType, unsigned>& getTransitHarmonicRestrictions() const { return _transitHarmonicRestrictions; }
     void setTransitHarmonicRestrictions(const QMap<A::EventType, unsigned>& r) { _transitHarmonicRestrictions = r; }
 
@@ -287,6 +299,12 @@ class AstroFile : public QObject, public A::EventStore {
     const A::PlanetSet& focalPlanets() const { return _focalPlanets; }
 
     void calculate() { recalculate(); }
+
+    /// Force a full recompute + notify, even when no field changed. Used to
+    /// "catch up" handlers that were suppressed during scrubbing (wheel drag /
+    /// animation): unlike setGMT(), this fires changed() with the GMT flag
+    /// regardless of whether the GMT value actually differs.
+    void forceRecalculate() { change(GMT); }
 
     const A::InputData& data() const { return scope.inputData; }
 
@@ -397,6 +415,10 @@ class AstroFile : public QObject, public A::EventStore {
 
     // Paran group (populated when TypeParan chart is created from an event click)
     QVector<ParanGroupEntry> _paranGroupPlanets;
+
+    // Paran cycling: per-day in-orb moments (+ orb°) of the focal cluster,
+    // copied from the clicked paran event. Transient; not saved.
+    QVector<QPair<QDateTime, qreal>> _paranOccurrences;
 
     // Per-event-type harmonic restrictions (event type → max harmonic)
     QMap<A::EventType, unsigned> _transitHarmonicRestrictions;

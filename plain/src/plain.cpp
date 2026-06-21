@@ -2,6 +2,7 @@
 #include "../../zodiac/src/thememanager.h"
 #include "../../astroprocessor/src/citydb.h"
 #include <Astroprocessor/Output>
+#include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDebug>
@@ -380,8 +381,15 @@ Plain::filesUpdated(MembersList m)
         aspectsCached = false;
     }
 
-    // If charts count changed or first member has changes, refresh
-    if (chartsCountChanged || (m[0] != 0)) {
+    // Refresh on a change to ANY file, not just file(0). The Directions/Parans
+    // tables for Chart #2 are rendered from file(1) (e.g. the moving chart of a
+    // Par=N biwheel), so paran cycling — which steps file(1)'s GMT — must
+    // re-render even when file(0) is unchanged.
+    bool anyChanged = false;
+    for (const auto& members : m)
+        if (members) { anyChanged = true; break; }
+
+    if (chartsCountChanged || anyChanged) {
         refresh();
     }
 }

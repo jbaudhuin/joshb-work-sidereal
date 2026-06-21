@@ -108,8 +108,23 @@ RotatingCircleItem::sceneEvent(QEvent* event)
             k = -k;
         }
 
+        // Enter scrub mode on the first drag motion (idempotent): the wheel
+        // updates per move while heavy docked panels (Harmonics, Speculum,
+        // Details, Events) and the prdActive rise/set solve are suppressed.
+        // A plain click (press+release, no move) never sets this, so it incurs
+        // no catch-up recompute.
+        A::setScrubbing(true);
         file->setGMT(dragDT.addSecs(k * 180));
         return true;
+    } else if (event->type() == QEvent::GraphicsSceneMouseRelease) {
+        // End of a wheel drag: leave scrub mode and force one full recompute so
+        // the suppressed panels (and exact prdActive angle-transits) catch up.
+        if (A::isScrubbing()) {
+            A::setScrubbing(false);
+            file->forceRecalculate();
+            return true;
+        }
+        return false;
     }
 
     return false; // pass event through

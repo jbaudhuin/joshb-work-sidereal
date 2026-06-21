@@ -247,7 +247,9 @@ Details::filesUpdated(MembersList m)
         }
     }
 
-    if (!m.isEmpty() && m[0]) describePlanet();
+    // While scrubbing (wheel drag / animation), skip the detail-text rebuild;
+    // the catch-up recompute on scrub-exit refreshes it once.
+    if (!m.isEmpty() && m[0] && !A::isScrubbing()) describePlanet();
 }
 
 AppSettings

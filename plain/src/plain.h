@@ -10,6 +10,8 @@ class QTextBrowser;
 class QToolBar;
 class QComboBox;
 class QPushButton;
+class QAction;
+class QLabel;
 
 /* ================================== WIDGET
  * ======================================== */

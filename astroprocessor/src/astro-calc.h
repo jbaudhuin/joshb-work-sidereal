@@ -257,6 +257,18 @@ enum PrimDirMode { prdMundane, prdZodiacal, prdActive };
 extern PrimDirMode primDirMode;
 extern bool        useApparentSun;
 
+/// Interactive "scrub" state. Set while a continuous time interaction is in
+/// flight (dragging the chart wheel, or animation playback). While true:
+///  - calculateAll() takes a light path (skips the prdActive rise/set
+///    angle-transit computation, which the wheel never needs);
+///  - heavy docked panels (Harmonics, Speculum, Details, Events) skip their
+///    per-frame recompute and catch up once when scrubbing ends.
+/// GUI-thread state only (mirrors primDirMode). The controller that sets it
+/// true is responsible for clearing it and forcing one full recompute on exit.
+extern bool scrubbing;
+inline bool isScrubbing() { return scrubbing; }
+inline void setScrubbing(bool on) { scrubbing = on; }
+
 bool
 isSolarReturn(const QString& chartName);
 bool

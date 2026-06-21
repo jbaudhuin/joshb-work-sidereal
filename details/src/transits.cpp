@@ -4381,6 +4381,7 @@ Transits::clickedCell(QModelIndex inx)
                     group.append({ loc.planet.fileId(), loc.planet.planetId() });
                 }
                 file()->setParanGroupPlanets(group);
+                file()->setParanOccurrences(ev.occurrences());
             } else {
                 file()->setType(TypeOther);
             }
@@ -4453,6 +4454,7 @@ Transits::clickedCell(QModelIndex inx)
                     group.append({ loc.planet.fileId(), loc.planet.planetId() });
                 }
                 taf->setParanGroupPlanets(group);
+                taf->setParanOccurrences(ev.occurrences());
             } else {
                 taf->setType(TypeOther);
                 taf->setBaseChart(file()->getGMT());
@@ -4541,6 +4543,7 @@ Transits::doubleClickedCell(QModelIndex inx)
         for (const auto& loc : ev.locations())
             group.append({ loc.planet.fileId(), loc.planet.planetId() });
         af->setParanGroupPlanets(group);
+        af->setParanOccurrences(ev.occurrences());
     }
 
     // Apply chart preset if one exists for this event type
@@ -5002,11 +5005,14 @@ Transits::filesUpdated(MembersList m)
     
     if (!isVisible()) return;
     if (_inhibitUpdate) return;
+    // While scrubbing (wheel drag / animation), skip event reconcile/recompute;
+    // the catch-up recompute on scrub-exit refreshes once.
+    if (A::isScrubbing()) return;
     if (!filesCount()) {
         clear();
         return;
     }
-    
+
     // Save current event options to previous file(0) if it exists
     bool fileChanged = (_previousFile != file(0));
     // Use |= so that a re-entrant filesUpdated() (triggered by

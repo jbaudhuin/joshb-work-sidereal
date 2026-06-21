@@ -4676,6 +4676,8 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, bool autoRestore
     addToolBar(Qt::TopToolBarArea, astroWidget->getToolBar());
     addToolBar(Qt::TopToolBarArea, toolBar2);
     addToolBar(Qt::TopToolBarArea, helpToolBar);
+    buildParanToolBar();
+    addToolBar(Qt::TopToolBarArea, paranToolBar);
     addDockWidget(Qt::LeftDockWidgetArea, databaseDockWidget);
 
     for (QDockWidget* w : astroWidget->getDockPanels()) {
@@ -5111,10 +5113,173 @@ MainWindow::createActionForPanel(QWidget* w)
 }
 
 void
+MainWindow::buildParanToolBar()
+{
+    paranToolBar = new QToolBar(tr("Aspect Range Navigator"), this);
+    paranToolBar->setObjectName("aspectRangeNavigator");
+    // Text glyphs rather than QStyle icons: the standard pixmaps don't follow
+    // the ThemeManager dark theme (they render dark on the dark UI), whereas
+    // text picks up the theme foreground. A scoped stylesheet (see
+    // styleParanToolBar() below) sizes the glyphs and trims the window-wide
+    // 48px text-under-icon padding.
+    paranToolBar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+
+    _paranFirst = paranToolBar->addAction(QStringLiteral("|◀"));
+    _paranFirst->setToolTip(tr("First in-orb moment"));
+    _paranPrev  = paranToolBar->addAction(QStringLiteral("◀"));
+    _paranPrev->setToolTip(tr("Previous in-orb moment"));
+    _paranPeak  = paranToolBar->addAction(QStringLiteral("◉"));
+    _paranPeak->setToolTip(tr("Snap to tightest orb (focal paran)"));
+    _paranNext  = paranToolBar->addAction(QStringLiteral("▶"));
+    _paranNext->setToolTip(tr("Next in-orb moment"));
+    _paranLast  = paranToolBar->addAction(QStringLiteral("▶|"));
+    _paranLast->setToolTip(tr("Last in-orb moment"));
+
+    _paranLabel = new QLabel(tr("(no paran)"));
+    _paranLabel->setContentsMargins(6, 0, 6, 0);
+    paranToolBar->addWidget(_paranLabel);
+
+    connect(_paranFirst, &QAction::triggered, this, [this] { paranStep(-2); });
+    connect(_paranPrev,  &QAction::triggered, this, [this] { paranStep(-1); });
+    connect(_paranPeak,  &QAction::triggered, this, [this] { paranStep(0);  });
+    connect(_paranNext,  &QAction::triggered, this, [this] { paranStep(+1); });
+    connect(_paranLast,  &QAction::triggered, this, [this] { paranStep(+2); });
+
+    // Theme-aware glyph/label color + compact padding. Re-applied on theme
+    // change so the colors track a live theme switch.
+    auto styleBar = [this] {
+        const QString fg = ThemeManager::instance().getTextColor();
+        paranToolBar->setStyleSheet(QStringLiteral(
+            "QToolBar#aspectRangeNavigator { spacing: 0px; }"
+            "QToolBar#aspectRangeNavigator QToolButton {"
+            "  color: %1; font-size: 15px; font-weight: bold;"
+            "  padding: 1px 5px; margin: 0px; min-width: 0px; }"
+            "QToolBar#aspectRangeNavigator QToolButton:disabled { color: #808080; }"
+            "QToolBar#aspectRangeNavigator QLabel { color: %1; padding-left: 8px; }")
+            .arg(fg));
+    };
+    styleBar();
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged,
+            this, [styleBar] { styleBar(); });
+
+    updateParanTransport(); // start in the disabled (no-paran) state
+}
+
+AstroFile*
+MainWindow::paranMovingFile() const
+{
+    for (AstroFile* f : filesBar->currentFiles())
+        if (f && f->getType() == TypeParan
+            && !f->getParanOccurrences().isEmpty())
+            return f;
+    return nullptr;
+}
+
+void
+MainWindow::rewireParanTransport()
+{
+    // Re-subscribe to the current tab's files so the transport reflects paran
+    // creation, stepping, and any other GMT change without polling.
+    for (const auto& c : _paranConns) disconnect(c);
+    _paranConns.clear();
+    for (AstroFile* f : filesBar->currentFiles()) {
+        if (!f) continue;
+        _paranConns << connect(f, &AstroFile::changed, this,
+                               [this](AstroFile::Members) { updateParanTransport(); });
+    }
+    updateParanTransport();
+}
+
+void
+MainWindow::updateParanTransport()
+{
+    if (!paranToolBar) return;
+    AstroFile* mv = paranMovingFile();
+
+    if (!mv) {
+        _paranOccIndex = -1;
+        for (QAction* a : { _paranFirst, _paranPrev, _paranPeak,
+                            _paranNext, _paranLast })
+            a->setEnabled(false);
+        _paranLabel->setText(tr("(no paran)"));
+        return;
+    }
+
+    const auto& occ = mv->getParanOccurrences();
+    const int   n   = occ.size();
+
+    // Index = occurrence nearest current GMT; peak = tightest orb (anchor).
+    const QDateTime gmt = mv->getGMT();
+    int    best = 0, peak = 0;
+    qint64 bestAbs = qAbs(occ[0].first.secsTo(gmt));
+    for (int i = 1; i < n; ++i) {
+        const qint64 d = qAbs(occ[i].first.secsTo(gmt));
+        if (d < bestAbs) { bestAbs = d; best = i; }
+        if (occ[i].second < occ[peak].second) peak = i;
+    }
+    _paranOccIndex = best;
+
+    _paranFirst->setEnabled(best > 0);
+    _paranPrev->setEnabled(best > 0);
+    _paranNext->setEnabled(best < n - 1);
+    _paranLast->setEnabled(best < n - 1);
+    _paranPeak->setEnabled(best != peak);
+
+    const QDateTime when = occ[best].first.toLocalTime();
+    _paranLabel->setText(QStringLiteral("%1   %2/%3   (orb %4°)")
+                             .arg(when.toString(QStringLiteral("yyyy-MM-dd HH:mm")))
+                             .arg(best + 1)
+                             .arg(n)
+                             .arg(occ[best].second, 0, 'f', 2));
+}
+
+void
+MainWindow::paranStep(int mode)
+{
+    AstroFile* mv = paranMovingFile();
+    if (!mv) return;
+    const auto& occ = mv->getParanOccurrences();
+    const int   n   = occ.size();
+    if (n == 0) return;
+
+    int idx = (_paranOccIndex < 0) ? 0 : _paranOccIndex;
+    switch (mode) {
+    case -2: idx = 0;                    break;
+    case -1: idx = qMax(0, idx - 1);     break;
+    case +1: idx = qMin(n - 1, idx + 1); break;
+    case +2: idx = n - 1;                break;
+    case 0: { // snap to tightest orb
+        int peak = 0;
+        for (int i = 1; i < n; ++i)
+            if (occ[i].second < occ[peak].second) peak = i;
+        idx = peak;
+        break;
+    }
+    }
+
+    _paranOccIndex = idx;
+
+    // Reproduce the focal-aspect purview the paran click established. focalExpand
+    // is a transient process-global that clickedCell sets only for its own
+    // (synchronous) redraw and then reverts; without restoring it here the step
+    // redraw would draw the paran lines but drop the attendant aspect lines
+    // (the aspects involving the paran bodies). We set it across setGMT — whose
+    // redraw is synchronous — then restore. Alt is still read live in
+    // calculateAspects, so Alt+step keeps giving the whole-chart clusters.
+    const bool savedExpand = astroWidget ? astroWidget->focalExpand() : false;
+    if (astroWidget) astroWidget->focalExpand() = true;
+    // setGMT fans out (Plain re-renders Directions, Chart redraws) and fires
+    // changed() → updateParanTransport() via the rewired connection.
+    mv->setGMT(occ[idx].first);
+    if (astroWidget) astroWidget->focalExpand() = savedExpand;
+}
+
+void
 MainWindow::currentTabChanged()
 {
     if (!filesBar->count()) return;
     astroWidget->setFiles(filesBar->currentFiles());
+    rewireParanTransport();
 }
 
 AppSettings

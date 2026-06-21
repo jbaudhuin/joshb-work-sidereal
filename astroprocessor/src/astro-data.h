@@ -2252,6 +2252,7 @@ class HarmonicEvent : public HarmonicAspect {
     QDateTime       _dateTime; ///< time of event in UTC
     ADateTimeRange  _range;
     HarmonicAspects _coincidences; ///< coincident events
+    QVector<QPair<QDateTime, qreal>> _occurrences; ///< paran cycling: per-day in-orb moments + orb°
 
   public:
     HarmonicEvent(const QDateTime&     dt,
@@ -2305,6 +2306,17 @@ class HarmonicEvent : public HarmonicAspect {
 
     const ADateTimeRange& range() const { return _range; }
     void                  setRange(const ADateTimeRange& r) { _range = r; }
+
+    // Paran cycling: per-day in-orb moments of the focal cluster, each paired
+    // with that day's orb in degrees. Empty for non-paran events.
+    const QVector<QPair<QDateTime, qreal>>& occurrences() const
+    {
+        return _occurrences;
+    }
+    void setOccurrences(QVector<QPair<QDateTime, qreal>> o)
+    {
+        _occurrences = std::move(o);
+    }
 
     HarmonicAspects&       coincidences() { return _coincidences; }
     const HarmonicAspects& coincidences() const { return _coincidences; }
