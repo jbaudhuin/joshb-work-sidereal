@@ -163,6 +163,10 @@ public slots:
 
 signals:
     void planetSelected(A::PlanetId, int fileIndex);
+    /// Emitted when a wheel time-drag finishes (mouse release after dragging the
+    /// zodiac ring to change the chart's moment). Carries the dragged file so
+    /// listeners (e.g. the events panel) can react to the deliberate time change.
+    void timeDragFinished(AstroFile* draggedFile);
     void planetsSelected(const A::PlanetSet&);
 
 public:

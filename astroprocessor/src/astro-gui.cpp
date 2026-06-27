@@ -643,8 +643,15 @@ AstroFile::clearUnsavedState()
     if (hasUnsavedChanges()) {
         _unsavedChanges = false;
         if (!_holdUpdate) change(ChangedState);
-        else if (_holdUpdateMembers & ChangedState)
-            _holdUpdateMembers ^= ChangedState;
+        else
+            // Updates are held (e.g. during load()/revert): make sure the
+            // clean transition is delivered on resumeUpdate so consumers
+            // (FilesBar tab "*", revert button) re-evaluate. The old code
+            // XOR-removed ChangedState here, which dropped the notification
+            // when the file was already dirty before the batch — leaving a
+            // stale "*" on the tab after a revert even though the file was
+            // genuinely clean.
+            _holdUpdateMembers |= ChangedState;
     }
 }
 

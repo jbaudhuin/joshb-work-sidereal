@@ -100,10 +100,25 @@ RotatingCircleItem::sceneEvent(QEvent* event)
             dragDT    = file->getGMT();
         }
 
-        // fix rotate in wrong direction
+        // Map the drag's angular delta to a time delta so the ring follows the
+        // cursor (direct manipulation): dragging the grabbed point one way
+        // rotates the wheel that way and moves time correspondingly. The
+        // negation depends on the display orientation (clockwise) and start
+        // point; this combination matches the default not-clockwise +
+        // Ascendant-start config (drag the Asc down → counter-clockwise →
+        // earlier). NB: the other three orientation combos are the inverse of
+        // this branch and want spot-checking.
         float k = newAngle - dragAngle;
-        if (chart()->isClockwise()
-            == (chart()->startPoint() == Start_Ascendent))
+        // Direction sign. Both Ascendant modes anchor the Asc to the left, so
+        // they share a branch (a single chart renders identically under either).
+        // Empirically (non-clockwise + Ascendant-anchored), the drag must NOT
+        // negate for the grabbed point to follow the cursor — drag the Asc down
+        // → counter-clockwise → earlier. clockwise display flips it; the
+        // 0-Aries (non-asc-anchored) start flips it too.
+        const bool ascAnchored =
+            chart()->startPoint() == Start_Ascendent
+            || chart()->startPoint() == Start_Outer_Ascendant;
+        if (chart()->isClockwise() == ascAnchored)
         {
             k = -k;
         }
@@ -122,6 +137,9 @@ RotatingCircleItem::sceneEvent(QEvent* event)
         if (A::isScrubbing()) {
             A::setScrubbing(false);
             file->forceRecalculate();
+            // Notify listeners (events panel) of the deliberate time change so
+            // they can recompute if the dragged chart is a natal reference.
+            emit chart()->timeDragFinished(file);
             return true;
         }
         return false;
@@ -342,11 +360,14 @@ Chart::updateScene()
 {
     qDebug() << "Update scene";
 
-    circle->setFile(file());
     float rotate;
 
     // Use the outer chart's ascendant whenever two charts are present.
     bool useReturnAsc = (circleStart == Start_Outer_Ascendant && files().size() > 1);
+
+    // Bind the wheel drag to the SAME file whose Ascendant anchors the rotation
+    // (file(1) in "prefer outer" biwheels, else file(0)).
+    circle->setFile(file(useReturnAsc ? 1 : 0));
 
     switch (circleStart) {
     case Start_Outer_Ascendant:
@@ -1631,10 +1652,17 @@ Chart::filesUpdated(MembersList m)
         m.append(AstroFile::Member());
     }
 
-    // File-data changes that require scene rebuild
+    // File-data changes that require a full scene rebuild — only structural
+    // ones (chart type, name/label, and the file-count change handled below).
+    // GMT/Location/Timezone are NOT here on purpose: they merely move the
+    // planets/cusps, which the incremental dataUpdateFlags path below handles
+    // (updateScene + updatePlanetsAndCusps). Rebuilding on GMT would tear down
+    // and recreate the whole scene on every time change — wasteful for
+    // animation, and fatal to the wheel drag: clearScene() would delete the
+    // RotatingCircleItem mid-drag (destroying its mouse grab), which is exactly
+    // why dragging the ring to change the time did nothing.
     AstroFile::Members rebuildFlags =
-        AstroFile::GMT | AstroFile::Location
-        | AstroFile::Type | AstroFile::Name;
+        AstroFile::Type | AstroFile::Name;
 
     if (chartsCount
         && (chartsCount != filesCount()
@@ -1675,6 +1703,26 @@ Chart::filesUpdated(MembersList m)
         updateAspects();
         drawMidpointFigures();
         drawParanFigures();
+    }
+
+    // Hide ALL house demarcations during animation playback — Ascendant-anchored,
+    // they sweep distractingly as time advances. Keyed on animation ticks
+    // (animating && scrubbing) so wheel drags keep their cusps visible. The
+    // catch-up redraw (scrubbing already false) restores them; restoring honors
+    // the Par=N inner-cusp suppression that drawCuspides applies.
+    {
+        const bool hideCusps = A::isAnimating() && A::isScrubbing();
+        for (int fi = 0; fi < filesCount(); ++fi) {
+            const bool parANInner =
+                (filesCount() > 1 && fi == 0
+                 && file(0)->getOriginEventType()
+                        == A::etcParanatellontaToNatal);
+            const bool             vis    = !hideCusps && !parANInner;
+            const graphicsItemDict cusps  = cuspides.value(fi);
+            const graphicsItemDict labels = cuspideLabels.value(fi);
+            for (auto* it : cusps)  if (it) it->setVisible(vis);
+            for (auto* it : labels) if (it) it->setVisible(vis);
+        }
     }
 }
 

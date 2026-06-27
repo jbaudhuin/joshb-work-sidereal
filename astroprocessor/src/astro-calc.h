@@ -269,6 +269,19 @@ extern bool scrubbing;
 inline bool isScrubbing() { return scrubbing; }
 inline void setScrubbing(bool on) { scrubbing = on; }
 
+/// Continuous animation playback state (Aspect Range Navigator's Play). Set for
+/// the whole playback including the final catch-up; distinct from `scrubbing`
+/// (which also covers wheel drags). Uses:
+///  - `animating && scrubbing` (animation ticks) → the chart hides house
+///    demarcations, which sweep distractingly when Ascendant-anchored; wheel
+///    drags (scrubbing only) keep their cusps.
+///  - `animating` held true through the post-playback catch-up (when scrubbing
+///    is already false) → the transit-event finder stays off, so animating a
+///    display-moment scrub doesn't needlessly recompute the events list.
+extern bool animating;
+inline bool isAnimating() { return animating; }
+inline void setAnimating(bool on) { animating = on; }
+
 bool
 isSolarReturn(const QString& chartName);
 bool

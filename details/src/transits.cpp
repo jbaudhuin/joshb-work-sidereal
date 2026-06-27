@@ -3615,6 +3615,22 @@ Transits::reconcile()
 }
 
 void
+Transits::onChartTimeDragged(AstroFile* draggedFile)
+{
+    // Only react when the dragged chart is the natal reference (file(0) of this
+    // tab and a natal/event type). Dragging a transit/derived chart's display
+    // moment doesn't change the (date-range-based) event list, so leave it.
+    if (filesCount() == 0 || !file(0) || draggedFile != file(0)) return;
+    const FileType t = file(0)->getType();
+    if (t != TypeMale && t != TypeFemale && t != TypeEvent) return;
+
+    // The natal moment moved → natal-relative events are stale. Mark and
+    // reconcile (recomputes now if Auto is on, else lights the Refresh button).
+    file(0)->markEventsForRecalc();
+    reconcile();
+}
+
+void
 Transits::saveEventOptionsAndReconcile(bool added)
 {
     // Guard: prevent changed() signals from setTransit* cascading into
@@ -4368,6 +4384,13 @@ Transits::clickedCell(QModelIndex inx)
         // Clear originEventType up front so a prior paran-focal selection
         // doesn't keep the chart wheel's cusps/axes hidden on the next click.
         file()->setOriginEventType(A::etcUnknownEvent);
+        // Reset navigable state so a prior paran/aspect selection on this reused
+        // chart doesn't leak into the new event (e.g. stale paran occurrences
+        // making navMovingFile() treat a ranged event as a discrete paran).
+        file()->setParanGroupPlanets({});
+        file()->setParanOccurrences({});
+        file()->setAspectRange(A::ADateTimeRange());
+        file()->setAspectExact(QDateTime());
         if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
             file()->setType(TypeReturn);
         } else if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
@@ -4388,6 +4411,16 @@ Transits::clickedCell(QModelIndex inx)
         } else {
             file()->setType(TypeOther);
         }
+        // Aspect Range Navigator: record the event's in-orb range + draw-context
+        // so the navigator can offer Play / reproduce the aspect rendering.
+        if (et != A::etcParanatellonta && et != A::etcParanatellontaToNatal
+            && ev.range().first.isValid() && ev.range().second.isValid()
+            && ev.range().first < ev.range().second) {
+            file()->setAspectRange(ev.range());
+            file()->setAspectExact(dt);
+        }
+        file()->setDrawFocalExpand(aw->focalExpand());
+        file()->setDrawOverrideAspectSet(aw->overrideAspectSet());
         // Flush the batched changes (group/type now in place) as one update.
         file()->resumeUpdate();
         // Trigger a full chart rebuild so Chart picks up the focal planets
@@ -4428,6 +4461,12 @@ Transits::clickedCell(QModelIndex inx)
         // Clear originEventType up front so a prior paran-focal selection
         // doesn't keep the chart wheel's cusps/axes hidden on the next click.
         taf->setOriginEventType(A::etcUnknownEvent);
+        // Reset navigable state so a prior paran/aspect selection on this reused
+        // transit chart doesn't leak into the new event.
+        taf->setParanGroupPlanets({});
+        taf->setParanOccurrences({});
+        taf->setAspectRange(A::ADateTimeRange());
+        taf->setAspectExact(QDateTime());
         if (et == A::etcSolarReturn || et == A::etcLunarReturn
             || et == A::etcReturn)
         {
@@ -4465,6 +4504,19 @@ Transits::clickedCell(QModelIndex inx)
             taf->setType(TypeOther);
             taf->setBaseChart(file()->getGMT());
         }
+        // Aspect Range Navigator: record the event's in-orb range so the
+        // navigator can offer continuous Play across it (non-paran events).
+        if (et != A::etcParanatellonta && et != A::etcParanatellontaToNatal
+            && ev.range().first.isValid() && ev.range().second.isValid()
+            && ev.range().first < ev.range().second) {
+            taf->setAspectRange(ev.range());
+            taf->setAspectExact(dt);
+        }
+        // Capture the click's draw-context so navigator steps/animation can
+        // reproduce the same aspect rendering (esp. TA/TNA patterns, which want
+        // focalExpand=false + their override aspect set).
+        taf->setDrawFocalExpand(aw->focalExpand());
+        taf->setDrawOverrideAspectSet(aw->overrideAspectSet());
         taf->resumeUpdate();
 
         // Clear unsaved state since this is a generated chart from an event
@@ -4545,6 +4597,17 @@ Transits::doubleClickedCell(QModelIndex inx)
         af->setParanGroupPlanets(group);
         af->setParanOccurrences(ev.occurrences());
     }
+
+    // Aspect Range Navigator: record the event's in-orb range (non-paran ranged
+    // events) so the navigator can offer continuous Play across it.
+    if (et != A::etcParanatellonta && et != A::etcParanatellontaToNatal
+        && ev.range().first.isValid() && ev.range().second.isValid()
+        && ev.range().first < ev.range().second) {
+        af->setAspectRange(ev.range());
+        af->setAspectExact(dt);
+    }
+    af->setDrawFocalExpand(aw->focalExpand());
+    af->setDrawOverrideAspectSet(aw->overrideAspectSet());
 
     // Apply chart preset if one exists for this event type
     af->setOriginEventType(et);
@@ -5005,9 +5068,11 @@ Transits::filesUpdated(MembersList m)
     
     if (!isVisible()) return;
     if (_inhibitUpdate) return;
-    // While scrubbing (wheel drag / animation), skip event reconcile/recompute;
-    // the catch-up recompute on scrub-exit refreshes once.
-    if (A::isScrubbing()) return;
+    // While scrubbing (wheel drag) or animating, skip the event finder. Events
+    // are independent of the chart's display moment, so a moment-scrub must not
+    // recompute them. `animating` stays true through the post-playback catch-up
+    // (when scrubbing is already false) so the catch-up doesn't re-run the finder.
+    if (A::isScrubbing() || A::isAnimating()) return;
     if (!filesCount()) {
         clear();
         return;

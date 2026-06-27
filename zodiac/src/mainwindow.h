@@ -34,11 +34,16 @@ class AstroFileInfo : public AstroFileHandler {
     int          currentIndex;
     QPushButton* edit;
     QLabel*      shadow;
+    QToolButton* revert = nullptr;  // "revert to saved" — top-right corner
     bool         showAge;
 
     AstroFile* currentFile() { return file(currentIndex); }
     void       setText(const QString& str);
     void       refresh();
+    void       updateRevertButton(); // show only when dirty + saved file exists
+
+  private slots:
+    void revertToSaved();
 
   protected:
     void filesUpdated(MembersList members) override; // AstroFileHandler implementations
@@ -486,6 +491,7 @@ class MainWindow : public QMainWindow, public Customizable {
     // current paran chart's moving file through its in-orb occurrences. Always
     // present; disabled when the current tab is not a paran chart.
     QToolBar* paranToolBar   = nullptr;
+    QAction*  _paranPlay     = nullptr;  // continuous animation (ranged events)
     QAction*  _paranFirst    = nullptr;
     QAction*  _paranPrev     = nullptr;
     QAction*  _paranPeak     = nullptr;
@@ -495,11 +501,26 @@ class MainWindow : public QMainWindow, public Customizable {
     int       _paranOccIndex = -1;
     QList<QMetaObject::Connection> _paranConns; // to current files' changed()
 
+    // Continuous animation state (ranged aspect events).
+    QTimer*   _animTimer     = nullptr;
+    bool      _animPlaying   = false;
+    bool      _savedExpand   = false;   // focalExpand to restore after playback
+    A::AspectSetId _savedOverride = -1; // overrideAspectSet to restore
+    qint64    _animStartMs   = 0;       // wall-clock anchor for elapsed pacing
+    int       _animDurationMs = 10000;  // configurable; traverse a range in this
+
     void       buildParanToolBar();
-    AstroFile* paranMovingFile() const;
+    // The current navigable chart: a paran chart (discrete occurrences) OR a
+    // ranged aspect-event chart (continuous in-orb range), else null.
+    AstroFile* navMovingFile() const;
+    bool       navIsContinuous(AstroFile* mv) const; // ranged (not paran)
+    void       navSetGMT(AstroFile* mv, const QDateTime& t); // setGMT w/ focal aspects
     void       rewireParanTransport();  // re-subscribe to current files' changed()
     void       updateParanTransport();  // reconcile enable/label with current chart
-    void       paranStep(int mode);     // -2 first, -1 prev, 0 peak, +1 next, +2 last
+    void       paranStep(int mode);     // -2 first, -1 prev, 0 peak/exact, +1 next, +2 last
+    void       animPlayToggle();        // start/stop continuous playback
+    void       animTick();              // one animation frame
+    void       stopAnimation();         // halt + catch-up recompute
 
     std::string _APIKey;
     

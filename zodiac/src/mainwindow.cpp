@@ -53,6 +53,7 @@
 #include <QLabel>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QStyle>
 #include <QMetaObject>
 #include <QScrollArea>
 #include <QSettings>
@@ -497,11 +498,25 @@ AstroFileInfo::AstroFileInfo(QWidget* parent) : AstroFileHandler(parent)
     // Enable drag and drop
     setAcceptDrops(true);
 
+    // "Revert to saved" — small corner button, shown only when the file has
+    // unsaved changes and a saved copy exists on disk (e.g. after dragging the
+    // wheel or stepping the Aspect Range Navigator). Added after edit so it sits
+    // on top of edit's top-right corner.
+    revert = new QToolButton(this);
+    revert->setObjectName("revertButton"); // styled in the ThemeManager .qss
+    revert->setText(QStringLiteral("⟲"));
+    revert->setToolTip(tr("Revert to saved"));
+    revert->setCursor(Qt::PointingHandCursor);
+    revert->setFocusPolicy(Qt::NoFocus);
+    revert->setVisible(false);
+
     QGridLayout* layout = new QGridLayout(this);
     layout->addWidget(edit, 0, 0, 1, 1);
     layout->addWidget(shadow, 0, 0, 1, 1);
+    layout->addWidget(revert, 0, 0, 1, 1, Qt::AlignTop | Qt::AlignRight);
 
     connect(edit, SIGNAL(clicked()), this, SIGNAL(clicked()));
+    connect(revert, &QToolButton::clicked, this, &AstroFileInfo::revertToSaved);
 }
 
 void
@@ -575,6 +590,7 @@ AstroFileInfo::filesUpdated(MembersList m)
 {
     if (currentIndex >= filesCount() /*|| currentIndex >= m.size()*/) {
         setText("");
+        updateRevertButton();
         return;
     }
     while (currentIndex >= m.size()) m.append(AstroFile::Member());
@@ -582,6 +598,28 @@ AstroFileInfo::filesUpdated(MembersList m)
         & (AstroFile::Name | AstroFile::GMT | AstroFile::Timezone
            | AstroFile::Location | AstroFile::LocationName))
         refresh();
+    // Any change can flip the dirty/ChangedState flag, so reconcile the revert
+    // button regardless of which members changed.
+    updateRevertButton();
+}
+
+void
+AstroFileInfo::updateRevertButton()
+{
+    if (!revert) return;
+    AstroFile* f = (currentIndex < filesCount()) ? currentFile() : nullptr;
+    revert->setVisible(f && f->hasUnsavedChanges() && f->fileInfo().exists());
+}
+
+void
+AstroFileInfo::revertToSaved()
+{
+    AstroFile* f = (currentIndex < filesCount()) ? currentFile() : nullptr;
+    if (!f || !f->hasUnsavedChanges() || !f->fileInfo().exists()) return;
+    // Reload the on-disk saved state: overwrites in-memory edits, clears the
+    // dirty flag, recomputes, and redraws every view (including this widget,
+    // which then hides the button via updateRevertButton()).
+    f->load(f->fileInfo());
 }
 
 void
@@ -727,6 +765,15 @@ AstroWidget::AstroWidget(QWidget* parent) : QWidget(parent)
                     &Plain::displayModeChanged,
                     speculum,
                     &Speculum::setDisplayMode);
+        }
+    }
+
+    // Recompute events when a wheel time-drag finishes on a natal-type chart
+    // (Transits::onChartTimeDragged self-gates on file(0) being natal/event).
+    if (auto chart = findSlide<Chart>()) {
+        if (auto transits = findDockHdlr<Transits>()) {
+            connect(chart, &Chart::timeDragFinished,
+                    transits, &Transits::onChartTimeDragged);
         }
     }
 
@@ -5124,18 +5171,29 @@ MainWindow::buildParanToolBar()
     // 48px text-under-icon padding.
     paranToolBar->setToolButtonStyle(Qt::ToolButtonTextOnly);
 
-    _paranFirst = paranToolBar->addAction(QStringLiteral("|◀"));
-    _paranFirst->setToolTip(tr("First in-orb moment"));
-    _paranPrev  = paranToolBar->addAction(QStringLiteral("◀"));
-    _paranPrev->setToolTip(tr("Previous in-orb moment"));
-    _paranPeak  = paranToolBar->addAction(QStringLiteral("◉"));
-    _paranPeak->setToolTip(tr("Snap to tightest orb (focal paran)"));
-    _paranNext  = paranToolBar->addAction(QStringLiteral("▶"));
-    _paranNext->setToolTip(tr("Next in-orb moment"));
-    _paranLast  = paranToolBar->addAction(QStringLiteral("▶|"));
-    _paranLast->setToolTip(tr("Last in-orb moment"));
+    // Play/Stop (continuous animation) — leftmost, set off by a separator.
+    _paranPlay = paranToolBar->addAction(QStringLiteral("▶"));
+    _paranPlay->setToolTip(tr("Play / stop animation across the range"));
+    connect(_paranPlay, &QAction::triggered, this, [this] { animPlayToggle(); });
+    // Object-name the underlying button so the theme .qss can color it green
+    // (play) / red (stop) — distinguishing it from the next-step ▶ glyph.
+    if (auto* btn = qobject_cast<QToolButton*>(
+            paranToolBar->widgetForAction(_paranPlay)))
+        btn->setObjectName("navPlayButton");
+    paranToolBar->addSeparator();
 
-    _paranLabel = new QLabel(tr("(no paran)"));
+    _paranFirst = paranToolBar->addAction(QStringLiteral("|◀"));
+    _paranFirst->setToolTip(tr("Start of range"));
+    _paranPrev  = paranToolBar->addAction(QStringLiteral("◀"));
+    _paranPrev->setToolTip(tr("Step back"));
+    _paranPeak  = paranToolBar->addAction(QStringLiteral("◉"));
+    _paranPeak->setToolTip(tr("Snap to the focal moment (tightest orb / exactitude)"));
+    _paranNext  = paranToolBar->addAction(QStringLiteral("▶"));
+    _paranNext->setToolTip(tr("Step forward"));
+    _paranLast  = paranToolBar->addAction(QStringLiteral("▶|"));
+    _paranLast->setToolTip(tr("End of range"));
+
+    _paranLabel = new QLabel(tr("(no event)"));
     _paranLabel->setContentsMargins(6, 0, 6, 0);
     paranToolBar->addWidget(_paranLabel);
 
@@ -5145,41 +5203,74 @@ MainWindow::buildParanToolBar()
     connect(_paranNext,  &QAction::triggered, this, [this] { paranStep(+1); });
     connect(_paranLast,  &QAction::triggered, this, [this] { paranStep(+2); });
 
-    // Theme-aware glyph/label color + compact padding. Re-applied on theme
-    // change so the colors track a live theme switch.
-    auto styleBar = [this] {
-        const QString fg = ThemeManager::instance().getTextColor();
-        paranToolBar->setStyleSheet(QStringLiteral(
-            "QToolBar#aspectRangeNavigator { spacing: 0px; }"
-            "QToolBar#aspectRangeNavigator QToolButton {"
-            "  color: %1; font-size: 15px; font-weight: bold;"
-            "  padding: 1px 5px; margin: 0px; min-width: 0px; }"
-            "QToolBar#aspectRangeNavigator QToolButton:disabled { color: #808080; }"
-            "QToolBar#aspectRangeNavigator QLabel { color: %1; padding-left: 8px; }")
-            .arg(fg));
-    };
-    styleBar();
-    connect(&ThemeManager::instance(), &ThemeManager::themeChanged,
-            this, [styleBar] { styleBar(); });
+    _animTimer = new QTimer(this);
+    _animTimer->setInterval(33); // ~30 fps target; actual step size is elapsed-based
+    connect(_animTimer, &QTimer::timeout, this, [this] { animTick(); });
 
-    updateParanTransport(); // start in the disabled (no-paran) state
+    // Visual styling (compact glyphs, theme color) lives in the ThemeManager
+    // .qss files, scoped via the objectName "aspectRangeNavigator".
+
+    updateParanTransport(); // start in the disabled (no-event) state
 }
 
 AstroFile*
-MainWindow::paranMovingFile() const
+MainWindow::navMovingFile() const
 {
-    for (AstroFile* f : filesBar->currentFiles())
-        if (f && f->getType() == TypeParan
-            && !f->getParanOccurrences().isEmpty())
+    // Prefer a paran chart (discrete occurrences); otherwise the first ranged
+    // aspect-event chart (continuous in-orb range).
+    AstroFile* ranged = nullptr;
+    for (AstroFile* f : filesBar->currentFiles()) {
+        if (!f) continue;
+        if (f->getType() == TypeParan && !f->getParanOccurrences().isEmpty())
             return f;
-    return nullptr;
+        if (!ranged) {
+            const auto& r = f->getAspectRange();
+            if (r.first.isValid() && r.second.isValid() && r.first < r.second)
+                ranged = f;
+        }
+    }
+    return ranged;
+}
+
+bool
+MainWindow::navIsContinuous(AstroFile* mv) const
+{
+    // navMovingFile only returns a paran-with-occurrences or a ranged chart, so
+    // "no occurrences" means it's the ranged (continuous) one.
+    return mv && mv->getParanOccurrences().isEmpty();
+}
+
+void
+MainWindow::navSetGMT(AstroFile* mv, const QDateTime& t)
+{
+    // Reproduce the draw-context the event click established (focalExpand +
+    // override aspect set), which are transient globals that revert after the
+    // click — so a plain setGMT redraw would drop or mis-draw the aspect lines.
+    // Apply the chart's stored context across setGMT (synchronous redraw), then
+    // restore. Alt is read live in calculateAspects, so Alt+step still gives the
+    // whole-chart clusters.
+    if (!astroWidget) { mv->setGMT(t); return; }
+    const bool          savedExpand   = astroWidget->focalExpand();
+    const A::AspectSetId savedOverride = astroWidget->overrideAspectSet();
+    astroWidget->focalExpand()      = mv->getDrawFocalExpand();
+    astroWidget->overrideAspectSet() = mv->getDrawOverrideAspectSet();
+    // A step is a display-moment change: the event list is unchanged, so hold
+    // the transit finder off (it gates on scrubbing||animating). The display
+    // panels (Directions, Harmonics, …) gate on scrubbing — which stays false
+    // here — so they still refresh to the new moment.
+    const bool savedAnimating = A::isAnimating();
+    A::setAnimating(true);
+    mv->setGMT(t); // fans out → Chart/Plain redraw; fires changed() → update
+    A::setAnimating(savedAnimating);
+    astroWidget->focalExpand()      = savedExpand;
+    astroWidget->overrideAspectSet() = savedOverride;
 }
 
 void
 MainWindow::rewireParanTransport()
 {
-    // Re-subscribe to the current tab's files so the transport reflects paran
-    // creation, stepping, and any other GMT change without polling.
+    // Re-subscribe to the current tab's files so the transport reflects event
+    // selection, stepping, playback, and any other GMT change without polling.
     for (const auto& c : _paranConns) disconnect(c);
     _paranConns.clear();
     for (AstroFile* f : filesBar->currentFiles()) {
@@ -5194,17 +5285,59 @@ void
 MainWindow::updateParanTransport()
 {
     if (!paranToolBar) return;
-    AstroFile* mv = paranMovingFile();
+
+    // Reflect play/stop glyph + color (green play ▶ / red stop ■, via the
+    // navPlayButton qss rules). Repolish only when the state actually changes.
+    _paranPlay->setText(_animPlaying ? QStringLiteral("■") : QStringLiteral("▶"));
+    if (auto* btn = qobject_cast<QToolButton*>(
+            paranToolBar->widgetForAction(_paranPlay)))
+    {
+        if (btn->property("playing").toBool() != _animPlaying) {
+            btn->setProperty("playing", _animPlaying);
+            btn->style()->unpolish(btn);
+            btn->style()->polish(btn);
+        }
+    }
+
+    AstroFile* mv = navMovingFile();
 
     if (!mv) {
         _paranOccIndex = -1;
-        for (QAction* a : { _paranFirst, _paranPrev, _paranPeak,
+        if (_animPlaying) stopAnimation();
+        for (QAction* a : { _paranPlay, _paranFirst, _paranPrev, _paranPeak,
                             _paranNext, _paranLast })
             a->setEnabled(false);
-        _paranLabel->setText(tr("(no paran)"));
+        _paranLabel->setText(tr("(no event)"));
         return;
     }
 
+    if (navIsContinuous(mv)) {
+        // ---- Ranged aspect event: continuous range, Play enabled ----------
+        const auto&     r   = mv->getAspectRange();
+        const QDateTime gmt = mv->getGMT();
+        const qint64    span = r.first.secsTo(r.second);
+        const qint64    off  = qBound<qint64>(0, r.first.secsTo(gmt), span);
+        const int       pct  = span > 0 ? int(100.0 * off / span + 0.5) : 0;
+
+        _paranPlay->setEnabled(true);
+        // Steppers idle during playback.
+        const bool idle = !_animPlaying;
+        _paranFirst->setEnabled(idle && gmt > r.first);
+        _paranPrev->setEnabled(idle && gmt > r.first);
+        _paranNext->setEnabled(idle && gmt < r.second);
+        _paranLast->setEnabled(idle && gmt < r.second);
+        const QDateTime exact = mv->getAspectExact();
+        _paranPeak->setEnabled(idle && exact.isValid() && gmt != exact);
+
+        _paranLabel->setText(QStringLiteral("%1   %2%")
+                                 .arg(gmt.toLocalTime().toString(
+                                     QStringLiteral("yyyy-MM-dd HH:mm")))
+                                 .arg(pct));
+        return;
+    }
+
+    // ---- Discrete paran chart: step through occurrences, no Play -----------
+    _paranPlay->setEnabled(false);
     const auto& occ = mv->getParanOccurrences();
     const int   n   = occ.size();
 
@@ -5236,42 +5369,136 @@ MainWindow::updateParanTransport()
 void
 MainWindow::paranStep(int mode)
 {
-    AstroFile* mv = paranMovingFile();
+    AstroFile* mv = navMovingFile();
     if (!mv) return;
+    if (_animPlaying) stopAnimation(); // a manual step interrupts playback
+
     const auto& occ = mv->getParanOccurrences();
-    const int   n   = occ.size();
-    if (n == 0) return;
+    if (!occ.isEmpty()) {
+        // ---- Discrete paran stepping --------------------------------------
+        const int n = occ.size();
+        int idx = (_paranOccIndex < 0) ? 0 : _paranOccIndex;
+        switch (mode) {
+        case -2: idx = 0;                    break;
+        case -1: idx = qMax(0, idx - 1);     break;
+        case +1: idx = qMin(n - 1, idx + 1); break;
+        case +2: idx = n - 1;                break;
+        case 0: { // snap to tightest orb
+            int peak = 0;
+            for (int i = 1; i < n; ++i)
+                if (occ[i].second < occ[peak].second) peak = i;
+            idx = peak;
+            break;
+        }
+        }
+        _paranOccIndex = idx;
+        navSetGMT(mv, occ[idx].first);
+        return;
+    }
 
-    int idx = (_paranOccIndex < 0) ? 0 : _paranOccIndex;
+    // ---- Continuous range stepping ----------------------------------------
+    const auto& r = mv->getAspectRange();
+    if (!r.first.isValid() || !r.second.isValid()) return;
+    const qint64    span     = r.first.secsTo(r.second);
+    const qint64    stepSecs = qMax<qint64>(1, span / 50); // ~2% per nudge
+    const QDateTime cur      = mv->getGMT();
+    QDateTime       target;
     switch (mode) {
-    case -2: idx = 0;                    break;
-    case -1: idx = qMax(0, idx - 1);     break;
-    case +1: idx = qMin(n - 1, idx + 1); break;
-    case +2: idx = n - 1;                break;
-    case 0: { // snap to tightest orb
-        int peak = 0;
-        for (int i = 1; i < n; ++i)
-            if (occ[i].second < occ[peak].second) peak = i;
-        idx = peak;
+    case -2: target = r.first;  break;
+    case +2: target = r.second; break;
+    case 0:
+        target = mv->getAspectExact().isValid() ? mv->getAspectExact() : r.first;
         break;
+    case -1:
+        target = cur.addSecs(-stepSecs);
+        if (target < r.first) target = r.first;
+        break;
+    case +1:
+        target = cur.addSecs(stepSecs);
+        if (target > r.second) target = r.second;
+        break;
+    default: return;
     }
+    navSetGMT(mv, target);
+}
+
+void
+MainWindow::animPlayToggle()
+{
+    if (_animPlaying) { stopAnimation(); return; }
+
+    AstroFile* mv = navMovingFile();
+    if (!mv || !navIsContinuous(mv)) return;
+    const auto& r = mv->getAspectRange();
+    if (!r.first.isValid() || !r.second.isValid() || r.first >= r.second) return;
+
+    _animPlaying = true;
+    if (astroWidget) {
+        _savedExpand   = astroWidget->focalExpand();
+        _savedOverride = astroWidget->overrideAspectSet();
+        // Reproduce the chart's stored draw-context for every animated frame.
+        astroWidget->focalExpand()      = mv->getDrawFocalExpand();
+        astroWidget->overrideAspectSet() = mv->getDrawOverrideAspectSet();
     }
+    A::setScrubbing(true);                               // freeze heavy panels
+    A::setAnimating(true);                               // fixed-zodiac + hold finder
+    _animStartMs = QDateTime::currentMSecsSinceEpoch();
+    mv->setGMT(r.first);                                 // begin at range start
+    _animTimer->start();
+    updateParanTransport();
+}
 
-    _paranOccIndex = idx;
+void
+MainWindow::animTick()
+{
+    AstroFile* mv = navMovingFile();
+    if (!mv || !navIsContinuous(mv)) { stopAnimation(); return; }
+    const auto& r = mv->getAspectRange();
+    if (!r.first.isValid() || !r.second.isValid()) { stopAnimation(); return; }
 
-    // Reproduce the focal-aspect purview the paran click established. focalExpand
-    // is a transient process-global that clickedCell sets only for its own
-    // (synchronous) redraw and then reverts; without restoring it here the step
-    // redraw would draw the paran lines but drop the attendant aspect lines
-    // (the aspects involving the paran bodies). We set it across setGMT — whose
-    // redraw is synchronous — then restore. Alt is still read live in
-    // calculateAspects, so Alt+step keeps giving the whole-chart clusters.
-    const bool savedExpand = astroWidget ? astroWidget->focalExpand() : false;
-    if (astroWidget) astroWidget->focalExpand() = true;
-    // setGMT fans out (Plain re-renders Directions, Chart redraws) and fires
-    // changed() → updateParanTransport() via the rewired connection.
-    mv->setGMT(occ[idx].first);
-    if (astroWidget) astroWidget->focalExpand() = savedExpand;
+    const qint64 span    = r.first.secsTo(r.second);
+    const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - _animStartMs;
+    const double pos     = double(elapsed) / double(qMax(1, _animDurationMs));
+    if (pos >= 1.0) {
+        mv->setGMT(r.second); // land exactly on the end
+        stopAnimation();
+        return;
+    }
+    // Elapsed-based: total traversal time stays ~_animDurationMs regardless of
+    // per-frame cost (slow frames just take bigger chart-time steps). scrubbing
+    // is on, so this is a cheap wheel-only redraw.
+    mv->setGMT(r.first.addSecs(qint64(pos * span)));
+}
+
+void
+MainWindow::stopAnimation()
+{
+    if (_animTimer) _animTimer->stop();
+    if (!_animPlaying) return;
+    _animPlaying = false;
+
+    A::setScrubbing(false);
+    updateParanTransport(); // free the toolbar/wheel immediately
+
+    // Catch-up off the critical path: recompute heavy panels at the final
+    // moment, keeping the attendant aspects on the wheel (focalExpand true
+    // during the recompute), then restore focalExpand. Deferred so the UI
+    // responds before the (potentially heavy) panel refresh runs.
+    QTimer::singleShot(0, this, [this] {
+        AstroFile* mv = navMovingFile();
+        if (mv && astroWidget) {
+            astroWidget->focalExpand()      = mv->getDrawFocalExpand();
+            astroWidget->overrideAspectSet() = mv->getDrawOverrideAspectSet();
+            mv->forceRecalculate(); // refreshes panels; Transits held off by animating
+        }
+        if (astroWidget) {
+            astroWidget->focalExpand()      = _savedExpand;
+            astroWidget->overrideAspectSet() = _savedOverride;
+        }
+        // Release the animation hold last, so the catch-up above rendered the
+        // final frame Ascendant-anchored and the transit finder stayed off.
+        A::setAnimating(false);
+    });
 }
 
 void
@@ -5292,6 +5519,7 @@ MainWindow::defaultSettings()
     s.setValue("askToSave", false);
     s.setValue("Key", "");
     s.setValue("theme", "dark");
+    s.setValue("Animation/durationSec", 10); // Aspect Range Navigator playback
     return s;
 }
 
@@ -5307,6 +5535,7 @@ MainWindow::currentSettings()
     // This value is never saved to settings.ini
     s.setValue("Key", SessionManager::readAPIKey());
     s.setValue("theme", ThemeManager::instance().currentThemeName());
+    s.setValue("Animation/durationSec", _animDurationMs / 1000);
     return s;
 }
 
@@ -5317,6 +5546,9 @@ MainWindow::applySettings(const AppSettings& s)
     this->restoreGeometry(s.value("Window/Geometry").toByteArray());
     this->restoreState(s.value("Window/State").toByteArray());
     askToSave = s.value("askToSave").toBool();
+    if (s.contains("Animation/durationSec"))
+        _animDurationMs =
+            qMax(1, s.value("Animation/durationSec", 10).toInt()) * 1000;
     
     // Apply theme
     if (s.contains("theme")) {
@@ -5372,6 +5604,8 @@ MainWindow::setupSettingsEditor(AppSettingsEditor* ed)
     
     ed->addControl("askToSave", tr("Ask about unsaved files"));
     ed->addControl("Key", "Timezone and Geography API");
+    ed->addSpinBox("Animation/durationSec",
+                   tr("Chart animation duration (seconds)"), 1, 120);
     astroWidget->setupSettingsEditor(ed);
 }
 

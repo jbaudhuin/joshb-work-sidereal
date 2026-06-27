@@ -209,6 +209,17 @@ class AstroFile : public QObject, public A::EventStore {
         _paranOccurrences = o;
     }
 
+    // Aspect Range Navigator: in-orb range + exact moment of a ranged event.
+    const A::ADateTimeRange& getAspectRange() const { return _aspectRange; }
+    void setAspectRange(const A::ADateTimeRange& r) { _aspectRange = r; }
+    const QDateTime& getAspectExact() const { return _aspectExact; }
+    void             setAspectExact(const QDateTime& t) { _aspectExact = t; }
+
+    bool getDrawFocalExpand() const { return _drawFocalExpand; }
+    void setDrawFocalExpand(bool b) { _drawFocalExpand = b; }
+    A::AspectSetId getDrawOverrideAspectSet() const { return _drawOverrideAspectSet; }
+    void setDrawOverrideAspectSet(A::AspectSetId s) { _drawOverrideAspectSet = s; }
+
     const QMap<A::EventType, unsigned>& getTransitHarmonicRestrictions() const { return _transitHarmonicRestrictions; }
     void setTransitHarmonicRestrictions(const QMap<A::EventType, unsigned>& r) { _transitHarmonicRestrictions = r; }
 
@@ -419,6 +430,21 @@ class AstroFile : public QObject, public A::EventStore {
     // Paran cycling: per-day in-orb moments (+ orb°) of the focal cluster,
     // copied from the clicked paran event. Transient; not saved.
     QVector<QPair<QDateTime, qreal>> _paranOccurrences;
+
+    // Aspect Range Navigator (continuous animation): the in-orb range and exact
+    // moment of the ranged event this chart represents (T=T/T=N/OT=N/P=P/P=N/
+    // IP=N, returns…). Empty/invalid for charts that aren't a ranged event.
+    // Transient; not saved.
+    A::ADateTimeRange _aspectRange;
+    QDateTime         _aspectExact;
+
+    // Draw-context captured at event-click time so the navigator/animation can
+    // reproduce the same chart-aspect rendering at any moment (focalExpand is a
+    // transient global that reverts after the click; pattern events (TA/TNA)
+    // need focalExpand=false + a specific override aspect set). Harmonic is
+    // already persisted on the horoscope. Defaults = normal full-aspect drawing.
+    bool           _drawFocalExpand       = false;
+    A::AspectSetId _drawOverrideAspectSet = -1;
 
     // Per-event-type harmonic restrictions (event type → max harmonic)
     QMap<A::EventType, unsigned> _transitHarmonicRestrictions;

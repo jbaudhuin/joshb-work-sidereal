@@ -113,6 +113,7 @@ Enhanced with sidereal and harmonic features
 Swiss Ephemeris: © Astrodienst AG, by Dieter Koch and Alois Treindl
 DejaVu Fonts: © Bitstream, Inc.
 Almagest Font: [font attribution]
+Sidereal Techniques: From works by Cyril Fagan (Primer on Sidereal Astrology) and workgroup with Kenneth Bowser.
 
 CHANGELOG
 =========

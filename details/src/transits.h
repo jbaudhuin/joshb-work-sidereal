@@ -155,6 +155,11 @@ class Transits : public AstroFileHandler {
   public slots:
     void setCurrentPlanet(A::PlanetId, int);
     void onLocationChange();
+    /// React to a wheel time-drag finishing. If the dragged chart is the natal
+    /// reference (file(0), a Male/Female/Event type), its moment changed so any
+    /// natal-relative events are stale — mark them and reconcile (recomputes if
+    /// Auto is on, else lights the Refresh button).
+    void onChartTimeDragged(AstroFile* draggedFile);
 
   private:
     A::PlanetId _planet;

@@ -400,6 +400,67 @@ QToolButton#pvToggle:checked {
 	padding: 3px 6px;
 }
 
+/* ====================== Aspect Range Navigator ============================= */
+/* Compact transport (objectName aspectRangeNavigator) and the revert-to-saved
+   corner button: strip the chunky default QToolButton chrome; themed glyphs. */
+QToolBar#aspectRangeNavigator {
+	spacing: 0px;
+}
+
+QToolBar#aspectRangeNavigator QToolButton {
+	background: transparent;
+	border: none;
+	border-radius: 4px;
+	min-width: 0;
+	margin: 0px;
+	padding: 1px 5px;
+	color: #000000;
+	font-size: 15px;
+	font-weight: bold;
+}
+
+QToolBar#aspectRangeNavigator QToolButton:hover {
+	background: #C8C8C8;
+}
+
+QToolBar#aspectRangeNavigator QToolButton:disabled {
+	background: transparent;
+	color: #909090;
+}
+
+/* Play/Stop button: green for play (▶), red for stop (■) — distinct from the
+   theme-colored next-step ▶ glyph. */
+QToolBar#aspectRangeNavigator QToolButton#navPlayButton {
+	color: #1e8449;
+}
+
+QToolBar#aspectRangeNavigator QToolButton#navPlayButton[playing="true"] {
+	color: #c0392b;
+}
+
+QToolBar#aspectRangeNavigator QToolButton#navPlayButton:disabled {
+	color: #909090;
+}
+
+QToolBar#aspectRangeNavigator QLabel {
+	color: #000000;
+	padding-left: 8px;
+}
+
+QToolButton#revertButton {
+	background: transparent;
+	border: none;
+	min-width: 0;
+	margin: 0px;
+	padding: 0px;
+	color: #000000;
+	font-size: 15px;
+}
+
+QToolButton#revertButton:hover {
+	color: #303030;
+}
+
 /* =========================== AstroDatabase ================================= */
 
 AstroDatabase {

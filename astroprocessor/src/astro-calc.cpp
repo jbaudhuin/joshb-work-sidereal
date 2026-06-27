@@ -174,6 +174,7 @@ aspectModeType::current()
 PrimDirMode primDirMode = prdMundane;
 bool useApparentSun = true;
 bool scrubbing = false;
+bool animating = false;
 
 bool
 isSolarReturn(const QString& chartName)
@@ -8594,7 +8595,10 @@ AspectFinder::findNewStarts(AspectSearchState&              state,
             }
 
             double from = sit->second.when;
-            double to   = state.jd;
+            // End at the prior (last in-orb) sample: state.jd is the first
+            // OUT-of-orb step (spread just exceeded the orb), so a range ending
+            // there lands one step past the pattern (no figure drawn).
+            double to   = state.pjd;
 
             bool cancel = (from == 0);
             if (cancel) {
@@ -8654,7 +8658,7 @@ AspectFinder::findNewStarts(AspectSearchState&              state,
             // starts[h].erase(sit++);
 
             ADateTimeRange range(dateTimeFromJulian(from),
-                                 dateTimeFromJulian(state.jd));
+                                 dateTimeFromJulian(to)); // last in-orb sample
             EventType      et = ps.heterogeneous()
                                     ? etcTransitNatalAspectPattern
                                     : etcTransitAspectPattern;
@@ -8802,9 +8806,12 @@ AspectFinder::findExactPatterns(AspectSearchState& state)
                     sit->second.orb = spread;
                 }
             } else if (!inOrb && wasIn) {
-                // Pattern just left orb — check harmonic dedup before launching
+                // Pattern just left orb — check harmonic dedup before launching.
+                // End at the PRIOR (last in-orb) sample: state.jd is the first
+                // OUT-of-orb step, so an animation landing there shows the
+                // pattern already dispersed.
                 double from = sit->second.when;
-                double to   = state.jd;
+                double to   = state.pjd;
 
                 bool cancel = (from == 0) || skippablePeriod({ from, to });
 
@@ -8968,7 +8975,11 @@ AspectFinder::findTransitPairs(AspectSearchState& state)
                     state.inOrb[hij] = { state.pjd, 0 };
                     isInOrb          = true;
                 } else if (hasit != state.inOrb.end() && !isInOrb) {
-                    hasit->second.range.second = state.jd;
+                    // End the range at the PRIOR (last in-orb) sample, not the
+                    // current one — state.jd is the first OUT-of-orb step, so
+                    // landing an animation/step there shows the aspect already
+                    // separated (no line). pjd is the last moment still in orb.
+                    hasit->second.range.second = state.pjd;
 
                     // GC mode: findAspects does not enqueue tasks for GC
                     // pairs (would duplicate per-timestep), so create one
