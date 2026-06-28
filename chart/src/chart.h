@@ -3,7 +3,10 @@
 
 #include <QGraphicsItem>
 #include <QGraphicsScene>
+#include <QHash>
 #include <Astroprocessor/Gui>
+
+class QVariantAnimation;
 
 enum CircleStart { Start_ZeroDegree, Start_Ascendent, Start_Outer_Ascendant };
 
@@ -57,6 +60,31 @@ private:
 
     CircleStart circleStart;
     bool clockwise;
+
+    // Transient wheel-rotation freeze, engaged only during continuous Play
+    // animation so the zodiac ring does not whirl as the (live) ascendant drifts.
+    // Captured once on the first locked updateScene() and held for every frame.
+    bool  _rotationLocked     = false;
+    bool  _haveLockedRotation = false;
+    float _lockedRotation     = 0.0f;  // frozen ascendant-derived angle, pre-clockwise
+    float _lastRotate         = 0.0f;  // last LIVE (un-frozen) angle, for capture
+
+    // Discrete-step planet slide ("eye candy"): tween the body/marker glyphs
+    // from their pre-step positions to the post-step positions over a short
+    // duration instead of snapping. Item pointers are stable across a data
+    // change (no clearScene), so they key the start/end snapshots. Aspect lines
+    // and figures are hidden during the slide and restored on landing.
+    QVariantAnimation*                              _slideAnim = nullptr;
+    QHash<QGraphicsItem*, QPair<QPointF, qreal>>    _slideStart; // pos, rotation
+    int  _slideDurationMs = 0;
+    bool _slidePending    = false;
+    // Aspect-line crossfade: clones of the pre-step lines that fade out while
+    // the live (reused) aspect lines fade in. Keyed start positions of the
+    // declination glyphs (by file*K+planetId) so the rebuilt strip can tween.
+    QList<QGraphicsLineItem*> _slideAspectGhosts;
+    QHash<int, QPointF>       _slideDeclMarkerStart;
+    QHash<int, QPointF>       _slideDeclGlyphStart;
+    static constexpr int      declSlideKeyMul = 100000;
     int l_zodiacWidth;
     int l_innerRadius;
     int l_cuspideLength;
@@ -65,6 +93,10 @@ private:
     bool includeAsteroids;
     bool includeCentaurs;
     bool displayDeclination;
+
+    // Aspect Range Navigator animation tuning (lives in the Chart settings tab).
+    int  _animDurationMs = 10000; // continuous playback: traverse a range in this
+    int  _slideMs        = 600;   // discrete-step planet slide duration (0 = off)
 
     QMap<int, graphicsItemDict> cuspides;
     QMap<int, graphicsItemDict> cuspideLabels;
@@ -86,6 +118,7 @@ private:
     struct ParanFigure {
         QGraphicsEllipseItem*       hub = nullptr;  ///< central node
         QList<QGraphicsLineItem*>   spokes;         ///< hub -> each body marker
+        QList<QGraphicsItem*>       spokeMarkers;   ///< marker each spoke tracks
     };
     QList<ParanFigure>               paranFigures;
 
@@ -136,6 +169,12 @@ private:
     void clearDeclinationStrip();
     void rebuildDeclinationStrip();
 
+    void snapshotPlanetState(QHash<QGraphicsItem*, QPair<QPointF, qreal>>& into);
+    void startPlanetSlide();   // capture end state, reset to start, run the tween
+    void finishPlanetSlide();  // snap to end, restore aspect lines/figures
+    void clearAspectGhosts();  // remove the crossfade ghost lines
+    void abortPlanetSlide();   // hard teardown when the scene is wiped under us
+
     void fitInView();
     void createScene();
     void updateScene();
@@ -175,6 +214,20 @@ public:
     void help(QString tag) { requestHelp(tag); }    // called by circle item (because requestHelp() is protected)
     bool isClockwise() { return clockwise; }
     CircleStart startPoint() { return circleStart; }
+
+    // Navigator animation settings (configured in the Chart settings tab).
+    int animationDurationMs() const { return _animDurationMs; }
+    int planetSlideMs() const { return _slideMs; }
+
+    // Freeze (on==true) / release (on==false) the wheel rotation. Used by the
+    // Aspect Range Navigator around continuous Play so the ring stays fixed.
+    void lockRotation(bool on);
+
+    // Arm a planet slide for the NEXT moment change (a discrete navigator step).
+    // Snapshots the current glyph positions; the slide is kicked off from
+    // filesUpdated once the post-step positions are computed. durationMs is the
+    // tween length (the caller may shorten it to match a fast click cadence).
+    void beginPlanetSlide(int durationMs);
 
     friend class RotatingCircleItem;
 };

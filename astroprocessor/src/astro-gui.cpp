@@ -992,6 +992,18 @@ AstroFileHandler::setFiles(const AstroFileList& files)
             }
 
             if (file) {
+                // Drop any prior connection from THIS file before reconnecting.
+                // The disconnect above only targets the file that was previously
+                // at this index; if `file` was connected at a *different* index
+                // in an earlier setFiles (e.g. a biwheel {natal, paran}
+                // collapsing so paran moves to index 0), that stale connection
+                // would survive and `changed()` would be delivered to this
+                // handler twice — processing every update (and cancelling the
+                // planet slide) twice. Disconnecting first guarantees exactly
+                // one connection per file.
+                file->disconnect(this,
+                                 SLOT(fileUpdatedSlot(AstroFile::Members)));
+                file->disconnect(this, SLOT(fileDestroyedSlot()));
                 connect(file,
                         SIGNAL(changed(AstroFile::Members)),
                         this,

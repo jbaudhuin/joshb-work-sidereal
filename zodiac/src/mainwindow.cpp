@@ -5286,9 +5286,15 @@ MainWindow::updateParanTransport()
 {
     if (!paranToolBar) return;
 
-    // Reflect play/stop glyph + color (green play ▶ / red stop ■, via the
-    // navPlayButton qss rules). Repolish only when the state actually changes.
+    // Reflect play/pause glyph + color (green ▶ play/resume, red ■ pause via the
+    // navPlayButton qss rules). ■ rather than ⏸ — the latter isn't in the same
+    // glyph set and renders poorly; it still PAUSES (Play resumes where it left
+    // off). Repolish only when the state actually changes.
     _paranPlay->setText(_animPlaying ? QStringLiteral("■") : QStringLiteral("▶"));
+    _paranPlay->setToolTip(_animPlaying
+                               ? tr("Pause")
+                               : (_animPaused ? tr("Resume")
+                                              : tr("Play animation across the range")));
     if (auto* btn = qobject_cast<QToolButton*>(
             paranToolBar->widgetForAction(_paranPlay)))
     {
@@ -5372,6 +5378,25 @@ MainWindow::paranStep(int mode)
     AstroFile* mv = navMovingFile();
     if (!mv) return;
     if (_animPlaying) stopAnimation(); // a manual step interrupts playback
+    _animPaused = false;               // …and abandons any paused resume point
+
+    Chart* chart = astroWidget ? astroWidget->findSlide<Chart>() : nullptr;
+
+    // A manual step re-anchors the wheel live (the sticky Play freeze is cleared
+    // here because navSetGMT spoofs animating, which would otherwise hold it).
+    if (chart) chart->lockRotation(false);
+
+    // Arm the planet slide for the upcoming setGMT. Shorten it to the click
+    // cadence so rapid stepping stays responsive (a step mid-slide lands the
+    // previous tween instantly — see Chart::beginPlanetSlide).
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    int slideMs = chart ? chart->planetSlideMs() : 0;
+    if (_lastStepMs != 0) {
+        const qint64 dt = nowMs - _lastStepMs;
+        if (dt < slideMs) slideMs = qMax(120, int(dt));
+    }
+    _lastStepMs = nowMs;
+    auto armSlide = [&] { if (chart) chart->beginPlanetSlide(slideMs); };
 
     const auto& occ = mv->getParanOccurrences();
     if (!occ.isEmpty()) {
@@ -5392,6 +5417,7 @@ MainWindow::paranStep(int mode)
         }
         }
         _paranOccIndex = idx;
+        armSlide();
         navSetGMT(mv, occ[idx].first);
         return;
     }
@@ -5419,19 +5445,21 @@ MainWindow::paranStep(int mode)
         break;
     default: return;
     }
+    armSlide();
     navSetGMT(mv, target);
 }
 
 void
 MainWindow::animPlayToggle()
 {
-    if (_animPlaying) { stopAnimation(); return; }
+    if (_animPlaying) { stopAnimation(/*pause=*/true); return; }  // running → pause
 
     AstroFile* mv = navMovingFile();
     if (!mv || !navIsContinuous(mv)) return;
     const auto& r = mv->getAspectRange();
     if (!r.first.isValid() || !r.second.isValid() || r.first >= r.second) return;
 
+    const bool resuming = _animPaused;
     _animPlaying = true;
     if (astroWidget) {
         _savedExpand   = astroWidget->focalExpand();
@@ -5442,8 +5470,22 @@ MainWindow::animPlayToggle()
     }
     A::setScrubbing(true);                               // freeze heavy panels
     A::setAnimating(true);                               // fixed-zodiac + hold finder
-    _animStartMs = QDateTime::currentMSecsSinceEpoch();
-    mv->setGMT(r.first);                                 // begin at range start
+    if (auto chart = astroWidget ? astroWidget->findSlide<Chart>() : nullptr) {
+        _animDurationMs = chart->animationDurationMs();  // cache configured duration
+        // Freeze the wheel orientation only on a FRESH start; on resume the
+        // sticky lock from the original start is still in effect (re-locking
+        // would re-capture the paused-frame ascendant and shift the wheel).
+        if (!resuming) chart->lockRotation(true);
+    }
+    if (resuming) {
+        // Continue from where we paused: backdate the clock anchor by the
+        // elapsed-at-pause so animTick picks up at the same position.
+        _animPaused  = false;
+        _animStartMs = QDateTime::currentMSecsSinceEpoch() - _animPausedElapsed;
+    } else {
+        _animStartMs = QDateTime::currentMSecsSinceEpoch();
+        mv->setGMT(r.first);                             // begin at range start
+    }
     _animTimer->start();
     updateParanTransport();
 }
@@ -5471,11 +5513,21 @@ MainWindow::animTick()
 }
 
 void
-MainWindow::stopAnimation()
+MainWindow::stopAnimation(bool pause)
 {
     if (_animTimer) _animTimer->stop();
     if (!_animPlaying) return;
     _animPlaying = false;
+
+    if (pause) {
+        // Remember the position so the next Play resumes here instead of
+        // restarting at the range start.
+        const qint64 e = QDateTime::currentMSecsSinceEpoch() - _animStartMs;
+        _animPausedElapsed = qBound<qint64>(0, e, qint64(_animDurationMs));
+        _animPaused = true;
+    } else {
+        _animPaused = false;
+    }
 
     A::setScrubbing(false);
     updateParanTransport(); // free the toolbar/wheel immediately
@@ -5485,6 +5537,12 @@ MainWindow::stopAnimation()
     // during the recompute), then restore focalExpand. Deferred so the UI
     // responds before the (potentially heavy) panel refresh runs.
     QTimer::singleShot(0, this, [this] {
+        // NOTE: the wheel-rotation freeze is intentionally NOT released here. It
+        // is sticky — the catch-up redraw runs while animating is still true, so
+        // the wheel stays at the root-event ascendant even though the planets
+        // settle at the bracket-end moment. The lock self-releases on the next
+        // non-animation update (event click / tab change / drag) or on a manual
+        // step (paranStep clears it explicitly).
         AstroFile* mv = navMovingFile();
         if (mv && astroWidget) {
             astroWidget->focalExpand()      = mv->getDrawFocalExpand();
@@ -5505,6 +5563,7 @@ void
 MainWindow::currentTabChanged()
 {
     if (!filesBar->count()) return;
+    _animPaused = false;   // a paused resume point doesn't carry across tabs
     astroWidget->setFiles(filesBar->currentFiles());
     rewireParanTransport();
 }
@@ -5519,7 +5578,6 @@ MainWindow::defaultSettings()
     s.setValue("askToSave", false);
     s.setValue("Key", "");
     s.setValue("theme", "dark");
-    s.setValue("Animation/durationSec", 10); // Aspect Range Navigator playback
     return s;
 }
 
@@ -5535,7 +5593,6 @@ MainWindow::currentSettings()
     // This value is never saved to settings.ini
     s.setValue("Key", SessionManager::readAPIKey());
     s.setValue("theme", ThemeManager::instance().currentThemeName());
-    s.setValue("Animation/durationSec", _animDurationMs / 1000);
     return s;
 }
 
@@ -5546,9 +5603,6 @@ MainWindow::applySettings(const AppSettings& s)
     this->restoreGeometry(s.value("Window/Geometry").toByteArray());
     this->restoreState(s.value("Window/State").toByteArray());
     askToSave = s.value("askToSave").toBool();
-    if (s.contains("Animation/durationSec"))
-        _animDurationMs =
-            qMax(1, s.value("Animation/durationSec", 10).toInt()) * 1000;
     
     // Apply theme
     if (s.contains("theme")) {
@@ -5604,8 +5658,6 @@ MainWindow::setupSettingsEditor(AppSettingsEditor* ed)
     
     ed->addControl("askToSave", tr("Ask about unsaved files"));
     ed->addControl("Key", "Timezone and Geography API");
-    ed->addSpinBox("Animation/durationSec",
-                   tr("Chart animation duration (seconds)"), 1, 120);
     astroWidget->setupSettingsEditor(ed);
 }
 

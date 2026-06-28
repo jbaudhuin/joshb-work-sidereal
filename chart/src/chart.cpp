@@ -13,6 +13,7 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
 #include <QVBoxLayout>
+#include <QVariantAnimation>
 #include <QWheelEvent>
 #include <math.h>
 #include <QtMath>
@@ -383,6 +384,27 @@ Chart::updateScene()
     }
     default: rotate = file()->horoscope().zodiac.signs[0].startAngle; break;
     }
+    // Remember the live (un-frozen) ascendant-derived angle so a later
+    // lockRotation() can freeze to the orientation currently on screen.
+    _lastRotate = rotate;
+    // Rotation freeze for continuous Play: hold the captured root-event
+    // orientation through the animation and its catch-up (animating stays true),
+    // so the ring stays put while the planets sweep. The freeze is sticky: it
+    // persists after Play ends (planets at bracket-end, Asc still at root event)
+    // until the next NON-animation update — an event click, tab change, wheel
+    // drag, or repaint — which releases it so the wheel re-anchors live. Manual
+    // step buttons release it explicitly (they spoof animating). Captured
+    // pre-clockwise so the flip still applies each frame.
+    if (_rotationLocked) {
+        if (!A::isAnimating()) {
+            _rotationLocked = false;          // external update → re-anchor live
+        } else if (_haveLockedRotation) {
+            rotate = _lockedRotation;
+        } else {
+            _lockedRotation     = rotate;     // fallback capture (first frame)
+            _haveLockedRotation = true;
+        }
+    }
     if (clockwise) {
         rotate = -rotate;
     }
@@ -390,6 +412,240 @@ Chart::updateScene()
     for (QGraphicsItem* i : std::as_const(signIcons)) i->setRotation(-rotate);
 
     circle->setRotation(rotate);
+}
+
+void
+Chart::lockRotation(bool on)
+{
+    _rotationLocked = on;
+    if (on) {
+        // Freeze to the orientation currently on screen (the root-event
+        // ascendant), captured up-front so the first animated frame does NOT
+        // jump to the bracket-start ascendant.
+        _lockedRotation     = _lastRotate;
+        _haveLockedRotation = true;
+    }
+    // on==false simply stops consulting the cache; updateScene() recomputes live.
+}
+
+// Snapshot the on-screen position + rotation of every VISIBLE body/marker glyph
+// (planets and fixed stars share these dicts). Pointers are stable across a data
+// change, so the same map keys identify the items before and after the step.
+void
+Chart::snapshotPlanetState(QHash<QGraphicsItem*, QPair<QPointF, qreal>>& into)
+{
+    into.clear();
+    for (int fi = 0; fi < filesCount(); ++fi) {
+        for (auto* it : std::as_const(planets[fi]))
+            if (it && it->isVisible())
+                into.insert(it, { it->pos(), it->rotation() });
+        for (auto* it : std::as_const(planetMarkers[fi]))
+            if (it && it->isVisible())
+                into.insert(it, { it->pos(), it->rotation() });
+        // House cusps + their labels glide too (positioned by setRotation like
+        // the markers). Hidden ones (e.g. the Par=N inner wheel) are skipped.
+        for (auto* it : std::as_const(cuspides[fi]))
+            if (it && it->isVisible())
+                into.insert(it, { it->pos(), it->rotation() });
+        for (auto* it : std::as_const(cuspideLabels[fi]))
+            if (it && it->isVisible())
+                into.insert(it, { it->pos(), it->rotation() });
+    }
+}
+
+void
+Chart::clearAspectGhosts()
+{
+    for (auto* g : std::as_const(_slideAspectGhosts))
+        if (g) { view->scene()->removeItem(g); delete g; }
+    _slideAspectGhosts.clear();
+}
+
+void
+Chart::abortPlanetSlide()
+{
+    // Hard teardown used when the scene (or declination strip) is about to be
+    // wiped out from under a running slide (clearScene / resize). Stop the tween
+    // and DROP every cached item pointer WITHOUT touching the items — the caller
+    // (scene()->clear()) frees them. Using finishPlanetSlide()/clearAspectGhosts()
+    // here would dereference already-freed QGraphicsItems (a crash we hit when a
+    // slide-switch flushed a deferred view update mid-slide).
+    if (_slideAnim) { _slideAnim->stop(); _slideAnim = nullptr; }
+    _slideAspectGhosts.clear();   // items owned + freed by the scene
+    _slideStart.clear();
+    _slideDeclMarkerStart.clear();
+    _slideDeclGlyphStart.clear();
+    _slidePending = false;
+}
+
+void
+Chart::beginPlanetSlide(int durationMs)
+{
+    // A fresh step mid-slide: land the in-flight tween instantly so this step's
+    // start snapshot reflects the (now final) previous positions.
+    if (_slideAnim) {
+        _slideAnim->stop();   // fires no 'finished'; finalize explicitly
+        finishPlanetSlide();
+    }
+    if (durationMs <= 0) { _slidePending = false; return; }
+
+    snapshotPlanetState(_slideStart);
+
+    // Capture pre-step declination glyph/marker positions (keyed by file+id) so
+    // the strip — which is rebuilt with fresh items each step — can be tweened
+    // from old → new positions.
+    _slideDeclMarkerStart.clear();
+    _slideDeclGlyphStart.clear();
+    for (int fi = 0; fi < filesCount(); ++fi) {
+        for (auto it = declMarkers[fi].constBegin();
+             it != declMarkers[fi].constEnd(); ++it)
+            if (it.value() && it.value()->isVisible())
+                _slideDeclMarkerStart.insert(fi * declSlideKeyMul + it.key(),
+                                             it.value()->pos());
+        for (auto it = declGlyphs[fi].constBegin();
+             it != declGlyphs[fi].constEnd(); ++it)
+            if (it.value() && it.value()->isVisible())
+                _slideDeclGlyphStart.insert(fi * declSlideKeyMul + it.key(),
+                                            it.value()->pos());
+    }
+
+    // Clone the current aspect lines as fade-out ghosts BEFORE updateAspects()
+    // overwrites the live ones with the new geometry/set (crossfade old → new).
+    clearAspectGhosts();
+    for (auto* a : std::as_const(aspects)) {
+        if (!a || !a->isVisible()) continue;
+        auto* ghost = view->scene()->addLine(a->line(), a->pen());
+        ghost->setZValue(a->zValue());
+        _slideAspectGhosts.append(ghost);
+    }
+
+    _slideDurationMs = durationMs;
+    _slidePending    = true;
+}
+
+void
+Chart::startPlanetSlide()
+{
+    // Post-step positions are now in place; capture them as the tween targets.
+    QHash<QGraphicsItem*, QPair<QPointF, qreal>> endState;
+    snapshotPlanetState(endState);
+
+    // Build the per-item start/end list for items present in BOTH snapshots
+    // (visible before and after). Items that appear/disappear simply snap.
+    struct Leg { QGraphicsItem* item; QPointF p0, p1; qreal r0, r1; };
+    QVector<Leg> legs;
+    legs.reserve(endState.size());
+    for (auto it = endState.constBegin(); it != endState.constEnd(); ++it) {
+        const auto sIt = _slideStart.constFind(it.key());
+        if (sIt == _slideStart.constEnd()) continue;     // newly shown → snap
+        const QPointF p0 = sIt->first,  p1 = it->first;
+        qreal r0 = sIt->second,         r1 = it->second;
+        if (p0 == p1 && qFuzzyCompare(r0, r1)) continue; // unmoved (static file)
+        legs.push_back({ it.key(), p0, p1, r0, r1 });
+    }
+
+    // Declination glyphs/markers: rebuilt with fresh pointers each step, so map
+    // new items to their pre-step positions by file+id and tween (pos only).
+    auto addDeclLegs = [&](const QMap<int, graphicsItemDict>& items,
+                           const QHash<int, QPointF>& starts) {
+        for (int fi = 0; fi < filesCount(); ++fi)
+            for (auto it = items[fi].constBegin(); it != items[fi].constEnd(); ++it) {
+                if (!it.value() || !it.value()->isVisible()) continue;
+                const auto sIt = starts.constFind(fi * declSlideKeyMul + it.key());
+                if (sIt == starts.constEnd()) continue;
+                const QPointF p0 = *sIt, p1 = it.value()->pos();
+                if (p0 == p1) continue;
+                legs.push_back({ it.value(), p0, p1, 0.0, 0.0 });
+            }
+    };
+    addDeclLegs(declMarkers, _slideDeclMarkerStart);
+    addDeclLegs(declGlyphs,  _slideDeclGlyphStart);
+
+    if (legs.isEmpty()) {        // nothing moved → no crossfade needed either
+        clearAspectGhosts();
+        return;
+    }
+
+    // Midpoint figures snap (hidden mid-flight). Aspect lines CROSSFADE: live
+    // (new) lines fade in from 0, the ghost clones fade out. Paran spokes stay
+    // visible and are redrawn each tick to track the gliding markers.
+    for (const auto& mf : std::as_const(midpointFigures)) {
+        if (mf.chordLine) mf.chordLine->setVisible(false);
+        if (mf.toALine)   mf.toALine->setVisible(false);
+    }
+    for (auto* a : std::as_const(aspects)) if (a) a->setOpacity(0.0);
+
+    // Reset glyphs to their start positions before the first paint.
+    for (const Leg& l : legs) { l.item->setPos(l.p0); l.item->setRotation(l.r0); }
+
+    // Paran spokes track their markers; drawParanFigures() (data path) drew them
+    // at the NEW positions, so redraw them from the now-reset (start) markers to
+    // avoid a one-frame flash at the destination before the tween begins.
+    auto redrawSpokes = [this] {
+        for (const auto& pf : std::as_const(paranFigures))
+            for (int k = 0; k < pf.spokes.size(); ++k) {
+                auto* sp = pf.spokes[k];
+                auto* mk = (k < pf.spokeMarkers.size()) ? pf.spokeMarkers[k]
+                                                        : nullptr;
+                if (sp && mk)
+                    sp->setLine(
+                        QLineF(QPointF(0, 0), mk->sceneBoundingRect().center()));
+            }
+    };
+    redrawSpokes();
+
+    auto* anim = new QVariantAnimation(this);
+    anim->setStartValue(0.0);
+    anim->setEndValue(1.0);
+    anim->setDuration(_slideDurationMs);
+    anim->setEasingCurve(QEasingCurve::InOutCubic);
+    const QVector<Leg> legsCopy = legs;
+    connect(anim, &QVariantAnimation::valueChanged, this,
+            [this, legsCopy, redrawSpokes](const QVariant& v) {
+                const qreal t = v.toReal();
+                for (const Leg& l : legsCopy) {
+                    qreal dr = l.r1 - l.r0;            // shortest angular path
+                    while (dr >  180.0) dr -= 360.0;
+                    while (dr < -180.0) dr += 360.0;
+                    l.item->setPos(l.p0 + (l.p1 - l.p0) * t);
+                    l.item->setRotation(l.r0 + dr * t);
+                }
+                // Aspect-line crossfade (ghosts fade out, live lines fade in).
+                for (auto* a : std::as_const(aspects)) if (a) a->setOpacity(t);
+                for (auto* g : std::as_const(_slideAspectGhosts))
+                    if (g) g->setOpacity(1.0 - t);
+                redrawSpokes();   // spokes follow the now-moved markers
+            });
+    connect(anim, &QVariantAnimation::finished, this,
+            [this] { finishPlanetSlide(); });
+    _slideAnim = anim;
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void
+Chart::finishPlanetSlide()
+{
+    _slideAnim = nullptr;
+    clearAspectGhosts();
+    _slideDeclMarkerStart.clear();
+    _slideDeclGlyphStart.clear();
+    // Snap glyphs/cusps to the exact final positions (handles an interrupted
+    // mid-tween) and redraw the paran spokes to match. These are all
+    // data-derived; do NOT recompute the aspect/midpoint geometry here — that
+    // already happened during the step with the correct focal draw-context
+    // (focalExpand), which is no longer in effect by the time this runs, so
+    // re-running updateAspects() would drop the focal aspects entirely.
+    for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
+    drawParanFigures();
+    if (displayDeclination) rebuildDeclinationStrip();
+    // Aspect + midpoint geometry is already final; just restore visibility and
+    // undo the crossfade opacity ramp on the (reused) live aspect items.
+    for (auto* a : std::as_const(aspects))
+        if (a) { a->setOpacity(1.0); a->setVisible(true); }
+    for (const auto& mf : std::as_const(midpointFigures)) {
+        if (mf.chordLine) mf.chordLine->setVisible(true);
+        if (mf.toALine)   mf.toALine->setVisible(true);
+    }
 }
 
 void
@@ -588,8 +844,11 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     };
 
     // Par=N inner wheel: items exist (avoiding null-deref) but stay hidden.
+    // Detect via EITHER file: the origin type is tagged on file(1) for the
+    // in-place biwheel but copied onto file(0) for the new-tab path.
     if (filesCount() > 1 && fileIndex == 0
-        && file(1)->getOriginEventType() == A::etcParanatellontaToNatal)
+        && (file(0)->getOriginEventType() == A::etcParanatellontaToNatal
+            || file(1)->getOriginEventType() == A::etcParanatellontaToNatal))
     {
         for (int i = 0; i < 12; ++i) {
             cuspides[fileIndex][i]->setVisible(false);
@@ -1044,7 +1303,7 @@ Chart::drawParanFigures()
         const auto& group = file(i)->getParanGroupPlanets();
         if (group.size() < 2) continue;
 
-        struct Spoke { QPointF end; QString name; };
+        struct Spoke { QGraphicsItem* marker; QString name; };
         QVector<Spoke> spokes;
         for (const auto& entry : group) {
             int fid = entry.first;
@@ -1059,7 +1318,7 @@ Chart::drawParanFigures()
             // vertical position) keeps its stale rotation/position; never
             // anchor a spoke to it.
             if (!m || !m->isVisible()) continue;
-            spokes.append({ m->sceneBoundingRect().center(),
+            spokes.append({ m,
                             file(fid)->horoscope().planets.value(entry.second).name });
         }
         if (spokes.size() < 2) continue;
@@ -1067,12 +1326,17 @@ Chart::drawParanFigures()
         ParanFigure pf;
 
         // Spokes radiate from the wheel center (scene origin) to each body.
+        // Remember the marker each spoke tracks so the slide can keep them
+        // attached while the bodies glide between steps.
         QPen spokePen(neutral, 1.5, Qt::SolidLine);
         for (const auto& sp : spokes) {
-            auto* line = s->addLine(QLineF(QPointF(0, 0), sp.end), spokePen);
+            auto* line = s->addLine(
+                QLineF(QPointF(0, 0), sp.marker->sceneBoundingRect().center()),
+                spokePen);
             line->setZValue(0.5);
             line->setToolTip(file(i)->getName() + "  →  " + sp.name);
             pf.spokes.append(line);
+            pf.spokeMarkers.append(sp.marker);
         }
 
         // Hub: a filled neutral node, larger than the 2px proxy markers.
@@ -1298,6 +1562,7 @@ void
 Chart::clearScene()
 {
     qDebug() << "Clear scene";
+    abortPlanetSlide();   // drop slide pointers before the items are deleted
     view->scene()->clear();
     chartsCount = 0;
     cuspides.clear();
@@ -1526,7 +1791,8 @@ Chart::drawCuspides(int fileIndex)
     // The chart is computed at the current/locus location; the natal angles
     // belong to the birth location and are meaningless here.
     if (filesCount() > 1 && fileIndex == 0
-        && file(0)->getOriginEventType() == A::etcParanatellontaToNatal)
+        && (file(0)->getOriginEventType() == A::etcParanatellontaToNatal
+            || file(1)->getOriginEventType() == A::etcParanatellontaToNatal))
     {
         for (int i = 0; i < 12; ++i) {
             cuspides[fileIndex][i]->setVisible(false);
@@ -1652,6 +1918,16 @@ Chart::filesUpdated(MembersList m)
         m.append(AstroFile::Member());
     }
 
+    // A foreign update arriving mid-slide (a different event click, tab change,
+    // theme/zodiac change) supersedes the in-flight tween: stop it before the
+    // scene is possibly torn down below so its captured item pointers can't
+    // dangle. The normal flow re-lays out the glyphs to the new data. (Our own
+    // slide kickoff sets _slidePending first, so it is not cancelled here.)
+    if (_slideAnim && !_slidePending) {
+        _slideAnim->stop();
+        finishPlanetSlide();
+    }
+
     // File-data changes that require a full scene rebuild — only structural
     // ones (chart type, name/label, and the file-count change handled below).
     // GMT/Location/Timezone are NOT here on purpose: they merely move the
@@ -1703,6 +1979,11 @@ Chart::filesUpdated(MembersList m)
         updateAspects();
         drawMidpointFigures();
         drawParanFigures();
+        // The declination graph reflects the (just-recomputed) body positions,
+        // so refresh it on every moment change too — otherwise it stays frozen
+        // while the wheel animates/steps. Cheap (a small strip); skipped when
+        // the graph is hidden. clearScene() rebuilds it via createScene().
+        if (displayDeclination) rebuildDeclinationStrip();
     }
 
     // Hide ALL house demarcations during animation playback — Ascendant-anchored,
@@ -1715,14 +1996,23 @@ Chart::filesUpdated(MembersList m)
         for (int fi = 0; fi < filesCount(); ++fi) {
             const bool parANInner =
                 (filesCount() > 1 && fi == 0
-                 && file(0)->getOriginEventType()
-                        == A::etcParanatellontaToNatal);
+                 && (file(0)->getOriginEventType()
+                         == A::etcParanatellontaToNatal
+                     || file(1)->getOriginEventType()
+                            == A::etcParanatellontaToNatal));
             const bool             vis    = !hideCusps && !parANInner;
             const graphicsItemDict cusps  = cuspides.value(fi);
             const graphicsItemDict labels = cuspideLabels.value(fi);
             for (auto* it : cusps)  if (it) it->setVisible(vis);
             for (auto* it : labels) if (it) it->setVisible(vis);
         }
+    }
+
+    // Kick off the discrete-step planet slide now that the post-step glyph
+    // positions are in place (armed by beginPlanetSlide() before the step).
+    if (_slidePending) {
+        _slidePending = false;
+        startPlanetSlide();
     }
 }
 
@@ -1731,6 +2021,13 @@ Chart::viewSettingsUpdated(MembersList m)
 {
     while (m.size() < filesCount()) {
         m.append(AstroFile::Member());
+    }
+
+    // A view-setting change mid-slide supersedes the tween (and may rebuild the
+    // scene below); stop it first so its captured item pointers can't dangle.
+    if (_slideAnim) {
+        _slideAnim->stop();
+        finishPlanetSlide();
     }
 
     // Zodiac change requires scene rebuild
@@ -1786,6 +2083,9 @@ Chart::eventFilter(QObject* obj, QEvent* ev)
 void
 Chart::resizeEvent(QResizeEvent*)
 {
+    // A resize rebuilds the declination strip (deleting items a running slide
+    // references) and re-fits the view, so abort any in-flight slide first.
+    abortPlanetSlide();
     fitInView();
     rebuildDeclinationStrip();
 }
@@ -1804,6 +2104,8 @@ Chart::defaultSettings()
     s.setValue("Circle/includeAsteroids", true);
     s.setValue("Circle/includeCentaurs", true);
     s.setValue("Circle/displayDeclination", true);
+    s.setValue("Circle/animationDurationSec", 10);
+    s.setValue("Circle/slideMs", 600);
     return s;
 }
 
@@ -1821,6 +2123,8 @@ Chart::currentSettings()
     s.setValue("Circle/includeAsteroids", includeAsteroids);
     s.setValue("Circle/includeCentaurs", includeCentaurs);
     s.setValue("Circle/displayDeclination", displayDeclination);
+    s.setValue("Circle/animationDurationSec", _animDurationMs / 1000);
+    s.setValue("Circle/slideMs", _slideMs);
     return s;
 }
 
@@ -1838,6 +2142,9 @@ Chart::applySettings(const AppSettings& s)
     includeCentaurs  = s.value("Circle/includeCentaurs").toBool();
     displayDeclination = s.value("Circle/displayDeclination").toBool();
     declView->setVisible(displayDeclination);
+    _animDurationMs =
+        qMax(1, s.value("Circle/animationDurationSec", 10).toInt()) * 1000;
+    _slideMs = qBound(0, s.value("Circle/slideMs", 600).toInt(), 3000);
 
     refreshAll();
 }
@@ -1866,6 +2173,11 @@ Chart::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addControl("Circle/includeCentaurs", tr("Display Chiron:"));
     ed->addSpacing(10);
     ed->addControl("Circle/displayDeclination", tr("Display declination graph:"));
+    ed->addSpacing(10);
+    ed->addSpinBox("Circle/animationDurationSec",
+                   tr("Range animation duration (seconds)"), 1, 120);
+    ed->addSpinBox("Circle/slideMs",
+                   tr("Planet step slide (ms, 0 = off)"), 0, 3000);
 }
 
 void

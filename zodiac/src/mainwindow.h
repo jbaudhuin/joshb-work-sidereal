@@ -507,7 +507,13 @@ class MainWindow : public QMainWindow, public Customizable {
     bool      _savedExpand   = false;   // focalExpand to restore after playback
     A::AspectSetId _savedOverride = -1; // overrideAspectSet to restore
     qint64    _animStartMs   = 0;       // wall-clock anchor for elapsed pacing
-    int       _animDurationMs = 10000;  // configurable; traverse a range in this
+    int       _animDurationMs = 10000;  // cached from Chart at playback start
+    bool      _animPaused    = false;   // paused mid-range (resume on next Play)
+    qint64    _animPausedElapsed = 0;   // elapsed ms at the moment of pausing
+
+    // Discrete-step planet slide (eye candy): tween glyphs between occurrences.
+    // Base duration lives in the Chart settings tab; read per-step from the Chart.
+    qint64    _lastStepMs    = 0;       // last step time, for click-rate shortening
 
     void       buildParanToolBar();
     // The current navigable chart: a paran chart (discrete occurrences) OR a
@@ -518,9 +524,9 @@ class MainWindow : public QMainWindow, public Customizable {
     void       rewireParanTransport();  // re-subscribe to current files' changed()
     void       updateParanTransport();  // reconcile enable/label with current chart
     void       paranStep(int mode);     // -2 first, -1 prev, 0 peak/exact, +1 next, +2 last
-    void       animPlayToggle();        // start/stop continuous playback
+    void       animPlayToggle();        // play / pause / resume continuous playback
     void       animTick();              // one animation frame
-    void       stopAnimation();         // halt + catch-up recompute
+    void       stopAnimation(bool pause = false); // halt (+remember pos if pausing)
 
     std::string _APIKey;
     
