@@ -11,9 +11,15 @@ class CsvFile : public QFile
         QFile file;
 
     public:
+        // Resolve a (possibly relative) data path so the file is found
+        // regardless of the process working directory. Anchors to the
+        // executable directory first, then the cwd, then a bin/ subdir.
+        // Also used to locate the Swiss Ephemeris "swe" directory.
+        static QString resolvePath(const QString& name);
+
         CsvFile(const QString& name = "");
 
-        void setFileName(const QString &name) { file.setFileName(name); }
+        void setFileName(const QString &name) { file.setFileName(resolvePath(name)); }
         bool openForRead();
         const QStringList& headerLabels();
         bool readRow();

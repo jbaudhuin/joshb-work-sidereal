@@ -6,9 +6,11 @@
 #include <QHash>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QTimeZone>
 #include <QTextStream>
 
 #include <algorithm>
+#include <tuple>
 #include <vector>
 
 namespace A
@@ -20,20 +22,113 @@ QMutex                 g_mutex;
 bool                   g_loaded   = false;
 bool                   g_loadFailed = false;
 std::vector<CityRec>   g_db; // sorted by latitude ascending
+QHash<QString, QString> g_admin1Names;
+
+QString
+normalizeCityKey(QString text)
+{
+    text = text.normalized(QString::NormalizationForm_D);
+
+    QString out;
+    out.reserve(text.size());
+    for (QChar ch : std::as_const(text)) {
+        if (ch.category() == QChar::Mark_NonSpacing
+            || ch.category() == QChar::Mark_SpacingCombining
+            || ch.category() == QChar::Mark_Enclosing)
+        {
+            continue;
+        }
+
+        if (ch.isLetterOrNumber())
+            out.append(ch.toCaseFolded());
+        else if (ch.isSpace() || ch == '-' || ch == '_' || ch == ',' || ch == '.')
+            out.append(' ');
+    }
+
+    return out.simplified();
+}
 
 QString
 locateCityFile()
 {
-    // Match the install layout: bin/data/cities15000.txt sits alongside the executable.
+    // Prefer the richer cities500 dataset when present, otherwise fall back
+    // to the lighter cities15000 dataset. Both follow the same GeoNames row
+    // format, so the rest of the loader can stay unchanged.
     QStringList candidates {
+        QCoreApplication::applicationDirPath() + QStringLiteral("/data/cities500.txt"),
         QCoreApplication::applicationDirPath() + QStringLiteral("/data/cities15000.txt"),
+        QDir::currentPath() + QStringLiteral("/data/cities500.txt"),
         QDir::currentPath() + QStringLiteral("/data/cities15000.txt"),
+        QDir::currentPath() + QStringLiteral("/bin/data/cities500.txt"),
         QDir::currentPath() + QStringLiteral("/bin/data/cities15000.txt"),
     };
     for (const QString& path : candidates) {
         if (QFile::exists(path)) return path;
     }
     return QString();
+}
+
+QString
+locateAdmin1File()
+{
+    QStringList candidates {
+        QCoreApplication::applicationDirPath() + QStringLiteral("/data/admin1CodesASCII.txt"),
+        QDir::currentPath() + QStringLiteral("/data/admin1CodesASCII.txt"),
+        QDir::currentPath() + QStringLiteral("/bin/data/admin1CodesASCII.txt"),
+    };
+    for (const QString& path : candidates) {
+        if (QFile::exists(path)) return path;
+    }
+    return QString();
+}
+
+void
+loadAdmin1NamesLocked()
+{
+    if (!g_admin1Names.isEmpty()) return;
+
+    const QString path = locateAdmin1File();
+    if (path.isEmpty()) return;
+
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    QTextStream in(&f);
+    in.setEncoding(QStringConverter::Utf8);
+
+    while (!in.atEnd()) {
+        const QString line = in.readLine();
+        if (line.isEmpty()) continue;
+        const QStringList cols = line.split(QLatin1Char('\t'));
+        if (cols.size() < 2) continue;
+        g_admin1Names.insert(cols.at(0), cols.at(1));
+    }
+}
+
+QString
+admin1DisplayName(const CityRec& city)
+{
+    if (city.admin1Code.isEmpty() || city.admin1Code == "00") return QString();
+
+    const QString key = city.countryCode + QLatin1Char('.') + city.admin1Code;
+    const QString name = g_admin1Names.value(key);
+    return name.isEmpty() ? city.admin1Code : name;
+}
+
+QString
+countryDisplayName(const QString& countryCode)
+{
+    if (countryCode.isEmpty()) return QString();
+
+    // Use a BCP-47 tag with an undefined language so Qt resolves the
+    // region from the ISO country code instead of falling back to the
+    // host's default English locale (e.g. en_US).
+    const QLocale locale(QStringLiteral("und-%1").arg(countryCode));
+    const auto territory = locale.territory();
+    if (territory == QLocale::AnyTerritory) return countryCode;
+
+    const QString name = QLocale::territoryToString(territory);
+    return name.isEmpty() ? countryCode : name;
 }
 
 void
@@ -47,25 +142,32 @@ loadLocked()
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) { g_loadFailed = true; return; }
 
+    loadAdmin1NamesLocked();
+
     QTextStream in(&f);
     in.setEncoding(QStringConverter::Utf8);
 
-    g_db.reserve(35000);
+    g_db.reserve(path.contains(QStringLiteral("cities500"), Qt::CaseInsensitive)
+                     ? 235000
+                     : 35000);
     while (!in.atEnd()) {
         const QString line = in.readLine();
         if (line.isEmpty()) continue;
         const QStringList cols = line.split(QLatin1Char('\t'));
         // GeoNames columns (1-indexed): 1 geonameid, 2 name, 3 asciiname,
         // 4 alternatenames, 5 latitude, 6 longitude, 7 feature class,
-        // 8 feature code, 9 country code, ..., 15 population.
-        if (cols.size() < 15) continue;
+        // 8 feature code, 9 country code, ..., 15 population,
+        // 18 timezone.
+        if (cols.size() < 18) continue;
 
         CityRec r;
         r.name        = cols[1];
         r.latitude    = cols[4].toFloat();
         r.longitude   = cols[5].toFloat();
         r.countryCode = cols[8];
+        r.admin1Code  = cols[10];
         r.population  = cols[14].toInt();
+        r.timezoneId  = cols[17];
         g_db.push_back(std::move(r));
     }
     std::sort(g_db.begin(), g_db.end(),
@@ -421,6 +523,89 @@ citiesNearLatitude(double            targetLatDeg,
               });
     if (maxResults > 0 && hits.size() > maxResults) hits.resize(maxResults);
     return hits;
+}
+
+QVector<CityRec>
+citiesMatchingName(const QString& query, int maxResults)
+{
+    const QString key = normalizeCityKey(query);
+    if (key.isEmpty()) return {};
+
+    QMutexLocker lock(&g_mutex);
+    loadLocked();
+    if (!g_loaded) return {};
+
+    struct Match {
+        int     quality;
+        int     population;
+        CityRec city;
+    };
+
+    QVector<Match> matches;
+    matches.reserve(std::min<int>(maxResults > 0 ? maxResults * 4 : 32, int(g_db.size())));
+
+    for (const CityRec& city : g_db) {
+        const QString cityKey = normalizeCityKey(city.name);
+        int quality = -1;
+        if (cityKey == key)
+            quality = 0;
+        else if (cityKey.startsWith(key))
+            quality = 1;
+        else if (cityKey.contains(key))
+            quality = 2;
+
+        if (quality >= 0)
+            matches.append({ quality, city.population, city });
+    }
+
+    std::sort(matches.begin(), matches.end(), [](const Match& a, const Match& b) {
+        return std::tie(a.quality, b.population, a.city.name)
+             < std::tie(b.quality, a.population, b.city.name);
+    });
+
+    QVector<CityRec> out;
+    if (maxResults > 0) out.reserve(qMin(maxResults, int(matches.size())));
+    else out.reserve(matches.size());
+
+    for (const Match& match : std::as_const(matches)) {
+        out.append(match.city);
+        if (maxResults > 0 && out.size() >= maxResults) break;
+    }
+
+    return out;
+}
+
+QString
+cityDisplayName(const CityRec& city)
+{
+    QMutexLocker lock(&g_mutex);
+    loadAdmin1NamesLocked();
+
+    QStringList parts;
+    parts << city.name;
+
+    const QString admin1 = admin1DisplayName(city);
+    if (!admin1.isEmpty())
+        parts << admin1;
+
+    const QString country = countryDisplayName(city.countryCode);
+    if (!country.isEmpty())
+        parts << country;
+
+    return parts.join(QStringLiteral(", "));
+}
+
+bool
+cityTimezoneOffset(const CityRec& city, const QDateTime& when, double& offsetHours)
+{
+    if (city.timezoneId.isEmpty()) return false;
+
+    const QTimeZone tz(city.timezoneId.toUtf8());
+    if (!tz.isValid()) return false;
+
+    const QDateTime dt = when.isValid() ? when : QDateTime::currentDateTimeUtc();
+    offsetHours = tz.offsetFromUtc(dt) / 3600.0;
+    return true;
 }
 
 } // namespace A

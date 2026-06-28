@@ -1,6 +1,7 @@
 #ifndef A_CITYDB_H
 #define A_CITYDB_H
 
+#include <QDateTime>
 #include <QString>
 #include <QVector>
 
@@ -10,7 +11,9 @@ namespace A
 /// A single record from GeoNames cities15000.txt.
 struct CityRec {
     QString name;        ///< Display name (UTF-8)
+    QString admin1Code;  ///< First-level admin code (state/province/region)
     QString countryCode; ///< ISO 3166-1 alpha-2, e.g. "FR"
+    QString timezoneId;  ///< IANA timezone ID, e.g. "Europe/Paris"
     float   latitude;    ///< degrees N (+) / S (-)
     float   longitude;   ///< degrees E (+) / W (-)
     int     population;  ///< from GeoNames col 15
@@ -56,9 +59,24 @@ citiesNearLatitude(double            targetLatDeg,
                    int               maxResults,
                    const CityFilter& filter = {});
 
+/// Find cities by name. Results are ranked by match quality first, then by
+/// population descending. Matching is case-insensitive and diacritic-insensitive.
+QVector<CityRec>
+citiesMatchingName(const QString& query, int maxResults = 10);
+
+/// Format a city as a disambiguating display label, preferring
+/// "City, State/Province, Country" when admin metadata is available.
+QString
+cityDisplayName(const CityRec& city);
+
 /// Force-load the DB.  Returns false if the data file is missing.
 bool
 loadCityDb();
+
+/// Resolve the city's UTC offset in hours at the given timestamp.
+/// Returns false if the timezone ID is missing or invalid.
+bool
+cityTimezoneOffset(const CityRec& city, const QDateTime& when, double& offsetHours);
 
 /// Continent of a 2-letter ISO country code, or 0 if unknown.
 unsigned

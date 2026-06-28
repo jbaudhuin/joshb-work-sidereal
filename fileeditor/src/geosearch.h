@@ -27,13 +27,17 @@ class GeoSuggestCompletion : public QObject
     Q_OBJECT
 
     public:
-        enum Sources { Google, Yandex };
+        enum Sources { Google, Local };
 
         GeoSuggestCompletion(GeoSearchBox *parent = nullptr);
         ~GeoSuggestCompletion();
         bool eventFilter(QObject *obj, QEvent *ev) override;
-        void showCompletion(const QStringList &cities, const QStringList &descr, const QStringList &pos);
+        void showCompletion(const QStringList &cities,
+                            const QStringList &descr,
+                            const QStringList &pos,
+                            const QStringList &timezoneIds = {});
         void setSource(Sources src);
+        Sources currentSource() const { return source; }
 
     public slots:
         void doneCompletion();
@@ -58,6 +62,7 @@ class GeoSearchBox: public QLineEdit
         GeoSuggestCompletion *completer;
         QVector3D coord;
         QString associatedText;
+        QString timezoneId;
 
     signals:
         void coordinateUpdated();
@@ -70,12 +75,15 @@ class GeoSearchBox: public QLineEdit
 
         void setSource(GeoSuggestCompletion::Sources src)
         { completer->setSource(src); }
+        GeoSuggestCompletion::Sources source() const
+        { return completer->currentSource(); }
 
-        void setCoordinate(QVector3D coord, QString tag)
-        { this->coord = coord; associatedText = tag; setText(tag); }
+        void setCoordinate(QVector3D coord, QString tag, const QString& tzId = QString())
+        { this->coord = coord; associatedText = tag; timezoneId = tzId; setText(tag); }
 
-        void setCoordinate(QVector3D coord) { this->coord = coord; }
-        QVector3D coordinate()              { return coord; }
+        void setCoordinate(QVector3D coord) { this->coord = coord; associatedText.clear(); timezoneId.clear(); }
+        QVector3D coordinate() const        { return coord; }
+        QString selectedTimezoneId() const  { return timezoneId; }
 
         bool isValid()
         { return associatedText == text() && !text().isEmpty(); }
@@ -88,7 +96,7 @@ class GeoSearchWidget : public QWidget
     Q_OBJECT
 
     private:
-       QAction *googleAct, *yandexAct, *editAct;
+         QAction *googleAct, *localAct, *editAct;
        QStackedLayout* modes;
        QToolButton* _tbtn;
        GeoSearchBox* geoSearchBox;
@@ -97,10 +105,11 @@ class GeoSearchWidget : public QWidget
        QLabel* indicator;
 
        QVector3D spinBoxesCoord() const;
+    void showSearchMode();
 
     private slots:
        void turnGoogleSearch();
-       void turnYandexSearch();
+         void turnLocalSearch();
        void turnGeoInput();
        void proofCoordinates();
 
@@ -111,6 +120,7 @@ class GeoSearchWidget : public QWidget
        GeoSearchWidget(bool vbox = true, QWidget* parent = nullptr);
        QVector3D location() const;
        QString locationName() const;
+    QString selectedTimezoneId() const;
 
        void setLocation(const QVector3D& coord);
        void setLocation(const QVector3D& coord, const QString& name);

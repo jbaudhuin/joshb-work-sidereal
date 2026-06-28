@@ -32,12 +32,15 @@ void
 Data::load(QString language)
 {
     usedLang = language;
-#if MSDOS
-    char ephePath[] = "swe\\";
-#else
-    char ephePath[] = "swe/";
-#endif
-    swe_set_ephe_path(ephePath);
+    // Anchor the Swiss Ephemeris directory to the executable location rather
+    // than the process working directory. With a bare relative "swe/" path,
+    // launching from any cwd other than bin/ left SwissEph unable to find the
+    // asteroid/centaur ephemeris files; those bodies then silently resolve to
+    // 0° Aries (there is no Moshier fallback for them), which in turn makes the
+    // AspectFinder backward search (findPriorStarts) never converge on a
+    // constant-zero-orb pair. See CsvFile::resolvePath.
+    QByteArray ephePath = CsvFile::resolvePath(QStringLiteral("swe")).toLocal8Bit();
+    swe_set_ephe_path(ephePath.data());
     CsvFile f;
 
     f.setFileName("astroprocessor/aspect_sets.csv");

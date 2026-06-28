@@ -54,6 +54,11 @@ You must:
 This program includes Swiss Ephemeris by Astrodienst AG, Switzerland.
 Swiss Ephemeris is used under GPL v2+. See swe/LICENSE for details.
 
+This program also includes geographical data from GeoNames
+(https://www.geonames.org/), used for local/offline city lookup.
+GeoNames data is licensed under Creative Commons Attribution 4.0
+(CC BY 4.0). See data/geonames-readme.txt for details.
+
 IMPORTANT: NO WARRANTY
 ======================
 THIS SOFTWARE COMES WITH ABSOLUTELY NO WARRANTY OF ANY KIND.
@@ -80,6 +85,7 @@ This software uses the following open source components:
 - Qt Framework (LGPL v3) - https://www.qt.io/
 - Swiss Ephemeris (GPL v2+) - https://www.astro.com/swisseph/
 - Boost C++ Libraries (Boost License) - https://www.boost.org/
+- GeoNames geographical data (CC BY 4.0) - https://www.geonames.org/
 
 SUPPORT AND FEEDBACK
 ====================
@@ -98,6 +104,9 @@ All chart data and settings are stored locally on your computer.
 The location search feature uses online geocoding services (Google Maps API)
 which may log your search queries according to their privacy policies.
 
+The application can also use bundled GeoNames data for local/offline city
+lookup. That local lookup does not send your query to an external service.
+
 SYSTEM REQUIREMENTS
 ===================
 - Windows 7 or later (Windows 10/11 recommended)
@@ -111,6 +120,7 @@ Based on the original Zodiac application
 Enhanced with sidereal and harmonic features
 
 Swiss Ephemeris: © Astrodienst AG, by Dieter Koch and Alois Treindl
+GeoNames geographical data: © GeoNames contributors, CC BY 4.0
 DejaVu Fonts: © Bitstream, Inc.
 Almagest Font: [font attribution]
 Sidereal Techniques: From works by Cyril Fagan (Primer on Sidereal Astrology) and workgroup with Kenneth Bowser.

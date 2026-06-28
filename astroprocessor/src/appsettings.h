@@ -118,6 +118,7 @@ public:
     //void beginGroup  ( const QString& groupName );
     void endGroup();
     void addSpacing(int spacing);
+    void addStretch();
     QWidget* addControl(const QString& valueName, const QString& label);
     void addCustomWidget(QWidget* wdg, const QString& label, const char* changeSignal);
     QLineEdit* addLineEdit(const QString& valueName, const QString& label);

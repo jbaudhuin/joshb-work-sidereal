@@ -31,6 +31,7 @@
 #include <QMouseEvent>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QPainter>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QRegularExpressionValidator>
@@ -1991,6 +1992,74 @@ public:
     }
 };
 
+// Lightweight progress indicator painted directly over the pattern combo.
+//
+// Previously the search progress bar was drawn by calling
+// QComboBox::setStyleSheet() on every progress tick. Each such call forces a
+// full QStyleSheetStyle re-polish and a *synchronous* relayout of the combo's
+// popup view (QListView::doItemsLayout); under the stream of progress events a
+// search emits, that saturated the GUI thread and froze the UI. This overlay
+// replaces that approach: it paints a translucent fill in paintEvent() and
+// updates via cheap, coalesced update() calls — no stylesheet, no relayout. It
+// is transparent to mouse events so the combo stays fully interactive, and it
+// tracks its parent's geometry via an event filter.
+class InputProgressOverlay : public QWidget
+{
+public:
+    explicit InputProgressOverlay(QWidget* parent)
+        : QWidget(parent)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setAttribute(Qt::WA_NoSystemBackground, true);
+        setFocusPolicy(Qt::NoFocus);
+        setGeometry(parent->rect());
+        parent->installEventFilter(this);
+        hide();
+    }
+
+    // prog < 0      : indeterminate "waiting for pool" wash (muted full bar)
+    // 0 <= prog < 1 : determinate fill growing from the left
+    // prog >= 1     : finished — hide
+    void setProgress(double prog)
+    {
+        _prog = prog;
+        if (prog >= 1.0) {
+            if (isVisible()) hide();
+            return;
+        }
+        if (!isVisible()) show();
+        raise();
+        update();
+    }
+
+protected:
+    bool eventFilter(QObject* o, QEvent* e) override
+    {
+        if (o == parent()
+            && (e->type() == QEvent::Resize || e->type() == QEvent::Move)) {
+            setGeometry(static_cast<QWidget*>(parent())->rect());
+        }
+        return QWidget::eventFilter(o, e);
+    }
+
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        const QRectF r = rect();
+        if (_prog < 0.0) {
+            // Waiting phase: a muted, static wash across the whole field.
+            p.fillRect(r, QColor(100, 149, 237, 45));
+        } else {
+            const qreal w = r.width() * qBound(0.0, _prog, 1.0);
+            p.fillRect(QRectF(r.left(), r.top(), w, r.height()),
+                       QColor(100, 149, 237, 80));
+        }
+    }
+
+private:
+    double _prog = -1;
+};
+
 static const int    kPatternMRUMax = 30;
 static const QString kPatternMRUKey = QStringLiteral("Events/patternHistory");
 
@@ -2126,6 +2195,9 @@ Transits::Transits(QWidget* parent) :
     // not a child of QComboBox, so "QComboBox QListView" selectors don't reach it)
     completer->popup()->setObjectName(QStringLiteral("completerPopup"));
     completer->popup()->setItemDelegate(new CompactItemDelegate(completer->popup()));
+
+    // Search-progress indicator overlaid on the combo (see InputProgressOverlay).
+    _inputProgress = new InputProgressOverlay(_input);
 
     // Refresh combo items from global MRU when dropdown is about to show
     connect(_input, &QComboBox::activated, this, [this](int) {
@@ -2809,19 +2881,21 @@ Transits::Transits(QWidget* parent) :
     });
 }
 
-Transits::~Transits() { 
-    // Save current event options and pattern to file(0) before destruction
-    if (filesCount() > 0 && file(0)) {
-        qDebug() << "[DESTRUCTOR] Saving event options to file" << file(0)->getName();
-        file(0)->setTransitEventOptions(_tabEventOptions);
-        file(0)->setTransitPattern(_input->currentText());
-    }
-    
+Transits::~Transits() {
+    // Do NOT touch file(0) here. During application shutdown the AstroFile
+    // objects are destroyed before this child widget's destructor runs (MainWindow
+    // members are freed, then ~QObject deletes the dock/Transits children), so
+    // file(0) would be a dangling pointer and getName()/setTransit*() would be a
+    // use-after-free. We don't need to save anything at destruction anyway:
+    // _tabEventOptions and the pattern are already persisted to file(0) at every
+    // change point (saveEventOptionsAndReconcile, plus the combo's activated /
+    // editingFinished handlers) and whenever the active file switches.
+
     // Disconnect scroll bar signals to prevent crashes during destruction
     if (_tview && _tview->verticalScrollBar()) {
         disconnect(_tview->verticalScrollBar(), nullptr, this, nullptr);
     }
-    stopThreads(); 
+    stopThreads();
 }
 
 QTreeView*
@@ -3028,25 +3102,7 @@ Transits::updateTimezone()
 {
     QVector3D vec(_location->location());
 
-    auto nm = new QNetworkAccessManager(this);
-    connect(nm, &QNetworkAccessManager::finished, [this](QNetworkReply* reply) {
-        reply->deleteLater();
-        if (auto nm = sender()) {
-            nm->deleteLater();
-        }
-        if (reply->error() != QNetworkReply::NoError) return;
-
-        QJsonDocument response = QJsonDocument::fromJson(reply->readAll());
-        if (response["status"].toString() != "OK") {
-            qDebug() << "Timezone request failed:"
-                     << response["status"].toString()
-                     << response["errorMessage"].toString();
-            return;
-        }
-        qreal tz = (response["rawOffset"].toInt()
-                    /*+ response["dstOffset"].toInt()*/)
-                   / 3600;
-        
+    auto applyTimezone = [this](double tz, const QString& sourceLabel) {
         // Update the model's timezone first so display refreshes
         if (_evm) {
             _evm->setTimezone(short(tz));
@@ -3060,10 +3116,7 @@ Transits::updateTimezone()
             file(0)->setTransitTimezone(short(tz));
         }
 
-        qDebug() << "Timezone for location is"
-                 << response["rawOffset"].toInt() / 60 /*minsPerSec*/
-                 << "with dstOffset" << response["dstOffset"].toInt() / 60
-                 << "in" << response["timeZoneName"].toString();
+        qDebug() << "Timezone for location is" << tz << "from" << sourceLabel;
 
         if (transitsOnly()) {
             // Event times are stored in UTC and displayed via the model's
@@ -3119,6 +3172,37 @@ Transits::updateTimezone()
                 emit updateSecond(transitsAF());
             }
         }
+    };
+
+    const QString timezoneId = _location->selectedTimezoneId();
+    if (!timezoneId.isEmpty()) {
+        const QTimeZone tz(timezoneId.toUtf8());
+        if (tz.isValid()) {
+            applyTimezone(tz.offsetFromUtc(transitsAF()->getGMT()) / 3600.0,
+                          QString("local city DB (%1)").arg(timezoneId));
+            return;
+        }
+    }
+
+    auto nm = new QNetworkAccessManager(this);
+    connect(nm, &QNetworkAccessManager::finished, [this, applyTimezone](QNetworkReply* reply) {
+        reply->deleteLater();
+        if (auto nm = sender()) {
+            nm->deleteLater();
+        }
+        if (reply->error() != QNetworkReply::NoError) return;
+
+        QJsonDocument response = QJsonDocument::fromJson(reply->readAll());
+        if (response["status"].toString() != "OK") {
+            qDebug() << "Timezone request failed:"
+                     << response["status"].toString()
+                     << response["errorMessage"].toString();
+            return;
+        }
+        qreal tz = (response["rawOffset"].toInt()
+                    + response["dstOffset"].toInt())
+                   / 3600;
+        applyTimezone(tz, response["timeZoneName"].toString());
     });
 
     QString url =
@@ -5729,44 +5813,23 @@ Transits::updateProgressedToNatalButtonState()
 void
 Transits::updateInputProgress(double prog)
 {
-    // Throttle stylesheet updates — skip if progress hasn't moved enough
-    // to produce a visible 1% change, unless we're clearing (prog < 0 or >= 1).
+    if (!_inputProgress) return;
+
+    // Coalesce redundant updates so we don't queue needless repaints: the
+    // determinate phase only advances in whole-percent steps, and the waiting
+    // and finished phases are idempotent.
     if (prog >= 0 && prog < 1.0) {
         int pctNow  = int(prog * 100);
         int pctLast = int(_lastProgress * 100);
-        if (pctNow == pctLast) return;
+        if (_lastProgress >= 0 && _lastProgress < 1.0 && pctNow == pctLast)
+            return;
+    } else if (prog < 0 && _lastProgress < 0) {
+        return;  // already showing the waiting wash
+    } else if (prog >= 1.0 && _lastProgress >= 1.0) {
+        return;  // already finished/hidden
     }
     _lastProgress = prog;
 
-    if (prog < 0) {
-        // Waiting-for-pool phase: show pulsing indicator (full bar, muted)
-        QString bg = QStringLiteral(
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "  stop:0 rgba(100,149,237,60), stop:1 rgba(100,149,237,30)); ");
-        _input->setStyleSheet(
-            QStringLiteral("QComboBox { %1%2 }")
-                .arg(bg, _inputBorderStyle));
-    } else if (prog < 1.0) {
-        int pct = qBound(0, int(prog * 100), 100);
-        // Two-tone gradient: filled portion | unfilled
-        double stopL = pct / 100.0;
-        double stopR = stopL + 0.001;
-        QString bg = QStringLiteral(
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "  stop:0 rgba(100,149,237,80), "
-            "  stop:%1 rgba(100,149,237,80), "
-            "  stop:%2 transparent, "
-            "  stop:1 transparent); ")
-            .arg(stopL, 0, 'f', 4)
-            .arg(stopR, 0, 'f', 4);
-        _input->setStyleSheet(
-            QStringLiteral("QComboBox { %1%2 }")
-                .arg(bg, _inputBorderStyle));
-    } else {
-        // Computation finished — restore validation-only style
-        _input->setStyleSheet(
-            _inputBorderStyle.isEmpty()
-                ? QString()
-                : QStringLiteral("QComboBox { %1 }").arg(_inputBorderStyle));
-    }
+    // Cheap, relayout-free repaint (see InputProgressOverlay).
+    _inputProgress->setProgress(prog);
 }

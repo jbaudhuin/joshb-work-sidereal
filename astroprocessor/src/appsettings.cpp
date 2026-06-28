@@ -220,7 +220,14 @@ AppSettingsEditor::addCustomWidget(QWidget* wdg,
 {
     // add a user widget (manual reading and applying settings is required)
     customWidgets << wdg;
-    lastLayout()->addRow(label, wdg);
+    QWidget* holder = new QWidget;
+    QVBoxLayout* holderLayout = new QVBoxLayout(holder);
+    holderLayout->setContentsMargins(0, 0, 0, 0);
+    holderLayout->setSpacing(0);
+    // Keep custom widgets top-aligned if QFormLayout gives this row extra height.
+    holderLayout->addWidget(wdg, 0, Qt::AlignTop);
+    holderLayout->addStretch(1);
+    lastLayout()->addRow(label, holder);
     connect(wdg, changeSignal, this, SLOT(change()));
 }
 
@@ -345,6 +352,14 @@ void AppSettingsEditor::addLabel(const QString& label)
 void AppSettingsEditor::addSpacing(int spacing)
 {
     lastLayout()->addItem(new QSpacerItem(1, spacing, QSizePolicy::Fixed, QSizePolicy::Fixed));
+}
+
+void AppSettingsEditor::addStretch()
+{
+    lastLayout()->addItem(new QSpacerItem(1,
+                                          1,
+                                          QSizePolicy::Minimum,
+                                          QSizePolicy::Expanding));
 }
 
 void AppSettingsEditor::applySettings()

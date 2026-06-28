@@ -62,6 +62,8 @@ class TransitTreeView : public QTreeView {
     }
 };
 
+class InputProgressOverlay; // defined in transits.cpp; search-progress widget
+
 class Transits : public AstroFileHandler {
     Q_OBJECT
 
@@ -198,6 +200,7 @@ class Transits : public AstroFileHandler {
     bool              _inUpdateTransits = false; // Re-entrancy guard for updateTransits()
     bool              _backgroundFinders = false; // When true, finders keep computing on tab switch instead of pausing
     QComboBox*        _input;
+    InputProgressOverlay* _inputProgress = nullptr; // search-progress overlay on _input
     QString           _lastUsedPattern;   // pattern text used for cached events
     A::AstroDateTimeEdit* _start;
     QLineEdit*        _duration;

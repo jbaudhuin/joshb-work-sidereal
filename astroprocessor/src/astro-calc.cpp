@@ -909,6 +909,20 @@ roundDegree(float deg)
 const ZodiacSign&
 getSign(float deg, const Zodiac& zodiac)
 {
+    // Guard against an unpopulated sign list (e.g. signs.csv failed to load):
+    // indexing signs[-1] below would dereference a null/garbage reference and
+    // crash. Return a static empty sign and warn once instead.
+    if (zodiac.signs.isEmpty()) {
+        static const ZodiacSign empty;
+        static bool warned = false;
+        if (!warned) {
+            qWarning("A: zodiac %d has no signs loaded; "
+                     "check that astroprocessor/signs.csv was found",
+                     zodiac.id);
+            warned = true;
+        }
+        return empty;
+    }
     for (const ZodiacSign& s : zodiac.signs)
         if (s.startAngle <= deg && s.endAngle > deg) return s;
     return zodiac.signs[zodiac.signs.count() - 1];
@@ -5980,14 +5994,13 @@ static thread_local bool s_inited = false;
 void
 AspectFinder::prepThread()
 {
-#if MSDOS
-    char ephePath[] = "swe\\";
-#else
-    char ephePath[] = "swe/";
-#endif
     if (!s_inited) {
         s_inited = true;
-        swe_set_ephe_path(ephePath);
+        // Resolve against the executable dir so asteroid/centaur ephemeris files
+        // load regardless of cwd (see Data::load / CsvFile::resolvePath).
+        QByteArray ephePath =
+            CsvFile::resolvePath(QStringLiteral("swe")).toLocal8Bit();
+        swe_set_ephe_path(ephePath.data());
     }
 }
 

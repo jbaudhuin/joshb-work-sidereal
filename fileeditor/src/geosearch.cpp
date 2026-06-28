@@ -20,6 +20,7 @@
 #include <QLocale>
 #include <QDebug>
 #include "geosearch.h"
+#include "../../astroprocessor/src/citydb.h"
 #include "../../astroprocessor/src/astro-output.h"
 
 namespace A {
@@ -120,7 +121,8 @@ GeoSuggestCompletion::eventFilter(QObject *obj, QEvent *ev)
 void
 GeoSuggestCompletion::showCompletion(const QStringList &cities,
                                      const QStringList &descr,
-                                     const QStringList &pos)
+                                     const QStringList &pos,
+                                     const QStringList &timezoneIds)
 {
     int count = qMin(qMin(cities.count(), descr.count()), pos.count());
 
@@ -155,6 +157,8 @@ GeoSuggestCompletion::showCompletion(const QStringList &cities,
             .arg(A::formatLongitude(lng, A::HighPrecision))
             .arg(A::formatLatitude(lat, A::HighPrecision));
         item->setText(2, formattedCoords);
+        if (i < timezoneIds.count())
+            item->setData(2, Qt::UserRole + 1, timezoneIds[i]);
         
         item->setToolTip(0, descr[i]);
         item->setToolTip(1, descr[i]);
@@ -187,7 +191,9 @@ void GeoSuggestCompletion::doneCompletion()
         vec.setX(text.mid(0, text.indexOf(' ')).toFloat());
         vec.setY(text.mid(text.indexOf(' ') + 1).toFloat());
 
-        editor->setCoordinate(vec, item->text(1));
+        editor->setCoordinate(vec,
+                              item->text(1),
+                              item->data(2, Qt::UserRole + 1).toString());
         QMetaObject::invokeMethod(editor, "returnPressed");
     }
 }
@@ -213,11 +219,23 @@ void GeoSuggestCompletion::autoSuggest()
                   .arg(lang);
         break;
 
-    case Yandex:
-        url = QString("https://geocode-maps.yandex.ru/1.x/?geocode=%1"
-                      "&key=ANpUFEkBAAAAf7jmJwMAHGZHrcKNDsbEqEVjEUtCmufx"
-                      "QMwAAAAAAAAAAAAvVrubVT4btztbduoIgTLAeFILaQ==").arg(str);
-        break;
+    case Local: {
+        const auto cities = A::citiesMatchingName(str, 12);
+        QStringList shortNames;
+        QStringList fullText;
+        QStringList pos;
+        QStringList timezoneIds;
+
+        for (const auto& city : cities) {
+            shortNames << city.name;
+            fullText << A::cityDisplayName(city);
+            pos << QString("%1 %2").arg(city.longitude, 0, 'f', 6).arg(city.latitude, 0, 'f', 6);
+            timezoneIds << city.timezoneId;
+        }
+
+        showCompletion(shortNames, fullText, pos, timezoneIds);
+        return;
+    }
     }
     networkManager.get(QNetworkRequest(url));
 }
@@ -272,27 +290,9 @@ GeoSuggestCompletion::handleNetworkData(QNetworkReply *networkReply)
                         pos.last().prepend(xml.readElementText() + " ");
                 }
             }
-            else if (source == Yandex)
-            {
-                static const QString name("name");
-                static const QString text("text");
-                static const QString spos("pos");
-                if (xml.tokenType() == QXmlStreamReader::StartElement)
-                {
-                    if (xml.name() == name)
-                        shortNames << xml.readElementText();
-
-                    if (xml.name() == text)
-                        fullText << xml.readElementText();
-
-                    if (xml.name() == spos)
-                        pos << xml.readElementText();
-                }
-            }
-
         }
 
-        showCompletion(shortNames, fullText, pos);
+    showCompletion(shortNames, fullText, pos);
     }
     else
     {
@@ -321,7 +321,8 @@ GeoSearchBox::GeoSearchBox(QWidget *parent) : QLineEdit(parent)
 
 void GeoSearchBox::doSearch()
 {
-    if (!isValid()) coord = QVector3D();
+    if (!isValid())
+        setCoordinate(QVector3D());
 }
 
 
@@ -336,8 +337,8 @@ GeoSearchWidget::GeoSearchWidget(bool vbox /*=true*/,
     indicator    = new QLabel;
     googleAct    = new QAction(QIcon("fileeditor/google.png"),
                                tr("Search using Google Maps"), this);
-    yandexAct    = new QAction(QIcon("fileeditor/yandex.png"),
-                               tr("Search using Yandex.Maps"), this);
+    localAct     = new QAction(QIcon("style/find.png"),
+                               tr("Search using local database"), this);
     editAct      = new QAction(QIcon("fileeditor/edit.png"),
                                tr("Input coordinates"), this);
 
@@ -351,7 +352,7 @@ GeoSearchWidget::GeoSearchWidget(bool vbox /*=true*/,
 
     backSite     -> setObjectName("backSite");
     acts         -> addAction(googleAct);
-    acts         -> addAction(yandexAct);
+    acts         -> addAction(localAct);
     acts         -> addAction(editAct);
     acts         -> setExclusive(true);
     if (toolBar) {
@@ -414,7 +415,7 @@ GeoSearchWidget::GeoSearchWidget(bool vbox /*=true*/,
     turnGoogleSearch();
 
     connect(googleAct,    SIGNAL(triggered()),          this, SLOT(turnGoogleSearch()));
-    connect(yandexAct,    SIGNAL(triggered()),          this, SLOT(turnYandexSearch()));
+    connect(localAct,     SIGNAL(triggered()),          this, SLOT(turnLocalSearch()));
     connect(editAct,      SIGNAL(triggered()),          this, SLOT(turnGeoInput()));
     connect(geoSearchBox, SIGNAL(returnPressed()),      this, SLOT(proofCoordinates()));
     connect(latitude,     SIGNAL(valueChanged(double)), this, SIGNAL(locationChanged()));
@@ -430,12 +431,12 @@ void GeoSearchWidget::turnGoogleSearch()
     if (_tbtn) _tbtn->setIcon(googleAct->icon());
 }
 
-void GeoSearchWidget::turnYandexSearch()
+void GeoSearchWidget::turnLocalSearch()
 {
     modes->setCurrentIndex(0);
-    yandexAct->setChecked(true);
-    geoSearchBox->setSource(GeoSuggestCompletion::Yandex);
-    if (_tbtn) _tbtn->setIcon(yandexAct->icon());
+    localAct->setChecked(true);
+    geoSearchBox->setSource(GeoSuggestCompletion::Local);
+    if (_tbtn) _tbtn->setIcon(localAct->icon());
 }
 
 void GeoSearchWidget::turnGeoInput()
@@ -443,6 +444,19 @@ void GeoSearchWidget::turnGeoInput()
     modes->setCurrentIndex(1);
     editAct->setChecked(true);
     if (_tbtn) _tbtn->setIcon(editAct->icon());
+}
+
+void GeoSearchWidget::showSearchMode()
+{
+    switch (geoSearchBox->source()) {
+    case GeoSuggestCompletion::Local:
+        turnLocalSearch();
+        break;
+    case GeoSuggestCompletion::Google:
+    default:
+        turnGoogleSearch();
+        break;
+    }
 }
 
 void GeoSearchWidget::proofCoordinates()
@@ -489,6 +503,14 @@ QString GeoSearchWidget::locationName() const
     return "";
 }
 
+QString GeoSearchWidget::selectedTimezoneId() const
+{
+    if (modes->currentIndex() == 0)
+        return geoSearchBox->selectedTimezoneId();
+
+    return QString();
+}
+
 void GeoSearchWidget::setLocation(const QVector3D& coord)
 {
     geoSearchBox->setCoordinate(coord);
@@ -509,7 +531,7 @@ void GeoSearchWidget::setLocation(const QVector3D& coord, const QString& name)
     //setLocationName(name);
 
     if (!name.isEmpty())
-        turnGoogleSearch();
+        showSearchMode();
 }
 
 void GeoSearchWidget::setLocationName(const QString& name)
@@ -517,5 +539,5 @@ void GeoSearchWidget::setLocationName(const QString& name)
     geoSearchBox->setText(name);
 
     if (!name.isEmpty())
-        turnGoogleSearch();
+        showSearchMode();
 }

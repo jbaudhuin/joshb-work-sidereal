@@ -362,6 +362,20 @@ AstroFileEditor::updateTimezone()
     // Keep the datetime widget's longitude in sync for EoT tooltips
     dateTime->setGeoLongitude(vec.x());
 
+    const QString timezoneId = geoSearch->selectedTimezoneId();
+    if (!timezoneId.isEmpty()) {
+        const QTimeZone tz(timezoneId.toUtf8());
+        if (tz.isValid()) {
+            const QDateTime localInput = dateTime->localDateTime();
+            const QDateTime zonedLocal(localInput.date(), localInput.time(), tz);
+            const double offsetHours = zonedLocal.offsetFromUtc() / 3600.0;
+            timeZone->setValue(offsetHours);
+            qDebug() << "Resolved timezone locally from city DB:" << timezoneId
+                     << "offset" << offsetHours;
+            return;
+        }
+    }
+
     auto nm = new QNetworkAccessManager(this);
     connect(nm, &QNetworkAccessManager::finished,
             [this](QNetworkReply* reply)
