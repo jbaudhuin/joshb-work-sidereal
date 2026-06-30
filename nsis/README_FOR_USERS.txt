@@ -1,5 +1,5 @@
 ZODIAC SIDEREAL - Astrological Software
-Version 0.9.8.2
+Version 0.9.8.3
 ========================================
 
 ABOUT
@@ -131,8 +131,8 @@ See CHANGELOG.txt or visit the GitHub repository for version history.
 
 VERSION INFORMATION
 ===================
-Version: 0.9.8.2
-Build Date: 2026-06-12
+Version: 0.9.8.3
+Build Date: 2026-06-29
 License: GPL v3
 Website: https://github.com/jbaudhuin/joshb-work-sidereal
 

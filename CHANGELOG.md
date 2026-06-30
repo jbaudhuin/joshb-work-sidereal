@@ -2,6 +2,30 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.8.3] - 2026-06-29
+
+### Added
+- **Aspect Range Navigator**: Continuous playback and stepping through ranged aspect events — play/stop transport, elapsed-paced animation, and a first/prev/peak/next/last paran-cycling toolbar that snaps to focal paran moments
+- **Animated Planet Slides**: Smooth discrete-step planet sliding on the chart wheel with crossfaded aspect lines and tweened glyphs, plus a rotation lock that freezes wheel orientation during continuous playback
+- **Scrub Mode**: Interactive wheel dragging that skips expensive recomputation during transient interaction and performs a single exact catch-up recompute on release; play/pause/resume now remembers the paused position
+
+### Improved
+- **City Database**: Prefers the `cities500` dataset when present, parses GeoNames admin1 codes and timezones, loads admin1 display names, and adds normalized name matching, formatted display labels, and timezone-offset lookup
+- **Offline Timezone Resolution**: Transit timezones now resolve from the bundled GeoNames city database first, falling back to the online lookup only when the local timezone is unavailable
+- **Data Path Handling**: Data and Swiss Ephemeris file paths now resolve relative to the executable, so files load even when the working directory differs
+- **Chart File Save/Load**: Added a Save As flow and made loading resilient to legacy formats, with per-file transit options (event options, skip-by-duration, auto-reconcile) now persisted
+- **Form Layout**: Custom widgets stay top-aligned within form rows
+
+### Fixed
+- **New Session Defaults**: A fresh `--new` session no longer comes up with raw library defaults (odd window size, missing panels, uncurated zodiac/aspects); it now seeds its layout and preferences from your most-recent session while still starting with no tabs
+- **Empty-Zodiac Crash**: `getSign()` now guards against a zodiac with no signs
+- **Wheel Drag**: Avoid full scene rebuilds mid-drag so wheel time-dragging works reliably across Ascendant orientations
+- **Cluster Find**: Corrected `findClusters` usage so transit patterns are no longer incorrectly dropped
+- **Duplicate File Signals**: Disconnect stale connections in `AstroFileHandler`
+
+### Changed
+- Version bumped to 0.9.8.3
+
 ## [0.9.8.2] - 2026-06-12
 
 ### Added

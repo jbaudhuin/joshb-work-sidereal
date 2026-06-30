@@ -1,8 +1,8 @@
 **Zodiac** is an Astrological software for personal use.
 
-**Current Version**: 0.9.8.2 (June 12, 2026)
+**Current Version**: 0.9.8.3 (June 29, 2026)
 
-**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.8.2/Zodiac-0.9.8.2-installer.exe)
+**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.8.3/Zodiac-0.9.8.3-installer.exe)
 
 This sidereal branch was to experiment with certain feature ideas in sidereal and harmonic practice.
 
