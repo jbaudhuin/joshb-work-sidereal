@@ -16,6 +16,8 @@
 class QTreeView;
 class QStandardItemModel;
 class QRadioButton;
+class QActionGroup;
+class QToolBar;
 class GeoSearchWidget;
 class EventsTableModel;
 class EventTypeFilterProxy;
@@ -270,21 +272,33 @@ class Transits : public AstroFileHandler {
     // Toolbar actions for event filters
     QAction* _actStations = nullptr;
     QAction* _actReturns = nullptr;
-    QAction* _actTransitToTransit = nullptr;
-    QToolButton* _btnTransitToNatal = nullptr;  // Dropdown: T=N / OT=N
-    QAction* _actTransitToNatal = nullptr;      // T=N radio button in menu
-    QAction* _actOuterTransitToNatal = nullptr; // OT=N radio button in menu
-    QAction* _actIncludeAngles = nullptr;       // Menu item in T=N dropdown
-    QAction* _actProgressedToProgressed = nullptr;
-    QToolButton* _btnProgressedToNatal = nullptr;  // Dropdown: IP=N / P=N
-    QAction* _actInnerProgressedToNatal = nullptr; // IP=N radio button in menu
-    QAction* _actAllProgressedToNatal = nullptr;   // P=N radio button in menu
-    QAction* _actTransitAspectPatterns = nullptr;
-    QAction* _actTransitNatalAspectPatterns = nullptr;
-    QAction* _actSignIngress = nullptr;
-    QAction* _actHouseIngress = nullptr;
-    QAction* _actParanatellonta = nullptr;
-    QAction* _actParanatellontaToNatal = nullptr;
+    QAction* _actHeliacal = nullptr;   // HE: heliacal risings/settings (compute deferred)
+
+    // ---- Grouped dropdown event buttons ([T▼] [P▼] [AP▼] [Par▼]) ----------
+    // One split-button consolidates several related event types. The dropdown
+    // menu holds the group's members (some in mutually-exclusive radio
+    // subgroups); the button body is a master on/off. The menu checkmarks are
+    // a *selection* that is only pushed to the live display while the master is
+    // on — toggling a member while the master is off edits the selection only.
+    struct EventGroupMember {
+        A::EventType et;
+        int          radioGroup = -1;   // -1 = independent; >=0 = radio subgroup id
+        QAction*     action     = nullptr;
+    };
+    struct EventGroupButton {
+        QToolButton*              button = nullptr;
+        QString                   baseLabel;    // "T", "P", "AP", "Par"
+        QString                   baseTooltip;  // first tooltip line (no selection)
+        QList<EventGroupMember>   members;
+        QList<QActionGroup*>      radioGroups;
+        A::EventTypeSet           selection;    // checked items (live only when master on)
+
+        bool contains(A::EventType et) const {
+            for (const auto& m : members) if (m.et == et) return true;
+            return false;
+        }
+    };
+    QList<EventGroupButton> _eventGroups;
 
     // Skip-by-duration split button (1d / 1w / 1m), modeled on the T=N button
     QToolButton* _btnSkipDuration = nullptr;
@@ -298,16 +312,36 @@ class Transits : public AstroFileHandler {
     QToolButton* _btnRefresh = nullptr;
     QAction* _actAuto = nullptr;         // dropdown: toggle auto-reconcile
     
-    bool _transitToNatalShowsOuter = false;  // Track T=N vs OT=N state
-    bool _progressedToNatalShowsInner = true;  // Track P=N vs IP=N state (default inner)
-    bool _transitToNatalAnglesWasChecked = true;  // Cache angles checkbox state when button is off
-    
     QString _inputBorderStyle;  // Current green/red validation border for _input
     double  _lastProgress = -1; // Last progress value for throttling stylesheet updates
 
     void updateToolbarFromEventOptions();
-    void updateTransitToNatalButtonState();
-    void updateProgressedToNatalButtonState();
+
+    // ---- Grouped dropdown event-button helpers ---------------------------
+    /// One ordered spec entry describing a menu item to add to a group button.
+    /// A separator is encoded as et == etcUnknownEvent. radioGroup < 0 means an
+    /// independent checkable; radioGroup >= 0 puts the item in that (optional-
+    /// exclusive) radio subgroup. An empty overrideLabel uses eventTypeBrief().
+    struct EventGroupSpec {
+        A::EventType et;
+        int          radioGroup;
+        QString      overrideLabel;
+        EventGroupSpec(A::EventType e, int rg = -1, QString lbl = {})
+            : et(e), radioGroup(rg), overrideLabel(std::move(lbl)) {}
+    };
+    /// Build and register a grouped split-button per the plan's interaction
+    /// model, append it to the toolbar, and return it.
+    QToolButton* buildEventGroupButton(QToolBar*                   tb,
+                                       const QString&              baseLabel,
+                                       const QString&              tooltip,
+                                       const QList<EventGroupSpec>& spec);
+    /// Reconcile one group's button + menu checkmarks from _tabEventOptions.
+    void syncGroupFromOptions(EventGroupButton& grp);
+    /// Refresh a group button's tooltip so its second line lists the current
+    /// selection (the checked menu items).
+    void refreshGroupTooltip(EventGroupButton& grp);
+    /// True when any of the group's members is currently in _tabEventOptions.
+    bool groupHasEnabledMember(const EventGroupButton& grp) const;
     void updateInputProgress(double prog);  // Update _input background to show progress
     void disconnectFinder(FinderState& fs);         // Disconnect UI signals from a finder
     void cancelAndRemoveFinder(AstroFile* af);       // Cancel finder + remove from map

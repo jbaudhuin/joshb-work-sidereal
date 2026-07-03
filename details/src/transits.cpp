@@ -1843,7 +1843,10 @@ class EventTypeFilterProxy : public QSortFilterProxyModel {
         }
 
         // --- Event-type gate ---
-        if (!_enabled.empty()) {
+        // An empty enabled set means "nothing enabled" → show no events, NOT
+        // "no filter / show everything". Otherwise disabling the last event
+        // type reveals the entire cached set instead of clearing the table.
+        {
             auto et = src->rowData(sourceRow).eventType();
 
             bool typeOk = _enabled.count(et) > 0;
@@ -2415,304 +2418,58 @@ Transits::Transits(QWidget* parent) :
     
     toolbar->addSeparator();
     
-    // Event filter buttons - checkable toggles
-    _actTransitToTransit = toolbar->addAction("T=T");
-    _actTransitToTransit->setCheckable(true);
-    _actTransitToTransit->setToolTip("Transit to Transit aspects");
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actTransitToTransit))) {
-        btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
-    }
-    connect(_actTransitToTransit, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        qDebug() << "T=T button toggled:" << checked;
-        if (checked) _tabEventOptions.insert(A::etcTransitToTransit);
-        else _tabEventOptions.erase(A::etcTransitToTransit);
-        saveEventOptionsAndRecalc(checked);
-    });
-    
-    // T=N dropdown button with menu
-    _btnTransitToNatal = new LeftToolButton(toolbar);
-    _btnTransitToNatal->setText("T=N");
-    _btnTransitToNatal->setCheckable(true);
-    _btnTransitToNatal->setPopupMode(QToolButton::MenuButtonPopup);
-    _btnTransitToNatal->setToolTip("Transit to Natal aspects - click to toggle, dropdown to select mode");
-    _btnTransitToNatal->setStyleSheet("QToolButton { min-width: 44px !important; }");
-    
-    auto* transitNatalMenu = new QMenu(_btnTransitToNatal);
-    
-    // Radio button group for mode selection (which mode is the "default")
-    auto* transitNatalGroup = new QActionGroup(transitNatalMenu);
-    transitNatalGroup->setExclusive(true);  // Makes them behave like radio buttons
-    
-    _actTransitToNatal = transitNatalMenu->addAction(eventTypeBrief(A::etcTransitToNatal));
-    _actTransitToNatal->setCheckable(true);
-    _actTransitToNatal->setChecked(true);  // Default mode
-    _actTransitToNatal->setToolTip(eventTypeDesc(A::etcTransitToNatal));
-    transitNatalGroup->addAction(_actTransitToNatal);
-    
-    _actOuterTransitToNatal = transitNatalMenu->addAction(eventTypeBrief(A::etcOuterTransitToNatal));
-    _actOuterTransitToNatal->setCheckable(true);
-    _actOuterTransitToNatal->setToolTip(eventTypeDesc(A::etcOuterTransitToNatal));
-    transitNatalGroup->addAction(_actOuterTransitToNatal);
-    
-    // Separator
-    transitNatalMenu->addSeparator();
-    
-    // Independent checkbox for angles (store as member variable so we can restore state)
-    _actIncludeAngles = transitNatalMenu->addAction(eventTypeBrief(A::etcTransitToNatalAngles));
-    _actIncludeAngles->setCheckable(true);
-    _actIncludeAngles->setChecked(true);  // Default to including angles
-    _actIncludeAngles->setToolTip(eventTypeDesc(A::etcTransitToNatalAngles));
-    
-    _btnTransitToNatal->setMenu(transitNatalMenu);
-    
-    // Menu selection changes the mode (which is the "default", doesn't enable/disable)
-    connect(transitNatalGroup, &QActionGroup::triggered, this, [this, saveEventOptionsAndRecalc](QAction* action) {
-        // Just update the mode preference, don't change enabled state
-        bool wasOuter = _transitToNatalShowsOuter;
-        
-        // Block signals to prevent button toggle from being triggered
-        QSignalBlocker blocker(_btnTransitToNatal);
-        
-        if (action->text().contains("OT=N")) {
-            _transitToNatalShowsOuter = true;
-            _btnTransitToNatal->setText("OT=N");
-        } else {
-            _transitToNatalShowsOuter = false;
-            _btnTransitToNatal->setText("T=N");
-        }
-        
-        blocker.unblock();
-        
-        // Only recalc if button is currently checked AND mode actually changed
-        if (_btnTransitToNatal->isChecked() && wasOuter != _transitToNatalShowsOuter) {
-            // Button is on, so actually switch the active mode
-            if (_transitToNatalShowsOuter) {
-                _tabEventOptions.insert(A::etcOuterTransitToNatal);
-                _tabEventOptions.erase(A::etcTransitToNatal);
-            } else {
-                _tabEventOptions.insert(A::etcTransitToNatal);
-                _tabEventOptions.erase(A::etcOuterTransitToNatal);
-            }
-            saveEventOptionsAndRecalc(true);
-        }
-    });
-    
-    // Angles checkbox toggles independently
-    connect(_actIncludeAngles, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) {
-            _tabEventOptions.insert(A::etcTransitToNatalAngles);
-        } else {
-            _tabEventOptions.erase(A::etcTransitToNatalAngles);
-        }
-        saveEventOptionsAndRecalc(checked);
-    });
-    
-    // Button click toggles the on/off state for the current mode
-    connect(_btnTransitToNatal, &QToolButton::clicked, this, [this, saveEventOptionsAndRecalc]() {
-        // isChecked() already reflects the new state after auto-toggle
-        bool newState = _btnTransitToNatal->isChecked();
-        
-        qDebug() << "T=N button clicked, new state:" << newState << "outer mode:" << _transitToNatalShowsOuter;
-        
-        if (newState) {
-            // Turning ON - restore the mode that was selected
-            if (_transitToNatalShowsOuter) {
-                _tabEventOptions.insert(A::etcOuterTransitToNatal);
-                _tabEventOptions.erase(A::etcTransitToNatal);
-            } else {
-                _tabEventOptions.insert(A::etcTransitToNatal);
-                _tabEventOptions.erase(A::etcOuterTransitToNatal);
-            }
-            // Restore angles if it was checked before
-            if (_transitToNatalAnglesWasChecked) {
-                _tabEventOptions.insert(A::etcTransitToNatalAngles);
-            }
-        } else {
-            // Turning OFF - cache whether angles was checked
-            _transitToNatalAnglesWasChecked = _tabEventOptions.count(A::etcTransitToNatalAngles) > 0;
-            // Remove all three event types
-            _tabEventOptions.erase(A::etcTransitToNatal);
-            _tabEventOptions.erase(A::etcOuterTransitToNatal);
-            _tabEventOptions.erase(A::etcTransitToNatalAngles);
-        }
-        qDebug() << "After T=N click: hasTransitToNatal=" << (_tabEventOptions.count(A::etcTransitToNatal) > 0)
-                 << "hasOuter=" << (_tabEventOptions.count(A::etcOuterTransitToNatal) > 0);
-        saveEventOptionsAndRecalc(newState);
-    });
-    
-    toolbar->addWidget(_btnTransitToNatal);
-    
-    _actProgressedToProgressed = toolbar->addAction("P=P");
-    _actProgressedToProgressed->setCheckable(true);
-    _actProgressedToProgressed->setToolTip("Progressed to Progressed aspects");
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actProgressedToProgressed))) {
-        btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
-    }
-    connect(_actProgressedToProgressed, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) _tabEventOptions.insert(A::etcProgressedToProgressed);
-        else _tabEventOptions.erase(A::etcProgressedToProgressed);
-        saveEventOptionsAndRecalc(checked);
-    });
-    
-    // IP=N/P=N dropdown button with menu
-    _btnProgressedToNatal = new LeftToolButton(toolbar);
-    _btnProgressedToNatal->setText("IP=N");
-    _btnProgressedToNatal->setCheckable(true);
-    _btnProgressedToNatal->setPopupMode(QToolButton::MenuButtonPopup);
-    _btnProgressedToNatal->setToolTip("Progressed to Natal aspects - click to toggle, dropdown to select mode");
-    _btnProgressedToNatal->setStyleSheet("QToolButton { min-width: 46px !important; }");
-    
-    auto* progressedNatalMenu = new QMenu(_btnProgressedToNatal);
-    
-    // Radio button group for mode selection
-    auto* progressedNatalGroup = new QActionGroup(progressedNatalMenu);
-    progressedNatalGroup->setExclusive(true);  // Makes them behave like radio buttons
-    
-    _actInnerProgressedToNatal = progressedNatalMenu->addAction(eventTypeBrief(A::etcInnerProgressedToNatal));
-    _actInnerProgressedToNatal->setCheckable(true);
-    _actInnerProgressedToNatal->setChecked(true);  // Default mode
-    _actInnerProgressedToNatal->setToolTip(eventTypeDesc(A::etcInnerProgressedToNatal));
-    progressedNatalGroup->addAction(_actInnerProgressedToNatal);
-    
-    _actAllProgressedToNatal = progressedNatalMenu->addAction(eventTypeBrief(A::etcProgressedToNatal));
-    _actAllProgressedToNatal->setCheckable(true);
-    _actAllProgressedToNatal->setToolTip(eventTypeDesc(A::etcProgressedToNatal));
-    progressedNatalGroup->addAction(_actAllProgressedToNatal);
-    
-    _btnProgressedToNatal->setMenu(progressedNatalMenu);
-    
-    // Menu selection changes the mode (which is the "default", doesn't enable/disable)
-    connect(progressedNatalGroup, &QActionGroup::triggered, this, [this, saveEventOptionsAndRecalc](QAction* action) {
-        // Just update the mode preference, don't change enabled state
-        bool wasInner = _progressedToNatalShowsInner;
-        
-        // Block signals to prevent button toggle from being triggered
-        QSignalBlocker blocker(_btnProgressedToNatal);
-        
-        if (action->text().contains("IP=N")) {
-            _progressedToNatalShowsInner = true;
-            _btnProgressedToNatal->setText("IP=N");
-        } else {
-            _progressedToNatalShowsInner = false;
-            _btnProgressedToNatal->setText("P=N");
-        }
-        
-        blocker.unblock();
-        
-        // Only recalc if button is currently checked AND mode actually changed
-        if (_btnProgressedToNatal->isChecked() && wasInner != _progressedToNatalShowsInner) {
-            // Button is on, so actually switch the active mode
-            if (_progressedToNatalShowsInner) {
-                _tabEventOptions.insert(A::etcInnerProgressedToNatal);
-                _tabEventOptions.erase(A::etcProgressedToNatal);
-            } else {
-                _tabEventOptions.insert(A::etcProgressedToNatal);
-                _tabEventOptions.erase(A::etcInnerProgressedToNatal);
-            }
-            saveEventOptionsAndRecalc(true);
-        }
-    });
-    
-    // Button click toggles the on/off state for the current mode
-    connect(_btnProgressedToNatal, &QToolButton::clicked, this, [this, saveEventOptionsAndRecalc]() {
-        // isChecked() already reflects the new state after auto-toggle
-        bool newState = _btnProgressedToNatal->isChecked();
-        
-        qDebug() << "IP=N/P=N button clicked, new state:" << newState << "inner mode:" << _progressedToNatalShowsInner;
-        
-        if (newState) {
-            if (_progressedToNatalShowsInner) {
-                _tabEventOptions.insert(A::etcInnerProgressedToNatal);
-                _tabEventOptions.erase(A::etcProgressedToNatal);
-            } else {
-                _tabEventOptions.insert(A::etcProgressedToNatal);
-                _tabEventOptions.erase(A::etcInnerProgressedToNatal);
-            }
-        } else {
-            _tabEventOptions.erase(A::etcProgressedToNatal);
-            _tabEventOptions.erase(A::etcInnerProgressedToNatal);
-        }
-        saveEventOptionsAndRecalc(newState);
-    });
-    
-    toolbar->addWidget(_btnProgressedToNatal);
-    
-    _actTransitAspectPatterns = toolbar->addAction("TA");
-    _actTransitAspectPatterns->setCheckable(true);
-    _actTransitAspectPatterns->setToolTip("Transit Aspect Patterns");
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actTransitAspectPatterns))) {
-        btn->setStyleSheet("QToolButton { min-width: 28px !important; }");
-    }
-    connect(_actTransitAspectPatterns, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) _tabEventOptions.insert(A::etcTransitAspectPattern);
-        else _tabEventOptions.erase(A::etcTransitAspectPattern);
-        saveEventOptionsAndRecalc(checked);
-    });
-    
-    _actTransitNatalAspectPatterns = toolbar->addAction("TNA");
-    _actTransitNatalAspectPatterns->setCheckable(true);
-    _actTransitNatalAspectPatterns->setToolTip("Transit-Natal Aspect Patterns");
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actTransitNatalAspectPatterns))) {
-        btn->setStyleSheet("QToolButton { min-width: 36px !important; }");
-    }
-    connect(_actTransitNatalAspectPatterns, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) _tabEventOptions.insert(A::etcTransitNatalAspectPattern);
-        else _tabEventOptions.erase(A::etcTransitNatalAspectPattern);
-        saveEventOptionsAndRecalc(checked);
-    });
-    
-    // Sign Ingress button
-    _actSignIngress = toolbar->addAction("T=I");
-    _actSignIngress->setCheckable(true);
-    _actSignIngress->setToolTip("Sign Ingresses");
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actSignIngress))) {
-        btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
-    }
-    connect(_actSignIngress, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) _tabEventOptions.insert(A::etcSignIngress);
-        else _tabEventOptions.erase(A::etcSignIngress);
-        saveEventOptionsAndRecalc(checked);
-    });
-    
-    // House Ingress button
-    _actHouseIngress = toolbar->addAction("T=H");
-    _actHouseIngress->setCheckable(true);
-    _actHouseIngress->setToolTip("House Ingresses");
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actHouseIngress))) {
-        btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
-    }
-    connect(_actHouseIngress, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) _tabEventOptions.insert(A::etcHouseIngress);
-        else _tabEventOptions.erase(A::etcHouseIngress);
-        saveEventOptionsAndRecalc(checked);
-    });
-    
-    // Paranatellonta button
-    _actParanatellonta = toolbar->addAction("Par");
-    _actParanatellonta->setCheckable(true);
-    _actParanatellonta->setToolTip("Paranatellonta");
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actParanatellonta))) {
-        btn->setStyleSheet("QToolButton { min-width: 32px !important; }");
-    }
-    connect(_actParanatellonta, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) _tabEventOptions.insert(A::etcParanatellonta);
-        else _tabEventOptions.erase(A::etcParanatellonta);
-        saveEventOptionsAndRecalc(checked);
-    });
-    
-    // Paranatellonta to Natal button
-    _actParanatellontaToNatal = toolbar->addAction("Par=N");
-    _actParanatellontaToNatal->setCheckable(true);
-    _actParanatellontaToNatal->setToolTip("Paranatellonta to Natal");
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actParanatellontaToNatal))) {
-        btn->setStyleSheet("QToolButton { min-width: 48px !important; }");
-    }
-    connect(_actParanatellontaToNatal, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) _tabEventOptions.insert(A::etcParanatellontaToNatal);
-        else _tabEventOptions.erase(A::etcParanatellontaToNatal);
-        saveEventOptionsAndRecalc(checked);
+    // Event filter buttons: grouped split-buttons. Each consolidates several
+    // related event types behind a master on/off; the dropdown menu holds the
+    // members (some in optional-exclusive radio subgroups). See
+    // buildEventGroupButton() for the interaction model.
+
+    // [T▼] Transits
+    buildEventGroupButton(toolbar, "T", "Transits", {
+        { A::etcTransitToTransit },
+        { A::etcSignIngress },
+        { A::etcUnknownEvent },                        // separator
+        { A::etcTransitToNatal,       0 },             // radio subgroup 0
+        { A::etcOuterTransitToNatal,  0 },             // radio subgroup 0
+        { A::etcUnknownEvent },                        // separator
+        { A::etcTransitToNatalAngles },
+        { A::etcHouseIngress },
     });
 
+    // [P▼] Progressions
+    buildEventGroupButton(toolbar, "P", "Progressions", {
+        { A::etcProgressedToProgressed },
+        { A::etcUnknownEvent },                        // separator
+        { A::etcProgressedToNatal,      0 },           // radio subgroup 0
+        { A::etcInnerProgressedToNatal, 0 },           // radio subgroup 0
+    });
+
+    // [AP▼] Aspect patterns
+    buildEventGroupButton(toolbar, "AP", "Aspect Patterns", {
+        { A::etcTransitAspectPattern },
+        { A::etcTransitNatalAspectPattern },
+    });
+
+    // [Par▼] Paranatellonta
+    buildEventGroupButton(toolbar, "Par", "Paranatellonta", {
+        { A::etcParanatellonta,       -1, "Par=T" },   // relabel the transit-only item
+        { A::etcParanatellontaToNatal },
+    });
+
+    // [HE] Heliacal risings/settings. The toggle is wired now; the actual
+    // computation (swe_heliacal_ut harvest) is a deferred follow-up, so
+    // enabling it currently produces no rows.
+    _actHeliacal = toolbar->addAction("HE");
+    _actHeliacal->setCheckable(true);
+    _actHeliacal->setToolTip(eventTypeDesc(A::etcHeliacalEvents));
+    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actHeliacal))) {
+        btn->setStyleSheet("QToolButton { min-width: 24px !important; }");
+    }
+    connect(_actHeliacal, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
+        if (checked) _tabEventOptions.insert(A::etcHeliacalEvents);
+        else _tabEventOptions.erase(A::etcHeliacalEvents);
+        saveEventOptionsAndRecalc(checked);
+    });
+    
     // Initialize toolbar state from tab event options
     updateToolbarFromEventOptions();
     
@@ -5700,131 +5457,218 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
 #endif
 }
 
+QToolButton*
+Transits::buildEventGroupButton(QToolBar*                    tb,
+                                const QString&               baseLabel,
+                                const QString&               tooltip,
+                                const QList<EventGroupSpec>& spec)
+{
+    auto* btn = new LeftToolButton(tb);
+    btn->setText(baseLabel);
+    btn->setCheckable(true);
+    btn->setPopupMode(QToolButton::MenuButtonPopup);
+
+    auto* menu = new QMenu(btn);
+
+    EventGroupButton grp;
+    grp.button      = btn;
+    grp.baseLabel   = baseLabel;
+    grp.baseTooltip = tooltip +
+        " — click to toggle the whole group; use the dropdown to choose members";
+
+    // Radio subgroups created lazily by id as members reference them. Uses
+    // ExclusiveOptional so the pair may be all-off, with at most one on.
+    QHash<int, QActionGroup*> radioById;
+    for (const auto& s : spec) {
+        if (s.et == A::etcUnknownEvent) { menu->addSeparator(); continue; }
+
+        const QString label = s.overrideLabel.isEmpty() ? eventTypeBrief(s.et)
+                                                         : s.overrideLabel;
+        QAction* act = menu->addAction(label);
+        act->setCheckable(true);
+        act->setToolTip(eventTypeDesc(s.et));
+
+        if (s.radioGroup >= 0) {
+            auto it = radioById.find(s.radioGroup);
+            QActionGroup* rg;
+            if (it == radioById.end()) {
+                rg = new QActionGroup(menu);
+                rg->setExclusionPolicy(
+                    QActionGroup::ExclusionPolicy::ExclusiveOptional);
+                radioById.insert(s.radioGroup, rg);
+                grp.radioGroups.append(rg);
+            } else {
+                rg = it.value();
+            }
+            rg->addAction(act);
+        }
+
+        grp.members.append({ s.et, s.radioGroup, act });
+    }
+
+    btn->setMenu(menu);
+
+    // Register the group; handlers reference it by index (QList elements are
+    // never removed after construction, so the index stays valid).
+    const int gi = _eventGroups.size();
+    _eventGroups.append(std::move(grp));
+
+    // Per-member toggle: edits the selection, and — only while the master is
+    // on — mirrors the selection into the live option set.
+    for (const auto& m : _eventGroups[gi].members) {
+        const A::EventType et    = m.et;
+        const int          rgIdx = m.radioGroup;
+        connect(m.action, &QAction::toggled, this,
+                [this, gi, et, rgIdx](bool checked) {
+            auto& g = _eventGroups[gi];
+            if (checked) {
+                // Radio: enforce exclusivity ourselves. We can't rely on the
+                // QActionGroup — syncGroupFromOptions sets the restored item's
+                // checkmark with signals blocked, so the group's current-action
+                // tracking goes stale and it fails to uncheck the old sibling.
+                if (rgIdx >= 0)
+                    for (const auto& mm : g.members)
+                        if (mm.radioGroup == rgIdx && mm.et != et) {
+                            g.selection.erase(mm.et);
+                            if (mm.action && mm.action->isChecked()) {
+                                QSignalBlocker b(mm.action);
+                                mm.action->setChecked(false);
+                            }
+                        }
+                g.selection.insert(et);
+            } else {
+                g.selection.erase(et);
+            }
+            refreshGroupTooltip(g);
+
+            if (!g.button->isChecked())
+                return;  // master OFF: selection edited, nothing shown
+
+            // Master ON: the live set tracks the selection exactly.
+            for (const auto& mm : g.members) {
+                if (g.selection.count(mm.et) > 0) _tabEventOptions.insert(mm.et);
+                else                              _tabEventOptions.erase(mm.et);
+            }
+            // Emptied selection ⇒ nothing displayed ⇒ turn the master off.
+            if (g.selection.empty()) {
+                QSignalBlocker b(g.button);
+                g.button->setChecked(false);
+            }
+            saveEventOptionsAndReconcile(checked);
+        });
+    }
+
+    // Master button: pushes the selection to the display (on) or removes the
+    // group from the display while retaining the selection (off).
+    connect(btn, &QToolButton::clicked, this, [this, gi]() {
+        auto&      g        = _eventGroups[gi];
+        const bool newState = g.button->isChecked();  // post auto-toggle
+        if (newState) {
+            if (g.selection.empty())  // default seed: all independent members
+                for (const auto& mm : g.members)
+                    if (mm.radioGroup < 0) g.selection.insert(mm.et);
+            for (A::EventType et : g.selection) _tabEventOptions.insert(et);
+        } else {
+            for (const auto& mm : g.members) _tabEventOptions.erase(mm.et);
+        }
+        // Reflect the (possibly just-seeded) selection onto the menu checks.
+        for (const auto& mm : g.members) {
+            if (!mm.action) continue;
+            QSignalBlocker b(mm.action);
+            mm.action->setChecked(g.selection.count(mm.et) > 0);
+        }
+        refreshGroupTooltip(g);
+        saveEventOptionsAndReconcile(newState);
+    });
+
+    refreshGroupTooltip(_eventGroups[gi]);
+    tb->addWidget(btn);
+    return btn;
+}
+
+bool
+Transits::groupHasEnabledMember(const EventGroupButton& grp) const
+{
+    for (const auto& m : grp.members)
+        if (_tabEventOptions.count(m.et) > 0) return true;
+    return false;
+}
+
+void
+Transits::refreshGroupTooltip(EventGroupButton& grp)
+{
+    if (!grp.button) return;
+    QStringList sel;
+    for (const auto& m : grp.members)
+        if (m.action && grp.selection.count(m.et) > 0)
+            sel.append(m.action->text());
+    // Second line lists the selection; note when the master is off that the
+    // selection isn't currently displayed.
+    const QString what = sel.isEmpty() ? tr("(none)") : sel.join(", ");
+    const QString line2 = grp.button->isChecked()
+                        ? tr("Selected: %1").arg(what)
+                        : tr("Selected (off): %1").arg(what);
+    grp.button->setToolTip(grp.baseTooltip + "\n" + line2);
+}
+
+void
+Transits::syncGroupFromOptions(EventGroupButton& grp)
+{
+    if (!grp.button) return;
+
+    // present = the group's members currently enabled in _tabEventOptions.
+    A::EventTypeSet present;
+    for (const auto& m : grp.members)
+        if (_tabEventOptions.count(m.et) > 0) present.insert(m.et);
+
+    if (!present.empty()) {
+        // Master ON: the live set IS the selection.
+        grp.selection = present;
+    } else if (grp.selection.empty()) {
+        // Master OFF with no remembered selection: seed a default (all the
+        // independent, non-radio members) so turning the master on shows
+        // something rather than nothing.
+        for (const auto& m : grp.members)
+            if (m.radioGroup < 0) grp.selection.insert(m.et);
+    }
+    // else: master OFF, keep the remembered in-memory selection.
+
+    // Reflect selection onto the menu checkmarks and master onto the button.
+    for (auto& m : grp.members) {
+        if (!m.action) continue;
+        QSignalBlocker b(m.action);
+        m.action->setChecked(grp.selection.count(m.et) > 0);
+    }
+    {
+        QSignalBlocker bb(grp.button);
+        grp.button->setChecked(!present.empty());
+    }
+    refreshGroupTooltip(grp);
+}
+
 void
 Transits::updateToolbarFromEventOptions()
 {
-    if (!_actTransitToTransit) return;  // Toolbar not initialized yet
-    
-    // Block signals during bulk updates for QActions
-    ASignalBlocker block({_actStations, _actReturns, _actTransitToTransit, 
-                          _actProgressedToProgressed, _actTransitAspectPatterns, 
-                          _actTransitNatalAspectPatterns, _actSignIngress, 
-                          _actHouseIngress, _actParanatellonta, _actParanatellontaToNatal});
-    
-    _actStations->setChecked(_tabEventOptions.count(A::etcStation) > 0);
-    _actReturns->setChecked(_tabEventOptions.count(A::etcReturn) > 0 ||
-                            _tabEventOptions.count(A::etcSolarReturn) > 0 ||
-                            _tabEventOptions.count(A::etcLunarReturn) > 0);
-    _actTransitToTransit->setChecked(_tabEventOptions.count(A::etcTransitToTransit) > 0);
-    _actProgressedToProgressed->setChecked(_tabEventOptions.count(A::etcProgressedToProgressed) > 0);
-    _actTransitAspectPatterns->setChecked(_tabEventOptions.count(A::etcTransitAspectPattern) > 0);
-    _actTransitNatalAspectPatterns->setChecked(_tabEventOptions.count(A::etcTransitNatalAspectPattern) > 0);
-    _actSignIngress->setChecked(_tabEventOptions.count(A::etcSignIngress) > 0);
-    _actHouseIngress->setChecked(_tabEventOptions.count(A::etcHouseIngress) > 0);
-    _actParanatellonta->setChecked(_tabEventOptions.count(A::etcParanatellonta) > 0);
-    _actParanatellontaToNatal->setChecked(_tabEventOptions.count(A::etcParanatellontaToNatal) > 0);
-    
-    // Update dropdown button states
-    bool hasTransitToNatal = _tabEventOptions.count(A::etcTransitToNatal) > 0 ||
-                             _tabEventOptions.count(A::etcOuterTransitToNatal) > 0 ||
-                             _tabEventOptions.count(A::etcTransitToNatalAngles) > 0;
-    if (_btnTransitToNatal) {
-        _btnTransitToNatal->blockSignals(true);
-        _btnTransitToNatal->setChecked(hasTransitToNatal);
-        _btnTransitToNatal->blockSignals(false);
-    }
-    
-    // Update angles checkbox state
-    if (_actIncludeAngles) {
-        _actIncludeAngles->blockSignals(true);
-        _actIncludeAngles->setChecked(_tabEventOptions.count(A::etcTransitToNatalAngles) > 0);
-        _actIncludeAngles->blockSignals(false);
-    }
-    
-    bool hasProgressedToNatal = _tabEventOptions.count(A::etcProgressedToNatal) > 0 ||
-                                _tabEventOptions.count(A::etcInnerProgressedToNatal) > 0;
-    if (_btnProgressedToNatal) {
-        _btnProgressedToNatal->blockSignals(true);
-        _btnProgressedToNatal->setChecked(hasProgressedToNatal);
-        _btnProgressedToNatal->blockSignals(false);
-    }
-    
-    // Update alternating button states based on which event types are present
-    // Only update the mode flag if that mode's event type is actually in the set
-    // Don't change the flag just because both are absent (button is off)
-    if (_tabEventOptions.count(A::etcOuterTransitToNatal) > 0) {
-        _transitToNatalShowsOuter = true;
-    } else if (_tabEventOptions.count(A::etcTransitToNatal) > 0) {
-        _transitToNatalShowsOuter = false;
-    }
-    // Otherwise leave _transitToNatalShowsOuter unchanged (preserves user's last selection)
-    
-    if (_tabEventOptions.count(A::etcInnerProgressedToNatal) > 0) {
-        _progressedToNatalShowsInner = true;
-    } else if (_tabEventOptions.count(A::etcProgressedToNatal) > 0) {
-        _progressedToNatalShowsInner = false;
-    }
-    // Otherwise leave _progressedToNatalShowsInner unchanged
-    
-    // Update radio button states in menus
-    if (_actTransitToNatal && _actOuterTransitToNatal) {
-        _actTransitToNatal->blockSignals(true);
-        _actOuterTransitToNatal->blockSignals(true);
-        _actTransitToNatal->setChecked(!_transitToNatalShowsOuter);
-        _actOuterTransitToNatal->setChecked(_transitToNatalShowsOuter);
-        _actTransitToNatal->blockSignals(false);
-        _actOuterTransitToNatal->blockSignals(false);
-    }
-    
-    // Update button text to match current mode
-    if (_btnTransitToNatal) {
-        _btnTransitToNatal->setText(_transitToNatalShowsOuter ? "OT=N" : "T=N");
-    }
-    
-    if (_actInnerProgressedToNatal && _actAllProgressedToNatal) {
-        _actInnerProgressedToNatal->blockSignals(true);
-        _actAllProgressedToNatal->blockSignals(true);
-        _actInnerProgressedToNatal->setChecked(_progressedToNatalShowsInner);
-        _actAllProgressedToNatal->setChecked(!_progressedToNatalShowsInner);
-        _actInnerProgressedToNatal->blockSignals(false);
-        _actAllProgressedToNatal->blockSignals(false);
-    }
-    
-    // Update button text to match current mode
-    if (_btnProgressedToNatal) {
-        _btnProgressedToNatal->setText(_progressedToNatalShowsInner ? "IP=N" : "P=N");
-    }
-    
-    updateTransitToNatalButtonState();
-    updateProgressedToNatalButtonState();
+    if (!_actStations) return;  // Toolbar not initialized yet (S is built first)
+
+    // Block signals during bulk updates for the standalone QActions.
+    ASignalBlocker block({_actStations, _actReturns, _actHeliacal});
+
+    if (_actStations)
+        _actStations->setChecked(_tabEventOptions.count(A::etcStation) > 0);
+    if (_actReturns)
+        _actReturns->setChecked(_tabEventOptions.count(A::etcReturn) > 0 ||
+                                _tabEventOptions.count(A::etcSolarReturn) > 0 ||
+                                _tabEventOptions.count(A::etcLunarReturn) > 0);
+    if (_actHeliacal)
+        _actHeliacal->setChecked(_tabEventOptions.count(A::etcHeliacalEvents) > 0);
+
+    // Reconcile each grouped dropdown button from the option set.
+    for (auto& grp : _eventGroups) syncGroupFromOptions(grp);
 
     // Sync the duration split button and the Refresh button's lit state.
     updateSkipDurationButton();
     updateRefreshButtonState();
-}
-
-void
-Transits::updateTransitToNatalButtonState()
-{
-    if (!_btnTransitToNatal) return;
-    
-    if (_transitToNatalShowsOuter) {
-        _btnTransitToNatal->setText("OT=N");
-    } else {
-        _btnTransitToNatal->setText("T=N");
-    }
-}
-
-void
-Transits::updateProgressedToNatalButtonState()
-{
-    if (!_btnProgressedToNatal) return;
-    
-    if (_progressedToNatalShowsInner) {
-        _btnProgressedToNatal->setText("IP=N");
-    } else {
-        _btnProgressedToNatal->setText("P=N");
-    }
 }
 
 void
