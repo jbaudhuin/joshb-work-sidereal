@@ -6868,7 +6868,14 @@ computeNatalParanTransits(double natalRA,
             }
         }
         if (best < 0.0) continue;
-        angleTransit_out[m] = dateTimeFromJulian(best);
+        // dateTimeFromJulian yields an invalid QDateTime when `best` falls on a
+        // Julian-calendar leap day that doesn't exist in the proleptic-Gregorian
+        // QDate (Feb 29 of a Gregorian common / Julian leap year: 1100, 1300,
+        // 1400, 1500…). Leaving angleTransit_out[m] set to an invalid QDateTime
+        // would poison downstream radix-anchored comparisons, so drop the angle.
+        const QDateTime when = dateTimeFromJulian(best);
+        if (!when.isValid()) continue;
+        angleTransit_out[m] = when;
         double ra, dec, dRA, dDec;
         if (bodyAt(best, ra, dec, dRA, dDec))
             angleTransitRA_out[m] = ra;
@@ -7463,6 +7470,17 @@ AspectFinder::findParans()
                                                 locusLon, m, tjd))
                             continue;
                         const QDateTime when = dateTimeFromJulian(tjd);
+                        // A root from the jd+0.5 anchor can land past midnight,
+                        // in the next calendar day. Normally that twin is
+                        // rejected below by sec >= 86400. But when the next day
+                        // is a Julian-calendar leap day that doesn't exist in
+                        // the proleptic-Gregorian QDate (Feb 29 of a Gregorian
+                        // common / Julian leap year: 1100, 1300, 1400, 1500…),
+                        // dateTimeFromJulian yields an invalid QDateTime, and
+                        // d.secsTo(invalid) returns 0 — which would sail through
+                        // the guard and stamp every such twin at secOfDay 0,
+                        // piling them into a garbled spread-0 cluster. Reject it.
+                        if (!when.isValid()) continue;
                         const qint64    sec  = d.secsTo(when);
                         if (sec < 0 || sec >= 86400) continue;
                         if (firstSec >= 0 && qAbs(sec - firstSec) < 60)
@@ -7928,6 +7946,11 @@ AspectFinder::findParans()
                                                     locusLon, m, tjd))
                                 continue;
                             const QDateTime when = dateTimeFromJulian(tjd);
+                            // See collectDaily: reject the invalid QDateTime a
+                            // Julian-calendar leap day (Feb 29 of a Gregorian
+                            // common year) produces, else dayDT.secsTo() == 0
+                            // smears it into a spread-0 garbage cluster.
+                            if (!when.isValid()) continue;
                             const qint64    sec  = dayDT.secsTo(when);
                             if (sec < 0 || sec >= 86400) continue;
                             if (firstSec >= 0 && qAbs(sec - firstSec) < 60)

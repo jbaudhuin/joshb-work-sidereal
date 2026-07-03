@@ -796,6 +796,23 @@ class EventsTableModel : public QAbstractItemModel {
                 }
 
                 if (!rulershipText.isEmpty()) {
+                    // For parans the ruler text (e.g. "R1") replaces the body
+                    // glyph, which would otherwise carry the Almagest angle
+                    // codepoint. Ruler text renders in the default font, so
+                    // append the readable angle designator (As/Ds/Mc/Ic) rather
+                    // than lose it.
+                    const bool isParan =
+                        (eventType == A::etcParanatellonta
+                         || eventType == A::etcParanatellontaToNatal);
+                    if constexpr (std::is_same_v<
+                                      std::decay_t<decltype(s)>,
+                                      A::PlanetLoc>) {
+                        if (isParan) {
+                            const QString angleText = paranAngleToText(s.desc);
+                            if (!angleText.isEmpty())
+                                rulershipText += " " + angleText;
+                        }
+                    }
                     sl << rulershipText;
                 } else {
                     // Fall back to glyph if no rulership
@@ -808,7 +825,7 @@ class EventsTableModel : public QAbstractItemModel {
             }
         }
 
-        QString joint = ",";
+        QString joint = ", ";
         if (role == Qt::ToolTipRole) joint = "-";
         else if (role == SummaryRole)
             joint = "=";
