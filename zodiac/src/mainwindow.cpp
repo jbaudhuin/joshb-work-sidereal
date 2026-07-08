@@ -1875,6 +1875,7 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
 
     searchProxy = new QSortFilterProxyModel(this);
     searchProxy->setRecursiveFilteringEnabled(true);
+    searchProxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
 
     fileList = new FileTreeView(this);
     searchProxy->setSourceModel(dirModel);
