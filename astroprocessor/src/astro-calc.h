@@ -749,6 +749,12 @@ struct EventOptions {
     bool showHeliacalEvents() const { return isEnabled(etcHeliacalEvents); }
     void setShowHeliacalEvents(bool b) { setEnabled(etcHeliacalEvents, b); }
 
+    bool showHeliacalStars() const { return isEnabled(etcHeliacalStars); }
+    void setShowHeliacalStars(bool b) { setEnabled(etcHeliacalStars, b); }
+
+    bool showHeliacalLunar() const { return isEnabled(etcHeliacalLunar); }
+    void setShowHeliacalLunar(bool b) { setEnabled(etcHeliacalLunar, b); }
+
     bool showParanatellonta() const { return isEnabled(etcParanatellonta); }
     void setShowParanatellonta(bool b) { setEnabled(etcParanatellonta, b); }
 
@@ -842,6 +848,7 @@ class AspectFinder : public QObject, public EventOptions {
 
     void findStations();
     void findParans();
+    void findHeliacalEvents();
     void findAspectsAndPatterns();
 
     bool isActive() const { return _numTasks != 0; }

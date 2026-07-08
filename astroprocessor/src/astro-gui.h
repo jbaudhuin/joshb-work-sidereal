@@ -182,6 +182,21 @@ class AstroFile : public QObject, public A::EventStore {
     const A::EventTypeSet& getTransitEventOptions() const { return _transitEventOptions; }
     void setTransitEventOptions(const A::EventTypeSet& opts);
 
+    // Per-chart, display-only selection of which heliacal apparition phases
+    // (MF/Acr/Cul/Cs/EL) surface as their own rows in the event list. Kept out
+    // of the EventType set so toggling never triggers a finder recompute.
+    enum HeliacalPhaseBit {
+        // Fixed stars & outer planets (5-stop culmination model)
+        hpMF = 1, hpAcr = 2, hpCul = 4, hpCs = 8, hpEL = 16,
+        // Inner planets (elongation model): greatest elongation (G*e),
+        // first visibility (*F: EF/MF), last visibility (*L: EL/ML)
+        hpElong = 32, hpFirst = 64, hpLast = 128
+    };
+    static constexpr unsigned kHeliacalPhaseDefault =
+        hpAcr | hpCul | hpCs | hpElong;
+    unsigned getHeliacalPhaseMask() const { return _heliacalPhaseMask; }
+    void setHeliacalPhaseMask(unsigned m);
+
     A::EventOptions::skipper getTransitSkipByDuration() const { return _transitSkipByDuration; }
     void setTransitSkipByDuration(A::EventOptions::skipper s);
 
@@ -207,6 +222,17 @@ class AstroFile : public QObject, public A::EventStore {
     void setParanOccurrences(const QVector<QPair<QDateTime, qreal>>& o)
     {
         _paranOccurrences = o;
+    }
+
+    // Optional per-occurrence phase labels (apparition stops: MF/Acr/Cul/Cs/EL),
+    // 1:1 with getParanOccurrences(). Empty for parans. Transient like the above.
+    const QStringList& paranOccurrenceLabels() const
+    {
+        return _paranOccurrenceLabels;
+    }
+    void setParanOccurrenceLabels(const QStringList& l)
+    {
+        _paranOccurrenceLabels = l;
     }
 
     // Aspect Range Navigator: in-orb range + exact moment of a ranged event.
@@ -414,6 +440,10 @@ class AstroFile : public QObject, public A::EventStore {
     // Per-file event type filter for Transits view
     A::EventTypeSet _transitEventOptions;
 
+    // Per-file, display-only heliacal apparition phase selection (bit mask of
+    // HeliacalPhaseBit). Controls which phases decompose into their own rows.
+    unsigned _heliacalPhaseMask = kHeliacalPhaseDefault;
+
     // Per-file skip-by-duration level for Transits view
     A::EventOptions::skipper _transitSkipByDuration = A::EventOptions::SkipNone;
 
@@ -430,6 +460,10 @@ class AstroFile : public QObject, public A::EventStore {
     // Paran cycling: per-day in-orb moments (+ orb°) of the focal cluster,
     // copied from the clicked paran event. Transient; not saved.
     QVector<QPair<QDateTime, qreal>> _paranOccurrences;
+
+    // Optional per-occurrence phase labels (apparition stops), 1:1 with
+    // _paranOccurrences. Empty for parans. Transient; not saved.
+    QStringList _paranOccurrenceLabels;
 
     // Aspect Range Navigator (continuous animation): the in-orb range and exact
     // moment of the ranged event this chart represents (T=T/T=N/OT=N/P=P/P=N/

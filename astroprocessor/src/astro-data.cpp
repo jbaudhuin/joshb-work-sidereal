@@ -21,6 +21,7 @@ namespace A
 /*static*/ QMap<AspectSetId, AspectsSet>    Data::aspectSets;
 /*static*/ PlanetMap                        Data::planets;
 /*static*/ QMap<std::string, Star>          Data::stars;
+/*static*/ QHash<PlanetId, QString>         Data::starsById;
 /*static*/ QMap<HouseSystemId, HouseSystem> Data::houseSystems;
 /*static*/ QMap<ZodiacId, Zodiac>           Data::zodiacs;
 /*static*/ AspectSetId                      Data::topAspSet;
@@ -266,7 +267,6 @@ Data::load(QString language)
     planets[House_12]    = { House_12, "12H", 8217 };
 
     unsigned              i = 1;
-    int                   j = 0;
     char                  buf[256], errStr[256];
     double                xx[6];
     std::set<std::string> seen { "GPol", "ICRS", "GP1958", "GPPlan", "ZE200" };
@@ -303,8 +303,24 @@ Data::load(QString language)
                 // stars[name].name = (name + " (" +
                 // constellar.right(3).toStdString() + ")").c_str();
                 stars[name].name = name.c_str();
-                stars[name].id = --j; // use negative numbers to index the stars
+                // The Bayer suffix's last 3 chars are the IAU constellation
+                // abbreviation (e.g. "alCMa" → "CMa"), matching the ecliptic
+                // test above.
+                stars[name].constellation = constellar.right(3);
             }
+        }
+    }
+
+    // Assign each kept star a stable positive PlanetId so it can flow through
+    // ChartPlanetId / PlanetLoc (name()/glyph() resolve it via starsById). The
+    // `stars` map is keyed by name, so iterating it assigns ids in alphabetical
+    // order — which makes the events table's "sort by body" (which orders by
+    // PlanetId) list stars A→Z rather than in Swiss-Ephemeris catalog order.
+    {
+        PlanetId sid = Stars_Start;
+        for (auto it = stars.begin(); it != stars.end(); ++it, ++sid) {
+            it.value().id  = sid;
+            starsById[sid] = it.value().name;
         }
     }
 
@@ -466,6 +482,12 @@ Data::getStars()
     return ret;
 }
 
+QString
+Data::getStarName(PlanetId id)
+{
+    return starsById.value(id);
+}
+
 const HouseSystem&
 Data::getHouseSystem(HouseSystemId id)
 {
@@ -609,6 +631,10 @@ ChartPlanetId::glyph() const
         if (_pid >= Houses_Start && _pid < Houses_End) {
             return QString("%1H").arg(_pid - Houses_Start + 1);
         }
+        // Fixed-star event bodies have no per-star glyph in the astro fonts;
+        // mark them with an asterisk. The star name shows in the table's Asp
+        // column / tooltip / chart name via name().
+        if (_pid >= Stars_Start) return QStringLiteral("*");
 
         auto&& var = Data::getPlanet(_pid).userData["fontChar"];
 
@@ -646,6 +672,7 @@ ChartPlanetId::name() const
         if (_pid >= Ingresses_Start && _pid < Ingresses_End + 12) {
             return Data::getSignName(_pid);
         }
+        if (_pid >= Stars_Start) return Data::getStarName(_pid);
         return Data::getPlanet(_pid).name;
     }
     return Data::getPlanet(_pid).name.left(3) + "/"

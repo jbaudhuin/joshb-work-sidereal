@@ -385,7 +385,7 @@ class EventsTableModel : public QAbstractItemModel {
     QDateTime rowDate(int row) const
     {
         if (row < 0 || row >= int(_evs.size())) return QDateTime();
-        return _evs[row]->dateTime();
+        return rowSortDate(_evs[row].second, _evs[row].occ);
     }
 
     QDateTime rowDate(QModelIndex inx) const
@@ -393,7 +393,7 @@ class EventsTableModel : public QAbstractItemModel {
         auto par = inx.parent();
         int r = par.isValid() ? par.row() : inx.row();
         if (r < 0 || r >= int(_evs.size())) return QDateTime();
-        return _evs[r]->dateTime();
+        return rowSortDate(_evs[r].second, _evs[r].occ);
     }
 
     A::HarmonicEvent rowData(int row) const
@@ -445,12 +445,28 @@ class EventsTableModel : public QAbstractItemModel {
         if (role == Qt::TextAlignmentRole) {
             return Qt::AlignCenter;
         }
+        if (role == Qt::ToolTipRole) {
+            switch (col) {
+            case eventTypeCol:
+                return tr("Event Type");
+            case dateCol:
+                return tr("Date / time of the event");
+            case harmonicCol:
+                return tr("Aspect harmonic, or — for parans / heliacal events "
+                          "— the angle or phase");
+            case transitBodyCol:
+                return tr("Transiting, Progressed or Star body");
+            case natalTransitBodyCol:
+                return tr("Transiting, Progressed or Natal body");
+            }
+            return QVariant();
+        }
         if (role != Qt::DisplayRole) return QVariant();
         switch (col) {
         case eventTypeCol:        return tr("ET");
         case dateCol:             return tr("Date");
         case harmonicCol:         return tr("Asp");
-        case transitBodyCol:      return tr("T/P");
+        case transitBodyCol:      return tr("T/P/S");
         case natalTransitBodyCol: return tr("T/P/N");
         }
         return QVariant();
@@ -502,6 +518,47 @@ class EventsTableModel : public QAbstractItemModel {
         case 8225: return QStringLiteral("Ic");  // IC   (‡)
         default:   return {};
         }
+    }
+
+    // Map a heliacal phase tag (set by findHeliacalEvents in PlanetLoc::desc) to
+    // readable text: MF/EL/EF/ML → morning-first / evening-last / evening-first
+    // / morning-last. Returns {} when desc is not a heliacal tag.
+    static QString heliacalPhaseToText(const QString& desc)
+    {
+        // Apparition anchors (planets/stars):
+        if (desc == "Cul") return QStringLiteral("Culmination");
+        if (desc == "Acr") return QStringLiteral("Acronychal rising");
+        if (desc == "Cs")  return QStringLiteral("Cosmic setting");
+        if (desc == "GWe") return QStringLiteral("Greatest western elongation (morning)");
+        if (desc == "GEe") return QStringLiteral("Greatest eastern elongation (evening)");
+        // Discrete phase brackets (the Moon; and the apparition occurrences):
+        if (desc == "MF") return QStringLiteral("Morning First");
+        if (desc == "EL") return QStringLiteral("Evening Last");
+        if (desc == "EF") return QStringLiteral("Evening First");
+        if (desc == "ML") return QStringLiteral("Morning Last");
+        return {};
+    }
+
+    // Map an apparition phase tag to its per-chart selection bit (0 if none).
+    // Inner planets (elongation model) group EF/MF, GEe/GWe, EL/ML into the
+    // *F / G*e / *L bits; the culmination model maps each tag individually.
+    static unsigned heliacalPhaseBit(const QString& tag, bool inner)
+    {
+        if (inner) {
+            if (tag == QLatin1String("EF") || tag == QLatin1String("MF"))
+                return AstroFile::hpFirst;
+            if (tag == QLatin1String("GEe") || tag == QLatin1String("GWe"))
+                return AstroFile::hpElong;
+            if (tag == QLatin1String("EL") || tag == QLatin1String("ML"))
+                return AstroFile::hpLast;
+            return 0;
+        }
+        if (tag == QLatin1String("MF"))  return AstroFile::hpMF;
+        if (tag == QLatin1String("Acr")) return AstroFile::hpAcr;
+        if (tag == QLatin1String("Cul")) return AstroFile::hpCul;
+        if (tag == QLatin1String("Cs"))  return AstroFile::hpCs;
+        if (tag == QLatin1String("EL"))  return AstroFile::hpEL;
+        return 0;
     }
 
     // Map a paran angle-glyph desc (Almagest codepoint) to an angle index:
@@ -594,16 +651,34 @@ class EventsTableModel : public QAbstractItemModel {
         }
     }
 
-    QString display(const A::PlanetLoc& s) const
+    QString display(const A::PlanetLoc& s,
+                    const QString& descOverride = {}) const
     {
+        // A decomposed apparition row overrides the shared anchor tag (s.desc)
+        // with its own phase occurrence (e.g. "Cs" rather than the anchor "Cul").
+        const QString eff = descOverride.isEmpty() ? s.desc : descOverride;
+        // Fixed-star heliacal body: show "Name (Con) — Phase" with the star's
+        // constellation, and no zodiac position (a star's rasiLoc isn't computed
+        // for heliacal events, so it would read a bogus 0°Aries).
+        // TODO: map the 3-letter IAU abbrev (e.g. "CMa") to a full constellation
+        // name ("Canis Major") for a friendlier tooltip.
+        if (s.planet.planetId() >= A::Stars_Start) {
+            QString r   = s.planet.name();
+            QString con = A::getStar(s.planet.name()).constellation;
+            if (!con.isEmpty()) r += " (" + con + ")";
+            QString ph = heliacalPhaseToText(eff);
+            if (!ph.isEmpty()) r += " — " + ph;
+            return r;
+        }
         QString suff;
         if (auto suf = modeToSuffix(s.mode()); !suf.isEmpty()) {
             suff = "-" + suf;
         }
-        // For paran entries whose desc is an Almagest angle codepoint,
-        // substitute readable text so the tooltip renders correctly in a
-        // normal (non-glyph) font.
-        const QString angleText = paranAngleToText(s.desc);
+        // For paran entries whose desc is an Almagest angle codepoint (or a
+        // heliacal phase tag), substitute readable text so the tooltip renders
+        // correctly in a normal (non-glyph) font.
+        QString angleText = paranAngleToText(eff);
+        if (angleText.isEmpty()) angleText = heliacalPhaseToText(eff);
         const QString bodyDesc  = angleText.isEmpty()
                                       ? s.description()
                                       : s.planet.name() + "-" + angleText;
@@ -646,7 +721,18 @@ class EventsTableModel : public QAbstractItemModel {
         const bool isPattern =
             (eventType == A::etcTransitAspectPattern
              || eventType == A::etcTransitNatalAspectPattern);
+        // Heliacal: the phase tag (MF/EL/GWe/EF/ML/…) renders in the Asp column
+        // via heliacalPhaseToText, so it is NOT appended to the body here.
         if (isParan) return g + " " + desc;
+        // Fixed-star heliacal body: show the star NAME (the astro font has no
+        // per-star glyph, and a star heliacal event has no meaningful zodiac
+        // position). The T/P/S column renders it in the default font via the
+        // FontRole branch below.
+        if (eventType == A::etcHeliacalStars) return cpid.name();
+        // Planet / Moon heliacal body: glyph + zodiac position.
+        if (eventType == A::etcHeliacalEvents
+            || eventType == A::etcHeliacalLunar)
+            return g + " " + getPos(s.rasiLoc());
         if (isPattern) return g;
         if (s.speed < 0 && !s.desc.startsWith("S")) {
             desc = "#" + desc; // retrograde
@@ -672,9 +758,11 @@ class EventsTableModel : public QAbstractItemModel {
             str += "-" + suffix;
         }
 
-        // Add descriptor; translate paran angle glyphs to readable text.
+        // Add descriptor; translate paran angle glyphs / heliacal phase tags to
+        // readable text.
         if (!s.desc.isEmpty()) {
-            const QString angleText = paranAngleToText(s.desc);
+            QString angleText = paranAngleToText(s.desc);
+            if (angleText.isEmpty()) angleText = heliacalPhaseToText(s.desc);
             str += "-" + (angleText.isEmpty() ? s.desc : angleText);
         }
         
@@ -699,6 +787,9 @@ class EventsTableModel : public QAbstractItemModel {
     QVariant glyphic(int role, Iter its, unsigned eventType = 0) const
     {
         if (role == Qt::FontRole) {
+            // Heliacal-star rows show the star NAME (text), not a glyph, so use
+            // the default font rather than the Almagest glyph font.
+            if (eventType == A::etcHeliacalStars) return QFont();
             static QFont f("Almagest", 11);
             return f;
         }
@@ -753,17 +844,20 @@ class EventsTableModel : public QAbstractItemModel {
     }
 
     template <typename Iter>
-    QVariant glyphicWithMode(int         role,
-                             Iter        its,
-                             DisplayMode mode,
-                             unsigned    eventType            = 0,
-                             bool        isNatalTransitColumn = false) const
+    QVariant glyphicWithMode(int            role,
+                             Iter           its,
+                             DisplayMode    mode,
+                             unsigned       eventType            = 0,
+                             bool           isNatalTransitColumn = false,
+                             const QString& descOverride         = {}) const
     {
         if (mode == A::EventOptions::DisplayGlyphs) {
             return glyphic(role, its, eventType);
         }
 
         if (role == Qt::FontRole) {
+            // Heliacal-star rows render the star name as text.
+            if (eventType == A::etcHeliacalStars) return QFont();
             // Check if any planet has rulership info
             for (auto it = its.first; it != its.second; ++it) {
                 const auto& s = *it;
@@ -819,7 +913,12 @@ class EventsTableModel : public QAbstractItemModel {
                     sl << glyph(s, eventType);
                 }
             } else if (role == Qt::ToolTipRole) {
-                sl << display(s);
+                if constexpr (std::is_same_v<std::decay_t<decltype(s)>,
+                                             A::PlanetLoc>) {
+                    sl << display(s, descOverride);
+                } else {
+                    sl << display(s);
+                }
             } else if (role == SummaryRole) {
                 sl << summary(s);
             }
@@ -934,10 +1033,14 @@ class EventsTableModel : public QAbstractItemModel {
             break;
         case dateCol:
             if (prow == -1) {
-                // HarmonicEvent
+                // HarmonicEvent (or one decomposed apparition-phase row of it)
                 // Convert UTC to chart's timezone
-                auto dt = _evs[row]->dateTime().toTimeZone(
-                    QTimeZone(_tzOffset * 3600));
+                const int occi = _evs[row].occ;
+                const auto& occv = _evs[row]->occurrences();
+                const QDateTime srcDt =
+                    (occi >= 0 && occi < occv.size()) ? occv[occi].first
+                                                      : _evs[row]->dateTime();
+                auto dt = srcDt.toTimeZone(QTimeZone(_tzOffset * 3600));
                 if (role == RawRole) return dt;
 
                 auto&& r = _evs[row]->range();
@@ -992,6 +1095,43 @@ class EventsTableModel : public QAbstractItemModel {
                     || et == A::etcParanatellontaToNatal)
                     return A::degreeToString(asp.orb(), A::HighPrecision)
                         + "\n" + paranAngleVerbose(asp.locations(), et);
+                if (et == A::etcHeliacalEvents || et == A::etcHeliacalStars
+                    || et == A::etcHeliacalLunar) {
+                    QString anchor;
+                    // A decomposed row is annotated with its own phase.
+                    if (prow == -1) {
+                        const int occi = _evs[row].occ;
+                        const auto& lbls = _evs[row]->occurrenceLabels();
+                        if (occi >= 0 && occi < lbls.size()) {
+                            const QString t = heliacalPhaseToText(lbls[occi]);
+                            anchor = t.isEmpty() ? lbls[occi] : t;
+                        }
+                    }
+                    for (const auto& loc : asp.locations())
+                        if (anchor.isEmpty() && !loc.desc.isEmpty()) {
+                            const QString t = heliacalPhaseToText(loc.desc);
+                            anchor = t.isEmpty() ? loc.desc : t;
+                            break;
+                        }
+                    // Apparition rows carry the bracket moments (first
+                    // appearance / anchor / last appearance) as occurrences;
+                    // annotate the visible window with those bracket dates.
+                    // Heliacal events are always top-level rows (prow == -1),
+                    // so the HarmonicEvent is _evs[row].
+                    if (prow == -1 && row >= 0 && row < int(_evs.size())) {
+                        const auto& occ = _evs[row]->occurrences();
+                        if (occ.size() >= 2) {
+                            const QTimeZone tz(int(_tzOffset * 3600));
+                            const QString from = occ.first().first.toTimeZone(tz)
+                                                     .toString("d MMM yyyy");
+                            const QString to = occ.last().first.toTimeZone(tz)
+                                                   .toString("d MMM yyyy");
+                            return anchor
+                                 + QString("\nvisible %1 – %2").arg(from, to);
+                        }
+                    }
+                    return anchor;
+                }
                 if (singleColumn(asp.locations())) return "station";
                 if (asp.orb() != qreal() /*asp.locations().empty()*/) {
                     return QString("H%1 %2")
@@ -1035,6 +1175,20 @@ class EventsTableModel : public QAbstractItemModel {
             if (et == A::etcParanatellonta
                 || et == A::etcParanatellontaToNatal)
                 return paranAngleString(asp.locations(), et);
+            // Heliacal: show the phase tag (MF/EL/EF/ML) from the body's desc
+            // instead of the meaningless H1. (The star name shows in T/P/S.)
+            // A decomposed row shows its own occurrence's phase tag.
+            if (et == A::etcHeliacalEvents || et == A::etcHeliacalStars
+                || et == A::etcHeliacalLunar) {
+                if (prow == -1) {
+                    const int occi = _evs[row].occ;
+                    const auto& lbls = _evs[row]->occurrenceLabels();
+                    if (occi >= 0 && occi < lbls.size()) return lbls[occi];
+                }
+                for (const auto& loc : asp.locations())
+                    if (!loc.desc.isEmpty()) return loc.desc;
+                return QString();
+            }
             // Display H# (optionally with ratio in parentheses)
             // Orb is shown in tooltip, not in the cell
             {
@@ -1084,11 +1238,24 @@ class EventsTableModel : public QAbstractItemModel {
                                        et,
                                        false);
             }
-            return glyphicWithMode(role,
-                                   getTColIters(asp.locations()),
-                                   _transitBodyColMode,
-                                   et,
-                                   false);
+            {
+                // A decomposed apparition row tooltips its own phase, not the
+                // shared anchor (e.g. "Saturn-Cosmic setting", not "-Culmination").
+                QString phaseOverride;
+                if ((et == A::etcHeliacalEvents || et == A::etcHeliacalStars)
+                    && prow == -1) {
+                    const int occi = _evs[row].occ;
+                    const auto& lbls = _evs[row]->occurrenceLabels();
+                    if (occi >= 0 && occi < lbls.size())
+                        phaseOverride = lbls[occi];
+                }
+                return glyphicWithMode(role,
+                                       getTColIters(asp.locations()),
+                                       _transitBodyColMode,
+                                       et,
+                                       false,
+                                       phaseOverride);
+            }
 
         case natalTransitBodyCol:
             if (role == Qt::ForegroundRole) {
@@ -1332,6 +1499,39 @@ class EventsTableModel : public QAbstractItemModel {
         }
     };
 
+    // Effective sort/display date for a row: a decomposed apparition-phase row
+    // uses its own occurrence instant; everything else the event's headline.
+    static QDateTime rowSortDate(const A::HarmonicEvent* ev, int occ)
+    {
+        if (occ >= 0) {
+            const auto& ov = ev->occurrences();
+            if (occ < ov.size()) return ov[occ].first;
+        }
+        return ev->dateTime();
+    }
+
+    // Push one row per selected phase of a heliacal apparition (fallback: the
+    // culmination, else the first occurrence). Reads the per-chart phase mask.
+    void emitPhaseRows(const A::HarmonicEvent& ev, const QStringList& labels)
+    {
+        const bool inner = labels.contains(QLatin1String("GEe"))
+                        || labels.contains(QLatin1String("GWe"));
+        const auto& occ = ev.occurrences();
+        int  anchorIdx = -1;
+        bool any       = false;
+        for (int i = 0; i < labels.size(); ++i) {
+            // The anchor stop carries magnitude 0 (Cul, or GEe/GWe for inner).
+            if (i < occ.size() && occ[i].second == 0.0) anchorIdx = i;
+            const unsigned bit = heliacalPhaseBit(labels[i], inner);
+            if (bit && (_heliacalPhaseMask & bit)) {
+                _evs.emplace_back(&ev, i);
+                any = true;
+            }
+        }
+        if (!any)
+            _evs.emplace_back(&ev, anchorIdx >= 0 ? anchorIdx : 0);
+    }
+
     // Internal helper: rebuild _evs from _evls (applying filters) and sort.
     // Emits NO model signals — caller is responsible for framing with
     // either layoutAboutToBeChanged/layoutChanged or beginResetModel/endResetModel.
@@ -1357,10 +1557,36 @@ class EventsTableModel : public QAbstractItemModel {
                         continue;
                     }
                 }
-                _evs.emplace_back(ev);
+                // Heliacal apparitions (fixed stars + inner/outer planets)
+                // carry labelled phase occurrences; surface the per-chart-
+                // selected phases as their own rows. The Moon's discrete
+                // crescents carry no labels and stay single rows.
+                const auto& labels = ev.occurrenceLabels();
+                if (!labels.isEmpty()
+                    && (ev.eventType() == A::etcHeliacalStars
+                        || ev.eventType() == A::etcHeliacalEvents))
+                    emitPhaseRows(ev, labels);
+                else
+                    _evs.emplace_back(ev);
             }
         }
-        std::sort(_evs.begin(), _evs.end(), less);
+        // Decomposed phase rows sort by their own occurrence instant (so MF/EL
+        // land far from the culmination); other rows keep the standard order.
+        std::sort(_evs.begin(), _evs.end(),
+                  [&](const evp& a, const evp& b) {
+            if (column == dateCol && (a.occ >= 0 || b.occ >= 0)) {
+                const QDateTime da = rowSortDate(a.second, a.occ);
+                const QDateTime db = rowSortDate(b.second, b.occ);
+                if (da != db)
+                    return order == Qt::DescendingOrder ? (db < da) : (da < db);
+            }
+            // Phase rows of one apparition share the anchor's sort key under
+            // non-date columns; keep them in chronological (occ) order so
+            // Acr/Cul/Cs never scramble.
+            if (a.second == b.second && a.occ != b.occ)
+                return a.occ < b.occ;
+            return less(a, b);
+        });
     }
 
     // Public sort: uses layoutAboutToBeChanged/layoutChanged so the view
@@ -1587,7 +1813,8 @@ class EventsTableModel : public QAbstractItemModel {
     // Export table data to HTML with chart metadata
     QString exportToHtml(AstroFile* natalFile, AstroFile* transitFile) const;
     QString planetToText(const A::ChartPlanetModeId& cpid) const;
-    QString planetToText(const A::PlanetLoc& ploc) const;
+    QString planetToText(const A::PlanetLoc& ploc,
+                         const QString& descOverride = QString()) const;
 
   public slots:
     void rebuild()
@@ -1615,6 +1842,26 @@ class EventsTableModel : public QAbstractItemModel {
 
     void sort() { sort(_sortBy, _sortOrder); }
 
+    unsigned heliacalPhaseMask() const { return _heliacalPhaseMask; }
+
+    // Display-only: changing which apparition phases surface changes the row
+    // set, so rebuild via a model reset (no finder recompute).
+    void setHeliacalPhaseMask(unsigned m)
+    {
+        if (_heliacalPhaseMask == m) return;
+        _heliacalPhaseMask = m;
+        beginResetModel();
+        doSortInternal(_sortBy, _sortOrder);
+        endResetModel();
+    }
+
+    // Occurrence index of a row (>=0 for a decomposed apparition-phase row).
+    int rowOcc(int row) const
+    {
+        if (row < 0 || row >= int(_evs.size())) return -1;
+        return _evs[row].occ;
+    }
+
   signals:
     void aboutToChange();
     void changeDone();
@@ -1625,6 +1872,10 @@ class EventsTableModel : public QAbstractItemModel {
     struct evp : public std::pair<eventListIndex, const A::HarmonicEvent*> {
         using Base = std::pair<eventListIndex, const A::HarmonicEvent*>;
 
+        // For a decomposed heliacal apparition, the index of the phase
+        // occurrence this row represents; -1 for an ordinary whole-event row.
+        int occ = -1;
+
         static unsigned short int& curr()
         {
             static thread_local unsigned short int s_curr = 0;
@@ -1634,6 +1885,7 @@ class EventsTableModel : public QAbstractItemModel {
         using Base::Base;
 
         evp(const A::HarmonicEvent* ev) : Base(curr(), ev) { }
+        evp(const A::HarmonicEvent* ev, int occ_) : Base(curr(), ev), occ(occ_) { }
 
         using Base::operator=;
 
@@ -1685,6 +1937,10 @@ class EventsTableModel : public QAbstractItemModel {
     // Users can Ctrl+click column headers to cycle through modes
     DisplayMode _transitBodyColMode = A::EventOptions::DisplayGlyphs;
     DisplayMode _natalTransitBodyColMode = A::EventOptions::DisplayGlyphs;
+
+    // Per-chart, display-only heliacal apparition phase selection (bit mask of
+    // AstroFile::HeliacalPhaseBit). Decides which phases decompose into rows.
+    unsigned _heliacalPhaseMask = AstroFile::kHeliacalPhaseDefault;
     
     AstroFile* _natalFile = nullptr; // Pointer to natal chart for rulership calculations
 
@@ -2455,21 +2711,56 @@ Transits::Transits(QWidget* parent) :
         { A::etcParanatellontaToNatal },
     });
 
-    // [HE] Heliacal risings/settings. The toggle is wired now; the actual
-    // computation (swe_heliacal_ut harvest) is a deferred follow-up, so
-    // enabling it currently produces no rows.
-    _actHeliacal = toolbar->addAction("HE");
-    _actHeliacal->setCheckable(true);
-    _actHeliacal->setToolTip(eventTypeDesc(A::etcHeliacalEvents));
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actHeliacal))) {
-        btn->setStyleSheet("QToolButton { min-width: 24px !important; }");
+    // [HE▼] Heliacal risings/settings: Planets (default on) + optional fixed
+    // Stars and Moon crescents (both default off — Stars' catalog is sizable
+    // and slow; the Moon's EF/ML are frequent and noisy).
+    QToolButton* heBtn =
+        buildEventGroupButton(toolbar, "Hel", "Heliacal Risings/Settings", {
+            { A::etcHeliacalEvents, -1, "Planets" },
+            { A::etcHeliacalStars,  -1, "Stars", false },
+            { A::etcHeliacalLunar,  -1, "Moon",  false },
+        });
+
+    // Display-only phase decomposition: which apparition phases surface as their
+    // own rows in the list. These are NOT event types — toggling them only
+    // re-lists the already-computed apparition, never recomputes, and is saved
+    // per-chart. Two families: the star/outer 5-stop culmination model and the
+    // inner-planet elongation model.
+    if (QMenu* hm = heBtn->menu()) {
+        auto addPhase = [&](unsigned bit, const QString& label) {
+            QAction* act = hm->addAction(label);
+            act->setCheckable(true);
+            act->setChecked((AstroFile::kHeliacalPhaseDefault & bit) != 0);
+            _heliacalPhaseActions.append({ bit, act });
+            connect(act, &QAction::toggled, this, [this, bit](bool on) {
+                unsigned mask = (filesCount() > 0 && file(0))
+                    ? file(0)->getHeliacalPhaseMask()
+                    : (_evm ? _evm->heliacalPhaseMask()
+                            : unsigned(AstroFile::kHeliacalPhaseDefault));
+                if (on) mask |= bit; else mask &= ~bit;
+                if (filesCount() > 0 && file(0))
+                    file(0)->setHeliacalPhaseMask(mask);
+                if (_evm) _evm->setHeliacalPhaseMask(mask);  // re-list only
+            });
+        };
+
+        hm->addSeparator();
+        QAction* h1 = hm->addAction(tr("Star / outer-planet phases:"));
+        h1->setEnabled(false);
+        addPhase(AstroFile::hpMF,  tr("Morning First (MF)"));
+        addPhase(AstroFile::hpAcr, tr("Acronychal rising (Acr)"));
+        addPhase(AstroFile::hpCul, tr("Culmination (Cul)"));
+        addPhase(AstroFile::hpCs,  tr("Cosmic setting (Cs)"));
+        addPhase(AstroFile::hpEL,  tr("Evening Last (EL)"));
+
+        hm->addSeparator();
+        QAction* h2 = hm->addAction(tr("Inner-planet phases:"));
+        h2->setEnabled(false);
+        addPhase(AstroFile::hpElong, tr("Greatest elongation (G*e)"));
+        addPhase(AstroFile::hpFirst, tr("First visibility (*F)"));
+        addPhase(AstroFile::hpLast,  tr("Last visibility (*L)"));
     }
-    connect(_actHeliacal, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) _tabEventOptions.insert(A::etcHeliacalEvents);
-        else _tabEventOptions.erase(A::etcHeliacalEvents);
-        saveEventOptionsAndRecalc(checked);
-    });
-    
+
     // Initialize toolbar state from tab event options
     updateToolbarFromEventOptions();
     
@@ -2814,7 +3105,15 @@ Transits::ensureEventsModel()
     
     // Set the natal file for house rulership calculations
     evm->setNatalFile(file(0));
-    
+
+    // The events model is owned per-file, so on a tab switch/restore the
+    // newly-activated model must be re-seeded from the file's saved heliacal
+    // phase selection before it sorts — otherwise it decomposes with its stale
+    // default mask even though the toolbar checkboxes (read straight from the
+    // file) look correct. Target evm directly, not _evm, which may still point
+    // at the previous tab's model at this point.
+    evm->setHeliacalPhaseMask(file(0)->getHeliacalPhaseMask());
+
     // Update our local pointer and view if needed
     if (_evm != evm) {
         _evm = evm;
@@ -2900,9 +3199,14 @@ Transits::updateTimezone()
             //
             // Only house-ingress and paranatellonta depend on the
             // observer's location.  Recalc only when those are active.
+            // House-ingress, paranatellonta AND heliacal events all depend on
+            // the observer's location, so a location change must recompute them.
             bool needsRecalc =
                 _tabEventOptions.count(A::etcHouseIngress)
-                || _tabEventOptions.count(A::etcParanatellonta);
+                || _tabEventOptions.count(A::etcParanatellonta)
+                || _tabEventOptions.count(A::etcHeliacalEvents)
+                || _tabEventOptions.count(A::etcHeliacalStars)
+                || _tabEventOptions.count(A::etcHeliacalLunar);
 
             // Update transitsAF() (== file(0) here) with new location/tz.
             // Block filesUpdated so the change() → recalculate chain
@@ -2922,29 +3226,40 @@ Transits::updateTimezone()
                 describePlanet();
             }
         } else {
-            // For natal + transit tabs, update transitsAF (file(1)) and
-            // signal FilesBar to refresh the chart — but only if the user
-            // hasn't manually relocated file(1) (indicated by timezone lock).
-            if (!transitsAF()->isTimezoneLocked()) {
-                // Block filesUpdated so the changed() signal from resumeUpdate
-                // doesn't trigger updateTransits() early — before markEventsForRecalc().
-                // filesUpdated only recognises Location on file(1) as needing
-                // recalc when the file type is natal, which the transit file is not,
-                // so without _inhibitUpdate the cache check in updateTransits()
-                // would return the stale (old-location) events.
-                {
-                    A::modalize<bool> noup(_inhibitUpdate);
-                    transitsAF()->suspendUpdate();
-                    transitsAF()->setLocation(_location->location());
-                    transitsAF()->setLocationName(_location->locationName());
+            // Natal + transit tab. The dock widget is the authoritative observer
+            // location (file(0)->transitLocation), so ALWAYS push it to
+            // transitsAF (file(1)) and recompute location-dependent events
+            // (heliacal, parans, ingresses).  A manual timezone lock preserves
+            // only the clock, not the observer location — otherwise a relocated
+            // bi-wheel keeps computing heliacal events at the stale (e.g. natal)
+            // location while the widget shows the intended one.
+            //
+            // Block filesUpdated so the changed() signal from resumeUpdate
+            // doesn't trigger updateTransits() early — before markEventsForRecalc().
+            // filesUpdated only recognises Location on file(1) as needing recalc
+            // when the file type is natal, which the transit file is not, so
+            // without _inhibitUpdate the cache check in updateTransits() would
+            // return the stale (old-location) events.
+            {
+                A::modalize<bool> noup(_inhibitUpdate);
+                transitsAF()->suspendUpdate();
+                transitsAF()->setLocation(_location->location());
+                transitsAF()->setLocationName(_location->locationName());
+                if (!transitsAF()->isTimezoneLocked())
                     transitsAF()->setTimezone(short(tz));
-                    transitsAF()->resumeUpdate();
-                }
-
-                stopThreads();
-                file(0)->markEventsForRecalc();
-                emit updateSecond(transitsAF());
+                transitsAF()->resumeUpdate();
             }
+
+            stopThreads();
+            file(0)->markEventsForRecalc();
+            emit updateSecond(transitsAF());
+            // Redrawing file(1) does NOT recompute — filesUpdated ignores a
+            // Location change on a transit-type file — so trigger the recompute
+            // explicitly, exactly like a date-range change: recompute now if
+            // Auto is on, else light the Refresh button. Without this, a natal
+            // tab's location-dependent events (parans, heliacal, ingresses)
+            // stay stale after the observer location moves.
+            reconcile();
         }
     };
 
@@ -3073,14 +3388,20 @@ Transits::updateTransits()
         _location->setLocationName(file(0)->getTransitLocationName());
         _pendingLocationChange = false;
 
-        // Sync to transitsAF() so the finder uses the right location —
-        // but only if file(1) hasn't been manually relocated (tz-locked).
-        if (!transitsAF()->isTimezoneLocked()) {
+        // The stored transit location is the authoritative observer location;
+        // push it to transitsAF() so the finder (and location-dependent events
+        // like heliacal/parans) observe from it. Respect a manual timezone lock
+        // only for the clock. If the location actually differs, invalidate the
+        // cache so those events recompute (this also heals a bi-wheel whose
+        // transit chart carried a stale, e.g. natal, location).
+        if (transitsAF()->getLocation() != file(0)->getTransitLocation()) {
             transitsAF()->suspendUpdate();
             transitsAF()->setLocation(file(0)->getTransitLocation());
             transitsAF()->setLocationName(file(0)->getTransitLocationName());
-            transitsAF()->setTimezone(file(0)->getTransitTimezone());
+            if (!transitsAF()->isTimezoneLocked())
+                transitsAF()->setTimezone(file(0)->getTransitTimezone());
             transitsAF()->resumeUpdate();
+            file(0)->markEventsForRecalc();
         }
     }
 
@@ -3091,6 +3412,18 @@ Transits::updateTransits()
     // ran, so the widget reflects the current tab regardless.)
     if (!_autoReconcile) {
         qDebug() << "[UPDATE TRANSITS] Auto-reconcile off — skipping automatic recompute";
+        // "Compute on demand" defers only the *recompute*. A tab switch
+        // quietClear()s the model, so still repopulate it from cache when it's
+        // empty — otherwise the switched-to tab shows nothing until Refresh.
+        ensureEventsModel();
+        if (_evm && _evm->rowCount() == 0 && !file(0)->events().empty()) {
+            const A::Horoscope& scope(file()->horoscope());
+            _evm->setZodiac(scope.zodiac);
+            _evm->setTimezone(transitsAF()->getTimezone());
+            _evm->clearAllEvents();
+            _evm->addEvents(file(0)->events());
+            _evm->sort();
+        }
         updateRefreshButtonState();
         return;
     }
@@ -4201,6 +4534,18 @@ Transits::clickedCell(QModelIndex inx)
     QString desc;
     if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
         desc = buildParanChartName(ev, !transitsOnly());
+    } else if (et == A::etcHeliacalEvents || et == A::etcHeliacalStars
+               || et == A::etcHeliacalLunar) {
+        // Compact "Body-MF" chart name (body + short phase tag). A decomposed
+        // row names its own clicked phase rather than the apparition anchor.
+        const int occ = _evm->rowOcc(srcInx.row());
+        QString tag;
+        if (occ >= 0 && occ < ev.occurrenceLabels().size())
+            tag = ev.occurrenceLabels().at(occ);
+        for (const auto& loc : ev.locations()) {
+            desc = loc.planet.name() + "-" + (tag.isEmpty() ? loc.desc : tag);
+            break;
+        }
     } else if (focal.empty()) {
         desc = _evm->rowDesc(srcInx.row());
     } else {
@@ -4249,6 +4594,11 @@ Transits::clickedCell(QModelIndex inx)
         file()->setParanOccurrences({});
         file()->setAspectRange(A::ADateTimeRange());
         file()->setAspectExact(QDateTime());
+        // A heliacal APPARITION carries navigable occurrences (first-appearance,
+        // anchor, last-appearance); the Moon's discrete crescent events do not.
+        const bool isHeliacalApparition =
+            (et == A::etcHeliacalEvents || et == A::etcHeliacalStars)
+            && !ev.occurrences().isEmpty();
         if (et == A::etcSolarReturn || et == A::etcLunarReturn) {
             file()->setType(TypeReturn);
         } else if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
@@ -4266,12 +4616,22 @@ Transits::clickedCell(QModelIndex inx)
             } else {
                 file()->setType(TypeOther);
             }
+        } else if (isHeliacalApparition) {
+            // Reuse the discrete occurrence transport (navMovingFile accepts
+            // TypeApparition too) to step first-appearance → anchor → last.
+            file()->setType(TypeApparition);
+            file()->setOriginEventType(et);
+            file()->setParanOccurrences(ev.occurrences());
+            file()->setParanOccurrenceLabels(ev.occurrenceLabels());
         } else {
             file()->setType(TypeOther);
         }
         // Aspect Range Navigator: record the event's in-orb range + draw-context
         // so the navigator can offer Play / reproduce the aspect rendering.
+        // Parans and heliacal apparitions use discrete occurrence stepping, not
+        // the continuous range, so they are excluded here.
         if (et != A::etcParanatellonta && et != A::etcParanatellontaToNatal
+            && !isHeliacalApparition
             && ev.range().first.isValid() && ev.range().second.isValid()
             && ev.range().first < ev.range().second) {
             file()->setAspectRange(ev.range());
@@ -4356,6 +4716,15 @@ Transits::clickedCell(QModelIndex inx)
                 taf->setType(TypeOther);
                 taf->setBaseChart(file()->getGMT());
             }
+        } else if ((et == A::etcHeliacalEvents || et == A::etcHeliacalStars)
+                   && !ev.occurrences().isEmpty()) {
+            // Heliacal apparition: discrete occurrence stepping (see the
+            // transitsOnly branch above).
+            taf->setType(TypeApparition);
+            taf->setOriginEventType(et);
+            taf->setBaseChart(file()->getGMT());
+            taf->setParanOccurrences(ev.occurrences());
+            taf->setParanOccurrenceLabels(ev.occurrenceLabels());
         } else {
             // For transit events (T=T, T=N, patterns, ingresses, etc.)
             // Set base chart to track natal relationship, but use TypeOther
@@ -4364,7 +4733,12 @@ Transits::clickedCell(QModelIndex inx)
         }
         // Aspect Range Navigator: record the event's in-orb range so the
         // navigator can offer continuous Play across it (non-paran events).
+        // Heliacal apparitions with occurrences use discrete stepping instead.
+        const bool tafHeliacalApparition =
+            (et == A::etcHeliacalEvents || et == A::etcHeliacalStars)
+            && !ev.occurrences().isEmpty();
         if (et != A::etcParanatellonta && et != A::etcParanatellontaToNatal
+            && !tafHeliacalApparition
             && ev.range().first.isValid() && ev.range().second.isValid()
             && ev.range().first < ev.range().second) {
             taf->setAspectRange(ev.range());
@@ -4621,8 +4995,17 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
         auto et = _evs[row]->eventType();
         html += QString("<td><strong>%1</strong></td>\n").arg(A::EventTypeManager::eventTypeToBrief(et));
         
+        // A decomposed apparition row reports its own phase occurrence (date +
+        // label), not the shared culmination anchor.
+        const int occ = _evs[row].occ;
+        const QString occLabel =
+            (occ >= 0 && occ < _evs[row]->occurrenceLabels().size())
+                ? _evs[row]->occurrenceLabels().at(occ)
+                : QString();
+
         // Date/time with range if available
-        auto dt = _evs[row]->dateTime().toTimeZone(QTimeZone(_tzOffset * 3600));
+        auto dt = rowSortDate(_evs[row].second, occ)
+                      .toTimeZone(QTimeZone(_tzOffset * 3600));
         QString dateStr = dt.toString("yyyy-MM-dd hh:mm:ss");
         
         auto&& r = _evs[row]->range();
@@ -4674,7 +5057,7 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
             // Use locations (PlanetLoc) - faster planet goes in Transit column
             auto [begin, end] = getTColIters(asp.locations());
             for (auto it = begin; it != end; ++it) {
-                transitBodies << this->planetToText(*it);
+                transitBodies << this->planetToText(*it, occLabel);
             }
         }
         html += QString("<td>%1</td>\n").arg(transitBodies.join(", "));
@@ -4725,30 +5108,33 @@ EventsTableModel::planetToText(const A::ChartPlanetModeId& cpid) const
 }
 
 QString
-EventsTableModel::planetToText(const A::PlanetLoc& ploc) const
+EventsTableModel::planetToText(const A::PlanetLoc& ploc,
+                               const QString& descOverride) const
 {
     // Use 3-letter abbreviation
     QString name = ploc.planet.name().remove(' ').left(3);
-    
+
     // Add mode suffix
     QString suffix = modeToSuffix(ploc.mode());
     if (!suffix.isEmpty()) {
         name += "-" + suffix;
     }
-    
-    // Add descriptor (SD, SR, etc.)
-    if (!ploc.desc.isEmpty()) {
-        name += "-" + ploc.desc;
+
+    // Add descriptor (SD, SR, etc.). A decomposed apparition row overrides the
+    // anchor tag with its own phase (Acr/Cul/Cs/MF/EL).
+    const QString& desc = descOverride.isEmpty() ? ploc.desc : descOverride;
+    if (!desc.isEmpty()) {
+        name += "-" + desc;
     }
-    
+
     // Add position
     name += " " + A::zodiacPosition(ploc.rasiLoc(), _zodiac, A::HighPrecision, ploc.speed < 0);
-    
+
     // Add retrograde indicator
-    if (ploc.speed < 0 && !ploc.desc.startsWith("S")) {
+    if (ploc.speed < 0 && !desc.startsWith("S")) {
         name += " (R)";
     }
-    
+
     return name;
 }
 
@@ -4923,7 +5309,7 @@ Transits::filesUpdated(MembersList m)
         if (ml & AstroFile::Location) qDebug() << "    - Location changed";
     }
     qDebug() << "========================================";
-    
+
     if (!isVisible()) return;
     if (_inhibitUpdate) return;
     // While scrubbing (wheel drag) or animating, skip the event finder. Events
@@ -5123,7 +5509,10 @@ Transits::filesUpdated(MembersList m)
         f++;
     }
     qDebug() << "[TRANSITS filesUpdated] any=" << any << "needsRecalc=" << needsRecalc;
-    if (any) {
+    // A tab switch quietClear()s the model above, so it must always run the
+    // repopulate/recompute path even when no member-data flag changed —
+    // otherwise the switched-to tab shows an empty list.
+    if (any || fileChanged) {
 #if OLDMODEL
         auto zap = _tm;
         _tview->setModel(nullptr);
@@ -5278,6 +5667,15 @@ Transits::showEvent(QShowEvent* e)
     // Restore toolbar to match this tab's event options when becoming visible
     updateToolbarFromEventOptions();
     _filterProxy->setEnabledEventTypes(_tabEventOptions);
+
+    // Compute (or repopulate the model from cache) now that we're visible. On
+    // session restore, files are set while the tab is hidden, so filesUpdated()
+    // bails at its !isVisible() guard and never computes; nothing else
+    // re-triggers it for a transits-only tab, leaving Refresh stuck amber with
+    // an empty table. updateTransits() recomputes when stale and otherwise just
+    // repopulates the view from cached events, so it's safe on every show (the
+    // _inUpdateTransits guard prevents any re-entrant double-run).
+    updateTransits();
 }
 
 void
@@ -5503,7 +5901,7 @@ Transits::buildEventGroupButton(QToolBar*                    tb,
             rg->addAction(act);
         }
 
-        grp.members.append({ s.et, s.radioGroup, act });
+        grp.members.append({ s.et, s.radioGroup, act, s.defaultOn });
     }
 
     btn->setMenu(menu);
@@ -5564,9 +5962,10 @@ Transits::buildEventGroupButton(QToolBar*                    tb,
         auto&      g        = _eventGroups[gi];
         const bool newState = g.button->isChecked();  // post auto-toggle
         if (newState) {
-            if (g.selection.empty())  // default seed: all independent members
+            if (g.selection.empty())  // default seed: independent default-on members
                 for (const auto& mm : g.members)
-                    if (mm.radioGroup < 0) g.selection.insert(mm.et);
+                    if (mm.radioGroup < 0 && mm.defaultOn)
+                        g.selection.insert(mm.et);
             for (A::EventType et : g.selection) _tabEventOptions.insert(et);
         } else {
             for (const auto& mm : g.members) _tabEventOptions.erase(mm.et);
@@ -5625,11 +6024,11 @@ Transits::syncGroupFromOptions(EventGroupButton& grp)
         // Master ON: the live set IS the selection.
         grp.selection = present;
     } else if (grp.selection.empty()) {
-        // Master OFF with no remembered selection: seed a default (all the
-        // independent, non-radio members) so turning the master on shows
-        // something rather than nothing.
+        // Master OFF with no remembered selection: seed a default (the
+        // independent, non-radio, default-on members) so turning the master on
+        // shows something rather than nothing.
         for (const auto& m : grp.members)
-            if (m.radioGroup < 0) grp.selection.insert(m.et);
+            if (m.radioGroup < 0 && m.defaultOn) grp.selection.insert(m.et);
     }
     // else: master OFF, keep the remembered in-memory selection.
 
@@ -5652,7 +6051,7 @@ Transits::updateToolbarFromEventOptions()
     if (!_actStations) return;  // Toolbar not initialized yet (S is built first)
 
     // Block signals during bulk updates for the standalone QActions.
-    ASignalBlocker block({_actStations, _actReturns, _actHeliacal});
+    ASignalBlocker block({_actStations, _actReturns});
 
     if (_actStations)
         _actStations->setChecked(_tabEventOptions.count(A::etcStation) > 0);
@@ -5660,11 +6059,22 @@ Transits::updateToolbarFromEventOptions()
         _actReturns->setChecked(_tabEventOptions.count(A::etcReturn) > 0 ||
                                 _tabEventOptions.count(A::etcSolarReturn) > 0 ||
                                 _tabEventOptions.count(A::etcLunarReturn) > 0);
-    if (_actHeliacal)
-        _actHeliacal->setChecked(_tabEventOptions.count(A::etcHeliacalEvents) > 0);
 
     // Reconcile each grouped dropdown button from the option set.
     for (auto& grp : _eventGroups) syncGroupFromOptions(grp);
+
+    // Sync the heliacal phase-decomposition checks and the model's mask to the
+    // active chart (display-only; no recompute).
+    if (!_heliacalPhaseActions.isEmpty()) {
+        const unsigned mask = (filesCount() > 0 && file(0))
+            ? file(0)->getHeliacalPhaseMask()
+            : unsigned(AstroFile::kHeliacalPhaseDefault);
+        for (const auto& pa : _heliacalPhaseActions) {
+            QSignalBlocker b(pa.second);
+            pa.second->setChecked((mask & pa.first) != 0);
+        }
+        if (_evm) _evm->setHeliacalPhaseMask(mask);
+    }
 
     // Sync the duration split button and the Refresh button's lit state.
     updateSkipDurationButton();

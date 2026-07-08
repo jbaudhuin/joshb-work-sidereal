@@ -367,6 +367,9 @@ AstroFile::save()
         file.setValue("transitEventOptions", sl);
     }
 
+    // Save per-file heliacal apparition phase selection (display-only)
+    file.setValue("heliacalPhaseMask", static_cast<int>(_heliacalPhaseMask));
+
     // Save per-file skip-by-duration level
     file.setValue("transitSkipByDuration",
                   static_cast<unsigned>(_transitSkipByDuration));
@@ -530,6 +533,12 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
         _transitEventOptions = A::EventOptions::globalDefaults();
     }
 
+    // Load per-file heliacal apparition phase selection (default Acr|Cul|Cs for
+    // charts saved before this feature)
+    _heliacalPhaseMask = file.contains("heliacalPhaseMask")
+        ? static_cast<unsigned>(file.value("heliacalPhaseMask").toInt())
+        : kHeliacalPhaseDefault;
+
     // Load per-file skip-by-duration level (default to global for older files)
     if (file.contains("transitSkipByDuration")) {
         _transitSkipByDuration = static_cast<A::EventOptions::skipper>(
@@ -591,6 +600,16 @@ AstroFile::setTransitSkipByDuration(A::EventOptions::skipper s)
     if (_transitSkipByDuration != s) {
         _transitSkipByDuration = s;
         change(ChangedState, true);  // Mark as modified
+        // Preserved via session state; persisted on explicit save.
+    }
+}
+
+void
+AstroFile::setHeliacalPhaseMask(unsigned m)
+{
+    if (_heliacalPhaseMask != m) {
+        _heliacalPhaseMask = m;
+        change(ChangedState, true);  // Mark as modified (display-only pref)
         // Preserved via session state; persisted on explicit save.
     }
 }

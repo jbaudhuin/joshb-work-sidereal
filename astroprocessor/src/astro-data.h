@@ -36,6 +36,7 @@ enum FileType {
     TypeDerivedPD,
     TypeDerivedSearch,
     TypeParan,
+    TypeApparition,   // heliacal apparition: discrete occurrence stepping (like TypeParan)
     TypeCount
 };
 
@@ -299,6 +300,12 @@ const PlanetId Part_of_Fortune = Parts_Start;
 const PlanetId Part_of_Spirit  = Part_of_Fortune + 1;
 const PlanetId Parts_End       = Part_of_Spirit + 1;
 
+// Fixed-star event bodies. A loaded catalog star gets PlanetId Stars_Start + i,
+// so it can flow through ChartPlanetId / PlanetLoc / the event table like any
+// other body. Kept well clear of the ingress-glyph overlap range (which extends
+// to Ingresses_End+12) and the Parts block above.
+const PlanetId Stars_Start = 128;
+
 const AspectId Aspect_None        = -1;
 const AspectId Aspect_Conjunction = 0;
 const AspectId Aspect_Trine       = 1;
@@ -506,6 +513,7 @@ struct Houses {
 struct Star {
     PlanetId                id;
     QString                 name;
+    QString                 constellation;  // 3-letter IAU abbrev (e.g. "CMa")
     int                     sweFlags;
     PlanetId                configuredWithPlanet;
     QMap<QString, QVariant> userData;
@@ -764,6 +772,7 @@ class Data {
     static QMap<ZodiacId, Zodiac>           zodiacs;
     static PlanetMap                        planets;
     static StarMap                          stars;
+    static QHash<PlanetId, QString>         starsById;   // Stars_Start+i → name
     static AspectSetId                      topAspSet;
 
     static QMap<PlanetId, GlyphName> signInfo;
@@ -789,6 +798,8 @@ class Data {
 
     static const Star&           getStar(const QString& name);
     static const QList<QString>& getStars();
+    /// Catalog star name for a Stars_Start+i PlanetId ({} if not a star id).
+    static QString               getStarName(PlanetId id);
 
     static const HouseSystem&       getHouseSystem(HouseSystemId id);
     static const QList<HouseSystem> getHouseSystems();
@@ -1768,6 +1779,8 @@ enum EventType {
     etcTransitNatalAspectPattern,        // TNA
     etcParanatellonta,                   // Par
     etcParanatellontaToNatal,            // Par=N
+    etcHeliacalStars,                    // HES (heliacal risings/settings of fixed stars)
+    etcHeliacalLunar,                    // Hel-m (lunar crescent EF/ML, toggled separately)
     etcNumStandardEvents,
     etcUserEventStart = 64
 };
@@ -2253,6 +2266,7 @@ class HarmonicEvent : public HarmonicAspect {
     ADateTimeRange  _range;
     HarmonicAspects _coincidences; ///< coincident events
     QVector<QPair<QDateTime, qreal>> _occurrences; ///< paran cycling: per-day in-orb moments + orb°
+    QStringList _occurrenceLabels; ///< optional per-occurrence phase labels (apparitions); empty for parans
 
   public:
     HarmonicEvent(const QDateTime&     dt,
@@ -2317,6 +2331,11 @@ class HarmonicEvent : public HarmonicAspect {
     {
         _occurrences = std::move(o);
     }
+
+    // Optional per-occurrence phase labels (apparition stops: MF/Acr/Cul/Cs/EL),
+    // 1:1 with occurrences(). Empty for parans (transport falls back to i/n).
+    const QStringList& occurrenceLabels() const { return _occurrenceLabels; }
+    void setOccurrenceLabels(QStringList l) { _occurrenceLabels = std::move(l); }
 
     HarmonicAspects&       coincidences() { return _coincidences; }
     const HarmonicAspects& coincidences() const { return _coincidences; }
@@ -2592,6 +2611,11 @@ const Star&
 getStar(const QString& name);
 const QList<QString>&
 getStars();
+inline QString
+getStarName(PlanetId id)
+{
+    return Data::getStarName(id);
+}
 const HouseSystem&
 getHouseSystem(HouseSystemId id);
 const Zodiac&

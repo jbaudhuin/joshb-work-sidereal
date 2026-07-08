@@ -741,8 +741,15 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         default:                  hide = true; break;
         }
 
-        QGraphicsItem* marker = planetMarkers[fileIndex][b.id];
-        QGraphicsItem* body   = planets[fileIndex][b.id];
+        // Use value() (not operator[]) so a missing key doesn't silently insert
+        // a null entry, and guard against a missing glyph item: a body present
+        // in horoscope() but without a created graphics item (seen after a
+        // view-mode toggle rebuild) would otherwise crash on setVisible(null).
+        QGraphicsItem* marker = planetMarkers[fileIndex].value(b.id, nullptr);
+        QGraphicsItem* body   = planets[fileIndex].value(b.id, nullptr);
+        if (!marker || !body) {
+            return std::make_pair(body, marker);
+        }
 
         if (hide) {
             marker->setVisible(false);
@@ -790,7 +797,7 @@ Chart::updatePlanetsAndCusps(int fileIndex)
             (p.id == A::Planet_MC) && (file(fileIndex)->getHarmonic() == 1);
 
         std::tie(body, marker) = repose(p, hide);
-        if (hide) continue;
+        if (hide || !body || !marker) continue;
 
         QString toolTip = QString("%1 %2, %3")
                               .arg(p.name)
@@ -807,9 +814,23 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     }
 
     for (const A::Star& s : file(fileIndex)->horoscope().stars) {
-        bool hide              = !s.isConfiguredWithPlanet();
+        // Show a star when it's configured with a natal planet OR it's the focal
+        // body of the current event — e.g. a clicked heliacal-star event, whose
+        // ChartPlanetId (Stars_Start+i) is placed in focalPlanets() by the events
+        // table. The "*" glyph and the star's position already exist for every
+        // catalog star, so this just un-hides the relevant one.
+        bool focal = false;
+        for (const auto& cpid : file(fileIndex)->focalPlanets())
+            if (cpid.planetId() == s.id) { focal = true; break; }
+        bool hide              = !s.isConfiguredWithPlanet() && !focal;
         std::tie(body, marker) = repose(s, hide);
-        if (hide) continue;
+        if (hide || !body || !marker) continue;
+
+        // Emphasize the focal star's "*" glyph: enlarge it and lift it above the
+        // other markers so a clicked heliacal star stands out from the ambient
+        // configured-with-planet stars. Reset for non-focal (items persist).
+        body->setScale(focal ? 1.7 : 1.0);
+        body->setZValue(focal ? 3 : 1);
 
         QString toolTip = QString("%1 %2").arg(s.name).arg(
             A::zodiacPosition(s, file()->horoscope().zodiac, A::HighPrecision));

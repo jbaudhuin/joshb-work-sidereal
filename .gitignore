@@ -31,6 +31,7 @@ Makefile.*
 /_build
 /bin/*.dll
 /bin/*.exe
+/bin/*.tmp*
 /bin/*.ini
 /bin/i18n/*.cmd
 /bin/style/style.unused.css

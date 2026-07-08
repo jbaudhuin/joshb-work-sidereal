@@ -272,7 +272,6 @@ class Transits : public AstroFileHandler {
     // Toolbar actions for event filters
     QAction* _actStations = nullptr;
     QAction* _actReturns = nullptr;
-    QAction* _actHeliacal = nullptr;   // HE: heliacal risings/settings (compute deferred)
 
     // ---- Grouped dropdown event buttons ([T▼] [P▼] [AP▼] [Par▼]) ----------
     // One split-button consolidates several related event types. The dropdown
@@ -284,6 +283,7 @@ class Transits : public AstroFileHandler {
         A::EventType et;
         int          radioGroup = -1;   // -1 = independent; >=0 = radio subgroup id
         QAction*     action     = nullptr;
+        bool         defaultOn  = true;  // seeded into the default selection?
     };
     struct EventGroupButton {
         QToolButton*              button = nullptr;
@@ -299,6 +299,11 @@ class Transits : public AstroFileHandler {
         }
     };
     QList<EventGroupButton> _eventGroups;
+
+    // Display-only heliacal apparition-phase toggles appended to the HE
+    // dropdown (MF/Acr/Cul/Cs/EL). Each pairs its selection bit with its menu
+    // action so the checks can be synced to the active chart's phase mask.
+    QVector<QPair<unsigned, QAction*>> _heliacalPhaseActions;
 
     // Skip-by-duration split button (1d / 1w / 1m), modeled on the T=N button
     QToolButton* _btnSkipDuration = nullptr;
@@ -326,8 +331,11 @@ class Transits : public AstroFileHandler {
         A::EventType et;
         int          radioGroup;
         QString      overrideLabel;
-        EventGroupSpec(A::EventType e, int rg = -1, QString lbl = {})
-            : et(e), radioGroup(rg), overrideLabel(std::move(lbl)) {}
+        bool         defaultOn;
+        EventGroupSpec(A::EventType e, int rg = -1, QString lbl = {},
+                       bool don = true)
+            : et(e), radioGroup(rg), overrideLabel(std::move(lbl)),
+              defaultOn(don) {}
     };
     /// Build and register a grouped split-button per the plan's interaction
     /// model, append it to the toolbar, and return it.

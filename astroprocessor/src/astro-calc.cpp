@@ -4818,7 +4818,8 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
     // entries, so we just call the existing getters for their side effect.
     // Idempotent against the calls below: getTransitPlanet/getNatalPlanet
     // dedupe via transitIndex/natalIndex.
-    if (trans && (showParanatellonta() || showParanatellontaToNatal())) {
+    if (trans && (showParanatellonta() || showParanatellontaToNatal()
+                  || showHeliacalEvents() || showHeliacalStars() || showHeliacalLunar())) {
         for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
             getTransitPlanet(pid);
         }
@@ -5285,7 +5286,8 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
     // _alist whenever paran event types are enabled. Pattern syntax does
     // not currently express paran clusters, so we rely on the toolbar
     // toggles. findParans walks _alist directly; no _staff entries needed.
-    if (trans && (showParanatellonta() || showParanatellontaToNatal())) {
+    if (trans && (showParanatellonta() || showParanatellontaToNatal()
+                  || showHeliacalEvents() || showHeliacalStars() || showHeliacalLunar())) {
         for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
             getTransitPlanet(pid);
         }
@@ -8254,6 +8256,511 @@ AspectFinder::findParans()
     emit progress(1.0);
 }
 
+// ---------------------------------------------------------------------------
+// Heliacal risings/settings. Unlike the aspect/paran finders this does NOT walk
+// a daily grid: swe_heliacal_ut does its own forward search and returns the next
+// event, so we call it once per event, advancing past each hit. Each event is a
+// single-body HarmonicEvent whose PlanetLoc::desc carries the phase tag
+// (MF/EL/EF/ML). Observer location = the transit locus, exactly as findParans.
+// swe enforces per-body validity (Sun: none; Moon: 3/4; outer planets & stars:
+// 1/2; inner: all 4) by returning ERR, which we treat as "skip this type".
+// ---------------------------------------------------------------------------
+void
+AspectFinder::findHeliacalEvents()
+{
+    if (_ids.isEmpty()) return;
+    const bool wantPlanets = showHeliacalEvents();
+    const bool wantStars   = showHeliacalStars();
+    const bool wantMoon    = showHeliacalLunar();
+    if (!wantPlanets && !wantStars && !wantMoon) return;
+
+    // Observer location + a transit fileId (for star payloads) from the first
+    // TransitPosition (the locus). geopos = {lon, lat, altMeters} — exactly the
+    // order swe_heliacal_ut expects. The _alist population gate adds transit
+    // bodies whenever either heliacal type is enabled, so a locus is available
+    // even for a stars-only request.
+    const InputData* locusIdaPtr = nullptr;
+    int              transitFid  = 0;
+    for (auto* base : _alist) {
+        if (auto* tp = dynamic_cast<TransitPosition*>(base)) {
+            locusIdaPtr = &tp->input();
+            transitFid  = tp->planet.fileId();
+            break;
+        }
+    }
+    if (!locusIdaPtr) return;
+    const InputData& locusIda = *locusIdaPtr;
+    double geopos[3] = { locusIda.location().x(),   // longitude (°E)
+                         locusIda.location().y(),   // latitude  (°N)
+                         locusIda.location().z() };  // eye height (m)
+
+    // Range in UT Julian days.
+    const double rangeStartJd =
+        getJulianDate(_range.first.startOfDay().toUTC());
+    const double rangeEndJd =
+        getJulianDate(_range.second.addDays(1).startOfDay().toUTC());
+    if (rangeEndJd <= rangeStartJd) return;
+
+    // English object names the Swiss Ephemeris recognizes for the classical
+    // visible bodies (Sun has no heliacal event; outer/telescopic excluded).
+    auto sweName = [](PlanetId pid) -> const char* {
+        switch (pid) {
+        case Planet_Moon:    return "Moon";
+        case Planet_Mercury: return "Mercury";
+        case Planet_Venus:   return "Venus";
+        case Planet_Mars:    return "Mars";
+        case Planet_Jupiter: return "Jupiter";
+        case Planet_Saturn:  return "Saturn";
+        default:             return nullptr;
+        }
+    };
+
+    const int32 helflag = SEFLG_SWIEPH;   // visibility-limit method, swe defaults
+
+    // swe scratch buffers, declared ONCE (not inside the inner loop) — see the
+    // earlier -O3 stack-overlap crash note. Over-sized as defensive headroom.
+    double datm[8]  = { 0 };
+    double dobs[8]  = { 0 };
+    double dret[16] = { 0 };
+    char   serr[AS_MAXCH];
+
+    // Search a padded window so an apparition straddling the range boundary
+    // still pairs. The pad need only cover an anchor-to-far-bracket span (~half
+    // an apparition), so ~200d is ample; keeping it small keeps short-range
+    // queries cheap (the phase search cost scales with the window).
+    const double pad      = 200.0;
+    const double extStart = rangeStartJd - pad;
+    const double extEnd   = rangeEndJd + pad;
+
+    // ---- swe phase search: collect all phase moments for one object ----------
+    struct PhaseHit { double markJd, beginJd, endJd; int te; };
+    auto collectPhases = [&](const char* objName,
+                             std::initializer_list<int> teList) -> QVector<PhaseHit> {
+        QVector<PhaseHit> hits;
+        char nameBuf[AS_MAXCH];
+        for (int te : teList) {
+            qstrncpy(nameBuf, objName, sizeof(nameBuf));
+            double tjd       = extStart;
+            double lastBegin = -1e18;   // forward-progress watchdog
+            for (int guard = 0; tjd <= extEnd && guard < 4000; ++guard) {
+                if (_state == cancelRequestedState) return hits;
+                QCoreApplication::processEvents();
+                serr[0] = '\0';
+                if (swe_heliacal_ut(tjd, geopos, datm, dobs, nameBuf, te,
+                                    helflag, dret, serr) < 0)
+                    break;   // ERR: type invalid for this body, or no more events
+                const double beginJd = dret[0];
+                const double endJd   = (dret[2] > 0 ? dret[2] : dret[0]);
+                const double markJd  = (dret[1] > 0 ? dret[1] : dret[0]);
+                if (beginJd > extEnd) break;
+                // If swe returns a non-advancing event (begin not strictly past
+                // the previous one), stop rather than re-search the same window
+                // — each call is expensive, so a stall would look like a hang.
+                if (beginJd <= lastBegin) break;
+                lastBegin = beginJd;
+                if (beginJd >= extStart)
+                    hits.push_back({ markJd, beginJd, endJd, te });
+                const double next = endJd + 1.0;
+                tjd = (next > tjd) ? next : tjd + 1.0;
+            }
+        }
+        std::sort(hits.begin(), hits.end(),
+                  [](const PhaseHit& a, const PhaseHit& b) {
+                      return a.markJd < b.markJd;
+                  });
+        return hits;
+    };
+
+    // ---- anchor computations -------------------------------------------------
+    // Planets: elongation extremum in [lo,hi] via swe_pheno_ut (attr[2]).
+    // Inner planets → greatest elongation; outer planets → opposition (→180°).
+    auto elongAt = [&](int ipl, double d) -> double {
+        double attr[20]; char err[AS_MAXCH];
+        return (swe_pheno_ut(d, ipl, SEFLG_SWIEPH, attr, err) >= 0) ? attr[2]
+                                                                    : -1.0;
+    };
+    auto greatestElongJd = [&](int ipl, double lo, double hi) -> double {
+        // Elongation is unimodal across an apparition, so ternary-search the
+        // maximum (≈40 swe_pheno calls) rather than scanning every day.
+        for (int i = 0; i < 60 && hi - lo > 0.02; ++i) {
+            const double m1 = lo + (hi - lo) / 3.0;
+            const double m2 = hi - (hi - lo) / 3.0;
+            if (elongAt(ipl, m1) < elongAt(ipl, m2)) lo = m1;
+            else                                     hi = m2;
+        }
+        return 0.5 * (lo + hi);
+    };
+
+    // Rise/set/transit of a body (star: name!=nullptr, ipl ignored; planet:
+    // name==nullptr, ipl used) — swe_rise_trans takes the body in either slot.
+    // Returns the event JD (tret[0]) in `out`, or false on swe error.
+    auto bodyRT = [&](double d, int ipl, const char* name, int rsmi,
+                      double& out) -> bool {
+        double tret[10]; char err[AS_MAXCH]; char sbuf[AS_MAXCH];
+        if (name) qstrncpy(sbuf, name, sizeof(sbuf));
+        if (swe_rise_trans(d, name ? -1 : ipl, name ? sbuf : nullptr,
+                           SEFLG_SWIEPH, rsmi, geopos, 1013.25, 10,
+                           tret, err) < 0)
+            return false;
+        out = tret[0];
+        return true;
+    };
+    auto sunRT = [&](double d, int rsmi, double& out) -> bool {
+        return bodyRT(d, SE_SUN, nullptr, rsmi, out);
+    };
+
+    // Seed a Sun–body opposition JD in [lo,hi] (body highest at midnight ≈
+    // opposition), used to center the acronychal / culmination / cosmical scans.
+    auto oppositionSeedJd = [&](double bodyLon, double lo, double hi) -> double {
+        const double target = swe_degnorm(bodyLon + 180.0);
+        double oppJd = 0.5 * (lo + hi), prevJd = lo, prevF = 0.0;
+        bool have = false;
+        double xx[6]; char err[AS_MAXCH];
+        for (double d = lo; d <= hi; d += 2.0) {
+            if (swe_calc_ut(d, SE_SUN, SEFLG_SWIEPH, xx, err) < 0) continue;
+            const double f = swe_difdeg2n(xx[0], target);
+            if (have && prevF <= 0.0 && f > 0.0) {
+                oppJd = prevJd + (d - prevJd) * (-prevF) / (f - prevF);
+                break;
+            }
+            prevJd = d; prevF = f; have = true;
+        }
+        return oppJd;
+    };
+
+    // Acronychal rising: the day the body rises as the Sun sets (best-matched
+    // near opposition). Anchor of the 3-stop era; here an interior apparition stop.
+    auto acronychalJd = [&](int ipl, const char* name, double bodyLon,
+                            double lo, double hi) -> double {
+        const double oppJd = oppositionSeedJd(bodyLon, lo, hi);
+        double bestJd = oppJd, bestDiff = 1e18;
+        for (double d = oppJd - 12.0; d <= oppJd + 12.0; d += 1.0) {
+            double bodyRise, sunSet;
+            if (!bodyRT(d, ipl, name, SE_CALC_RISE, bodyRise)) continue;
+            if (!sunRT(d, SE_CALC_SET, sunSet)) continue;
+            const double diff = std::fabs(bodyRise - sunSet);
+            if (diff < bestDiff) { bestDiff = diff; bestJd = bodyRise; }
+        }
+        return bestJd;
+    };
+
+    // Culmination on the best night: the body's upper meridian transit closest
+    // to solar midnight (Sun lower transit). This is the apparition anchor.
+    auto culminationJd = [&](int ipl, const char* name, double bodyLon,
+                             double lo, double hi) -> double {
+        const double oppJd = oppositionSeedJd(bodyLon, lo, hi);
+        double bestJd = oppJd, bestDiff = 1e18;
+        for (double d = oppJd - 15.0; d <= oppJd + 15.0; d += 1.0) {
+            double bodyMT, sunIT;
+            if (!bodyRT(d, ipl, name, SE_CALC_MTRANSIT, bodyMT)) continue;
+            if (!sunRT(d, SE_CALC_ITRANSIT, sunIT)) continue;
+            const double diff = std::fabs(bodyMT - sunIT);
+            if (diff < bestDiff) { bestDiff = diff; bestJd = bodyMT; }
+        }
+        return bestJd;
+    };
+
+    // Cosmical setting: the day the body sets as the Sun rises.
+    auto cosmicalSetJd = [&](int ipl, const char* name, double bodyLon,
+                             double lo, double hi) -> double {
+        const double oppJd = oppositionSeedJd(bodyLon, lo, hi);
+        double bestJd = oppJd, bestDiff = 1e18;
+        for (double d = oppJd - 15.0; d <= oppJd + 15.0; d += 1.0) {
+            double bodySet, sunRise;
+            if (!bodyRT(d, ipl, name, SE_CALC_SET, bodySet)) continue;
+            if (!sunRT(d, SE_CALC_RISE, sunRise)) continue;
+            const double diff = std::fabs(bodySet - sunRise);
+            if (diff < bestDiff) { bestDiff = diff; bestJd = bodySet; }
+        }
+        return bestJd;
+    };
+
+    // ---- emit one apparition row --------------------------------------------
+    // dateTime = anchor; range = visible window; occurrences = the three
+    // navigable stops (first-appearance, anchor, last-appearance), the anchor
+    // carrying the smallest magnitude so the transport ◉ snaps to it.
+    // ---- emit one apparition row from N labeled stops -----------------------
+    // Each stop carries a phase label; the anchor stop (magnitude 0, so the
+    // transport ◉ snaps to it) is the row's headline datetime. Stops are sorted
+    // chronologically for the |◀ ◀ ◉ ▶ ▶| stepping; range = visible window.
+    struct Stop { double jd; const char* label; bool anchor; };
+    auto emitApparitionStops =
+        [&](unsigned evType, const char* tag, QVector<Stop> stops,
+            double firstBeginJd, double lastEndJd,
+            const std::function<PlanetLoc(double)>& makePayload) {
+        double anchorJd = -1.0;
+        for (const auto& s : stops) if (s.anchor) { anchorJd = s.jd; break; }
+        if (anchorJd < rangeStartJd || anchorJd > rangeEndJd) return;
+        std::sort(stops.begin(), stops.end(),
+                  [](const Stop& a, const Stop& b) { return a.jd < b.jd; });
+        PlanetLoc payload = makePayload(anchorJd);
+        payload.desc = QString::fromLatin1(tag);
+        PlanetRangeBySpeed locs;
+        locs.insert(payload);
+        auto& ev = _evs.safe_emplace_back(dateTimeFromJulian(anchorJd),
+                                          evType, (unsigned char)1,
+                                          std::move(locs), 0.0);
+        // Only a genuine visible window gets a range; an anchor-only apparition
+        // (e.g. an unobservable inner-planet elongation) leaves it unset so no
+        // spurious "Range" is shown.
+        if (lastEndJd > firstBeginJd)
+            ev.setRange({ dateTimeFromJulian(firstBeginJd),
+                          dateTimeFromJulian(lastEndJd) });
+        QVector<QPair<QDateTime, qreal>> occ;
+        QStringList labels;
+        for (const auto& s : stops) {
+            occ.append({ dateTimeFromJulian(s.jd), qreal(s.anchor ? 0.0 : 1.0) });
+            labels.append(QString::fromLatin1(s.label));
+        }
+        ev.setOccurrences(std::move(occ));
+        ev.setOccurrenceLabels(std::move(labels));
+    };
+
+    // Pair each start-phase with the next end-phase (a single apparition) and
+    // hand the pair to a builder. Skip cross-cycle mispairs (gap > maxGapDays),
+    // incomplete edges, and pairs whose [MF,EL] window can't intersect the user
+    // range (avoids paying for the expensive anchor scans on out-of-range pairs).
+    //
+    // maxGapDays must exceed one real apparition but stay below apparition + one
+    // synodic cycle (a genuine mispair when an interior end-phase was missed).
+    // Inner planets and stars fit comfortably under the ~500d default; Mars is
+    // the exception — its all-night apparition runs ~750d (synodic ~780d), so a
+    // 500d cap silently drops every Mars apparition. See the outer-planet call.
+    auto pairAndEmit =
+        [&](const QVector<PhaseHit>& hits, int startTe, int endTe,
+            const std::function<void(const PhaseHit&, const PhaseHit&)>& build,
+            double maxGapDays = 500.0) {
+        for (int a = 0; a < hits.size(); ++a) {
+            if (hits[a].te != startTe) continue;
+            int b = -1;
+            for (int k = a + 1; k < hits.size(); ++k)
+                if (hits[k].te == endTe) { b = k; break; }
+            if (b < 0) continue;
+            if (hits[b].markJd - hits[a].markJd > maxGapDays) continue;
+            if (hits[b].markJd < rangeStartJd || hits[a].markJd > rangeEndJd)
+                continue;
+            if (_state == cancelRequestedState) return;
+            build(hits[a], hits[b]);
+        }
+    };
+
+    // Build the five labeled stops MF · Acr · Culmination(anchor) · Cs · EL for
+    // a star or outer planet (name!=nullptr ⇒ star, else planet ipl).
+    auto build5 = [&](unsigned evType, int ipl, const char* name, double bodyLon,
+                      const std::function<PlanetLoc(double)>& payloadAt,
+                      const PhaseHit& a, const PhaseHit& b) {
+        QVector<Stop> stops = {
+            { a.markJd, "MF", false },
+            { acronychalJd(ipl, name, bodyLon, a.markJd, b.markJd), "Acr", false },
+            { culminationJd(ipl, name, bodyLon, a.markJd, b.markJd), "Cul", true },
+            { cosmicalSetJd(ipl, name, bodyLon, a.markJd, b.markJd), "Cs", false },
+            { b.markJd, "EL", false },
+        };
+        emitApparitionStops(evType, "Cul", stops, a.beginJd, b.endJd, payloadAt);
+    };
+
+    // Moon stays discrete: each EF/ML crescent is its own event (no occurrences,
+    // so clickedCell keeps the non-apparition path).
+    auto emitMoonDiscrete = [&](const char* objName,
+                                const std::function<PlanetLoc(double)>& payloadAt) {
+        char nameBuf[AS_MAXCH];
+        for (int te : { SE_EVENING_FIRST, SE_MORNING_LAST }) {
+            qstrncpy(nameBuf, objName, sizeof(nameBuf));
+            const char* tag = (te == SE_EVENING_FIRST) ? "EF" : "ML";
+            double tjd = rangeStartJd;
+            for (int guard = 0; tjd <= rangeEndJd && guard < 200000; ++guard) {
+                if (_state == cancelRequestedState) return;
+                QCoreApplication::processEvents();
+                serr[0] = '\0';
+                if (swe_heliacal_ut(tjd, geopos, datm, dobs, nameBuf, te,
+                                    helflag, dret, serr) < 0) break;
+                const double beginJd = dret[0];
+                const double endJd   = (dret[2] > 0 ? dret[2] : dret[0]);
+                const double markJd  = (dret[1] > 0 ? dret[1] : dret[0]);
+                if (beginJd > rangeEndJd) break;
+                if (beginJd >= rangeStartJd) {
+                    PlanetLoc payload = payloadAt(markJd);
+                    payload.desc = QString::fromLatin1(tag);
+                    PlanetRangeBySpeed locs;
+                    locs.insert(payload);
+                    auto& ev = _evs.safe_emplace_back(dateTimeFromJulian(markJd),
+                                                      unsigned(etcHeliacalLunar),
+                                                      (unsigned char)1,
+                                                      std::move(locs), 0.0);
+                    ev.setRange({ dateTimeFromJulian(beginJd),
+                                  dateTimeFromJulian(endJd) });
+                }
+                const double next = endJd + 1.0;
+                tjd = (next > tjd) ? next : tjd + 1.0;
+            }
+        }
+    };
+
+    // -- Planet pass -----------------------------------------------------------
+    if (wantPlanets || wantMoon) {
+        const int nbodies = int(_alist.size());
+        for (int idx = 0; idx < nbodies; ++idx) {
+            if (_state == cancelRequestedState) return;
+            auto* trans = dynamic_cast<TransitPosition*>(_alist[idx]);
+            if (!trans) continue;
+            const PlanetId pid = trans->planet.planetId();
+            const char*    nm  = sweName(pid);
+            if (!nm) continue;
+            emit progress(double(idx) / double(nbodies));
+
+            // Recompute the transit body at the moment (mirrors emitParan);
+            // findAspectsAndPatterns re-seeds all positions at its start.
+            std::function<PlanetLoc(double)> payloadAt =
+                [trans](double jd) { (*trans)(jd, 1); return PlanetLoc(*trans); };
+            const int ipl = getPlanet(pid).sweNum;
+
+            // The Moon's crescents are toggled separately (etcHeliacalLunar);
+            // the classical planets ride on showHeliacalEvents().
+            if (pid == Planet_Moon) {
+                if (wantMoon) emitMoonDiscrete(nm, payloadAt);
+            } else if (wantPlanets
+                       && (pid == Planet_Mercury || pid == Planet_Venus)) {
+                // Greatest elongations are geometric — they always occur, and
+                // strictly alternate eastern (evening, GEe) / western (morning,
+                // GWe) — so anchor on them rather than on the season-dependent
+                // visibility limits (whose absence used to drop whole
+                // apparitions). EF·GEe·EL (evening) or MF·GWe·ML (morning)
+                // brackets are attached when swe reports the planet visible;
+                // otherwise the elongation stands alone but still appears, so
+                // the list alternates as the synodic cycle demands.
+                const double synodic = (pid == Planet_Mercury) ? 115.88 : 583.92;
+                const double brWin   = 0.45 * synodic;  // max bracket–elong gap
+
+                // True when the planet is east of the Sun (evening apparition).
+                auto planetEastOfSun = [&](double d) -> bool {
+                    double xp[6], xs[6]; char err[AS_MAXCH];
+                    if (swe_calc_ut(d, ipl, SEFLG_SWIEPH, xp, err) < 0) return true;
+                    if (swe_calc_ut(d, SE_SUN, SEFLG_SWIEPH, xs, err) < 0) return true;
+                    return swe_difdeg2n(xp[0], xs[0]) > 0.0;
+                };
+
+                // Nearest swe_heliacal_ut event of type te to refJd; returns its
+                // begin/mark/end and whether it falls within brWin of refJd.
+                auto findBracket = [&](int te, double searchFrom, double refJd,
+                                       double& beginO, double& markO,
+                                       double& endO) -> bool {
+                    char nameBuf[AS_MAXCH]; qstrncpy(nameBuf, nm, sizeof(nameBuf));
+                    serr[0] = '\0';
+                    if (swe_heliacal_ut(searchFrom, geopos, datm, dobs, nameBuf,
+                                        te, helflag, dret, serr) < 0)
+                        return false;
+                    beginO = dret[0];
+                    endO   = (dret[2] > 0 ? dret[2] : dret[0]);
+                    markO  = (dret[1] > 0 ? dret[1] : dret[0]);
+                    return std::fabs(markO - refJd) <= brWin;
+                };
+
+                // Scan elongation maxima across the padded window.
+                const double step = 2.0;
+                double pe = elongAt(ipl, extStart - step);
+                double ce = elongAt(ipl, extStart);
+                for (double d = extStart + step; d <= extEnd; d += step) {
+                    if (_state == cancelRequestedState) return;
+                    QCoreApplication::processEvents();
+                    const double ne = elongAt(ipl, d);
+                    if (ce > pe && ce >= ne) {
+                        const double G = greatestElongJd(ipl, d - 2 * step, d);
+                        if (G >= rangeStartJd && G <= rangeEndJd) {
+                            const bool  east     = planetEastOfSun(G);
+                            const char* tag      = east ? "GEe" : "GWe";
+                            const char* firstTag = east ? "EF"  : "MF";
+                            const char* lastTag  = east ? "EL"  : "ML";
+                            const int   firstTe  =
+                                east ? SE_EVENING_FIRST : SE_HELIACAL_RISING;
+                            const int   lastTe   =
+                                east ? SE_HELIACAL_SETTING : SE_MORNING_LAST;
+
+                            double fb, fm, fe, lb, lm, le;
+                            const bool haveFirst =
+                                findBracket(firstTe, G - brWin, G, fb, fm, fe);
+                            const bool haveLast =
+                                findBracket(lastTe, G, G, lb, lm, le);
+
+                            QVector<Stop> stops;
+                            if (haveFirst) stops.push_back({ fm, firstTag, false });
+                            stops.push_back({ G, tag, true });
+                            if (haveLast)  stops.push_back({ lm, lastTag, false });
+
+                            emitApparitionStops(
+                                unsigned(etcHeliacalEvents), tag, stops,
+                                haveFirst ? fb : G, haveLast ? le : G, payloadAt);
+                        }
+                    }
+                    pe = ce; ce = ne;
+                }
+            } else if (wantPlanets) {   // Mars/Jupiter/Saturn: 5-stop apparition
+                auto hits = collectPhases(nm, { SE_HELIACAL_RISING,
+                                                SE_HELIACAL_SETTING });
+                // Mars' apparition (~750d) needs a wider gap cap than Jupiter/
+                // Saturn (~350–370d); a real Mars mispair is ~1530d, so 1000d
+                // admits the true apparition and still rejects cross-cycle.
+                const double maxGap = (pid == Planet_Mars) ? 1000.0 : 500.0;
+                pairAndEmit(hits, SE_HELIACAL_RISING, SE_HELIACAL_SETTING,
+                    [&](const PhaseHit& a, const PhaseHit& b) {
+                        // Seed the opposition from the body's longitude at THIS
+                        // apparition's midpoint (≈ opposition). A single
+                        // window-middle sample would mis-seed apparitions far
+                        // from center, since Mars/Jupiter/Saturn drift across
+                        // the zodiac between apparitions.
+                        double bodyLon = 0.0;
+                        double xx[6]; char err[AS_MAXCH];
+                        if (swe_calc_ut(0.5 * (a.markJd + b.markJd), ipl,
+                                        SEFLG_SWIEPH, xx, err) >= 0)
+                            bodyLon = xx[0];
+                        build5(unsigned(etcHeliacalEvents), ipl, nullptr,
+                               bodyLon, payloadAt, a, b);
+                    },
+                    maxGap);
+            }
+        }
+    }
+
+    // -- Star pass: one all-night apparition per cycle, 5 stops (Cul anchor) ---
+    if (wantStars) {
+        const auto& starNames = getStars();
+        const int   nstars    = starNames.size();
+        int         si        = 0;
+        for (const QString& sname : starNames) {
+            if (_state == cancelRequestedState) return;
+            emit progress(double(si++) / double(std::max(1, nstars)));
+
+            const PlanetId spid = getStar(sname).id;
+            if (spid < Stars_Start) continue;
+            const QByteArray snb = sname.toLatin1();
+
+            std::function<PlanetLoc(double)> payloadAt =
+                [transitFid, spid](double) {
+                    return PlanetLoc(transitFid, spid, 0.0, 0.0);
+                };
+
+            // Star ecliptic longitude (near range middle) for the opposition seed.
+            double starLon = 0.0;
+            {
+                double xx[6]; char err[AS_MAXCH]; char sbuf[AS_MAXCH];
+                qstrncpy(sbuf, snb.constData(), sizeof(sbuf));
+                if (swe_fixstar_ut(sbuf, 0.5 * (rangeStartJd + rangeEndJd),
+                                   SEFLG_SWIEPH, xx, err) >= 0)
+                    starLon = xx[0];
+            }
+
+            auto hits = collectPhases(snb.constData(),
+                                      { SE_HELIACAL_RISING, SE_HELIACAL_SETTING });
+            pairAndEmit(hits, SE_HELIACAL_RISING, SE_HELIACAL_SETTING,
+                [&](const PhaseHit& a, const PhaseHit& b) {
+                    build5(unsigned(etcHeliacalStars), -1, snb.constData(),
+                           starLon, payloadAt, a, b);
+                });
+        }
+    }
+
+    emit progress(1.0);
+}
+
 void
 AspectFinder::findPriorStarts(AspectSearchState& state)
 {
@@ -10555,6 +11062,12 @@ AspectFinder::findStuff()
             findParans();
         }
         if (_state != cancelRequestedState) findAspectsAndPatterns();
+        // Heliacal LAST: its swe_heliacal_ut search is the slowest pass, so run
+        // it after the faster events — they populate the table via progressive
+        // reveal first instead of being blocked behind a long heliacal scan.
+        if (_state != cancelRequestedState
+            && (showHeliacalEvents() || showHeliacalStars() || showHeliacalLunar()))
+            findHeliacalEvents();
     };
 
     if (_hasExprecessCtx) {
@@ -10754,7 +11267,9 @@ EventTypeManager::EventTypeManager()
             { etcEclipse, 1, "E", "Eclipses" },
             { etcSolarEclipse, 1, "SE", "Solar Eclipses" },
             { etcLunarEclipse, 1, "LE", "Lunar Eclipses" },
-            { etcHeliacalEvents, 1, "HRS", "Heliacal Risings/Settings" },
+            { etcHeliacalEvents, 1, "Hel", "Heliacal Risings/Settings (planets)" },
+            { etcHeliacalStars, 1, "Hel*", "Heliacal Risings/Settings (fixed stars)" },
+            { etcHeliacalLunar, 1, "Hel-m", "Heliacal Risings/Settings (Moon crescents)" },
             { etcPrimaryDirections, 2, "PD", "Primary Directions" },
             { etcTransitAspectPattern, 1, "TA", "Transit Aspect Patterns" },
             { etcTransitNatalAspectPattern,

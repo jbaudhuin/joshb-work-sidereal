@@ -5216,12 +5216,14 @@ MainWindow::buildParanToolBar()
 AstroFile*
 MainWindow::navMovingFile() const
 {
-    // Prefer a paran chart (discrete occurrences); otherwise the first ranged
+    // Prefer a discrete-occurrence chart — a paran, or a heliacal apparition
+    // (both stamp their stops into paranOccurrences); otherwise the first ranged
     // aspect-event chart (continuous in-orb range).
     AstroFile* ranged = nullptr;
     for (AstroFile* f : filesBar->currentFiles()) {
         if (!f) continue;
-        if (f->getType() == TypeParan && !f->getParanOccurrences().isEmpty())
+        if ((f->getType() == TypeParan || f->getType() == TypeApparition)
+            && !f->getParanOccurrences().isEmpty())
             return f;
         if (!ranged) {
             const auto& r = f->getAspectRange();
@@ -5279,6 +5281,22 @@ MainWindow::rewireParanTransport()
                                [this](AstroFile::Members) { updateParanTransport(); });
     }
     updateParanTransport();
+}
+
+// Readable name for an apparition-stop phase tag (mirrors transits.cpp's
+// heliacalPhaseToText, kept local so the transport can label its stops).
+static QString heliacalPhaseName(const QString& tag)
+{
+    if (tag == "MF")  return MainWindow::tr("Morning First");
+    if (tag == "Acr") return MainWindow::tr("Acronychal rising");
+    if (tag == "Cul") return MainWindow::tr("Culmination");
+    if (tag == "Cs")  return MainWindow::tr("Cosmic setting");
+    if (tag == "EL")  return MainWindow::tr("Evening Last");
+    if (tag == "EF")  return MainWindow::tr("Evening First");
+    if (tag == "ML")  return MainWindow::tr("Morning Last");
+    if (tag == "GWe") return MainWindow::tr("Greatest western elongation");
+    if (tag == "GEe") return MainWindow::tr("Greatest eastern elongation");
+    return tag;
 }
 
 void
@@ -5365,11 +5383,22 @@ MainWindow::updateParanTransport()
     _paranPeak->setEnabled(best != peak);
 
     const QDateTime when = occ[best].first.toLocalTime();
-    _paranLabel->setText(QStringLiteral("%1   %2/%3   (orb %4°)")
-                             .arg(when.toString(QStringLiteral("yyyy-MM-dd HH:mm")))
-                             .arg(best + 1)
-                             .arg(n)
-                             .arg(occ[best].second, 0, 'f', 2));
+    const QStringList& labels = mv->paranOccurrenceLabels();
+    if (best < labels.size() && !labels[best].isEmpty()) {
+        // Apparition stop: name the phase; the "orb" magnitude is just an anchor
+        // flag here, so drop it.
+        _paranLabel->setText(QStringLiteral("%1   %2   %3/%4")
+                                 .arg(heliacalPhaseName(labels[best]))
+                                 .arg(when.toString(QStringLiteral("yyyy-MM-dd HH:mm")))
+                                 .arg(best + 1)
+                                 .arg(n));
+    } else {
+        _paranLabel->setText(QStringLiteral("%1   %2/%3   (orb %4°)")
+                                 .arg(when.toString(QStringLiteral("yyyy-MM-dd HH:mm")))
+                                 .arg(best + 1)
+                                 .arg(n)
+                                 .arg(occ[best].second, 0, 'f', 2));
+    }
 }
 
 void
@@ -5417,6 +5446,16 @@ MainWindow::paranStep(int mode)
         }
         }
         _paranOccIndex = idx;
+        // Apparition stops carry phase labels: re-title the chart tab to
+        // "<Body>-<phase>" as we step (e.g. Sirius-MF → Sirius-Cul → Sirius-EL).
+        // Parans have no labels, so their tab name is left untouched.
+        const QString label = mv->paranOccurrenceLabels().value(idx);
+        if (!label.isEmpty()) {
+            const QString name = mv->getName();
+            const int cut = name.lastIndexOf('-');
+            const QString base = (cut > 0) ? name.left(cut) : name;
+            mv->setName(base + "-" + label);
+        }
         armSlide();
         navSetGMT(mv, occ[idx].first);
         return;
@@ -6413,6 +6452,13 @@ MainWindow::restoreSession()
                         af->setTransitEventOptions(eventOpts);
                     }
 
+                    // Restore per-file heliacal apparition phase selection
+                    if (settings.contains(fileGroup + "heliacalPhaseMask")) {
+                        af->setHeliacalPhaseMask(static_cast<unsigned>(
+                            settings.value(fileGroup + "heliacalPhaseMask")
+                                .toInt()));
+                    }
+
                     // Restore per-tab skip-by-duration level
                     if (settings.contains(fileGroup + "transitSkipByDuration")) {
                         af->setTransitSkipByDuration(
@@ -6864,6 +6910,10 @@ FilesBar::saveFilesToSession()
             } else {
                 settings.setValue("transitEventOptions", QVariant());
             }
+
+            // Save per-file heliacal apparition phase selection (bubble-up bits)
+            settings.setValue("heliacalPhaseMask",
+                              static_cast<int>(af->getHeliacalPhaseMask()));
 
             // Save per-tab skip-by-duration level
             settings.setValue("transitSkipByDuration",
