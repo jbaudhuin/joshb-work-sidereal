@@ -255,7 +255,34 @@ void syncAspectMode();
 
 enum PrimDirMode { prdMundane, prdZodiacal, prdActive };
 extern PrimDirMode primDirMode;
-extern bool        useApparentSun;
+
+/// Quotidian direction method for derived (return/ingress) charts.
+///   SQ / NeoSQ     — simple Solar-Quotidian (no anniversary second); any eligible
+///                    chart.  SQ = mean sun (RAMS), NeoSQ = apparent sun (RAAS).
+///   PSSR / NeoPSSR — Progressed Sidereal Solar Return (anniversary-second machinery);
+///                    solar returns only.  PSSR = mean sun, NeoPSSR = apparent sun.
+enum DirMethod { DirNone, DirSQ, DirNeoSQ, DirPSSR, DirNeoPSSR };
+
+/// User-selected method per chart family (loaded from Mundane/dirMethod* settings).
+extern DirMethod dirMethodSolarReturn; // None, PSSR, NeoPSSR, SQ, NeoSQ
+extern DirMethod dirMethodOther;       // None, SQ, NeoSQ  (lunar returns, ingresses)
+
+inline bool dirMethodUsesApparentSun(DirMethod m)
+{ return m == DirNeoSQ || m == DirNeoPSSR; }
+
+inline bool dirMethodIsPSSR(DirMethod m)
+{ return m == DirPSSR || m == DirNeoPSSR; }
+
+inline QString dirMethodLabel(DirMethod m)
+{
+    switch (m) {
+    case DirSQ:      return "SQ";
+    case DirNeoSQ:   return "NeoSQ";
+    case DirPSSR:    return "PSSR";
+    case DirNeoPSSR: return "NeoPSSR";
+    default:         return "PD";
+    }
+}
 
 /// Interactive "scrub" state. Set while a continuous time interaction is in
 /// flight (dragging the chart wheel, or animation playback). While true:
@@ -285,9 +312,25 @@ inline void setAnimating(bool on) { animating = on; }
 bool
 isSolarReturn(const QString& chartName);
 bool
+isLunarReturn(const QString& chartName);
+bool
 isSolarIngress(const QString& chartName);
+/// True for a sign-ingress of any body (Sun or Moon), e.g. "Ari=Sun", "Lib=Moon".
+bool
+isAnyIngress(const QString& chartName);
 bool
 isSolarBasedChart(const QString& chartName);
+
+/// Coarse classification driving which direction menu applies to a chart.
+enum DirChartClass { DirChartNotEligible, DirChartSolarReturn, DirChartOther };
+DirChartClass
+classifyDirChart(const AstroFile* file);
+
+/// Resolve the effective DirMethod for a chart by combining its class with the
+/// user's dirMethodSolarReturn / dirMethodOther settings.  Returns DirNone when
+/// the chart is not an eligible return/ingress (callers then fall back to PD).
+DirMethod
+resolveDirMethod(const AstroFile* file);
 
 double
 getJulianDate(QDateTime    GMT,
@@ -413,7 +456,8 @@ struct ParanLatitudeRow {
     int      angleA;           ///< 0=Asc 1=Desc 2=MC 3=IC
     PlanetId b;                ///< second body
     int      angleB;           ///< 0=Asc 1=Desc 2=MC 3=IC
-    double   latitude;         ///< signed degrees N (+) / S (-)
+    double   latitude;         ///< signed degrees N (+) / S (-); exact-paran
+                               ///< latitude (gap = 0). Unused when meridional.
     qint64   natalOrbSec;      ///< clock-seconds delta at natal location
                                ///< (LST mode and LT mode both use this)
     double   natalOrbDeg;      ///< RA-degrees delta at natal location
@@ -422,13 +466,21 @@ struct ParanLatitudeRow {
                                ///< lat was circumpolar / unavailable
     bool     aIsNatal = true;  ///< false => body A is a transit body
     bool     bIsNatal = true;  ///< false => body B is a transit body
+    // In-orb latitude band around `latitude`: the connected span over which
+    // |gap| stays <= paranOrb, bounded by each horizon body's circumpolar wall.
+    double   latNorth = 0.0;   ///< northern band bound (signed °N)
+    double   latSouth = 0.0;   ///< southern band bound (signed °N)
+    bool     hasRange = false; ///< latNorth/latSouth are valid (horizon pairs)
+    bool     meridional = false; ///< both angles MC/IC: latitude-independent
 };
 
 /// Enumerate every latitude at which a pair of natal bodies forms a paran
 /// (Asc/Desc/MC/IC × Asc/Desc/MC/IC), using ex-precessed natal RA/Dec.
 ///
-/// Rows where *both* participants are MC or IC are excluded (those parans
-/// are latitude-independent — pure RA relations — and don't pin a latitude).
+/// Rows where *both* participants are MC or IC are emitted as meridional
+/// (latitude-independent — pure RA relations); they carry `meridional=true`
+/// and no pinned latitude. Rows involving at least one horizon angle also
+/// carry an in-orb latitude band (latNorth/latSouth) when present.
 ///
 /// The returned `natalOrbSec`/`natalOrbDeg` measure how close the same pair
 /// of bodies comes to paran at the *natal* location, so the caller can flag
@@ -1204,14 +1256,15 @@ quotidianSearch(PlanetProfile&   poses,
 
 // Context structure for caching PSSR calculations
 struct PSSRContext {
-    double    anniversarySecond = 0.0; // Rate: degrees per day
-    QDateTime returnTime;              // Time of the return chart
-    double    returnRAMS = 0.0;        // Return Sun's RA (mean or apparent)
-    double    returnRAMC = 0.0;        // Return chart RAMC
-    double    nextReturnRAMC = 0.0;    // Following year's return RAMC
+    double    anniversarySecond = 0.0; // Rate: degrees per day (PSSR family only)
+    QDateTime returnTime;              // Time of the anchoring return/ingress chart
+    double    returnRAMS = 0.0;        // Anchor Sun's RA (mean or apparent) = SV0
+    double    returnRAMC = 0.0;        // Anchor chart RAMC
+    double    nextReturnRAMC = 0.0;    // Following year's return RAMC (PSSR family only)
     bool      isValid = false;         // Whether this context is valid
     bool      useApparentSun = true;   // true = RAAS (apparent), false = RAMS (mean)
-    
+    DirMethod method = DirNone;        // Which quotidian method built this context
+
     PSSRContext() = default;
 };
 
@@ -1231,6 +1284,16 @@ calculatePSSRRAMC(const Houses&    returnHouses,
 // Calculate PSSR context for a return chart (caches anniversary second)
 PSSRContext
 calculatePSSRContext(const Horoscope& returnChart, bool useApparentSun = true);
+
+// Calculate the lightweight SQ/NeoSQ context for any anchoring return/ingress
+// chart (no anniversary second; just anchor time/RAMC and SV0).
+PSSRContext
+calculateSQContext(const Horoscope& anchorChart, DirMethod method);
+
+// Build the direction context appropriate to `method`: dispatches to
+// calculateSQContext (SQ/NeoSQ) or calculatePSSRContext (PSSR/NeoPSSR).
+PSSRContext
+buildDirContext(const Horoscope& anchorChart, DirMethod method);
 
 // Convert angleTransitMode index (0=Rise, 1=Set, 2=MC, 3=IC) to string
 inline QString angleTransitName(int index)

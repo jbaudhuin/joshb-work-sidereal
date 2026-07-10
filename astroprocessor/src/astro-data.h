@@ -2267,6 +2267,8 @@ class HarmonicEvent : public HarmonicAspect {
     HarmonicAspects _coincidences; ///< coincident events
     QVector<QPair<QDateTime, qreal>> _occurrences; ///< paran cycling: per-day in-orb moments + orb°
     QStringList _occurrenceLabels; ///< optional per-occurrence phase labels (apparitions); empty for parans
+    QVector<qreal> _occurrenceLons; ///< optional per-occurrence body longitude (apparitions); 1:1 with occurrences
+    QVector<qreal> _occurrenceSpeeds; ///< optional per-occurrence body speed (apparitions); 1:1 with occurrences
 
   public:
     HarmonicEvent(const QDateTime&     dt,
@@ -2336,6 +2338,17 @@ class HarmonicEvent : public HarmonicAspect {
     // 1:1 with occurrences(). Empty for parans (transport falls back to i/n).
     const QStringList& occurrenceLabels() const { return _occurrenceLabels; }
     void setOccurrenceLabels(QStringList l) { _occurrenceLabels = std::move(l); }
+
+    // Body's zodiac longitude at each occurrence stop (apparition phases), 1:1
+    // with occurrences(). Lets a decomposed phase row render its own position
+    // rather than the shared anchor's. Empty for parans / undecomposed rows.
+    const QVector<qreal>& occurrenceLons() const { return _occurrenceLons; }
+    void setOccurrenceLons(QVector<qreal> l) { _occurrenceLons = std::move(l); }
+
+    // Body's speed at each occurrence stop (apparition phases), 1:1 with
+    // occurrences(). Lets a decomposed phase row show its own retrograde state.
+    const QVector<qreal>& occurrenceSpeeds() const { return _occurrenceSpeeds; }
+    void setOccurrenceSpeeds(QVector<qreal> s) { _occurrenceSpeeds = std::move(s); }
 
     HarmonicAspects&       coincidences() { return _coincidences; }
     const HarmonicAspects& coincidences() const { return _coincidences; }

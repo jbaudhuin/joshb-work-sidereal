@@ -729,10 +729,15 @@ class EventsTableModel : public QAbstractItemModel {
         // position). The T/P/S column renders it in the default font via the
         // FontRole branch below.
         if (eventType == A::etcHeliacalStars) return cpid.name();
-        // Planet / Moon heliacal body: glyph + zodiac position.
+        // Planet / Moon heliacal body: glyph + zodiac position (+ retrograde
+        // marker). The phase tag (MF/EL/…) lives in the Asp column, so it is not
+        // appended here.
         if (eventType == A::etcHeliacalEvents
-            || eventType == A::etcHeliacalLunar)
-            return g + " " + getPos(s.rasiLoc());
+            || eventType == A::etcHeliacalLunar) {
+            QString out = g + " " + getPos(s.rasiLoc());
+            if (s.speed < 0) out += " #"; // Almagest retrograde glyph
+            return out;
+        }
         if (isPattern) return g;
         if (s.speed < 0 && !s.desc.startsWith("S")) {
             desc = "#" + desc; // retrograde
@@ -1239,22 +1244,39 @@ class EventsTableModel : public QAbstractItemModel {
                                        false);
             }
             {
-                // A decomposed apparition row tooltips its own phase, not the
-                // shared anchor (e.g. "Saturn-Cosmic setting", not "-Culmination").
-                QString phaseOverride;
-                if ((et == A::etcHeliacalEvents || et == A::etcHeliacalStars)
-                    && prow == -1) {
-                    const int occi = _evs[row].occ;
+                // A decomposed apparition row renders its own occurrence — its
+                // phase tag (Asp) AND its own zodiac position — rather than the
+                // shared culmination anchor. Build a one-element set carrying the
+                // overridden PlanetLoc so every display mode (glyph/text, cell and
+                // tooltip) picks it up uniformly.
+                const int occi =
+                    (prow == -1
+                     && (et == A::etcHeliacalEvents || et == A::etcHeliacalStars))
+                        ? _evs[row].occ : -1;
+                if (occi >= 0 && !asp.locations().empty()) {
                     const auto& lbls = _evs[row]->occurrenceLabels();
-                    if (occi >= 0 && occi < lbls.size())
-                        phaseOverride = lbls[occi];
+                    const auto& lons = _evs[row]->occurrenceLons();
+                    const auto& spds = _evs[row]->occurrenceSpeeds();
+                    A::PlanetLoc s = *asp.locations().begin();
+                    if (occi < lbls.size()) s.desc = lbls[occi];
+                    // Stars carry no meaningful ecliptic position; leave theirs.
+                    if (occi < lons.size()
+                        && s.planet.planetId() < A::Stars_Start)
+                        s._rasiLoc = lons[occi];
+                    if (occi < spds.size()) s.speed = spds[occi];
+                    A::PlanetRangeBySpeed one;
+                    one.insert(s);
+                    return glyphicWithMode(role,
+                                           getTColIters(one),
+                                           _transitBodyColMode,
+                                           et,
+                                           false);
                 }
                 return glyphicWithMode(role,
                                        getTColIters(asp.locations()),
                                        _transitBodyColMode,
                                        et,
-                                       false,
-                                       phaseOverride);
+                                       false);
             }
 
         case natalTransitBodyCol:
@@ -5054,10 +5076,21 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
                 }
             }
         } else {
-            // Use locations (PlanetLoc) - faster planet goes in Transit column
+            // Use locations (PlanetLoc) - faster planet goes in Transit column.
+            // A decomposed apparition row reports its own occurrence's position.
+            const auto& occLons = _evs[row]->occurrenceLons();
+            const auto& occSpds = _evs[row]->occurrenceSpeeds();
+            const bool haveOccLon = (occ >= 0 && occ < occLons.size());
             auto [begin, end] = getTColIters(asp.locations());
             for (auto it = begin; it != end; ++it) {
-                transitBodies << this->planetToText(*it, occLabel);
+                if (haveOccLon && it->planet.planetId() < A::Stars_Start) {
+                    A::PlanetLoc s = *it;
+                    s._rasiLoc = occLons[occ];
+                    if (occ < occSpds.size()) s.speed = occSpds[occ];
+                    transitBodies << this->planetToText(s, occLabel);
+                } else {
+                    transitBodies << this->planetToText(*it, occLabel);
+                }
             }
         }
         html += QString("<td>%1</td>\n").arg(transitBodies.join(", "));

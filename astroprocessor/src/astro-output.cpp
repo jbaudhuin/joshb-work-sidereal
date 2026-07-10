@@ -930,10 +930,9 @@ struct event {
     static int       _maxWidth;
     static QDateTime _radix;
     static double    _radixRA; // Radix Local Sidereal Time in RA degrees
-    static const PSSRContext* _pssrCtx; // PSSR context for return charts
+    static const PSSRContext* _pssrCtx; // direction context for return/ingress charts
     static bool      _isProgressed; // Skip date calculations for progressed charts
-    static bool      _isSolarReturn; // Is this a solar return chart?
-    static bool      _isSolarIngress; // Is this a solar ingress chart?
+    static DirMethod _dirMethod;    // resolved quotidian method (DirNone → PD)
 
     event() : _star(NULL), _pivot(0) { }
 
@@ -1078,8 +1077,8 @@ struct event {
             QDateTime angularDateGMT = calculateAngularDate(_radix, _dt, planetRA, angleRA, _pssrCtx, label);
             QString method = "PD"; // Default to Primary Directions
             QString dateFormat = "yyyy/MM/dd";
-            if (_pssrCtx) {
-                method = _isSolarReturn ? "PSSR" : "NeoSQ";
+            if (_pssrCtx && _dirMethod != DirNone) {
+                method = dirMethodLabel(_dirMethod);
                 dateFormat = "ddd yyyy-MM-dd hh:mm";
             }
             
@@ -1105,8 +1104,7 @@ QDateTime event::_radix;
 double    event::_radixRA = 0.0;
 const PSSRContext* event::_pssrCtx = nullptr;
 bool      event::_isProgressed = false;
-bool      event::_isSolarReturn = false;
-bool      event::_isSolarIngress = false;
+DirMethod event::_dirMethod = DirNone;
 } // namespace
 
 QString
@@ -1126,13 +1124,12 @@ describeParans(const AstroFileList& scopes,
     auto  scope     = scopes.first()->horoscope();
     double tz        = scope.inputData.tz();
 
-    // Check if this is a return chart and get PSSR context
+    // Check if this is a return/ingress chart and get its direction context
     event::_pssrCtx = nullptr;
     event::_isProgressed = false;
-    event::_isSolarReturn = false;
-    event::_isSolarIngress = false;
+    event::_dirMethod = DirNone;
     AstroFile* file = scopes.first();
-    
+
     // Check if it's a progressed chart based on the file TYPE, not just presence of base chart
     // Base chart is just metadata about natal relationship - doesn't mean it's progressed
     if (file && file->hasBaseChart()) {
@@ -1141,18 +1138,18 @@ describeParans(const AstroFileList& scopes,
             event::_isProgressed = true;
         }
     }
-    
-    // Check if it's a solar-based chart (solar return or solar ingress)
-    if (file && isSolarBasedChart(file->getName())) {
-        // It's a solar-based chart - try to get or calculate PSSR/NeoSQ context
-        if (!file->hasPSSRContext()) {
-            auto ctx = calculatePSSRContext(file->horoscope(), useApparentSun);
-            file->setPSSRContext(ctx);
+
+    // Resolve the quotidian method for this chart (solar returns → PSSR/NeoPSSR/SQ/
+    // NeoSQ; lunar returns & ingresses → SQ/NeoSQ; otherwise DirNone → plain PD).
+    DirMethod method = resolveDirMethod(file);
+    if (method != DirNone) {
+        // (Re)build the cached context if missing or if the method changed.
+        if (!file->hasPSSRContext() || file->pssrContext().method != method) {
+            file->setPSSRContext(buildDirContext(file->horoscope(), method));
         }
         if (file->hasPSSRContext()) {
             event::_pssrCtx = &file->pssrContext();
-            event::_isSolarReturn = isSolarReturn(file->getName());
-            event::_isSolarIngress = isSolarIngress(file->getName());
+            event::_dirMethod = method;
         }
     }
 
@@ -1577,18 +1574,10 @@ describeParanLatitudes(const Horoscope&    natal,
     QVector<ParanLatitudeRow> rows;
     enumerateNatalParanLatitudes(natal, paranOrbDeg, rows, transitCtx);
 
-    // Transit×natal rows are noisier than t×t / natal×natal because of the
-    // cross-product cardinality.  Tighten the present-test for those rows
-    // to paranOrb/2 — the time-coincidence between a moving transiter and
-    // a static natal point is inherently looser than two natal points.
-    if (transitCtx) {
-        const double txrOrbDeg = paranOrbDeg * 0.5;
-        for (ParanLatitudeRow& r : rows) {
-            const bool isTxR = !r.aIsNatal && r.bIsNatal;
-            if (isTxR && r.hasNatalOrb)
-                r.present = r.natalOrbDeg <= txrOrbDeg;
-        }
-    }
+    // Transit×natal rows use the same full paran orb as transit×transit rows so
+    // the latitude table's membership agrees with the focal paran cluster in the
+    // Directions table (findParans clusters with the full paranOrb). The
+    // present-test was already applied against paranOrbDeg by the enumerator.
 
     if (!showAbsent) {
         rows.erase(std::remove_if(rows.begin(), rows.end(),
@@ -1599,6 +1588,11 @@ describeParanLatitudes(const Horoscope&    natal,
     // Sort strictly North → South (latitude descending).
     std::sort(rows.begin(), rows.end(),
               [](const ParanLatitudeRow& a, const ParanLatitudeRow& b) {
+                  // Latitude-dependent (horizon) rows first, N→S; the
+                  // latitude-independent meridional rows collect at the bottom,
+                  // ordered by tightness of their (constant) gap.
+                  if (a.meridional != b.meridional) return b.meridional;
+                  if (a.meridional) return a.natalOrbDeg < b.natalOrbDeg;
                   return a.latitude > b.latitude;
               });
 
@@ -1606,7 +1600,9 @@ describeParanLatitudes(const Horoscope&    natal,
     // caller so it can include chart context; we emit only the description+table.
     QString ret = "<p>"
            + QObject::tr("Latitudes at which each natal-body pair forms a paran. "
-                         "MC/IC-only pairs are omitted (latitude-independent).")
+                         "The smaller second line gives the latitude band over "
+                         "which the paran stays within orb. MC/IC-only pairs are "
+                         "latitude-independent and shown as “All”.")
            + "</p>";
 
     if (rows.isEmpty()) {
@@ -1618,7 +1614,7 @@ describeParanLatitudes(const Horoscope&    natal,
     ret += "<tr style='background-color: rgba(255,255,255,0.1);'>";
     ret += "<th style='padding: 4px 8px; text-align: left;'>"
            + QObject::tr("Paran") + "</th>";
-    ret += "<th style='padding: 4px 8px; text-align: right;'>"
+    ret += "<th style='padding: 4px 8px; text-align: center;'>"
            + QObject::tr("Latitude") + "</th>";
     QString orbHeader;
     if (displayMode == DisplaySiderealTime)
@@ -1646,11 +1642,39 @@ describeParanLatitudes(const Horoscope&    natal,
                                       .arg(nameA, angleAbbrev(r.angleA),
                                            nameB, angleAbbrev(r.angleB));
 
-        // Latitude with N/S.
-        const bool    north = r.latitude >= 0;
-        const QString latText = QString("%1° %2")
-                                    .arg(std::abs(r.latitude), 0, 'f', 2)
-                                    .arg(north ? QObject::tr("N") : QObject::tr("S"));
+        // Latitude cell. Meridional pairs are latitude-independent ("All").
+        // Horizon pairs show the exact-paran latitude, with the in-orb band on
+        // a smaller second line.
+        // Degrees+minutes, e.g. 44°03′N -> "44N03".
+        auto fmtLatDM = [](double latDeg) {
+            const QString hemi = latDeg >= 0 ? QObject::tr("N") : QObject::tr("S");
+            int deg = int(std::abs(latDeg));
+            int min = int(std::round((std::abs(latDeg) - deg) * 60.0));
+            if (min >= 60) { min -= 60; ++deg; }
+            return QString("%1%2%3").arg(deg).arg(hemi).arg(min, 2, 10, QChar('0'));
+        };
+        // Whole-degree, e.g. "32N".
+        auto fmtLatDeg = [](double latDeg) {
+            const QString hemi = latDeg >= 0 ? QObject::tr("N") : QObject::tr("S");
+            return QString("%1%2").arg(int(std::round(std::abs(latDeg)))).arg(hemi);
+        };
+        QString latText;
+        if (r.meridional) {
+            latText = QObject::tr("All");
+        } else {
+            latText = fmtLatDM(r.latitude);
+            if (r.hasRange) {
+                // Band on a smaller line, south→north, rounded to whole degrees.
+                // Collapse to a single value when both bounds round the same.
+                const int loR = int(std::round(r.latSouth));
+                const int hiR = int(std::round(r.latNorth));
+                const QString band = (loR == hiR)
+                    ? fmtLatDeg(r.latSouth)
+                    : fmtLatDeg(r.latSouth) + "–" + fmtLatDeg(r.latNorth);
+                latText += "<br><span style='font-size: 0.85em; color: #888;'>"
+                           + band + "</span>";
+            }
+        }
 
         // Natal-orb cell.
         QString orbText;
@@ -1672,11 +1696,23 @@ describeParanLatitudes(const Horoscope&    natal,
             if (!r.present) orbStyle += " color: #888;";
         }
 
-        // Cities list.
+        // Cities list. Meridional parans are latitude-independent, so a city
+        // list is meaningless. Horizon pairs with a band draw cities from the
+        // whole in-orb span (center ± half-width); otherwise fall back to the
+        // fixed display tolerance around the exact latitude.
         QString citiesText;
-        const QVector<CityRec> cities =
-            citiesNearLatitude(r.latitude, cityLatTolDeg, maxCitiesPerRow + 1, cityFilter);
-        if (cities.isEmpty()) {
+        double cityCenter = r.latitude;
+        double cityTol    = cityLatTolDeg;
+        if (r.hasRange) {
+            cityCenter = 0.5 * (r.latNorth + r.latSouth);
+            cityTol    = 0.5 * std::abs(r.latNorth - r.latSouth);
+        }
+        const QVector<CityRec> cities = r.meridional
+            ? QVector<CityRec>{}
+            : citiesNearLatitude(cityCenter, cityTol, maxCitiesPerRow + 1, cityFilter);
+        if (r.meridional) {
+            citiesText = QObject::tr("N/A");
+        } else if (cities.isEmpty()) {
             citiesText = QStringLiteral("—");
         } else {
             QStringList parts;
@@ -1698,7 +1734,7 @@ describeParanLatitudes(const Horoscope&    natal,
         ret += "<tr" + rowStyle + ">";
         ret += "<td style='padding: 2px 8px; font-weight: bold; color: " + headingColor + ";'>"
                + paranText + "</td>";
-        ret += "<td style='padding: 2px 8px; text-align: right;'>" + latText + "</td>";
+        ret += "<td style='padding: 2px 8px; text-align: center;'>" + latText + "</td>";
         ret += "<td style='" + orbStyle + "'>" + orbText + "</td>";
         ret += "<td style='padding: 2px 8px;'>" + citiesText + "</td>";
         ret += "</tr>";

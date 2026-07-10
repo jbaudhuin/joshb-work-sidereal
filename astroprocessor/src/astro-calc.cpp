@@ -172,14 +172,30 @@ aspectModeType::current()
 }
 
 PrimDirMode primDirMode = prdMundane;
-bool useApparentSun = true;
+DirMethod dirMethodSolarReturn = DirNeoPSSR; // matches legacy default (apparent sun PSSR)
+DirMethod dirMethodOther = DirNeoSQ;         // apparent-sun SQ for lunar/ingress
 bool scrubbing = false;
 bool animating = false;
 
 bool
 isSolarReturn(const QString& chartName)
 {
-    return chartName.contains("Sun-r=Sun");
+    // Two naming conventions: the event-finder comparison name ("Sun-r=Sun")
+    // and the descriptive name from "Open with Solar Return" ("… Solar Return …",
+    // including harmonics like "Solar H2 Return").
+    return chartName.contains("Sun-r=Sun")
+        || (chartName.contains("Solar", Qt::CaseInsensitive)
+            && chartName.contains("Return", Qt::CaseInsensitive));
+}
+
+bool
+isLunarReturn(const QString& chartName)
+{
+    // The finder abbreviates body names to 3 letters, so Moon → "Moo"
+    // (Sun stays "Sun").  Also accept the descriptive "… Lunar Return …" name.
+    return chartName.contains("Moo-r=Moo")
+        || (chartName.contains("Lunar", Qt::CaseInsensitive)
+            && chartName.contains("Return", Qt::CaseInsensitive));
 }
 
 bool
@@ -191,9 +207,52 @@ isSolarIngress(const QString& chartName)
 }
 
 bool
+isAnyIngress(const QString& chartName)
+{
+    // Sign ingress of any body, e.g. "Ari=Sun", "Lib=Moo" (Moon abbreviated to 3).
+    static QRegularExpression rx(
+        "(Ari|Tau|Gem|Can|Leo|Vir|Lib|Sco|Sag|Cap|Aqu|Pis)=(Sun|Moo)");
+    return rx.match(chartName).hasMatch();
+}
+
+bool
 isSolarBasedChart(const QString& chartName)
 {
     return isSolarReturn(chartName) || isSolarIngress(chartName);
+}
+
+DirChartClass
+classifyDirChart(const AstroFile* file)
+{
+    if (!file) return DirChartNotEligible;
+
+    // Genuine progressed / solar-arc / primary-direction charts never get a
+    // quotidian direction column.
+    switch (file->getType()) {
+    case TypeDerivedProg:
+    case TypeDerivedSA:
+    case TypeDerivedPD:
+        return DirChartNotEligible;
+    default:
+        break;
+    }
+
+    const QString name = file->getName();
+    if (isSolarReturn(name))
+        return DirChartSolarReturn;
+    if (isLunarReturn(name) || isAnyIngress(name))
+        return DirChartOther;
+    return DirChartNotEligible;
+}
+
+DirMethod
+resolveDirMethod(const AstroFile* file)
+{
+    switch (classifyDirChart(file)) {
+    case DirChartSolarReturn: return dirMethodSolarReturn;
+    case DirChartOther:       return dirMethodOther;
+    default:                  return DirNone;
+    }
 }
 
 double
@@ -3952,7 +4011,8 @@ calculatePSSRContext(const Horoscope& returnChart, bool useApparentSun)
 {
     PSSRContext ctx;
     ctx.useApparentSun = useApparentSun;
-    
+    ctx.method = useApparentSun ? DirNeoPSSR : DirPSSR;
+
     // Store return chart info
     ctx.returnTime = returnChart.inputData.GMT();
     ctx.returnRAMC = returnChart.houses.RAMC;
@@ -4033,6 +4093,39 @@ calculatePSSRContext(const Horoscope& returnChart, bool useApparentSun)
     return ctx;
 }
 
+PSSRContext
+calculateSQContext(const Horoscope& anchorChart, DirMethod method)
+{
+    // SQ / NeoSQ: no anniversary second.  We only need the anchoring chart's
+    // cast time, its RAMC, and SV0 (the sun's RA — mean or apparent — at that
+    // moment).  Everything else in calculateAngularDate is derived from these.
+    PSSRContext ctx;
+    ctx.method         = method;
+    ctx.useApparentSun = dirMethodUsesApparentSun(method);
+    ctx.returnTime     = anchorChart.inputData.GMT();
+    ctx.returnRAMC     = anchorChart.houses.RAMC;
+    ctx.returnRAMS     = calculateRAMS(ctx.returnTime, ctx.useApparentSun); // SV0
+    ctx.isValid        = true;
+
+    qDebug() << "=== calculateSQContext ===";
+    qDebug() << "  Method:" << dirMethodLabel(method)
+             << (ctx.useApparentSun ? "(RAAS apparent sun)" : "(RAMS mean sun)");
+    qDebug() << "  Anchor time:" << ctx.returnTime.toString(Qt::ISODate);
+    qDebug() << "  Anchor RAMC:" << ctx.returnRAMC << "  SV0:" << ctx.returnRAMS;
+
+    return ctx;
+}
+
+PSSRContext
+buildDirContext(const Horoscope& anchorChart, DirMethod method)
+{
+    if (dirMethodIsPSSR(method))
+        return calculatePSSRContext(anchorChart, dirMethodUsesApparentSun(method));
+    if (method == DirSQ || method == DirNeoSQ)
+        return calculateSQContext(anchorChart, method);
+    return PSSRContext(); // DirNone → invalid
+}
+
 QDateTime
 calculateAngularDate(const QDateTime&   radixTime,
                      const QDateTime&   angleTime,
@@ -4041,6 +4134,58 @@ calculateAngularDate(const QDateTime&   radixTime,
                      const PSSRContext* pssrCtx,
                      const QString&     debugLabel)
 {
+    if (pssrCtx && pssrCtx->isValid
+        && (pssrCtx->method == DirSQ || pssrCtx->method == DirNeoSQ)) {
+        // SQ / NeoSQ mode — simple solar quotidian, no anniversary second.
+        //
+        //   RAMC_SQ(T) = anchorRAMC + (SV(T) − SV0)
+        //
+        // A direction perfects when RAMC_SQ(T) equals the body's angle-transit
+        // RA.  Invert for the required elapsed sun-RA, then solve for the date
+        // when the sun (mean or apparent) has advanced that far:
+        //
+        //   elapsed = normalize180(angleRA − anchorRAMC)
+        //   SV_target = SV0 + elapsed
+        //   find T where SV(T) == SV_target   (Newton on calculateRAMS)
+        double elapsed = angleRA - pssrCtx->returnRAMC;
+        if (elapsed > 180.0)  elapsed -= 360.0;
+        else if (elapsed <= -180.0) elapsed += 360.0;
+
+        const double svTarget = pssrCtx->returnRAMS + elapsed; // may exceed 360, fine
+
+        // Linear seed: mean sun advances ~360°/365.2422 days in RA.
+        double days = elapsed / 360.0 * 365.2422;
+
+        // Newton refinement against the actual sun-RA function so the apparent
+        // sun's slight nonlinearity is handled.  ~1e-6° tolerance.
+        for (int iter = 0; iter < 12; ++iter) {
+            QDateTime t  = pssrCtx->returnTime.addSecs(qint64(days * 86400.0));
+            double    sv = calculateRAMS(t, pssrCtx->useApparentSun);
+            double    diff = sv - svTarget;      // want zero
+            // normalize to nearest revolution of the *accumulated* target
+            while (diff > 180.0)  diff -= 360.0;
+            while (diff <= -180.0) diff += 360.0;
+            if (qAbs(diff) < 1e-6) break;
+            // d(SV)/d(days) ≈ 360/365.2422 (mean rate) — good enough for Newton.
+            days -= diff / (360.0 / 365.2422);
+        }
+
+        // Converse contacts solve to a negative elapsed time; like PSSR and the
+        // primary-direction path, apply the magnitude forward from the anchor.
+        QDateTime result = pssrCtx->returnTime.addSecs(qint64(qAbs(days) * 86400.0));
+
+        QString direction = (elapsed >= 0) ? "Direct" : "Converse";
+        qDebug() << "=== calculateAngularDate (" << dirMethodLabel(pssrCtx->method)
+                 << ")" << debugLabel << "===";
+        qDebug() << "  angleRA:" << angleRA << "°  anchorRAMC:" << pssrCtx->returnRAMC
+                 << "°  elapsed:" << elapsed << "°";
+        qDebug() << "  SV0:" << pssrCtx->returnRAMS << "  SV_target:" << svTarget
+                 << "  days:" << days;
+        qDebug() << "  result:" << result.toString(Qt::ISODate) << direction;
+
+        return result;
+    }
+
     if (pssrCtx && pssrCtx->isValid) {
         // PSSR mode: linear formula — the Mean Sun moves uniformly, so no
         // iterative search is needed.  The anniversary second already captures
@@ -7025,45 +7170,116 @@ enumerateNatalParanLatitudes(const Horoscope& natal,
     {
         const bool aIsAxis = (mA == 2 || mA == 3);
         const bool bIsAxis = (mB == 2 || mB == 3);
-        if (aIsAxis && bIsAxis) return;
 
         const AngleLST la = makeAngleLST(A.ra, mA);
         const AngleLST lb = makeAngleLST(B.ra, mB);
         const double   D  = wrapDelta(lb.raOffset - la.raOffset);
-
-        double lat;
-        if (!solveParanLatitude(A.dec, B.dec, la.signAD, lb.signAD, D, lat))
-            return;
 
         ParanLatitudeRow row{};
         row.a        = A.pid;
         row.angleA   = mA;
         row.b        = B.pid;
         row.angleB   = mB;
-        row.latitude = lat;
         row.aIsNatal = aIsNatalFlag;
         row.bIsNatal = bIsNatalFlag;
 
-        // natalOrb at refLat: LST signature for each body at that lat.
-        auto lstAt = [&](const AngleLST& lp, double dec) {
+        // LST signature of one angle-transit at latitude phi. Returns NaN when
+        // the body is circumpolar (never reaches that horizon angle) at phi.
+        // MC/IC signatures are latitude-independent (signAD == 0).
+        auto lstAtLat = [&](const AngleLST& lp, double dec, double phi) -> double {
             if (lp.signAD == 0) return lp.raOffset;
-            const double t = tand(dec) * tand(refLat);
+            const double t = tand(dec) * tand(phi);
             if (std::abs(t) > 1.0) return std::numeric_limits<double>::quiet_NaN();
             return swe_degnorm(lp.raOffset + lp.signAD * asind(t));
         };
-        const double lstA = lstAt(la, A.dec);
-        const double lstB = lstAt(lb, B.dec);
-        if (std::isnan(lstA) || std::isnan(lstB)) {
+        // Signed paran gap (deg of RA) between the two angle-transits at phi;
+        // NaN if either body is circumpolar there.
+        auto gapAt = [&](double phi) -> double {
+            const double a = lstAtLat(la, A.dec, phi);
+            const double b = lstAtLat(lb, B.dec, phi);
+            if (std::isnan(a) || std::isnan(b))
+                return std::numeric_limits<double>::quiet_NaN();
+            return wrapDelta(b - a);
+        };
+
+        if (aIsAxis && bIsAxis) {
+            // Meridional paran (MC/IC × MC/IC): the gap is constant in latitude,
+            // so no latitude is pinned — present iff the constant RA gap is in orb.
+            row.meridional  = true;
+            row.natalOrbDeg = std::abs(wrapDelta(D));
+            row.natalOrbSec = qint64(std::round(row.natalOrbDeg * 240.0));
+            row.hasNatalOrb = true;
+            row.present     = row.natalOrbDeg <= paranOrbDeg;
+            out.append(row);
+            return;
+        }
+
+        double lat;
+        if (!solveParanLatitude(A.dec, B.dec, la.signAD, lb.signAD, D, lat))
+            return;
+        row.latitude = lat;
+
+        // natalOrb at refLat.
+        const double gRef = gapAt(refLat);
+        if (std::isnan(gRef)) {
             row.hasNatalOrb = false;
             row.present     = false;
             row.natalOrbSec = 0;
             row.natalOrbDeg = 0.0;
         } else {
-            row.natalOrbDeg = std::abs(wrapDelta(lstB - lstA));
+            row.natalOrbDeg = std::abs(gRef);
             row.natalOrbSec = qint64(std::round(row.natalOrbDeg * 240.0));
             row.hasNatalOrb = true;
             row.present     = row.natalOrbDeg <= paranOrbDeg;
         }
+
+        // In-orb latitude band: the connected span around the exact-paran
+        // latitude (gap = 0) over which |gap| stays <= orb, bounded by each
+        // horizon body's circumpolar wall (|tan dec · tan phi| = 1). Only
+        // computed for present rows; absent rows keep the single exact latitude.
+        if (row.present) {
+            double domN = 85.0, domS = -85.0;
+            auto wallOf = [&](const AngleLST& lp, double dec) {
+                if (lp.signAD == 0) return;            // meridian: unbounded in phi
+                const double td = std::abs(tand(dec));
+                if (td < 1e-9) return;                 // dec ~ 0: rises at all lat
+                const double wall = atand(1.0 / td) - 0.05; // 0..90, nudged inside
+                domN = std::min(domN,  wall);
+                domS = std::max(domS, -wall);
+            };
+            wallOf(la, A.dec);
+            wallOf(lb, B.dec);
+
+            // March outward from the exact latitude in coarse steps until |gap|
+            // exceeds orb (or a body goes circumpolar), then bisect the crossing.
+            auto boundary = [&](double dir) -> double {
+                const double edge = (dir > 0) ? domN : domS;
+                const double step = 0.25 * dir;
+                double cur = lat;
+                while ((dir > 0) ? (cur < edge) : (cur > edge)) {
+                    double next = cur + step;
+                    if ((dir > 0) ? (next > edge) : (next < edge)) next = edge;
+                    const double g = gapAt(next);
+                    if (std::isnan(g) || std::abs(g) > paranOrbDeg) {
+                        double lo = cur, hi = next; // |gap(lo)| <= orb < |gap(hi)|
+                        for (int it = 0; it < 40; ++it) {
+                            const double mid = 0.5 * (lo + hi);
+                            const double gm  = gapAt(mid);
+                            if (std::isnan(gm) || std::abs(gm) > paranOrbDeg) hi = mid;
+                            else                                              lo = mid;
+                        }
+                        return lo;
+                    }
+                    cur = next;
+                    if (next == edge) break;
+                }
+                return cur;
+            };
+            row.latNorth = boundary(+1.0);
+            row.latSouth = boundary(-1.0);
+            row.hasRange = true;
+        }
+
         out.append(row);
     };
 
@@ -8508,12 +8724,23 @@ AspectFinder::findHeliacalEvents()
                           dateTimeFromJulian(lastEndJd) });
         QVector<QPair<QDateTime, qreal>> occ;
         QStringList labels;
+        QVector<qreal> lons;
+        QVector<qreal> speeds;
         for (const auto& s : stops) {
             occ.append({ dateTimeFromJulian(s.jd), qreal(s.anchor ? 0.0 : 1.0) });
             labels.append(QString::fromLatin1(s.label));
+            // The body's longitude and speed at this stop, so a decomposed phase
+            // row can render its own position and retrograde state rather than
+            // the shared anchor's. (Stars have no meaningful ecliptic position;
+            // the values are ignored there.)
+            const PlanetLoc& at = (s.jd == anchorJd) ? payload : makePayload(s.jd);
+            lons.append(at.rasiLoc());
+            speeds.append(at.speed);
         }
         ev.setOccurrences(std::move(occ));
         ev.setOccurrenceLabels(std::move(labels));
+        ev.setOccurrenceLons(std::move(lons));
+        ev.setOccurrenceSpeeds(std::move(speeds));
     };
 
     // Pair each start-phase with the next end-phase (a single apparition) and

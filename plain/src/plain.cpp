@@ -962,7 +962,8 @@ Plain::defaultSettings()
     s.setValue("Mundane/paranCity_ContAntarctica",   true);
     s.setValue("Mundane/includeFixedStars", true);
     s.setValue("Mundane/showParanNatalRows", false);
-    s.setValue("Mundane/useApparentSun", true);
+    s.setValue("Mundane/dirMethodSolarReturn", unsigned(A::DirNeoPSSR));
+    s.setValue("Mundane/dirMethodOther",       unsigned(A::DirNeoSQ));
     s.setValue("Text/aspectSortOrder", unsigned(A::SortByPlanets));
     return s;
 }
@@ -1002,7 +1003,8 @@ Plain::currentSettings()
     s.setValue("Mundane/paranCity_ContAntarctica",   bool(paranCityContinentMask & A::CityCont_Antarctica));
     s.setValue("Mundane/includeFixedStars", includeFixedStars);
     s.setValue("Mundane/showParanNatalRows", showParanNatalRows);
-    s.setValue("Mundane/useApparentSun", A::useApparentSun);
+    s.setValue("Mundane/dirMethodSolarReturn", unsigned(A::dirMethodSolarReturn));
+    s.setValue("Mundane/dirMethodOther",       unsigned(A::dirMethodOther));
     s.setValue("Text/aspectSortOrder", unsigned(aspectSortOrder));
     return s;
 }
@@ -1061,15 +1063,24 @@ Plain::applySettings(const AppSettings& s)
     aspectSortOrder =
         A::AspectSortOrder(s.value("Text/aspectSortOrder").toUInt());
 
-    // Check if useApparentSun changed
-    bool newUseApparentSun = s.value("Mundane/useApparentSun").toBool();
-    bool useApparentSunChanged = (A::useApparentSun != newUseApparentSun);
-    A::useApparentSun = newUseApparentSun;
+    // Check if either derived-direction method changed
+    A::DirMethod newDirSR =
+        A::DirMethod(s.value("Mundane/dirMethodSolarReturn",
+                             unsigned(A::DirNeoPSSR)).toUInt());
+    A::DirMethod newDirOther =
+        A::DirMethod(s.value("Mundane/dirMethodOther",
+                             unsigned(A::DirNeoSQ)).toUInt());
+    bool dirMethodChanged = (A::dirMethodSolarReturn != newDirSR)
+                            || (A::dirMethodOther != newDirOther);
+    A::dirMethodSolarReturn = newDirSR;
+    A::dirMethodOther       = newDirOther;
 
-    // If useApparentSun changed, clear PSSR caches and recalculate solar-based charts
-    if (useApparentSunChanged) {
+    // If a method changed, clear cached direction contexts and recalculate every
+    // eligible return/ingress chart (the display rebuilds the context lazily, but
+    // recalc keeps dependent panels in sync).
+    if (dirMethodChanged) {
         for (int i = 0; i < filesCount(); i++) {
-            if (file(i) && A::isSolarBasedChart(file(i)->getName())) {
+            if (file(i) && A::classifyDirChart(file(i)) != A::DirChartNotEligible) {
                 file(i)->clearPSSRContext();
                 file(i)->calculate();
             }
@@ -1139,10 +1150,18 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Mundane/includeFixedStars", tr("Include fixed stars"));
     ed->addCheckBox("Mundane/showParanNatalRows",
                     tr("Show natal ex-precessed positions in paran table"));
-    ed->addComboBox("Mundane/useApparentSun",
-                    tr("PSSR Sun mode"),
-                    { { "Apparent Sun (RAAS)", true },
-                      { "Mean Sun (RAMS)", false } });
+    ed->addComboBox("Mundane/dirMethodSolarReturn",
+                    tr("Derived directions for Solar Returns"),
+                    { { "None (Primary Directions)", unsigned(A::DirNone) },
+                      { "PSSR (mean sun)",           unsigned(A::DirPSSR) },
+                      { "NeoPSSR (apparent sun)",    unsigned(A::DirNeoPSSR) },
+                      { "SQ (mean sun)",             unsigned(A::DirSQ) },
+                      { "NeoSQ (apparent sun)",      unsigned(A::DirNeoSQ) } });
+    ed->addComboBox("Mundane/dirMethodOther",
+                    tr("Derived directions for other charts (lunar returns, ingresses)"),
+                    { { "None (Primary Directions)", unsigned(A::DirNone) },
+                      { "SQ (mean sun)",             unsigned(A::DirSQ) },
+                      { "NeoSQ (apparent sun)",      unsigned(A::DirNeoSQ) } });
     ed->addComboBox("Text/aspectSortOrder",
                     tr("Sort aspects by"),
                     { { "Planet pairs", A::SortByPlanets },
