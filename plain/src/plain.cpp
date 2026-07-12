@@ -18,11 +18,17 @@
 #include <QScrollBar>
 #include <QTextBrowser>
 #include <QFont>
+#include <QFontMetrics>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPaintEvent>
+#include <QPalette>
 #include <QTextDocumentFragment>
 #include <QTextFormat>
 #include <QTextTable>
 #include <QTextTableCell>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include "../../zodiac/src/slidewidget.h"
 
@@ -170,6 +176,206 @@ ReportBrowser::createMimeDataFromSelection() const
     return md;
 }
 
+/* ============================== SECTION TOGGLE
+ * ======================================== */
+
+// Self-painted geometry: small "1"/"2" boxes floating on the frame's right edge.
+static constexpr int kMiniW      = 16; ///< mini box width
+static constexpr int kMiniH      = 16; ///< mini box height
+static constexpr int kMiniGap    = 3;  ///< gap between the two minis
+static constexpr int kMiniMargin = 4;  ///< inset from the frame's right edge
+static constexpr int kGlyphPadL  = 6;  ///< padding left of the glyph
+static constexpr int kGlyphPadR  = 6;  ///< padding right of the glyph (no minis)
+
+/// Right-side width the glyph must avoid when the minis are shown.
+static int miniZoneWidth()
+{
+    return kMiniGap + 2 * kMiniW + kMiniGap + kMiniMargin;  // lead gap + boxes
+}
+
+/// Linear blend of two colors (t=0 → a, t=1 → b).
+static QColor blendColor(const QColor& a, const QColor& b, double t)
+{
+    return QColor(int(a.red()   + (b.red()   - a.red())   * t),
+                  int(a.green() + (b.green() - a.green()) * t),
+                  int(a.blue()  + (b.blue()  - a.blue())  * t));
+}
+
+SectionToggle::SectionToggle(const QString& glyph,
+                             const QString& tooltip,
+                             QWidget*       parent)
+    : QWidget(parent), _glyph(glyph)
+{
+    setToolTip(tooltip);
+    setStatusTip(tooltip);
+    setCursor(Qt::PointingHandCursor);
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+    // Emoji glyphs read best a bit larger; the text abbreviations (Dig/Dir/Par)
+    // match the Events dock toolbar buttons at 9pt bold. Emoji chars live above
+    // the BMP, so their QString starts with a high surrogate.
+    const bool isEmoji = !_glyph.isEmpty() && _glyph.at(0).isHighSurrogate();
+    _glyphFont = font();
+    if (isEmoji) {
+        _glyphFont.setPointSize(11);
+    } else {
+        _glyphFont.setPointSize(9);
+        _glyphFont.setBold(true);
+    }
+    _miniFont = font();
+    _miniFont.setPointSize(8);
+    _miniFont.setBold(true);
+
+    // Palette-derived defaults; the theme .qss overrides via qproperty-*.
+    const QPalette pal = palette();
+    _offColor         = pal.color(QPalette::Button);
+    _textColor        = pal.color(QPalette::ButtonText);
+    _borderColor      = pal.color(QPalette::Mid);
+    _miniOffColor     = blendColor(pal.color(QPalette::Button),
+                                   pal.color(QPalette::Highlight), 0.30);
+    _miniOffTextColor = blendColor(pal.color(QPalette::Text),
+                                   _miniOffColor, 0.45);
+}
+
+void SectionToggle::setSectionOn(bool on)
+{
+    if (_sectionOn == on) return;
+    _sectionOn = on;
+    updateGeometry();   // minis appear/disappear with the section state
+    update();
+}
+
+void SectionToggle::setFileOn(int i, bool on)
+{
+    bool& ref = (i == 0 ? _f1On : _f2On);
+    if (ref == on) return;
+    ref = on;
+    update();
+}
+
+void SectionToggle::setFileCount(int n)
+{
+    if (_fileCount == n) return;
+    _fileCount = n;
+    updateGeometry();   // sizeHint changes (minis appear/disappear)
+    update();
+}
+
+QSize SectionToggle::sizeHint() const
+{
+    const QFontMetrics fm(_glyphFont);
+    const int glyphW = kGlyphPadL + fm.horizontalAdvance(_glyph);
+    const int right  = minisVisible() ? miniZoneWidth() : kGlyphPadR;
+    return QSize(glyphW + right, 26);
+}
+
+QRect SectionToggle::miniRect(int i) const
+{
+    const int y  = (height() - kMiniH) / 2;
+    const int x2 = width() - kMiniMargin - kMiniW;
+    const int x1 = x2 - kMiniGap - kMiniW;
+    return QRect(i == 0 ? x1 : x2, y, kMiniW, kMiniH);
+}
+
+void SectionToggle::paintEvent(QPaintEvent*)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);   // smooth rounded corners
+
+    const QPalette pal    = palette();
+    const QColor   hilite = pal.color(QPalette::Highlight);
+    const QColor   hiText = pal.color(QPalette::HighlightedText);
+    const QRectF   fr     = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+
+    // Frame: rounded, filled; highlighted when the section is on. Off color,
+    // border and text come from the theme .qss (qproperty-*) to match the
+    // Events dock toolbuttons.
+    p.setPen(QPen(_borderColor, 1));
+    p.setBrush(_sectionOn ? hilite : _offColor);
+    p.drawRoundedRect(fr, 4, 4);
+
+    // Glyph, left-justified.
+    p.setFont(_glyphFont);
+    p.setPen(_sectionOn ? hiText : _textColor);
+    const int rightInset = minisVisible() ? miniZoneWidth() : kGlyphPadR;
+    QRect gr = rect().adjusted(kGlyphPadL, 0, -rightInset, 0);
+    p.drawText(gr, Qt::AlignLeft | Qt::AlignVCenter, _glyph);
+
+    // Mini "1"/"2" boxes — only while the section is on (they're hidden, not
+    // greyed, when off, to avoid a permanently cluttered look).
+    if (minisVisible()) {
+        p.setFont(_miniFont);
+        for (int i = 0; i < 2; ++i) {
+            const bool on = (i == 0 ? _f1On : _f2On);
+            const QRectF mr = QRectF(miniRect(i)).adjusted(0.5, 0.5, -0.5, -0.5);
+            QColor bg, fg, edge;
+            if (on) {                   // included ⇒ highlighted
+                bg   = hilite;
+                fg   = hiText;
+                edge = hilite;
+            } else {                    // not included ⇒ muted grey-blue box
+                bg   = _miniOffColor;
+                fg   = _miniOffTextColor;
+                edge = _borderColor;
+            }
+            p.setPen(QPen(edge, 1));
+            p.setBrush(bg);
+            p.drawRoundedRect(mr, 3, 3);
+            p.setPen(fg);
+            p.drawText(miniRect(i), Qt::AlignCenter, i == 0 ? "1" : "2");
+        }
+    }
+}
+
+void SectionToggle::mousePressEvent(QMouseEvent* e)
+{
+    const QPoint pos  = e->pos();
+    const bool   ctrl = e->modifiers().testFlag(Qt::ControlModifier);
+
+    // While the section is on, the mini boxes are hot; otherwise there are no
+    // minis and the whole control just toggles the section.
+    if (minisVisible()) {
+        for (int i = 0; i < 2; ++i) {
+            if (!miniRect(i).contains(pos)) continue;
+            bool& ref   = (i == 0 ? _f1On : _f2On);
+            const bool other = (i == 0 ? _f2On : _f1On);
+            if (ctrl) {
+                // Ctrl-click an enabled box: navigate, don't toggle.
+                if (ref) emit navigate(i);
+            } else if (ref && !other) {
+                // Turning off the last selected file would leave the section on
+                // but empty — instead switch the whole section off, preserving
+                // the selection so re-enabling the section restores it.
+                _sectionOn = false;
+                updateGeometry();
+                update();
+                emit changed();
+            } else {
+                ref = !ref;
+                update();
+                emit changed();
+                if (ref) emit navigate(i);   // scroll to it when enabling
+            }
+            return;
+        }
+    }
+
+    // Body click: toggle the section.
+    if (ctrl) {
+        if (_sectionOn) emit navigate(-1);   // navigate, don't toggle off
+        return;
+    }
+    _sectionOn = !_sectionOn;
+    // Enabling a section that somehow has no file selected (e.g. a legacy saved
+    // state) would show nothing — seed both files on.
+    if (_sectionOn && _fileCount > 1 && !_f1On && !_f2On)
+        _f1On = _f2On = true;
+    updateGeometry();                        // minis appear/disappear
+    update();
+    emit changed();
+    if (_sectionOn) emit navigate(-1);       // scroll to it when enabling
+}
+
 /* ================================== WIDGET
  * ======================================== */
 
@@ -181,54 +387,50 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     // Enable drag and drop
     setAcceptDrops(true);
 
-    // Create toolbar with toggle actions
+    // Create toolbar of compact, grouped section toggles. Each SectionToggle is
+    // a pictorial main button plus its own [1]/[2] file toggles, so file
+    // inclusion is chosen per-section (e.g. Directions for #2 only while Parans
+    // shows both).
     toolbar = new QToolBar(tr("Display Options"), this);
     toolbar->setMovable(false);
     toolbar->setFloatable(false);
+    toolbar->setStyleSheet("QToolBar { border: none; spacing: 2px; padding: 0; }");
 
-    describeInput = toolbar->addAction(tr("Input"));
-    describeInput->setCheckable(true);
-    describeInput->setChecked(false);
-    describeInput->setStatusTip(tr("Show input data"));
+    // glyph, tooltip, default-on
+    togInput = new SectionToggle(QString::fromUtf8("\U0001F4C4"),  // 📄
+                                 tr("Input data"), this);
+    togInput->setSectionOn(false);
+    togPlanets = new SectionToggle(QString::fromUtf8("\U0001FA90"), // 🪐
+                                   tr("Planets"), this);
+    togPlanets->setSectionOn(true);
+    togHouses = new SectionToggle(QString::fromUtf8("\U0001F3E0"),  // 🏠
+                                  tr("Houses"), this);
+    togHouses->setSectionOn(true);
+    togAspects = new SectionToggle(QString::fromUtf8("\U0001F4D0"), // 📐
+                                   tr("Aspects"), this);
+    togAspects->setSectionOn(true);
+    togDignities = new SectionToggle(
+        tr("Dig"), tr("Dignities — dignity and deficient points"), this);
+    togDignities->setSectionOn(false);
+    togDirections = new SectionToggle(
+        tr("Dir"),
+        tr("Directions — natal parans rolled up against primary directions"),
+        this);
+    togDirections->setSectionOn(true);
+    togSpeculum = new SectionToggle(QString::fromUtf8("\U0001F50E"), // 🔎
+                                    tr("Speculum — rise/set/MC/IC times"), this);
+    togSpeculum->setSectionOn(true);
+    togParans = new SectionToggle(
+        tr("Par"),
+        tr("Parans — latitudes (and cities) where each natal-body pair forms a "
+           "paran"),
+        this);
+    togParans->setSectionOn(false);
 
-    describePlanets = toolbar->addAction(tr("Planets"));
-    describePlanets->setCheckable(true);
-    describePlanets->setChecked(true);
-    describePlanets->setStatusTip(tr("Show planets"));
-
-    describeHouses = toolbar->addAction(tr("Houses"));
-    describeHouses->setCheckable(true);
-    describeHouses->setChecked(true);
-    describeHouses->setStatusTip(tr("Show houses"));
-
-    describeAspects = toolbar->addAction(tr("Aspects"));
-    describeAspects->setCheckable(true);
-    describeAspects->setChecked(true);
-    describeAspects->setStatusTip(tr("Show aspects"));
-
-    describePower = toolbar->addAction(tr("Dignities"));
-    describePower->setCheckable(true);
-    describePower->setChecked(false);
-    describePower->setStatusTip(
-        tr("Show dignity and deficient points for each planet"));
-
-    describeParans = toolbar->addAction(tr("Directions"));
-    describeParans->setCheckable(true);
-    describeParans->setChecked(true);
-    describeParans->setStatusTip(
-        tr("Show natal parans rolled up against primary directions"));
-
-    describeSpeculum = toolbar->addAction(tr("Speculum"));
-    describeSpeculum->setCheckable(true);
-    describeSpeculum->setChecked(true);
-    describeSpeculum->setStatusTip(
-        tr("Show rise/set/MC/IC times for each body"));
-
-    describeParanLats = toolbar->addAction(tr("Parans"));
-    describeParanLats->setCheckable(true);
-    describeParanLats->setChecked(false);
-    describeParanLats->setStatusTip(
-        tr("Show latitudes (and cities on them) at which each natal-body pair forms a paran"));
+    for (SectionToggle* t : { togInput, togPlanets, togHouses, togAspects,
+                              togDignities, togDirections, togSpeculum,
+                              togParans })
+        toolbar->addWidget(t);
 
     toolbar->addSeparator();
 
@@ -240,21 +442,11 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     displayModeSelector->setCurrentIndex(0); // Default to Local Time
     toolbar->addWidget(displayModeSelector);
 
-    // Insert chart selector buttons at the beginning of toolbar (after Input button)
-    chart1Btn = new QPushButton("1");
-    chart1Btn->setCheckable(true);
-    chart1Btn->setChecked(true); // Default to showing both charts
-    chart1Btn->setToolTip(tr("Show Chart #1"));
-    chart1Btn->setProperty("chartButton", true);
-    toolbar->insertWidget(describeInput, chart1Btn);
-
-    chart2Btn = new QPushButton("2");
-    chart2Btn->setCheckable(true);
-    chart2Btn->setChecked(true); // Default to showing both charts
-    chart2Btn->setToolTip(tr("Show Chart #2"));
-    chart2Btn->setProperty("chartButton", true);
-    toolbar->insertWidget(describeInput, chart2Btn);
-    chart2Btn->setVisible(false); // Initially hidden until 2nd chart loaded
+    // Match the section toggles' height to the display-mode combo so the whole
+    // toolbar row is uniform (and tall enough for the rounded frames).
+    const int rowH = displayModeSelector->sizeHint().height();
+    for (SectionToggle* t : sectionToggles())
+        t->setFixedHeight(rowH);
 
     view = new ReportBrowser();
     view->setAcceptDrops(false); // Disable drops on the view so parent Plain widget handles them
@@ -278,16 +470,16 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     layout->addWidget(toolbar);
     layout->addWidget(view);
 
-    connect(describeInput, &QAction::triggered, this, &Plain::refresh);
-    connect(describePlanets, &QAction::triggered, this, &Plain::refresh);
-    connect(describeHouses, &QAction::triggered, this, &Plain::refresh);
-    connect(describeAspects, &QAction::triggered, this, &Plain::refresh);
-    connect(describePower, &QAction::triggered, this, &Plain::refresh);
-    connect(describeParans, &QAction::triggered, this, &Plain::refresh);
-    connect(describeSpeculum, &QAction::triggered, this, &Plain::refresh);
-    connect(describeParanLats, &QAction::triggered, this, &Plain::refresh);
-    connect(chart1Btn, &QPushButton::clicked, this, &Plain::refresh);
-    connect(chart2Btn, &QPushButton::clicked, this, &Plain::refresh);
+    // Any change to a section (its master or a file box) re-renders the report;
+    // a navigate request scrolls the (freshly rebuilt) report to that section.
+    for (SectionToggle* t : { togInput, togPlanets, togHouses, togAspects,
+                              togDignities, togDirections, togSpeculum,
+                              togParans }) {
+        connect(t, &SectionToggle::changed, this, &Plain::refresh);
+        connect(t, &SectionToggle::navigate, this,
+                [this, t](int fileIndex) { scrollToSection(t, fileIndex); });
+    }
+
     connect(displayModeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
         A::SpeculumDisplayMode mode = A::SpeculumDisplayMode(displayModeSelector->currentData().toInt());
         emit displayModeChanged(mode);
@@ -347,6 +539,49 @@ Plain::updateAspectsCache()
     aspectsCached = true;
 }
 
+QList<SectionToggle*>
+Plain::sectionToggles() const
+{
+    return { togInput,      togPlanets,  togHouses,   togAspects,
+             togDignities,  togDirections, togSpeculum, togParans };
+}
+
+QList<Plain::SectionKey>
+Plain::sectionKeys() const
+{
+    return {
+        { togInput,      "Text/describeInput",     "Input" },
+        { togPlanets,    "Text/describePlanets",   "Planets" },
+        { togHouses,     "Text/describeHouses",    "Houses" },
+        { togAspects,    "Text/describeAspects",   "Aspects" },
+        { togDignities,  "Text/describePower",     "Dignities" },
+        { togDirections, "Text/describeParans",    "Directions" },
+        { togSpeculum,   "Text/describeSpeculum",  "Speculum" },
+        { togParans,     "Text/describeParanLats", "Parans" },
+    };
+}
+
+QString
+Plain::sectionAnchor(SectionToggle* t, int fileIndex) const
+{
+    QString base;
+    for (const auto& sk : sectionKeys())
+        if (sk.t == t) { base = sk.base; break; }
+    QString a = "sec_" + base;
+    if (fileIndex >= 0) a += "_" + QString::number(fileIndex + 1);
+    return a;
+}
+
+void
+Plain::scrollToSection(SectionToggle* t, int fileIndex)
+{
+    if (!view) return;
+    // The report was just rebuilt by refresh() (which also restored the old
+    // scroll position); jump to the requested anchor. A missing anchor (section
+    // empty / not rendered) is a harmless no-op.
+    view->scrollToAnchor(sectionAnchor(t, fileIndex));
+}
+
 void
 Plain::filesUpdated(MembersList m)
 {
@@ -354,8 +589,8 @@ Plain::filesUpdated(MembersList m)
         view->clear();
         chartsCount   = 0;
         aspectsCached = false;
-        // Hide chart 2 button when no files
-        chart2Btn->setVisible(false);
+        // No files: hide the per-section [1]/[2] file toggles.
+        for (SectionToggle* t : sectionToggles()) t->setFileCount(0);
         return;
     }
 
@@ -365,8 +600,8 @@ Plain::filesUpdated(MembersList m)
     bool chartsCountChanged = (chartsCount != filesCount());
     chartsCount             = filesCount();
 
-    // Show/hide chart 2 button based on number of files
-    chart2Btn->setVisible(filesCount() > 1);
+    // Show/hide each section's [1]/[2] file toggles based on the file count.
+    for (SectionToggle* t : sectionToggles()) t->setFileCount(filesCount());
 
     // File-data changes (GMT, Location) that affect aspect positions
     bool needsAspectUpdate = false;
@@ -422,36 +657,37 @@ Plain::refresh()
     QScrollBar* vScrollBar = view->verticalScrollBar();
     int         scrollPos  = vScrollBar->value();
 
-    // Determine which charts to display
-    bool showFirst  = true;
-    bool showSecond = true;
-
-    if (filesCount() > 1) {
-        showFirst  = chart1Btn->isChecked();
-        showSecond = chart2Btn->isChecked();
-    } else {
-        showSecond = false; // Only one chart available
-    }
+    // Per-section file selection. With a single chart only #1 is meaningful.
+    // With two charts, each section decides which files it includes via its own
+    // [1]/[2] toggles. showFirst/showSecond helpers below are evaluated
+    // per-section rather than globally.
+    const bool twoCharts = filesCount() > 1;
+    auto sec1 = [twoCharts](SectionToggle* t) {
+        return t->sectionOn() && (!twoCharts || t->fileOn(0));
+    };
+    auto sec2 = [twoCharts](SectionToggle* t) {
+        return t->sectionOn() && twoCharts && t->fileOn(1);
+    };
 
     // Get display mode from combo box data
     A::SpeculumDisplayMode displayMode =
         A::SpeculumDisplayMode(displayModeSelector->currentData().toInt());
 
     // Update aspects cache if needed (only when aspects will be displayed)
-    if (describeAspects->isChecked()) {
+    if (togAspects->sectionOn()) {
         updateAspectsCache();
     }
 
-    int articles = (A::Article_Input * describeInput->isChecked())
-                   | (A::Article_Planet * describePlanets->isChecked())
-                   | (A::Article_Houses * describeHouses->isChecked())
-                   | (A::Article_Aspects * describeAspects->isChecked())
-                   | (A::Article_Power * describePower->isChecked())
-                   | (A::Article_Parans * describeParans->isChecked())
+    int articles = (A::Article_Input * togInput->sectionOn())
+                   | (A::Article_Planet * togPlanets->sectionOn())
+                   | (A::Article_Houses * togHouses->sectionOn())
+                   | (A::Article_Aspects * togAspects->sectionOn())
+                   | (A::Article_Power * togDignities->sectionOn())
+                   | (A::Article_Parans * togDirections->sectionOn())
                    | (A::Article_DiurnalEvents * showAllDiurnalEvents)
-                   | (A::Article_Speculum * describeSpeculum->isChecked())
+                   | (A::Article_Speculum * togSpeculum->sectionOn())
                    | (A::Article_FixedStars * includeFixedStars)
-                   | (A::Article_ParanLatitudes * describeParanLats->isChecked());
+                   | (A::Article_ParanLatitudes * togParans->sectionOn());
 
     // Get theme-appropriate row highlight color (subtle overlay for alternating rows/headers)
     QString rowHighlightColor;
@@ -510,11 +746,13 @@ Plain::refresh()
 
     // Display input data for selected charts
     if (articles & A::Article_Input) {
+        html += "<a name=\"sec_Input\"></a>";
         if (filesCount() == 1) {
             html += A::describeInput(scope.inputData);
         } else if (filesCount() > 1) {
             // Display Chart #1
-            if (showFirst) {
+            if (sec1(togInput)) {
+                html += "<a name=\"sec_Input_1\"></a>";
                 html += "<h2>"
                         + QObject::tr("Chart #1: %1").arg(file(0)->getName())
                         + "</h2>";
@@ -522,7 +760,8 @@ Plain::refresh()
             }
 
             // Display Chart #2
-            if (showSecond) {
+            if (sec2(togInput)) {
+                html += "<a name=\"sec_Input_2\"></a>";
                 html += "<h2>"
                         + QObject::tr("Chart #2: %1").arg(file(1)->getName())
                         + "</h2>";
@@ -533,6 +772,7 @@ Plain::refresh()
 
     // Display planets for selected charts
     if (articles & A::Article_Planet) {
+        html += "<a name=\"sec_Planets\"></a>";
         if (filesCount() == 1 && scope.planets.count()) {
             html += "<h2>" + QObject::tr("Planets") + "</h2>";
             html +=
@@ -560,9 +800,10 @@ Plain::refresh()
             html += "</table>";
         } else if (filesCount() > 1) {
             // Chart #1 Planets
-            if (showFirst) {
+            if (sec1(togPlanets)) {
                 auto scope1 = file(0)->horoscope();
                 if (scope1.planets.count()) {
+                    html += "<a name=\"sec_Planets_1\"></a>";
                     html += "<h2>"
                             + QObject::tr("Planets - Chart #1: %1")
                                   .arg(file(0)->getName())
@@ -598,9 +839,10 @@ Plain::refresh()
             }
 
             // Chart #2 Planets
-            if (showSecond) {
+            if (sec2(togPlanets)) {
                 auto scope2 = file(1)->horoscope();
                 if (scope2.planets.count()) {
+                    html += "<a name=\"sec_Planets_2\"></a>";
                     html += "<h2>"
                             + QObject::tr("Planets - Chart #2: %1")
                                   .arg(file(1)->getName())
@@ -639,14 +881,16 @@ Plain::refresh()
 
     // Display houses for selected charts
     if (articles & A::Article_Houses) {
+        html += "<a name=\"sec_Houses\"></a>";
         if (filesCount() == 1 && scope.houses.system) {
             html +=
                 A::describeHouses(scope.houses, scope.zodiac, scope.planets);
         } else if (filesCount() > 1) {
             // Chart #1 Houses
-            if (showFirst) {
+            if (sec1(togHouses)) {
                 auto scope1 = file(0)->horoscope();
                 if (scope1.houses.system) {
+                    html += "<a name=\"sec_Houses_1\"></a>";
                     html +=
                         "<h3>"
                         + QObject::tr("Chart #1: %1").arg(file(0)->getName())
@@ -658,9 +902,10 @@ Plain::refresh()
             }
 
             // Chart #2 Houses
-            if (showSecond) {
+            if (sec2(togHouses)) {
                 auto scope2 = file(1)->horoscope();
                 if (scope2.houses.system) {
+                    html += "<a name=\"sec_Houses_2\"></a>";
                     html +=
                         "<h3>"
                         + QObject::tr("Chart #2: %1").arg(file(1)->getName())
@@ -675,10 +920,11 @@ Plain::refresh()
 
     // Display aspects
     if (articles & A::Article_Aspects) {
+        html += "<a name=\"sec_Aspects\"></a>";
         if (filesCount() == 1 && cachedChart1Aspects.count()) {
             html +=
                 A::describeAspectsTable(cachedChart1Aspects, aspectSortOrder);
-        } else if (filesCount() > 1 && showFirst && showSecond) {
+        } else if (filesCount() > 1 && sec1(togAspects) && sec2(togAspects)) {
             // Display synastry aspects only when both charts are shown
             if (cachedSynastryAspects.count()) {
                 html += "<h2>" + QObject::tr("Synastry Aspects") + "</h2>";
@@ -692,8 +938,9 @@ Plain::refresh()
             }
         } else if (filesCount() > 1) {
             // Show individual chart aspects when only one chart is selected
-            if (showFirst) {
+            if (sec1(togAspects)) {
                 if (cachedChart1Aspects.count()) {
+                    html += "<a name=\"sec_Aspects_1\"></a>";
                     html += "<h2>"
                             + QObject::tr("Aspects - Chart #1: %1")
                                   .arg(file(0)->getName())
@@ -702,8 +949,9 @@ Plain::refresh()
                                                     aspectSortOrder);
                 }
             }
-            if (showSecond) {
+            if (sec2(togAspects)) {
                 if (cachedChart2Aspects.count()) {
+                    html += "<a name=\"sec_Aspects_2\"></a>";
                     html += "<h2>"
                             + QObject::tr("Aspects - Chart #2: %1")
                                   .arg(file(1)->getName())
@@ -717,6 +965,7 @@ Plain::refresh()
 
     // Display planetary dignities/power for selected charts
     if (articles & A::Article_Power) {
+        html += "<a name=\"sec_Dignities\"></a>";
         if (filesCount() == 1 && scope.planets.count()) {
             html += "<h2>" + QObject::tr("Planetary Dignities") + "</h2>";
             foreach (const A::Planet& p, scope.planets) {
@@ -728,9 +977,10 @@ Plain::refresh()
             }
         } else if (filesCount() > 1) {
             // Chart #1 Dignities
-            if (showFirst) {
+            if (sec1(togDignities)) {
                 auto scope1 = file(0)->horoscope();
                 if (scope1.planets.count()) {
+                    html += "<a name=\"sec_Dignities_1\"></a>";
                     html += "<h2>"
                             + QObject::tr("Planetary Dignities - Chart #1: %1")
                                   .arg(file(0)->getName())
@@ -747,9 +997,10 @@ Plain::refresh()
             }
 
             // Chart #2 Dignities
-            if (showSecond) {
+            if (sec2(togDignities)) {
                 auto scope2 = file(1)->horoscope();
                 if (scope2.planets.count()) {
+                    html += "<a name=\"sec_Dignities_2\"></a>";
                     html += "<h2>"
                             + QObject::tr("Planetary Dignities - Chart #2: %1")
                                   .arg(file(1)->getName())
@@ -769,6 +1020,7 @@ Plain::refresh()
 
     // Display parans for selected charts
     if (articles & A::Article_Parans) {
+        html += "<a name=\"sec_Directions\"></a>";
         if (filesCount() == 1 && scope.planets.count()) {
             html += "<h2>" + QObject::tr("Directions") + "</h2>";
             html += A::describeParans(files(),
@@ -780,7 +1032,9 @@ Plain::refresh()
                                       nullptr);
         } else if (filesCount() > 1) {
             // Chart #1 Parans
-            if (showFirst && file(0) && file(0)->horoscope().planets.count()) {
+            if (sec1(togDirections) && file(0)
+                && file(0)->horoscope().planets.count()) {
+                html += "<a name=\"sec_Directions_1\"></a>";
                 html += "<h2>"
                         + QObject::tr("Directions - Chart #1: %1")
                               .arg(file(0)->getName())
@@ -798,7 +1052,9 @@ Plain::refresh()
             }
 
             // Chart #2 Parans — pass file(0) as natal context for Par=N filtering
-            if (showSecond && file(1) && file(1)->horoscope().planets.count()) {
+            if (sec2(togDirections) && file(1)
+                && file(1)->horoscope().planets.count()) {
+                html += "<a name=\"sec_Directions_2\"></a>";
                 html += "<h2>"
                         + QObject::tr("Directions - Chart #2: %1")
                               .arg(file(1)->getName())
@@ -819,6 +1075,7 @@ Plain::refresh()
 
     // Display paran-latitudes table for selected charts
     if (articles & A::Article_ParanLatitudes) {
+        html += "<a name=\"sec_Parans\"></a>";
         if (filesCount() == 1 && scope.planets.count()) {
             html += "<h2>" + QObject::tr("Parans") + "</h2>";
             html += A::describeParanLatitudes(scope,
@@ -830,7 +1087,9 @@ Plain::refresh()
                                               paranCityContinentMask,
                                               displayMode);
         } else if (filesCount() > 1) {
-            if (showFirst && file(0) && file(0)->horoscope().planets.count()) {
+            if (sec1(togParans) && file(0)
+                && file(0)->horoscope().planets.count()) {
+                html += "<a name=\"sec_Parans_1\"></a>";
                 html += "<h2>"
                         + QObject::tr("Parans - Chart #1: %1")
                               .arg(file(0)->getName())
@@ -844,7 +1103,9 @@ Plain::refresh()
                                                   paranCityContinentMask,
                                                   displayMode);
             }
-            if (showSecond && file(1) && file(1)->horoscope().planets.count()) {
+            if (sec2(togParans) && file(1)
+                && file(1)->horoscope().planets.count()) {
+                html += "<a name=\"sec_Parans_2\"></a>";
                 html += "<h2>"
                         + QObject::tr("Parans - Chart #2: %1")
                               .arg(file(1)->getName())
@@ -884,15 +1145,17 @@ Plain::refresh()
 
     // Display speculum for selected charts
     if (articles & A::Article_Speculum) {
+        html += "<a name=\"sec_Speculum\"></a>";
         if (filesCount() == 1 && scope.planets.count()) {
             html += A::describeSpeculum(scope,
                                         bool(articles & A::Article_FixedStars),
                                         displayMode);
         } else if (filesCount() > 1) {
             // Chart #1 Speculum
-            if (showFirst) {
+            if (sec1(togSpeculum)) {
                 auto scope1 = file(0)->horoscope();
                 if (scope1.planets.count()) {
+                    html += "<a name=\"sec_Speculum_1\"></a>";
                     html +=
                         "<h3>"
                         + QObject::tr("Chart #1: %1").arg(file(0)->getName())
@@ -905,9 +1168,10 @@ Plain::refresh()
             }
 
             // Chart #2 Speculum
-            if (showSecond) {
+            if (sec2(togSpeculum)) {
                 auto scope2 = file(1)->horoscope();
                 if (scope2.planets.count()) {
+                    html += "<a name=\"sec_Speculum_2\"></a>";
                     html +=
                         "<h3>"
                         + QObject::tr("Chart #2: %1").arg(file(1)->getName())
@@ -940,8 +1204,12 @@ Plain::defaultSettings()
     s.setValue("Text/describeParans", true);
     s.setValue("Text/describeSpeculum", false);
     s.setValue("Text/describeParanLats", false);
-    s.setValue("Plain/chart1Visible", true);  // Default to showing both
-    s.setValue("Plain/chart2Visible", true);  // Default to showing both
+    // Per-section file inclusion (Chart #1 / #2). Default: include both.
+    for (const char* base : { "Input", "Planets", "Houses", "Aspects",
+                              "Dignities", "Directions", "Speculum", "Parans" }) {
+        s.setValue(QString("Plain/%1_f1").arg(base), true);
+        s.setValue(QString("Plain/%1_f2").arg(base), true);
+    }
     s.setValue("Mundane/displayMode", unsigned(A::DisplayLocalTime));
     s.setValue("Mundane/primDirMode", unsigned(A::prdMundane));
     s.setValue("Mundane/showAllDiurnalEvents", false);
@@ -972,16 +1240,12 @@ AppSettings
 Plain::currentSettings()
 {
     AppSettings s;
-    s.setValue("Text/describeInput", describeInput->isChecked());
-    s.setValue("Text/describePlanets", describePlanets->isChecked());
-    s.setValue("Text/describeHouses", describeHouses->isChecked());
-    s.setValue("Text/describeAspects", describeAspects->isChecked());
-    s.setValue("Text/describePower", describePower->isChecked());
-    s.setValue("Text/describeParans", describeParans->isChecked());
-    s.setValue("Text/describeSpeculum", describeSpeculum->isChecked());
-    s.setValue("Text/describeParanLats", describeParanLats->isChecked());
-    s.setValue("Plain/chart1Visible", chart1Btn->isChecked());
-    s.setValue("Plain/chart2Visible", chart2Btn->isChecked());
+    // Section main on/off (legacy Text/describe* keys) plus per-section [1]/[2].
+    for (const auto& sk : sectionKeys()) {
+        s.setValue(sk.mainKey, sk.t->sectionOn());
+        s.setValue(QString("Plain/%1_f1").arg(sk.base), sk.t->fileOn(0));
+        s.setValue(QString("Plain/%1_f2").arg(sk.base), sk.t->fileOn(1));
+    }
     s.setValue("Mundane/displayMode",
                unsigned(displayModeSelector->currentData().toInt()));
     s.setValue("Mundane/primDirMode", unsigned(A::primDirMode));
@@ -1012,18 +1276,15 @@ Plain::currentSettings()
 void
 Plain::applySettings(const AppSettings& s)
 {
-    describeInput->setChecked(s.value("Text/describeInput").toBool());
-    describePlanets->setChecked(s.value("Text/describePlanets").toBool());
-    describeHouses->setChecked(s.value("Text/describeHouses").toBool());
-    describeAspects->setChecked(s.value("Text/describeAspects").toBool());
-    describePower->setChecked(s.value("Text/describePower").toBool());
-    describeParans->setChecked(s.value("Text/describeParans").toBool());
-    describeSpeculum->setChecked(s.value("Text/describeSpeculum").toBool());
-    describeParanLats->setChecked(s.value("Text/describeParanLats").toBool());
-
-    // Restore chart button states
-    chart1Btn->setChecked(s.value("Plain/chart1Visible").toBool());
-    chart2Btn->setChecked(s.value("Plain/chart2Visible").toBool());
+    // Restore each section's main on/off and its per-file [1]/[2] toggles.
+    // Legacy sessions lack the Plain/<section>_fN keys → default both files on.
+    for (const auto& sk : sectionKeys()) {
+        sk.t->setSectionOn(s.value(sk.mainKey).toBool());
+        sk.t->setFileOn(
+            0, s.value(QString("Plain/%1_f1").arg(sk.base), true).toBool());
+        sk.t->setFileOn(
+            1, s.value(QString("Plain/%1_f2").arg(sk.base), true).toBool());
+    }
 
     A::SpeculumDisplayMode loadedMode =
         A::SpeculumDisplayMode(s.value("Mundane/displayMode").toUInt());

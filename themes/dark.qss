@@ -184,6 +184,17 @@ Plain QToolBar QToolButton:checked {
 	font-weight: bold;
 }
 
+/* Compact self-painted per-section toggles in the Plain (Tables) toolbar.
+   Colors are fed to the widget's painter via qproperty-* so they track the
+   theme and match the Events-dock toolbuttons (#4f4f4f unchecked). */
+SectionToggle {
+	qproperty-offColor: #4f4f4f;
+	qproperty-textColor: #e9e9e4;
+	qproperty-borderColor: #555555;
+	qproperty-miniOffColor: #46505d;
+	qproperty-miniOffTextColor: #c8ccd0;
+}
+
 Plain QToolBar QPushButton[chartButton="true"] {
 	color: #e9e9e4;
 	font-size: 10pt;
