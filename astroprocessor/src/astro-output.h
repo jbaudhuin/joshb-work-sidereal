@@ -117,7 +117,8 @@ describeParanLatitudes(const Horoscope&    natal,
                        unsigned            cityPopMask,
                        unsigned            cityContinentMask,
                        SpeculumDisplayMode displayMode = DisplayLocalTime,
-                       const Horoscope*    transitCtx  = nullptr);
+                       const Horoscope*    transitCtx  = nullptr,
+                       bool                natalSynthesized = false);
 QString
 _formatTime(const QDateTime& dt, double tz);
 QString

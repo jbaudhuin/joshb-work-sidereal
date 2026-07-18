@@ -424,6 +424,16 @@ bool
 natalTropicalEquatorialPos(PlanetId pid, double jdNatal,
                            double& ra_out, double& dec_out);
 
+/// Tropical RA/Dec for a (possibly synthesized) horoscope planet.
+/// Tropical zodiac: p.equatorialPos is already tropical RA/Dec.
+/// Sidereal: recover tropical ecliptic lon by adding the ayanamsa at the
+/// chart's epoch, then convert to equatorial at that epoch's obliquity.
+/// Used for midpoint-composite charts, whose positions cannot be recomputed
+/// from the ephemeris.
+bool
+horoscopeTropicalEquatorialPos(const Planet& p, const Horoscope& scope,
+                               double& raTrop, double& decTrop);
+
 /// Compute the 4 angle-transit times and RAs for a natal body at its
 /// ex-precessed position on the day containing d_jd, at the given location.
 /// angleTransit_out[0..3] = Asc/Desc/MC/IC QDateTimes (invalid if unavailable).
@@ -491,11 +501,15 @@ struct ParanLatitudeRow {
 /// `transitCtx->inputData.GMT()` and the natal body's RA/Dec ex-precessed
 /// to that same epoch.  natalOrb is then measured at the *transit*
 /// location.  Rows emitted from this pass have aIsNatal=false, bIsNatal=true.
+/// When `natalSynthesized` is set (midpoint-composite charts), natal body
+/// RA/Dec is taken from the horoscope's synthesized positions instead of
+/// being recomputed from the ephemeris.
 void
 enumerateNatalParanLatitudes(const Horoscope& natal,
                              double           paranOrbDeg,
                              QVector<ParanLatitudeRow>& out,
-                             const Horoscope* transitCtx = nullptr);
+                             const Horoscope* transitCtx = nullptr,
+                             bool             natalSynthesized = false);
 
 float
 roundDegree(float deg); // returns 0...360
@@ -1037,6 +1051,10 @@ class AspectFinder : public QObject, public EventOptions {
     ADateRange      _range;
 
     QList<InputData> _ids;
+    /// Composite component inputs. Address-stable (std::list): InputPosition
+    /// inners hold const InputData& into these entries — never store them in
+    /// the QList _ids, which may reallocate.
+    std::list<InputData> _auxIds;
     PlanetProfile    _alist; ///< the planet objects to compute
 
     unsigned _gt;
@@ -1312,16 +1330,27 @@ inline QString angleTransitName(int index)
 //   planetRA: The planet's Right Ascension in degrees
 //   angleRA: The angle's Right Ascension in degrees (Asc RAAC, MC RAMC, etc.)
 //   pssrCtx: PSSR context (null for PD mode)
+//   radixRA: The radix RAMC / local sidereal time in RA degrees. When supplied
+//     (>= 0), the Primary Direction arc is derived from RA (calendar-independent);
+//     the sentinel default falls back to the legacy datetime-difference formula.
 QDateTime
 calculateAngularDate(const QDateTime&   radixTime,
                      const QDateTime&   angleTime,
                      double             planetRA,
                      double             angleRA,
                      const PSSRContext* pssrCtx = nullptr,
-                     const QString&     debugLabel = {});
+                     const QString&     debugLabel = {},
+                     double             radixRA = -1000.0);
 
 Horoscope
 calculateAll(const InputData& input);
+
+/// Midpoint composite: each planet is the shorter-arc midpoint of the two
+/// source charts' positions; houses are derived from the composite MC at the
+/// reference location (ref = midpoint time & place). The result does not
+/// correspond to a real moment in time.
+Horoscope
+calculateComposite(const InputData& a, const InputData& b, const InputData& ref);
 
 // ============================================================================
 // Chart Presets — loaded from bin/astroprocessor/chart-presets.csv

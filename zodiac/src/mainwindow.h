@@ -277,8 +277,8 @@ class AstroDatabase : public QFrame {
     void openSelectedAsSecond();
     void openSelectedWithSolarReturn();
     void openSelectedSolarReturnInNewTab();
-    void openSelectedComposite();
-    void findSelectedDerived();
+    void openSelectedCompositeMidpoint();
+    void openSelectedCompositeDavison();
     void deleteSelected();
     void openSessionInNewWindow();
     void loadSessionsInCurrent();
@@ -305,10 +305,10 @@ class AstroDatabase : public QFrame {
     void openFileInNewTabWithTransits(const AFileInfo&);
     void openFileInNewTabWithProgressions(const AFileInfo&);
     void openFileAsSecond(const AFileInfo&);
-    void openFilesComposite(const AFileInfoList&);
+    void openFilesCompositeMidpoint(const AFileInfoList&);
+    void openFilesCompositeDavison(const AFileInfoList&);
     void openFileReturn(const AFileInfo&, const QString& = "Sun");
     void openFileInNewTabWithReturn(const AFileInfo&, const QString& = "Sun");
-    void findSelectedDerived(const AFileInfo&);
     void saveCurrentToDirectory(const QString& directory);
     void closeSecondaryChartRequested();
 
@@ -328,8 +328,6 @@ class FilesBar : public QTabBar {
     bool                 askToSave;
     QList<AstroFileList> files;
 
-    QString _finding, _findingDerived;
-
     int  getTabIndex(AstroFile* f, bool seekFirstFileOnly = false);
     int  getTabIndex(QString name, bool seekFirstFileOnly = false);
 
@@ -346,7 +344,6 @@ class FilesBar : public QTabBar {
     void addFile(AstroFile* file);
     void addNewFile() { addFile(new AstroFile); }
     void editNewChart();
-    void findChart();
     void saveAsCurrentFile();
     void swapCurrentFiles(int, int);
     void openFile(const AFileInfo& name);
@@ -358,9 +355,9 @@ class FilesBar : public QTabBar {
     void openTransits(int);
     void openFileAsSecond(const AFileInfo& name = AFileInfo());
     void openTransitsAsSecond(AstroFile* af);
-    void openFileComposite(const AFileInfoList& names);
+    void openFileCompositeMidpoint(const AFileInfoList& names);
+    void openFileCompositeDavison(const AFileInfoList& names);
     void openFileReturn(const AFileInfo& name, const QString& body);
-    void findDerivedChart(const AFileInfo& name);
     void openFileInNewTabWithReturn(const AFileInfo& name, const QString& body);
     void nextTab() { setCurrentIndex((currentIndex() + 1) % count()); }
     bool closeTab(int);

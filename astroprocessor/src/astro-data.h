@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <deque>
 #include <fstream>
+#include <memory>
 #include <set>
 
 #include <math.h>
@@ -37,6 +38,7 @@ enum FileType {
     TypeDerivedSearch,
     TypeParan,
     TypeApparition,   // heliacal apparition: discrete occurrence stepping (like TypeParan)
+    TypeComposite,    // midpoint composite: synthesized from two source charts
     TypeCount
 };
 
@@ -1601,6 +1603,18 @@ class NatalPosition : public InputPosition {
         speed    = 0;
     }
 
+    /// Seeds a fixed natal loc directly (e.g. a midpoint-composite's
+    /// synthesized position); does NOT consult the ephemeris.
+    NatalPosition(const ChartPlanetId& cpid,
+                  const InputData&     ida,
+                  qreal                syntheticLoc,
+                  const QString&       tag = "") :
+        InputPosition(cpid, ida, tag)
+    {
+        loc = _rasiLoc = syntheticLoc;
+        speed = 0;
+    }
+
     Loc* clone() const override { return new NatalPosition(*this); }
 
     qreal operator()(double, int h) override
@@ -1627,6 +1641,27 @@ class NatalExprecessedPosition : public NatalPosition {
                              const InputData&     ida,
                              const QString&       tag = "");
 
+    /// Seeds explicit tropical RA/Dec + ecliptic coords at a given epoch
+    /// instead of computing from the ephemeris. Used for synthesized
+    /// (midpoint-composite) natal positions, where there is no real natal
+    /// sky to consult.
+    NatalExprecessedPosition(const ChartPlanetId& cpid,
+                             const InputData&     ida,
+                             double               raTrop,
+                             double               decTrop,
+                             double               eclLonTrop,
+                             double               eclLat,
+                             double               jdEpoch,
+                             const QString&       tag = "") :
+        NatalPosition(cpid, ida, raTrop, tag),
+        _natalRA(raTrop),
+        _natalDec(decTrop),
+        _eclLon(eclLonTrop),
+        _eclLat(eclLat),
+        _jdNatal(jdEpoch)
+    {
+    }
+
     Loc* clone() const override
     {
         return new NatalExprecessedPosition(*this);
@@ -1646,6 +1681,43 @@ class NatalExprecessedPosition : public NatalPosition {
     bool radecSpeedAt(double jd,
                       double& ra,    double& dec,
                       double& dRAdt, double& dDecdt) const;
+};
+
+/// Fixed natal-side position for a midpoint-composite chart: the synthesized
+/// (shorter-arc midpoint) longitude, carrying tropical RA/Dec and ecliptic
+/// lon/lat so the paran finder can build ex-precession sidecars without
+/// consulting the ephemeris (a composite has no real natal sky).
+class CompositeNatalPosition : public NatalPosition {
+    double _raTrop, _decTrop;    ///< synthesized tropical RA/Dec
+    double _eclLonTrop, _eclLat; ///< synthesized tropical ecliptic lon/lat
+    double _jdEpoch;             ///< composite reference epoch (ref chart jd)
+
+  public:
+    CompositeNatalPosition(const ChartPlanetId& cpid,
+                           const InputData&     refIda,
+                           qreal                loc,
+                           double               raTrop,
+                           double               decTrop,
+                           double               eclLonTrop,
+                           double               eclLat,
+                           double               jdEpoch,
+                           const QString&       tag = "r") :
+        NatalPosition(cpid, refIda, loc, tag),
+        _raTrop(raTrop),
+        _decTrop(decTrop),
+        _eclLonTrop(eclLonTrop),
+        _eclLat(eclLat),
+        _jdEpoch(jdEpoch)
+    {
+    }
+
+    Loc* clone() const override { return new CompositeNatalPosition(*this); }
+
+    double raTrop() const { return _raTrop; }
+    double decTrop() const { return _decTrop; }
+    double eclLonTrop() const { return _eclLonTrop; }
+    double eclLat() const { return _eclLat; }
+    double epochJd() const { return _jdEpoch; }
 };
 
 class TransitPosition : public InputPosition {
@@ -1710,6 +1782,45 @@ class ProgressedPosition : public InputPosition {
     }
 
     PlanetLocMode mode() const override { return plmProgressed; }
+};
+
+/// Moving composite position: the shorter-arc midpoint of two per-component
+/// positions (e.g. two ProgressedPositions, each anchored at its own natal
+/// moment — the "progressed composite" technique). Owns and deep-clones its
+/// inner locs.
+class CompositePosition : public PlanetLoc {
+    std::unique_ptr<PlanetLoc> _a, _b;
+
+  public:
+    CompositePosition(const ChartPlanetId& cpid,
+                      PlanetLoc*           a,   // takes ownership
+                      PlanetLoc*           b,   // takes ownership
+                      const QString&       tag) :
+        PlanetLoc(cpid, tag),
+        _a(a),
+        _b(b)
+    {
+    }
+
+    CompositePosition(const CompositePosition& other) :
+        PlanetLoc(other),
+        _a(static_cast<PlanetLoc*>(other._a->clone())),
+        _b(static_cast<PlanetLoc*>(other._b->clone()))
+    {
+    }
+
+    Loc* clone() const override { return new CompositePosition(*this); }
+
+    bool inMotion() const override
+    {
+        return _a->inMotion() || _b->inMotion();
+    }
+
+    PlanetLocMode mode() const override { return _a->mode(); }
+
+    const InputData& input() const override { return _a->input(); }
+
+    qreal operator()(double jd, int h) override; // out-of-line: swe_ helpers
 };
 
 class SolarArcPosition : public InputPosition {

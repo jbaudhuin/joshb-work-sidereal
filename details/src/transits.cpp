@@ -1737,8 +1737,9 @@ class EventsTableModel : public QAbstractItemModel {
         if (_natalFile) {
             auto fileType = _natalFile->getType();
             // Only return horoscope for natal charts (Male, Female, Event)
+            // and composites (whose synthesized positions carry houseRuler)
             if (fileType == TypeMale || fileType == TypeFemale
-                || fileType == TypeEvent)
+                || fileType == TypeEvent || fileType == TypeComposite)
             {
                 return _natalFile->horoscope();
             }
@@ -3109,7 +3110,8 @@ Transits::transitsOnly() const
     if (filesCount() != 1) return false;
     
     auto ftype = file()->getType();
-    return (ftype != TypeMale && ftype != TypeFemale && ftype != TypeEvent && ftype != TypeReturn);
+    return (ftype != TypeMale && ftype != TypeFemale && ftype != TypeEvent
+            && ftype != TypeReturn && ftype != TypeComposite);
 }
 
 EventsTableModel*
@@ -3835,7 +3837,10 @@ Transits::onChartTimeDragged(AstroFile* draggedFile)
     // moment doesn't change the (date-range-based) event list, so leave it.
     if (filesCount() == 0 || !file(0) || draggedFile != file(0)) return;
     const FileType t = file(0)->getType();
-    if (t != TypeMale && t != TypeFemale && t != TypeEvent) return;
+    // Composite included: dragging the ref time moves the composite houses/
+    // angles and the paran epoch, so angle/cusp/paran events go stale.
+    if (t != TypeMale && t != TypeFemale && t != TypeEvent
+        && t != TypeComposite) return;
 
     // The natal moment moved → natal-relative events are stale. Mark and
     // reconcile (recomputes now if Auto is on, else lights the Refresh button).
@@ -4717,7 +4722,17 @@ Transits::clickedCell(QModelIndex inx)
                    || et == A::etcInnerProgressedToNatal
                    || et == A::etcTransitToProgressed)
         {
-            taf->setType(TypeDerivedProg);
+            if (file()->getType() == TypeComposite
+                && file()->hasCompositeSources()) {
+                // Progressed composite: render the midpoint of the two
+                // progressed components — the same positions the event
+                // search used. Sources first: setBaseChart recalculates
+                // immediately, and composite+baseChart ⇒ progressed.
+                taf->setCompositeSources(file()->compositeFile(0),
+                                         file()->compositeFile(1));
+            } else {
+                taf->setType(TypeDerivedProg);
+            }
             taf->setBaseChart(file()->getGMT());
         } else if (et == A::etcParanatellonta
                    || et == A::etcParanatellontaToNatal)
@@ -4835,12 +4850,21 @@ Transits::doubleClickedCell(QModelIndex inx)
         || et == A::etcProgressedToNatal
         || et == A::etcInnerProgressedToNatal
         || et == A::etcTransitToProgressed) {
-        af->setType(TypeDerivedProg);
-        // Set the natal chart as the base for progressions
-        if (!transitsOnly() && file()) {
+        if (!transitsOnly() && file()
+            && file()->getType() == TypeComposite
+            && file()->hasCompositeSources()) {
+            // Progressed composite (see the transit-chart path above)
+            af->setCompositeSources(file()->compositeFile(0),
+                                    file()->compositeFile(1));
             af->setBaseChart(file()->getGMT());
         } else {
-            af->clearBaseChart();
+            af->setType(TypeDerivedProg);
+            // Set the natal chart as the base for progressions
+            if (!transitsOnly() && file()) {
+                af->setBaseChart(file()->getGMT());
+            } else {
+                af->clearBaseChart();
+            }
         }
     } else if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
         af->setType(TypeParan);
@@ -5525,9 +5549,13 @@ Transits::filesUpdated(MembersList m)
         // TypeOther so that GMT/Location changes and tab-switch diffs correctly
         // trigger describePlanet().  Without this, type >= TypeSearch causes the
         // entire block to be skipped, leaving the model empty after tab switch.
-        bool isTransitLike = (type < TypeSearch || type == TypeParan);
+        // TypeComposite (also > TypeSearch) acts as a natal reference and its
+        // GMT/Location changes move the houses reference and paran epoch.
+        bool isTransitLike = (type < TypeSearch || type == TypeParan
+                              || type == TypeComposite);
         if (isTransitLike) {
-            if (f == 0 ? (type <= TypeReturn || type == TypeParan)
+            if (f == 0 ? (type <= TypeReturn || type == TypeParan
+                          || type == TypeComposite)
                        : (type == TypeMale || type == TypeFemale
                           || type == TypeEvent))
             {

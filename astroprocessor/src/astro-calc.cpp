@@ -689,6 +689,25 @@ NatalExprecessedPosition::radecSpeedAt(double jd,
 }
 
 // ---------------------------------------------------------------------------
+// CompositePosition — operator()
+// ---------------------------------------------------------------------------
+
+qreal
+CompositePosition::operator()(double jd, int h)
+{
+    (*_a)(jd, 1);
+    (*_b)(jd, 1);
+    _rasiLoc = swe_degnorm(_a->loc + swe_difdeg2n(_b->loc, _a->loc) / 2.0);
+    speed    = (_a->speed + _b->speed) / 2.0;
+    loc      = _rasiLoc;
+    if (h > 1) {
+        loc = fmod(_rasiLoc * h, 360.);
+        speed *= h;
+    }
+    return loc;
+}
+
+// ---------------------------------------------------------------------------
 // Horoscope::applyExprecession / clearExprecession
 // ---------------------------------------------------------------------------
 
@@ -2299,11 +2318,23 @@ calculateHouses(const InputData& input, double progressedMC)
     double eps = xx[0];
     ret.eps    = eps;
 
-    // Use the provided progressed MC
+    // The given MC is in the DISPLAY zodiac; the spherical geometry below
+    // (cotrans to RA, swe_houses_armc) lives in the tropical frame. Convert
+    // in, do everything tropical, convert the outputs back — otherwise a
+    // sidereal MC is misread as tropical and the whole frame (RAMC, hence
+    // prime-vertical and equatorial positions) rotates by the ayanamsa.
+    double ay = 0;
+    if (input.zodiac() > 1) {
+        swe_set_sid_mode(input.zodiac() - 2, 0, 0);
+        ay = swe_get_ayanamsa(jd);
+    }
+    double mcTrop = swe_degnorm(progressedMC + ay);
+
+    // Use the provided progressed MC (display frame)
     ret.MC = progressedMC;
 
-    // Convert MC to RAMC
-    xx[0] = progressedMC;
+    // Convert (tropical) MC to RAMC
+    xx[0] = mcTrop;
     xx[1] = 0.0;
     xx[2] = 1.0;
     swe_cotrans(xx, xx, -eps);
@@ -2316,7 +2347,7 @@ calculateHouses(const InputData& input, double progressedMC)
 
     double hcusps[14], ascmc[11];
 
-    // Use swe_houses_armc to calculate houses from RAMC
+    // Use swe_houses_armc to calculate houses from RAMC (tropical outputs)
     swe_houses_armc(ret.RAMC,
                     geopos[1],
                     eps,
@@ -2324,30 +2355,32 @@ calculateHouses(const InputData& input, double progressedMC)
                     hcusps,
                     ascmc);
 
-    for (int i = 0; i < 12; i++) ret.cusp[i] = hcusps[i + 1];
+    for (int i = 0; i < 12; i++)
+        ret.cusp[i] = swe_degnorm(hcusps[i + 1] - ay);
 
-    ret.Asc = ascmc[0];
-    ret.Vx  = ascmc[3];
-    ret.EA  = ascmc[4];
+    double ascTrop = ascmc[0];
+    ret.Asc = swe_degnorm(ascTrop - ay);
+    ret.Vx  = swe_degnorm(ascmc[3] - ay);
+    ret.EA  = swe_degnorm(ascmc[4] - ay);
 
-    // Calculate RAAC (RA of Ascendant)
-    xx[0] = ret.Asc;
+    // Calculate RAAC (RA of Ascendant) — from the tropical Asc
+    xx[0] = ascTrop;
     xx[1] = 0.0;
     xx[2] = 1.0;
     swe_cotrans(xx, xx, -eps);
     ret.RAAC = xx[0];
 
-    xx[0] = swe_degnorm(ret.Asc + 180);
+    xx[0] = swe_degnorm(ascTrop + 180);
     xx[1] = 0.0;
     xx[2] = 1.0;
     swe_cotrans(xx, xx, -eps);
     ret.RADC = xx[0];
 
-    // Calculate oblique ascension
-    double DD = asind(sind(eps) * sind(ret.Asc));
+    // Calculate oblique ascension (declination needs the tropical Asc)
+    double DD = asind(sind(eps) * sind(ascTrop));
     double AD = asind(tand(DD) * tand(input.location().y()));
     ret.OAAC  = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
-    DD        = asind(sind(eps) * sind(swe_degnorm(ret.Asc + 180)));
+    DD        = asind(sind(eps) * sind(swe_degnorm(ascTrop + 180)));
     AD        = asind(tand(DD) * tand(input.location().y()));
     ret.ODDC  = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
 
@@ -4132,7 +4165,8 @@ calculateAngularDate(const QDateTime&   radixTime,
                      double             planetRA,
                      double             angleRA,
                      const PSSRContext* pssrCtx,
-                     const QString&     debugLabel)
+                     const QString&     debugLabel,
+                     double             radixRA)
 {
     if (pssrCtx && pssrCtx->isValid
         && (pssrCtx->method == DirSQ || pssrCtx->method == DirNeoSQ)) {
@@ -4226,13 +4260,33 @@ calculateAngularDate(const QDateTime&   radixTime,
         return result;
         
     } else {
-        // Primary Direction mode - original formula
-        // angleTime is when planet crosses angle (from angleTransit array)
-        // The original formula used time difference in seconds, scaled by (365.25/240)
-        // This appears to convert sidereal time difference to solar days
-        double dist = qAbs(radixTime.secsTo(angleTime));
-        int dayDiff = dist * (365.25 / 240.0);
-        return radixTime.addDays(dayDiff);
+        // Primary Direction mode (Ptolemy/Naibod ~1°/year).
+        //
+        // The arc of direction is the sidereal separation between the radix
+        // RAMC and the body's angle-transit — at most 180° (the nearest
+        // transit within ±12h). Its *magnitude* dates both direct (transit
+        // after the radix) and converse (before) directions forward from the
+        // radix, exactly as the original did:
+        //   arc°  = signed(angleRA − radixRA) folded into (−180°, 180°]
+        //   days  = |arc°| × 365.25
+        //
+        // Prefer deriving this from right ascension (calendar-independent). The
+        // legacy datetime path radixTime→angleTime is corrupted when the two
+        // live in different calendars — e.g. an Old-Style (Julian) radix vs a
+        // Gregorian transit datetime differ by the ~10-day 17th-century gap,
+        // inflating the arc (and the directed date) by millennia.
+        double dayDiff;
+        if (radixRA >= 0.0) {
+            double arc = angleRA - radixRA;
+            while (arc > 180.0)   arc -= 360.0;
+            while (arc <= -180.0) arc += 360.0;
+            dayDiff = qAbs(arc) * 365.25;
+        } else {
+            // Legacy fallback (no radix RA supplied).
+            double dist = qAbs(radixTime.secsTo(angleTime));
+            dayDiff = dist * (365.25 / 240.0);
+        }
+        return radixTime.addDays(static_cast<qint64>(dayDiff));
     }
 }
 
@@ -4390,6 +4444,136 @@ calculateAll(const InputData& input)
     if (scope.planets.contains(-1)) {
         qDebug() << "Wha?";
     }
+
+    return scope;
+}
+
+Horoscope
+calculateComposite(const InputData& a, const InputData& b, const InputData& ref)
+{
+    Horoscope ha = calculateAll(a);
+    Horoscope hb = calculateAll(b);
+
+    auto mid = [](double x, double y) {
+        return swe_degnorm(x + swe_difdeg2n(y, x) / 2.0);
+    };
+
+    Horoscope scope;
+    scope.inputData = ref;
+    scope.zodiac    = getZodiac(ref.zodiac());
+
+    // Composite MC = shorter-arc midpoint of the two natal MCs; houses derived
+    // from it at the reference location and obliquity (conventional method).
+    double compMC = mid(ha.houses.MC, hb.houses.MC);
+    scope.houses  = calculateHouses(ref, compMC);
+
+    for (PlanetId id : getPlanets(true, true)) {
+        if (id == Planet_Asc) {
+            Planet asc = Data::getPlanet(id);
+            asc.eclipticPos.setX(scope.houses.Asc);
+            asc.equatorialPos.setX(scope.houses.RAAC);
+            asc.pvPos         = 0;
+            scope.planets[id] = asc;
+        } else if (id == Planet_Desc) {
+            Planet desc = Data::getPlanet(id);
+            desc.eclipticPos.setX(swe_degnorm(180. + scope.houses.Asc));
+            desc.equatorialPos.setX(swe_degnorm(180. + scope.houses.RAAC));
+            desc.pvPos        = 180;
+            scope.planets[id] = desc;
+        } else if (id == Planet_MC) {
+            Planet mc = Data::getPlanet(id);
+            mc.eclipticPos.setX(scope.houses.MC);
+            mc.equatorialPos.setX(scope.houses.RAMC);
+            mc.pvPos          = 270;
+            scope.planets[id] = mc;
+        } else if (id == Planet_IC) {
+            Planet ic = Data::getPlanet(id);
+            ic.eclipticPos.setX(swe_degnorm(180. + scope.houses.MC));
+            ic.equatorialPos.setX(swe_degnorm(180. + scope.houses.RAMC));
+            ic.pvPos          = 90;
+            scope.planets[id] = ic;
+        } else if (id > Planet_Asc && id <= House_12) {
+            Planet hc = Data::getPlanet(id);
+            hc.eclipticPos.setX(scope.houses.cusp[id - Planet_Asc]);
+            hc.equatorialPos.setX(scope.houses.cusp[id - Planet_Asc]); // XXX
+            hc.pvPos          = 30 * (id - Planet_Asc);
+            hc.house          = id - Planet_Asc;
+            scope.planets[id] = hc;
+        } else {
+            // Real body: shorter-arc midpoint of the two source positions.
+            // Note: phaseAngle/elongation/horizontalPos/speculum data are
+            // copied from chart A, not midpointed — they have no composite
+            // meaning.
+            Planet        p = ha.planets[id];
+            const Planet& q = hb.planets[id];
+
+            p.eclipticPos.setX(mid(p.eclipticPos.x(), q.eclipticPos.x()));
+            p.eclipticPos.setY((p.eclipticPos.y() + q.eclipticPos.y()) / 2);
+            p.equatorialPos.setX(mid(p.equatorialPos.x(), q.equatorialPos.x()));
+            p.equatorialPos.setY((p.equatorialPos.y() + q.equatorialPos.y()) / 2);
+            p.eclipticSpeed   = (p.eclipticSpeed + q.eclipticSpeed) / 2;
+            p.equatorialSpeed = (p.equatorialSpeed + q.equatorialSpeed) / 2;
+
+            // Prime-vertical position is a LOCAL-frame quantity (a Campanus
+            // house position against a chart's own RAMC/latitude) — the two
+            // components' pvPos live in different frames and must not be
+            // midpointed. Midpoint the tropical ecliptic position instead
+            // and evaluate it in the composite's own derived frame. The
+            // chart wheel's PV biwheel relocalization also consumes
+            // tropicalEclipticPos, so it must be the synthesized midpoint.
+            if (p.tropicalEclipticPos.x() >= 0.0
+                && q.tropicalEclipticPos.x() >= 0.0) {
+                p.tropicalEclipticPos = QPointF(
+                    mid(p.tropicalEclipticPos.x(), q.tropicalEclipticPos.x()),
+                    (p.tropicalEclipticPos.y() + q.tropicalEclipticPos.y())
+                        / 2);
+                double xpin[2] = { p.tropicalEclipticPos.x(),
+                                   p.tropicalEclipticPos.y() };
+                char   pvErr[256] = "";
+                double hp = swe_house_pos(scope.houses.RAMC,
+                                          ref.location().y(),
+                                          scope.houses.eps,
+                                          'C', xpin, pvErr);
+                if (hp >= 1.0 && hp <= 13.0) {
+                    p.pvPos = (hp - 1.0) / 12.0 * 360.0;
+                    // swe reports the North Node position for both nodes
+                    if (id == Planet_SouthNode)
+                        p.pvPos = swe_degnorm(p.pvPos + 180.);
+                }
+            } else {
+                // No tropical position available (shouldn't happen for real
+                // bodies) — fall back to the frame-blind midpoint.
+                p.pvPos = mid(p.pvPos, q.pvPos);
+            }
+
+            // Re-derive descriptors from the midpointed longitude, exactly as
+            // calculatePlanet() does for real positions.
+            p.sign     = &getSign(p.eclipticPos.x(), scope.zodiac);
+            p.house    = getHouse(scope.houses, p.eclipticPos.x());
+            p.position = getPosition(p, p.sign->id);
+            p.houseRuler.clear();
+            int prev = -1;
+            for (auto s : std::as_const(p.homeSigns)) {
+                if (s == prev) continue;
+                p.houseRuler << getHouses(s, scope.houses, scope.zodiac);
+                prev = s;
+            }
+            std::sort(p.houseRuler.begin(), p.houseRuler.end());
+            p.houseRuler.erase(
+                std::unique(p.houseRuler.begin(), p.houseRuler.end()),
+                p.houseRuler.end());
+
+            scope.planets[id] = p;
+        }
+    }
+
+    // Stars are left empty: conjunctions to synthesized positions are
+    // meaningless.
+
+    scope.housesOrig  = scope.houses;
+    scope.planetsOrig = scope.planets;
+
+    calculateBaseChartHarmonic(scope);
 
     return scope;
 }
@@ -4779,6 +4963,88 @@ OmnibusFinder::OmnibusFinder(HarmonicEvents&      evs,
     initializeFromPattern(pattern, files);
 }
 
+/// File types eligible for the natal-reference role in event searches.
+static bool
+isNatalRoleType(FileType t)
+{
+    return t == TypeMale || t == TypeFemale || t == TypeEvent
+        || t == TypeReturn || t == TypeComposite;
+}
+
+// ---------------------------------------------------------------------------
+// Composite natal context: when the natal-role file is a midpoint composite,
+// its positions are synthesized and cannot be recomputed from the ephemeris.
+// Capture everything the planet getters need, BY VALUE, on the calling (GUI)
+// thread — finder threads must never touch the AstroFile/Horoscope.
+// ---------------------------------------------------------------------------
+
+namespace {
+struct CompositeCtx {
+    bool             active = false;
+    const InputData* idA    = nullptr; ///< -> AspectFinder::_auxIds entries
+    const InputData* idB    = nullptr;
+    double           njdA = 0, njdB = 0; ///< component natal jds
+    double           refJd  = 0;         ///< composite reference epoch
+    Houses           houses;             ///< composite (wheel) houses
+
+    struct Seed {
+        qreal  loc = 0;                  ///< synthesized lon (display zodiac)
+        double raT = 0, decT = 0;        ///< tropical RA/Dec
+        double eclLonT = 0, eclLat = 0;  ///< tropical ecliptic lon/lat
+    };
+    QMap<PlanetId, Seed> seeds;
+};
+} // namespace
+
+static CompositeCtx
+buildCompositeCtx(AstroFile* f, std::list<InputData>& auxIds)
+{
+    CompositeCtx ctx;
+    if (!f || f->getType() != TypeComposite || !f->hasCompositeSources())
+        return ctx;
+
+    const Horoscope& scope = f->horoscope();
+
+    // Stamp the components with the composite's display settings so inner
+    // (progressed) positions are computed in the same zodiac frame as the
+    // natal seeds — the raw source inputs default to tropical, which would
+    // shift the progressed side by the ayanamsa in sidereal mode.
+    InputData ia = f->compositeInput(0);
+    InputData ib = f->compositeInput(1);
+    for (InputData* i : { &ia, &ib }) {
+        i->setZodiac(scope.inputData.zodiac());
+        i->setHouseSystem(scope.inputData.houseSystem());
+        i->setAspectSet(scope.inputData.aspectSet());
+    }
+    auxIds.push_back(ia);
+    ctx.idA = &auxIds.back();
+    auxIds.push_back(ib);
+    ctx.idB = &auxIds.back();
+    ctx.njdA = getJulianDate(ctx.idA->GMT(), false, ctx.idA->calendarType());
+    ctx.njdB = getJulianDate(ctx.idB->GMT(), false, ctx.idB->calendarType());
+    ctx.refJd  = getJulianDate(scope.inputData.GMT(), false,
+                               scope.inputData.calendarType());
+    ctx.houses = scope.housesOrig;
+
+    const bool sidereal = scope.inputData.zodiac() > 1;
+    double     ayanamsa = 0;
+    if (sidereal) {
+        swe_set_sid_mode(scope.inputData.zodiac() - 2, 0, 0);
+        ayanamsa = swe_get_ayanamsa(ctx.refJd);
+    }
+    for (const Planet& p : scope.planetsOrig) {
+        CompositeCtx::Seed s;
+        s.loc = p.eclipticPos.x();
+        horoscopeTropicalEquatorialPos(p, scope, s.raT, s.decT);
+        s.eclLonT = sidereal ? swe_degnorm(p.eclipticPos.x() + ayanamsa)
+                             : double(p.eclipticPos.x());
+        s.eclLat  = p.eclipticPos.y();
+        ctx.seeds.insert(p.id, s);
+    }
+    ctx.active = true;
+    return ctx;
+}
+
 void
 OmnibusFinder::initializeFromFiles(const AstroFileList& files)
 
@@ -4822,13 +5088,13 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
 
         const auto& ida  = f->horoscope().inputData;
         auto        type = f->getType();
-        if (type == TypeMale || type == TypeFemale || type == TypeEvent || type == TypeReturn) {
-            // Only set natus to the FIRST Male/Female/Event/Return file found
+        if (isNatalRoleType(type)) {
+            // Only set natus to the FIRST natal-role file found
             if (!natal) {
                 natus = i, natal = true;
                 njd = getJulianDate(ida.GMT(), false, ida.calendarType());
             } else if (!trans) {
-                // Second Male/Female/Event file becomes the transit/comparison chart
+                // Second natal-role file becomes the transit/comparison chart
                 locus = i, trans = true;
             }
         } else if (type == TypeDerivedProg)
@@ -4836,6 +5102,12 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
         else
             locus = i, trans = true;
     }
+
+    // Midpoint-composite natal reference: seeds + component inputs, captured
+    // by value up front. For a composite, njd/_exprecessCtx anchor at the ref
+    // GMT — the epoch its synthesized positions are stamped at.
+    CompositeCtx comp;
+    if (natal) comp = buildCompositeCtx(files.at(natus), _auxIds);
 
     // Cache natal-epoch values for ex-precession context (equatorial mode)
     if (natal && primaryFrame == amcEquatorial) {
@@ -4888,7 +5160,19 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
                 // NatalExprecessedPosition — the constructor computes their
                 // true RA/Dec from tropical ecliptic lon (lat=0).
                 // House cusps (>= Angles_End) remain excluded.
-                if (primaryFrame == amcEquatorial && pid < Angles_End)
+                if (comp.active && comp.seeds.contains(pid)) {
+                    // Composite natal side: synthesized positions, never
+                    // recomputed from the ephemeris.
+                    const auto& s = comp.seeds.value(pid);
+                    if (primaryFrame == amcEquatorial && pid < Angles_End)
+                        pl = new NatalExprecessedPosition(
+                            cpid, _ids[natus], s.raT, s.decT,
+                            s.eclLonT, s.eclLat, comp.refJd, "r");
+                    else
+                        pl = new CompositeNatalPosition(
+                            cpid, _ids[natus], s.loc, s.raT, s.decT,
+                            s.eclLonT, s.eclLat, comp.refJd, "r");
+                } else if (primaryFrame == amcEquatorial && pid < Angles_End)
                     pl = new NatalExprecessedPosition(cpid, _ids[natus], "r");
                 else
                     pl = new NatalPosition(cpid, _ids[natus], "r");
@@ -4901,7 +5185,9 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
         };
 
         if (natal && showTransitsToHouseCusps()) {
-            houses          = calculateHouses(_ids[natus]);
+            // Composite: use the wheel's synthesized houses, not real houses
+            // at the reference moment.
+            houses = comp.active ? comp.houses : calculateHouses(_ids[natus]);
             getHouseIngress = [&](PlanetId ingr, bool forward = true) {
                 ChartPlanetId cpid(-1, ingr, Planet_None);
 
@@ -4948,7 +5234,18 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
             ChartPlanetId cpid(progr, pid, Planet_None);
             if (!progressedIndex.contains(cpid)) {
                 progressedIndex[cpid] = _alist.size();
-                auto pl = new ProgressedPosition(cpid, _ids[natus], njd);
+                PlanetLoc* pl;
+                if (comp.active) {
+                    // Progressed composite: progress each component from its
+                    // own natal moment, then midpoint.
+                    pl = new CompositePosition(
+                        cpid,
+                        new ProgressedPosition(cpid, *comp.idA, comp.njdA),
+                        new ProgressedPosition(cpid, *comp.idB, comp.njdB),
+                        "p");
+                } else {
+                    pl = new ProgressedPosition(cpid, _ids[natus], njd);
+                }
                 if (pid >= Houses_Start && pid < Houses_End) {
                     pl->allowAspects = PlanetLoc::aspOnlyConj;
                 }
@@ -5064,7 +5361,9 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
             }
             for (int i = 0; i < tpi.size(); ++i) {
                 hsetId hs = allAsp;
-                auto   pp = dynamic_cast<ProgressedPosition*>(_alist[tpi[i]]);
+                // PlanetLoc, not ProgressedPosition: composite charts use
+                // CompositePosition for the progressed side.
+                auto   pp = dynamic_cast<PlanetLoc*>(_alist[tpi[i]]);
                 auto   pl = pp->planet.planetId();
 
                 // North/South Node only use conjunction
@@ -5074,7 +5373,7 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
 
                 for (int j = i + 1; j < tpi.size(); ++j) {
                     auto hst = hs;
-                    auto pp2 = dynamic_cast<ProgressedPosition*>(_alist[tpi[j]]);
+                    auto pp2 = dynamic_cast<PlanetLoc*>(_alist[tpi[j]]);
                     auto opl = pp2->planet.planetId();
 
                     // Skip North Node to South Node pairs - they're always opposite
@@ -5280,7 +5579,7 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         auto f = files.at(i);
         _ids.push_back(f->horoscope().inputData);
         auto type = f->getType();
-        if (type == TypeMale || type == TypeFemale || type == TypeEvent || type == TypeReturn) {
+        if (isNatalRoleType(type)) {
             if (!natal) { natus = i; natal = true; }
             else if (!trans) { locus = i; trans = true; }
         } else {
@@ -5288,6 +5587,10 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         }
     }
     if (!trans && natal) { locus = natus; trans = true; }
+
+    // Midpoint-composite natal reference (see initializeFromFiles)
+    CompositeCtx comp;
+    if (natal) comp = buildCompositeCtx(files.at(natus), _auxIds);
 
     // --- Shared deduplicating planet getters ---
     double njd = natal ? getJulianDate(_ids[natus].GMT()) : 0;
@@ -5319,7 +5622,19 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         if (!natalIndex.contains(cpid)) {
             natalIndex[cpid] = _alist.size();
             // [ANGLE_PRECESSION] Angles (Asc–MC) now included; house cusps excluded.
-            if (primaryFrame == amcEquatorial && pid < Angles_End)
+            if (comp.active && comp.seeds.contains(pid)) {
+                // Composite natal side: synthesized positions (see
+                // initializeFromFiles)
+                const auto& s = comp.seeds.value(pid);
+                if (primaryFrame == amcEquatorial && pid < Angles_End)
+                    _alist.push_back(new NatalExprecessedPosition(
+                        cpid, _ids[natus], s.raT, s.decT,
+                        s.eclLonT, s.eclLat, comp.refJd, "r"));
+                else
+                    _alist.push_back(new CompositeNatalPosition(
+                        cpid, _ids[natus], s.loc, s.raT, s.decT,
+                        s.eclLonT, s.eclLat, comp.refJd, "r"));
+            } else if (primaryFrame == amcEquatorial && pid < Angles_End)
                 _alist.push_back(new NatalExprecessedPosition(cpid, _ids[natus], "r"));
             else
                 _alist.push_back(new NatalPosition(cpid, _ids[natus], "r"));
@@ -5331,7 +5646,17 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
         ChartPlanetId cpid(natus, pid, Planet_None);
         if (!progressedIndex.contains(cpid)) {
             progressedIndex[cpid] = _alist.size();
-            _alist.push_back(new ProgressedPosition(cpid, _ids[natus], njd));
+            if (comp.active) {
+                // Progressed composite: progress each component from its own
+                // natal moment, then midpoint.
+                _alist.push_back(new CompositePosition(
+                    cpid,
+                    new ProgressedPosition(cpid, *comp.idA, comp.njdA),
+                    new ProgressedPosition(cpid, *comp.idB, comp.njdB),
+                    "p"));
+            } else {
+                _alist.push_back(new ProgressedPosition(cpid, _ids[natus], njd));
+            }
         }
         return progressedIndex.value(cpid);
     };
@@ -5384,16 +5709,46 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
             if (mode == 'r' && natal) {
                 if (!natalIndex.contains(cpid)) {
                     natalIndex[cpid] = _alist.size();
-                    _alist.push_back(new NatalPosition(
-                        ChartPlanetId(natus, pid1, pid2), _ids[natus], "r"));
+                    ChartPlanetId mcpid(natus, pid1, pid2);
+                    if (comp.active && comp.seeds.contains(pid1)
+                            && comp.seeds.contains(pid2)) {
+                        // Composite natal midpoint: midpoint of the two
+                        // synthesized positions (midpoint-of-midpoints).
+                        const auto& s1 = comp.seeds.value(pid1);
+                        const auto& s2 = comp.seeds.value(pid2);
+                        auto mid = [](double x, double y) {
+                            return swe_degnorm(x + swe_difdeg2n(y, x) / 2.0);
+                        };
+                        qreal mloc = mid(s1.loc, s2.loc);
+                        if (mcpid.isOppMidpt())
+                            mloc = swe_degnorm(mloc + 180.);
+                        _alist.push_back(new CompositeNatalPosition(
+                            mcpid, _ids[natus], mloc,
+                            mid(s1.raT, s2.raT), (s1.decT + s2.decT) / 2,
+                            mid(s1.eclLonT, s2.eclLonT),
+                            (s1.eclLat + s2.eclLat) / 2,
+                            comp.refJd, "r"));
+                    } else {
+                        _alist.push_back(new NatalPosition(
+                            mcpid, _ids[natus], "r"));
+                    }
                 }
                 return { natalIndex.value(cpid), 'r' };
             }
             if (mode == 'p' && natal) {
                 if (!progressedIndex.contains(cpid)) {
                     progressedIndex[cpid] = _alist.size();
-                    _alist.push_back(new ProgressedPosition(
-                        ChartPlanetId(natus, pid1, pid2), _ids[natus], njd));
+                    ChartPlanetId mcpid(natus, pid1, pid2);
+                    if (comp.active) {
+                        _alist.push_back(new CompositePosition(
+                            mcpid,
+                            new ProgressedPosition(mcpid, *comp.idA, comp.njdA),
+                            new ProgressedPosition(mcpid, *comp.idB, comp.njdB),
+                            "p"));
+                    } else {
+                        _alist.push_back(new ProgressedPosition(
+                            mcpid, _ids[natus], njd));
+                    }
                 }
                 return { progressedIndex.value(cpid), 'p' };
             }
@@ -6960,6 +7315,38 @@ natalTropicalEquatorialPos(PlanetId pid, double jdNatal,
 }
 
 bool
+horoscopeTropicalEquatorialPos(const Planet& p, const Horoscope& scope,
+                               double& raTrop, double& decTrop)
+{
+    if (scope.inputData.zodiac() <= 1) {
+        // Tropical zodiac: stored equatorialPos was computed without
+        // SEFLG_SIDEREAL, so it is already tropical RA/Dec.
+        raTrop  = p.equatorialPos.x();
+        decTrop = p.equatorialPos.y();
+        return true;
+    }
+
+    // Sidereal zodiac: the stored equatorial coords were computed with
+    // SEFLG_SIDEREAL set and are not trustworthy tropical RA. Recover the
+    // tropical ecliptic longitude by adding the ayanamsa at the chart's
+    // epoch, then convert to equatorial at that epoch's obliquity.
+    double jd = getJulianDate(scope.inputData.GMT(), false,
+                              scope.inputData.calendarType());
+    swe_set_sid_mode(scope.inputData.zodiac() - 2, 0, 0);
+    double ayanamsa = swe_get_ayanamsa(jd);
+
+    double xx[6];
+    char   err[256] = "";
+    swe_calc(jd, SE_ECL_NUT, 0, xx, err);
+    double eps = xx[0];
+
+    double eclLonTrop = swe_degnorm(p.eclipticPos.x() + ayanamsa);
+    eclipticToEquatorial(eclLonTrop, p.eclipticPos.y(), eps,
+                         raTrop, decTrop);
+    return true;
+}
+
+bool
 computeNatalParanTransits(double natalRA,
                               double natalDec,
                               double jdNatal,
@@ -7130,7 +7517,8 @@ void
 enumerateNatalParanLatitudes(const Horoscope& natal,
                              double           paranOrbDeg,
                              QVector<ParanLatitudeRow>& out,
-                             const Horoscope* transitCtx)
+                             const Horoscope* transitCtx,
+                             bool             natalSynthesized)
 {
     out.clear();
 
@@ -7154,7 +7542,12 @@ enumerateNatalParanLatitudes(const Horoscope& natal,
         if (pDef.sweNum < 0) continue;
 
         double ra, dec;
-        if (!natalTropicalEquatorialPos(p.id, jdNatal, ra, dec)) continue;
+        if (natalSynthesized) {
+            // Midpoint composite: positions cannot be recomputed from the
+            // ephemeris — use the synthesized horoscope positions.
+            if (!horoscopeTropicalEquatorialPos(p, natal, ra, dec)) continue;
+        } else if (!natalTropicalEquatorialPos(p.id, jdNatal, ra, dec))
+            continue;
         bodies.append({ p.id, ra, dec });
     }
 
@@ -7411,6 +7804,15 @@ AspectFinder::findParans()
         } else if (dynamic_cast<NatalExprecessedPosition*>(pl)) {
             if (!wantTransitNatal) continue;
             natalIndices.append(i);
+        } else if (auto* cn = dynamic_cast<CompositeNatalPosition*>(pl)) {
+            // Must precede the NatalPosition branch (is-a): composite natal
+            // positions are synthesized — build the ex-precession sidecar
+            // from the stored RA/Dec, not from the ephemeris.
+            if (!wantTransitNatal) continue;
+            natalIndices.append(i);
+            natalSidecars[i] = std::make_shared<NatalExprecessedPosition>(
+                pl->planet, natalIda, cn->raTrop(), cn->decTrop(),
+                cn->eclLonTrop(), cn->eclLat(), cn->epochJd(), "r");
         } else if (dynamic_cast<NatalPosition*>(pl)) {
             if (!wantTransitNatal) continue;
             natalIndices.append(i);
@@ -10571,13 +10973,14 @@ AspectFinder::findAspectsAndPatterns()
                && (!showTransitNatalAspectPatterns() || _ids.size() == 1))
     {
         for (auto&& pl : _alist) {
-            auto pla = dynamic_cast<TransitPosition*>(pl);
-            if (pla && pla->inMotion()) {
+            // mode()-based so composite wrappers partition correctly
+            // (CompositePosition reports its inner mode)
+            auto pla = dynamic_cast<PlanetLoc*>(pl);
+            if (!pla || !pla->inMotion()) continue;
+            if (pla->mode() == plmTransit) {
                 state.trans.emplace(pla->planetModeId());
-            }
-            auto prg = dynamic_cast<ProgressedPosition*>(pl);
-            if (prg && prg->inMotion()) {
-                state.progs.emplace(prg->planetModeId());
+            } else if (pla->mode() == plmProgressed) {
+                state.progs.emplace(pla->planetModeId());
             }
         }
     } else if (showTransitAspectPatterns() && showTransitNatalAspectPatterns())

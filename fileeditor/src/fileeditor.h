@@ -2,13 +2,11 @@
 #define FILEEDITOR_H
 
 #include <Astroprocessor/Gui>
-#include <QRegularExpression>
 #include <QComboBox>
 #include "astrodatetimeedit.h"
 
 class QLabel;
 class QLineEdit;
-class QListWidget;
 class QCheckBox;
 class QDateTimeEdit;
 class QDateEdit;
@@ -39,17 +37,9 @@ protected:
     QPushButton* lockTimezone;
     GeoSearchWidget* geoSearch;
     QPlainTextEdit* comment;
-    QLabel* startDateLbl;
-    A::AstroDateTimeEdit* startDate;
-    A::AstroDateTimeEdit* endDate;
-    QCheckBox* endDateCB;
-    QListWidget* hits;
-
-    QRegularExpression _re, _zposre;
 
     bool _inUpdate;
     bool _inApply;
-    bool _inDateSelection;
     bool _userEditedTime;  // Track if user manually changed time in this session
 
     void update(AstroFile::Members);
@@ -64,13 +54,11 @@ signals:
     void windowClosed();
     void appendFile();
     void swapFiles(int, int);
-    void hasSelection(bool);
 
 public slots:
     virtual void applyToFile(bool setNeedsSave=true,
                              bool resume=true);
-    void onEditingFinished();
-    void setType(FileType t) { type->setCurrentIndex(unsigned(t)); }
+    void setType(FileType t) { type->setCurrentIndex(type->findData(unsigned(t))); }
 
 private slots:
     void swapFilesSlot(int, int);
@@ -85,7 +73,7 @@ public:
 
     bool& inUpdate() { return _inUpdate; }
     
-    static QStringList planets, signs, events;
+    static QStringList signs;
 };
 
 #endif // FILEEDITOR_H

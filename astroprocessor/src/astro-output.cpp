@@ -1074,7 +1074,7 @@ struct event {
             double angleRA = _star->angleTransitRA[_pivot];
             
             QString label = _star->name + " @ " + angleTransitName(_pivot);
-            QDateTime angularDateGMT = calculateAngularDate(_radix, _dt, planetRA, angleRA, _pssrCtx, label);
+            QDateTime angularDateGMT = calculateAngularDate(_radix, _dt, planetRA, angleRA, _pssrCtx, label, _radixRA);
             QString method = "PD"; // Default to Primary Directions
             QString dateFormat = "yyyy/MM/dd";
             if (_pssrCtx && _dirMethod != DirNone) {
@@ -1207,7 +1207,8 @@ describeParans(const AstroFileList& scopes,
         natalContext
         && (natalContext->getType() == TypeMale
             || natalContext->getType() == TypeFemale
-            || natalContext->getType() == TypeEvent);
+            || natalContext->getType() == TypeEvent
+            || natalContext->getType() == TypeComposite);
     QVector<Star> natalStarStorage;
     const bool runNatalRows =
         natalContext
@@ -1239,7 +1240,14 @@ describeParans(const AstroFileList& scopes,
             PlanetId pid = np.id;
 
             double tropRA, tropDec;
-            if (!natalTropicalEquatorialPos(pid, jdNatal, tropRA, tropDec))
+            if (natalContext->getType() == TypeComposite) {
+                // Synthesized positions: no real natal sky to consult — use
+                // the midpointed positions from the composite horoscope.
+                if (pid <= Planet_None || pid >= Angles_Start) continue;
+                if (!horoscopeTropicalEquatorialPos(
+                        np, natalContext->horoscope(), tropRA, tropDec))
+                    continue;
+            } else if (!natalTropicalEquatorialPos(pid, jdNatal, tropRA, tropDec))
                 continue;
 
             QDateTime angleTransit[4];
@@ -1565,14 +1573,16 @@ describeParanLatitudes(const Horoscope&    natal,
                        unsigned            cityPopMask,
                        unsigned            cityContinentMask,
                        SpeculumDisplayMode displayMode,
-                       const Horoscope*    transitCtx)
+                       const Horoscope*    transitCtx,
+                       bool                natalSynthesized)
 {
     CityFilter cityFilter;
     cityFilter.popTiers   = cityPopMask;
     cityFilter.continents = cityContinentMask;
 
     QVector<ParanLatitudeRow> rows;
-    enumerateNatalParanLatitudes(natal, paranOrbDeg, rows, transitCtx);
+    enumerateNatalParanLatitudes(natal, paranOrbDeg, rows, transitCtx,
+                                 natalSynthesized);
 
     // Transit×natal rows use the same full paran orb as transit×transit rows so
     // the latitude table's membership agrees with the focal paran cluster in the

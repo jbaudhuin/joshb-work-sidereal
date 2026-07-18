@@ -231,6 +231,8 @@ AstroFile::typeToString(unsigned ft)
     case TypeEvent:         return "Event";
     case TypeReturn:        return "Return";
     case TypeParan:         return "Paran";
+    case TypeApparition:    return "Apparition";
+    case TypeComposite:     return "Composite";
     case TypeOther:         return "Other";
     default:                break;
     }
@@ -250,6 +252,8 @@ AstroFile::typeFromString(const QString& str)
     if (str == "Event") return TypeEvent;
     if (str == "Return") return TypeReturn;
     if (str == "Paran") return TypeParan;
+    if (str == "Apparition") return TypeApparition;
+    if (str == "Composite") return TypeComposite;
     return TypeOther;
 }
 
@@ -343,18 +347,14 @@ AstroFile::save()
         file.remove("baseChartGMT");
     }
 
-    // if (getType()==TypeEvents) {
-    file.setValue("dateRange", getDateRange().operator QVariant());
-    if (_eventList.empty()) {
-        file.setValue("eventList", QVariant());
+    // Midpoint-composite sources: store references, recompute on load
+    if (getType() == TypeComposite && _hasCompositeSources) {
+        file.setValue("compositeFile1", _compositeFiles[0].absoluteFilePath());
+        file.setValue("compositeFile2", _compositeFiles[1].absoluteFilePath());
     } else {
-        QVariantList vl;
-        for (const auto& dt : std::as_const(_eventList)) {
-            vl << dt;
-        }
-        file.setValue("eventList", vl);
+        file.remove("compositeFile1");
+        file.remove("compositeFile2");
     }
-    //}
 
     // Save per-file transit event options using brief strings for readability
     if (_transitEventOptions.empty()) {
@@ -490,21 +490,21 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
         clearBaseChart();
     }
 
-    // if (getType()==TypeEvents) {
-    QList<QDateTime> dl;
-    if (file.contains("eventList")) {
-        auto vl = file.value("eventList").toList();
-        for (const auto& v : std::as_const(vl)) {
-            dl << v.toDateTime();
+    // Midpoint-composite sources: recompute from the two source charts.
+    // If a source is missing, fall back to a normal chart of the stored
+    // reference GMT/location.
+    _hasCompositeSources = false;
+    if (getType() == TypeComposite) {
+        QString f1 = file.value("compositeFile1").toString();
+        QString f2 = file.value("compositeFile2").toString();
+        if (!f1.isEmpty() && !f2.isEmpty()
+                && QFileInfo::exists(f1) && QFileInfo::exists(f2)) {
+            setCompositeSources(AFileInfo(f1), AFileInfo(f2));
+        } else {
+            qWarning() << "Composite source charts missing for" << getName()
+                       << "- showing reference chart only";
         }
-        _eventList.swap(dl);
     }
-    ADateRange range;
-    if (file.contains("dateRange")) {
-        range = file.value("dateRange");
-    }
-    setDateRange(range);
-    //}
 
     // Load per-file transit event options (handle both old int and new string formats)
     if (file.contains("transitEventOptions")) {
@@ -558,20 +558,39 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
     // resumeUpdate();
 }
 
-void
-AstroFile::loadComposite(const AFileInfoList& names)
+/*static*/
+A::InputData
+AstroFile::loadInputData(const AFileInfo& fi)
 {
-    suspendUpdate();
-    setFileInfo(names.first());
-
-    auto file = std::make_unique<QSettings>(fileName(), QSettings::IniFormat);
+    QSettings file(fi.filePath(), QSettings::IniFormat);
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-    file->setIniCodec(QTextCodec::codecForName("UTF-8"));
+    file.setIniCodec(QTextCodec::codecForName("UTF-8"));
 #endif
 
-    auto dts = file->value("GMT").toString();
+    A::InputData ind;
+    auto dts = file.value("GMT").toString();
     if (!dts.endsWith('Z')) dts += 'Z';
-    setGMT(QDateTime::fromString(dts, Qt::ISODate));
+    ind.setGMT(QDateTime::fromString(dts, Qt::ISODate));
+    ind.setTZ(file.value("timezone").toDouble());
+    ind.setLocation(QVector3D(file.value("lon").toFloat(),
+                              file.value("lat").toFloat(),
+                              file.value("z").toFloat()));
+    ind.setCalendarType(static_cast<A::CalendarType>(
+        file.value("calendarType", static_cast<int>(A::Cal_Auto)).toInt()));
+    ind.setTimeMode(static_cast<A::TimeMode>(
+        file.value("timeMode", static_cast<int>(A::Time_ZoneTime)).toInt()));
+    return ind;
+}
+
+void
+AstroFile::setCompositeSources(const AFileInfo& a, const AFileInfo& b)
+{
+    _compositeFiles[0]   = a;
+    _compositeFiles[1]   = b;
+    _compositeInputs[0]  = loadInputData(a);
+    _compositeInputs[1]  = loadInputData(b);
+    _hasCompositeSources = true;
+    setType(TypeComposite);
 }
 
 void
@@ -892,15 +911,6 @@ AstroFile::setHarmonic(double harmonic)
     }
 }
 
-void
-AstroFile::setEventList(const QList<QDateTime>& evl)
-{
-    if (getEventList() != evl) {
-        _eventList = evl;
-        change(ChangedState);
-    }
-}
-
 QAbstractItemModel*
 AstroFile::eventsModel()
 {
@@ -935,7 +945,30 @@ AstroFile::recalculate()
     qDebug() << "[PERF] Calculating file" << getName() << "type=" << type << "isProgressed=" << scope.inputData.isProgressed();
     clearPSSRContext(); // Clear cached PSSR context when chart is recalculated
     double h = scope.harmonic;          // preserve harmonic across full recalc
-    scope = A::calculateAll(scope.inputData);
+    if (type == TypeComposite && _hasCompositeSources) {
+        // Midpoint composite: synthesize from the two source charts, stamped
+        // with this file's display settings so toolbar zodiac/house-system
+        // changes stay live.
+        //
+        // A composite with a base chart is a PROGRESSED composite: progress
+        // each component from its own natal moment to this chart's display
+        // moment, then midpoint (the standard progressed-composite method).
+        const bool progressed = scope.inputData.hasBaseChart();
+        A::InputData a = _compositeInputs[0], b = _compositeInputs[1];
+        for (A::InputData* i : { &a, &b }) {
+            i->setZodiac(scope.inputData.zodiac());
+            i->setHouseSystem(scope.inputData.houseSystem());
+            i->setAspectSet(scope.inputData.aspectSet());
+            if (progressed) {
+                i->setBaseChart(i->GMT());       // component's own natal moment
+                i->setGMT(scope.inputData.GMT()); // progression target date
+                i->setProgressed(true);
+            }
+        }
+        scope = A::calculateComposite(a, b, scope.inputData);
+    } else {
+        scope = A::calculateAll(scope.inputData);
+    }
     if (h != 1.0) {
         scope.harmonic = h;
         A::calculateBaseChartHarmonic(scope);   // re-apply harmonic positions

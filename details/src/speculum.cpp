@@ -410,20 +410,30 @@ Speculum::populateSpeculumTable()
         double lat     = scope.inputData.location().y();
         double lon     = scope.inputData.location().x();
 
+        const bool natalIsComposite =
+            natalFile->getType() == TypeComposite;
+
         for (const auto& entry : paranFile->getParanGroupPlanets()) {
             if (entry.first != 0) continue;  // fileId=0 = natal planets from natalFile
             A::PlanetId pid = entry.second;
 
             QString planetName;
+            const A::Planet* natalPlanet = nullptr;
             for (const A::Planet& p : natalFile->horoscope().planets) {
-                if (p.id == pid) { planetName = p.name; break; }
+                if (p.id == pid) { planetName = p.name; natalPlanet = &p; break; }
             }
             if (planetName.isEmpty()) continue;
 
             // Get tropical (non-sidereal) natal RA/Dec — same convention as
             // NatalExprecessedPosition._natalRA so exprecess_equatorial works correctly.
+            // Composite: use the synthesized horoscope positions (no real natal sky).
             double tropRA, tropDec;
-            if (!A::natalTropicalEquatorialPos(pid, jdNatal, tropRA, tropDec)) continue;
+            if (natalIsComposite) {
+                if (!A::horoscopeTropicalEquatorialPos(
+                        *natalPlanet, natalFile->horoscope(), tropRA, tropDec))
+                    continue;
+            } else if (!A::natalTropicalEquatorialPos(pid, jdNatal, tropRA, tropDec))
+                continue;
 
             QDateTime angleTransit[4];
             double    angleTransitRA[4];
@@ -613,8 +623,9 @@ Speculum::addPlanetRow(const A::Planet& planet, int row)
             double angleRA = planet.angleTransitRA[timeIndex];
             
             QString label = planet.name + " @ " + A::angleTransitName(timeIndex);
-            QDateTime angularDateGMT = A::calculateAngularDate(_radixTime, transitTime, 
-                                                                 planetRA, angleRA, pssrCtx, label);
+            double radixRAMC = file(_selectedChartIndex)->horoscope().houses.RAMC;
+            QDateTime angularDateGMT = A::calculateAngularDate(_radixTime, transitTime,
+                                                                 planetRA, angleRA, pssrCtx, label, radixRAMC);
             // Convert to local time
             int offsetSeconds = m_timezone * 3600;
             QTimeZone timeZone = QTimeZone::fromSecondsAheadOfUtc(offsetSeconds);
@@ -729,8 +740,9 @@ Speculum::addStarRow(const A::Star& star, int row)
             double angleRA = star.angleTransitRA[timeIndex];
             
             QString label = star.name + " @ " + A::angleTransitName(timeIndex);
+            double radixRAMC = file(_selectedChartIndex)->horoscope().houses.RAMC;
             QDateTime angularDateGMT = A::calculateAngularDate(_radixTime, transitTime,
-                                                                 starRA, angleRA, pssrCtx, label);
+                                                                 starRA, angleRA, pssrCtx, label, radixRAMC);
             // Convert to local time
             int offsetSeconds = m_timezone * 3600;
             QTimeZone timeZone = QTimeZone::fromSecondsAheadOfUtc(offsetSeconds);

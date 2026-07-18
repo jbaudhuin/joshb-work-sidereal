@@ -1085,7 +1085,9 @@ Plain::refresh()
                                               paranShowAbsent,
                                               paranCityPopMask,
                                               paranCityContinentMask,
-                                              displayMode);
+                                              displayMode,
+                                              nullptr,
+                                              file(0)->getType() == TypeComposite);
         } else if (filesCount() > 1) {
             if (sec1(togParans) && file(0)
                 && file(0)->horoscope().planets.count()) {
@@ -1101,7 +1103,9 @@ Plain::refresh()
                                                   paranShowAbsent,
                                                   paranCityPopMask,
                                                   paranCityContinentMask,
-                                                  displayMode);
+                                                  displayMode,
+                                                  nullptr,
+                                                  file(0)->getType() == TypeComposite);
             }
             if (sec2(togParans) && file(1)
                 && file(1)->horoscope().planets.count()) {
@@ -1128,7 +1132,8 @@ Plain::refresh()
                                                       paranCityPopMask,
                                                       paranCityContinentMask,
                                                       displayMode,
-                                                      &file(1)->horoscope());
+                                                      &file(1)->horoscope(),
+                                                      file(0)->getType() == TypeComposite);
                 } else {
                     html += A::describeParanLatitudes(file(1)->horoscope(),
                                                       paranOrb,

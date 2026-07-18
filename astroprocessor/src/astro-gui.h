@@ -140,7 +140,18 @@ class AstroFile : public QObject, public A::EventStore {
     void save();
     void saveAs();
     void load(const AFileInfo& name);
-    void loadComposite(const AFileInfoList& names);
+
+    /// Turn this file into a midpoint composite of the two source charts.
+    /// The file's own GMT/location remain the houses reference; planet
+    /// positions are synthesized in recalculate().
+    void setCompositeSources(const AFileInfo& a, const AFileInfo& b);
+    bool hasCompositeSources() const { return _hasCompositeSources; }
+    const AFileInfo& compositeFile(int i) const { return _compositeFiles[i]; }
+    const A::InputData& compositeInput(int i) const { return _compositeInputs[i]; }
+
+    /// Read the calculation inputs (GMT, tz, location, calendar, time mode)
+    /// from a chart file without constructing an AstroFile.
+    static A::InputData loadInputData(const AFileInfo& fi);
 
     void suspendUpdate() { _holdUpdate = true; }
     bool isSuspendedUpdate() const { return _holdUpdate; }
@@ -169,8 +180,6 @@ class AstroFile : public QObject, public A::EventStore {
     /// Returns the Members mask of what actually changed.
     /// Does NOT call change() — the caller decides how to notify.
     Members stampDisplaySettings();
-    void setEventList(const QList<QDateTime>& evl);
-    void setDateRange(const ADateRange& startEnd) { _dateRange = startEnd; }
     void setHarmonic(double harmonic);
     void setBaseChart(const QDateTime& baseGmt);
     void clearBaseChart();
@@ -283,7 +292,6 @@ class AstroFile : public QObject, public A::EventStore {
     }
 
     A::aspectModeEnum       getAspectMode() const { return A::aspectMode; }
-    const QList<QDateTime>& getEventList() const { return _eventList; }
     double                  getHarmonic() const { return scope.harmonic; }
     bool                    hasBaseChart() const
     {
@@ -305,8 +313,6 @@ class AstroFile : public QObject, public A::EventStore {
         return scope.inputData.calendarType();
     }
     A::TimeMode getTimeMode() const { return scope.inputData.timeMode(); }
-
-    const ADateRange& getDateRange() const { return _dateRange; }
 
     // Transit date range (per-tab state for transits view)
     QDate getTransitStartDate() const { return _transitStartDate; }
@@ -415,8 +421,10 @@ class AstroFile : public QObject, public A::EventStore {
     bool         _timezoneLocked;
     A::Horoscope scope;
 
-    QList<QDateTime> _eventList; // computed contact dateTimes
-    ADateRange       _dateRange; // really just start, end
+    // Midpoint-composite sources (TypeComposite only)
+    bool         _hasCompositeSources = false;
+    AFileInfo    _compositeFiles[2];
+    A::InputData _compositeInputs[2];
 
     // Transit date range per-tab state
     QDate   _transitStartDate;

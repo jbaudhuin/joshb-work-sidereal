@@ -60,6 +60,7 @@
 #include <QShortcut>
 #include <QStandardPaths>
 #include <QWidget>
+#include <QtMath>
 #include <math.h>
 
 /* =========================== THEMED MESSAGE BOX HELPERS =================== */
@@ -2742,18 +2743,15 @@ AstroDatabase::openSelectedAsSecond()
 }
 
 void
-AstroDatabase::openSelectedComposite()
+AstroDatabase::openSelectedCompositeMidpoint()
 {
-    emit openFilesComposite(getSelectedItems(fileList));
+    emit openFilesCompositeMidpoint(getSelectedItems(fileList));
 }
 
 void
-AstroDatabase::findSelectedDerived()
+AstroDatabase::openSelectedCompositeDavison()
 {
-    for (const auto& fi : getSelectedItems(fileList)) {
-        emit findSelectedDerived(fi);
-        break;
-    }
+    emit openFilesCompositeDavison(getSelectedItems(fileList));
 }
 
 void
@@ -2923,10 +2921,17 @@ AstroDatabase::showContextMenu(QPoint pos)
                        SLOT(openSelectedWithProgressions()));
         mnu->addAction(tr("Synastry view"), this, SLOT(openSelectedAsSecond()));
 
-        mnu->addAction(tr("Composite"), this, SLOT(openSelectedComposite()));
-        mnu->addAction(tr("Open Derived..."),
-                       this,
-                       SLOT(findSelectedDerived()));
+        // Composite charts need exactly two source charts
+        int selCount = getSelectedItems(fileList).count();
+        QMenu* cmnu = mnu->addMenu(tr("Composite"));
+        QAction* aMid = cmnu->addAction(tr("Midpoint composite"),
+                                        this,
+                                        SLOT(openSelectedCompositeMidpoint()));
+        QAction* aDav = cmnu->addAction(tr("Davison"),
+                                        this,
+                                        SLOT(openSelectedCompositeDavison()));
+        aMid->setEnabled(selCount == 2);
+        aDav->setEnabled(selCount == 2);
 
         mnu->addSeparator();
         mnu->addAction(tr("Open with Solar Return"),
@@ -3264,10 +3269,8 @@ AstroDatabase::setTypeForSelected()
     typeCombo->addItem(tr("Female"), TypeFemale);
     typeCombo->addItem(tr("Return"), TypeReturn);
     typeCombo->addItem(tr("Progressed"), TypeDerivedProg);
-    typeCombo->addItem(tr("Search"), TypeSearch);
     typeCombo->addItem(tr("Solar Arc"), TypeDerivedSA);
     typeCombo->addItem(tr("Primary Directions"), TypeDerivedPD);
-    typeCombo->addItem(tr("Derived Search"), TypeDerivedSearch);
     layout->addWidget(typeCombo);
     
     QDialogButtonBox* buttons = new QDialogButtonBox(
@@ -4093,48 +4096,6 @@ FilesBar::editNewChart()
 }
 
 void
-FilesBar::findChart()
-{
-    auto dlg = new QDialog(nullptr, Qt::Dialog | Qt::WindowStaysOnTopHint);
-    auto lay = new QVBoxLayout(dlg);
-    dlg->setLayout(lay);
-    auto pafe = new AstroFileEditor(dlg);
-    auto f    = new AstroFile;
-    MainWindow::theAstroWidget()->setupFile(f, true /*suspendUpdate*/);
-    f->setType(TypeSearch);
-    pafe->setFiles({ f });
-
-    lay->addWidget(pafe);
-    pafe->layout()->setContentsMargins(QMargins(0, 0, 0, 0));
-    auto dbb =
-        new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-                             dlg);
-    auto ok = dbb->button(QDialogButtonBox::Ok);
-    connect(pafe, SIGNAL(hasSelection(bool)), ok, SLOT(setEnabled(bool)));
-    ok->setEnabled(false);
-
-    lay->addWidget(dbb);
-
-    dlg->adjustSize();
-    dlg->move((topLevelWidget()->width() - dlg->width()) / 2
-                  + topLevelWidget()->geometry().left(),
-              (topLevelWidget()->height() - dlg->height()) / 2
-                  + topLevelWidget()->geometry().top());
-
-    auto aw = topLevelWidget()->findChild<AstroWidget*>();
-    qDebug() << aw;
-    connect(dbb, SIGNAL(accepted()), dlg, SLOT(accept()));
-    connect(dbb, SIGNAL(rejected()), dlg, SLOT(reject()));
-    connect(dlg, &QDialog::accepted, [this, pafe] {
-        pafe->applyToFile();
-        addFile(pafe->file());
-    });
-    connect(dlg, SIGNAL(rejected()), dlg, SLOT(deleteLater()));
-    connect(dlg, SIGNAL(accepted()), dlg, SLOT(deleteLater()));
-    dlg->open();
-}
-
-void
 FilesBar::updateTab(int index)
 {
     if (index >= count()) return;
@@ -4551,13 +4512,92 @@ FilesBar::openTransitsAsSecond(AstroFile* af)
     }
 }
 
-void
-FilesBar::openFileComposite(const AFileInfoList& fis)
+// Compute the Davison reference for two charts: midpoint of the two birth
+// moments, great-circle midpoint of the two locations, average timezone.
+static bool
+davisonReference(const AFileInfo& f1,
+                 const AFileInfo& f2,
+                 QDateTime&       gmt,
+                 QVector3D&       loc,
+                 double&          tz)
 {
-    // XXX @todo
-    AstroFile* file = new AstroFile;
-    file->load(fis.first());
-    addFile(file);
+    A::InputData a = AstroFile::loadInputData(f1);
+    A::InputData b = AstroFile::loadInputData(f2);
+    if (!a.GMT().isValid() || !b.GMT().isValid()) return false;
+
+    gmt = a.GMT().addMSecs(a.GMT().msecsTo(b.GMT()) / 2);
+
+    // Great-circle midpoint via unit-vector average (antimeridian-safe)
+    auto toUnit = [](const QVector3D& l) {
+        double lon = qDegreesToRadians(double(l.x()));
+        double lat = qDegreesToRadians(double(l.y()));
+        return QVector3D(float(cos(lat) * cos(lon)),
+                         float(cos(lat) * sin(lon)),
+                         float(sin(lat)));
+    };
+    QVector3D sum = toUnit(a.location()) + toUnit(b.location());
+    if (sum.length() < 1e-6) {
+        // Antipodal locations: no meaningful midpoint; use chart 1's place
+        loc = a.location();
+    } else {
+        sum.normalize();
+        double lon = qRadiansToDegrees(atan2(sum.y(), sum.x()));
+        double lat = qRadiansToDegrees(asin(sum.z()));
+        double alt = (a.location().z() + b.location().z()) / 2;
+        loc = QVector3D(float(lon), float(lat), float(alt));
+    }
+
+    tz = (a.tz() + b.tz()) / 2;
+    return true;
+}
+
+void
+FilesBar::openFileCompositeDavison(const AFileInfoList& fis)
+{
+    if (fis.count() != 2) return;
+
+    QDateTime gmt;
+    QVector3D loc;
+    double    tz;
+    if (!davisonReference(fis[0], fis[1], gmt, loc, tz)) return;
+
+    AstroFile* f = new AstroFile;
+    MainWindow::theAstroWidget()->setupFile(f, true /*suspendUpdate*/);
+    // TypeEvent so the Events dock and AspectFinder treat the Davison chart
+    // as a natal subject (transits, returns, directions, parans, progressions)
+    f->setType(TypeEvent);
+    f->setGMT(gmt);
+    f->setLocation(loc);
+    f->setTimezone(tz);
+    f->setLocationName(tr("Davison midpoint"));
+    f->setName(QString("%1-%2 Davison")
+                   .arg(fis[0].baseName(), fis[1].baseName()));
+    f->clearUnsavedState();
+    addFile(f);
+}
+
+void
+FilesBar::openFileCompositeMidpoint(const AFileInfoList& fis)
+{
+    if (fis.count() != 2) return;
+
+    // The Davison midpoint time/place serves as the houses reference
+    QDateTime gmt;
+    QVector3D loc;
+    double    tz;
+    if (!davisonReference(fis[0], fis[1], gmt, loc, tz)) return;
+
+    AstroFile* f = new AstroFile;
+    MainWindow::theAstroWidget()->setupFile(f, true /*suspendUpdate*/);
+    f->setCompositeSources(fis[0], fis[1]);
+    f->setGMT(gmt);
+    f->setLocation(loc);
+    f->setTimezone(tz);
+    f->setLocationName(tr("Composite reference"));
+    f->setName(QString("%1-%2 Composite")
+                   .arg(fis[0].baseName(), fis[1].baseName()));
+    f->clearUnsavedState();
+    addFile(f);
 }
 
 void
@@ -4599,11 +4639,6 @@ FilesBar::openFileReturn(const AFileInfo& fi, const QString& body)
                               .arg(dt.toLocalTime().date().year()));
     planetReturn->clearUnsavedState();
     addFile(planetReturn);
-}
-
-void
-FilesBar::findDerivedChart(const AFileInfo& fi)
-{
 }
 
 void
@@ -4848,6 +4883,14 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, bool autoRestore
         SIGNAL(openFileInNewTabWithReturn(const AFileInfo&, const QString&)),
         filesBar,
         SLOT(openFileInNewTabWithReturn(const AFileInfo&, const QString&)));
+    connect(astroDatabase,
+            SIGNAL(openFilesCompositeMidpoint(const AFileInfoList&)),
+            filesBar,
+            SLOT(openFileCompositeMidpoint(const AFileInfoList&)));
+    connect(astroDatabase,
+            SIGNAL(openFilesCompositeDavison(const AFileInfoList&)),
+            filesBar,
+            SLOT(openFileCompositeDavison(const AFileInfoList&)));
 
     if (auto transits = astroWidget->findDockHdlr<Transits>()) {
         connect(transits,
@@ -5078,10 +5121,6 @@ MainWindow::addToolBarActions()
     auto newEditAct = new QAction(QIcon("style/file.png"), tr("New chart..."));
     tbNew->addAction(newEditAct);
     connect(newEditAct, SIGNAL(triggered()), filesBar, SLOT(editNewChart()));
-
-    auto newFindAct = new QAction(QIcon(), tr("Find chart..."));
-    tbNew->addAction(newFindAct);
-    connect(newFindAct, SIGNAL(triggered()), filesBar, SLOT(findChart()));
 
     toolBar->addWidget(tbNew);
 
@@ -6392,7 +6431,16 @@ MainWindow::restoreSession()
                     if (settings.value(fileGroup + "hasBaseChart", false).toBool()) {
                         af->setBaseChart(settings.value(fileGroup + "baseChart").toDateTime());
                     }
-                    
+
+                    if (af->getType() == TypeComposite) {
+                        QString cf1 = settings.value(fileGroup + "compositeFile1").toString();
+                        QString cf2 = settings.value(fileGroup + "compositeFile2").toString();
+                        if (!cf1.isEmpty() && !cf2.isEmpty()
+                                && QFileInfo::exists(cf1) && QFileInfo::exists(cf2)) {
+                            af->setCompositeSources(AFileInfo(cf1), AFileInfo(cf2));
+                        }
+                    }
+
                     af->resumeUpdate();
                     
                     // If this file had unsaved changes, DON'T clear the unsaved flag
@@ -6712,7 +6760,16 @@ MainWindow::restoreSessionByKey(const QString& sessionKey)
                     if (settings.value("hasBaseChart", false).toBool()) {
                         af->setBaseChart(settings.value("baseChart").toDateTime());
                     }
-                    
+
+                    if (af->getType() == TypeComposite) {
+                        QString cf1 = settings.value("compositeFile1").toString();
+                        QString cf2 = settings.value("compositeFile2").toString();
+                        if (!cf1.isEmpty() && !cf2.isEmpty()
+                                && QFileInfo::exists(cf1) && QFileInfo::exists(cf2)) {
+                            af->setCompositeSources(AFileInfo(cf1), AFileInfo(cf2));
+                        }
+                    }
+
                     af->resumeUpdate();
                     
                     if (!hasUnsavedChanges) {
@@ -6873,12 +6930,19 @@ FilesBar::saveFilesToSession()
                 settings.setValue("timezone", af->getTimezone());
                 settings.setValue("harmonic", af->getHarmonic());
                 settings.setValue("comment", af->getComment());
-                
+
                 if (af->hasBaseChart()) {
                     settings.setValue("hasBaseChart", true);
                     settings.setValue("baseChart", af->getBaseChartGMT());
                 } else {
                     settings.setValue("hasBaseChart", false);
+                }
+
+                if (af->hasCompositeSources()) {
+                    settings.setValue("compositeFile1",
+                                      af->compositeFile(0).absoluteFilePath());
+                    settings.setValue("compositeFile2",
+                                      af->compositeFile(1).absoluteFilePath());
                 }
             }
             
