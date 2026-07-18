@@ -247,6 +247,17 @@ aspectModeEnum aspectModeForChartDraw();
 /// mode while the chart is drawing.
 aspectModeEnum aspectModeForChartAspects();
 
+/// Project a body into another chart's prime-vertical (Campanus) frame.
+/// pvPos is a local-frame quantity (house position against a chart's own
+/// RAMC/latitude); comparing or drawing pvPos across two files requires
+/// re-evaluating the body's tropical ecliptic position in the reference
+/// chart's frame.  Falls back to the body's own-frame pvPos when no
+/// tropical position is available (x < 0, e.g. angles/cusps) or the
+/// house-position call fails — matching the chart wheel's behavior so
+/// drawn positions and aspect math always agree.
+qreal relocalizedPvPos(const Star& body, const Houses& refHouses,
+                       qreal refGeoLat);
+
 /// Recompute the legacy A::aspectMode global from (primaryFrame, useGreatCircle).
 /// Called whenever any of the three sub-settings changes.  PV does NOT affect
 /// aspectMode — chart-draw consumers use modalize override or

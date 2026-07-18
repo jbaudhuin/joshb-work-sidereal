@@ -148,6 +148,9 @@ private:
     float declXForDeg(float absDec);
 
     int normalPlanetPosX(QGraphicsItem* planet, QGraphicsItem* marker);
+    /// Wheel angle for a body in PV display mode: relocalized into the
+    /// reference file's frame for biwheels (per circleStart), else raw pvPos.
+    qreal displayPvPos(const A::Star& b, int fileIndex);
     const QPen& aspectPen(const A::Aspect& asp);
     const QPen& planetMarkerPen(const A::Planet& p, int fileIndex);
     QColor planetColor(const A::Planet& p, int fileIndex);

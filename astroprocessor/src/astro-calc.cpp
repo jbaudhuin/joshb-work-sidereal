@@ -95,6 +95,22 @@ aspectModeForChartAspects()
     return aspectModeForCompute();
 }
 
+qreal
+relocalizedPvPos(const Star& body, const Houses& refHouses, qreal refGeoLat)
+{
+    if (body.tropicalEclipticPos.x() < 0.0) return body.pvPos;
+    double xpin[2] = { body.tropicalEclipticPos.x(),
+                       body.tropicalEclipticPos.y() };
+    char   pvErr[256] = "";
+    double hp = swe_house_pos(refHouses.RAMC, refGeoLat, refHouses.eps,
+                              'C', xpin, pvErr);
+    if (hp < 1.0 || hp > 13.0) return body.pvPos;
+    qreal pos = (hp - 1.0) / 12.0 * 360.0;
+    // swe reports the North Node position for both nodes
+    if (body.id == Planet_SouthNode) pos = swe_degnorm(pos + 180.);
+    return pos;
+}
+
 /// Raw great-circle angular separation in degrees, [0, 180].  Uses the
 /// proper spherical-law-of-cosines formula so it's accurate at any
 /// separation (not just the small-angle regime where sqrt(Δlon²+Δlat²)

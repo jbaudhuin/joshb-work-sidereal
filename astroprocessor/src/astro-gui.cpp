@@ -1250,10 +1250,47 @@ AstroFileHandler::calculateAspects()
     }
 }
 
+bool
+AstroFileHandler::preparePvRelocalization()
+{
+    _pvRelocPlanets.clear();
+    _pvRelocPlanetsOrig.clear();
+    _pvRelocFileIndex = -1;
+    if (A::aspectMode != A::amcPrimeVertical || filesCount() < 2
+        || _pvRefFileIndex < 0)
+        return false;
+
+    int ref   = (_pvRefFileIndex == 1) ? 1 : 0;
+    int other = 1 - ref;
+    const auto& refHouses = file(ref)->horoscope().houses;
+    qreal       refLat    = file(ref)->getLocation().y();
+
+    _pvRelocPlanets = file(other)->horoscope().planets;
+    for (auto& p : _pvRelocPlanets)
+        p.pvPos = A::relocalizedPvPos(p, refHouses, refLat);
+    _pvRelocPlanetsOrig = file(other)->horoscope().planetsOrig;
+    for (auto& p : _pvRelocPlanetsOrig)
+        p.pvPos = A::relocalizedPvPos(p, refHouses, refLat);
+
+    _pvRelocFileIndex = other;
+    return true;
+}
+
+const A::Planet*
+AstroFileHandler::aspectPlanet(int fid, A::PlanetId pid)
+{
+    if (fid == _pvRelocFileIndex) {
+        auto it = _pvRelocPlanets.constFind(pid);
+        if (it != _pvRelocPlanets.constEnd()) return &it.value();
+    }
+    return file(fid)->horoscope().getPlanet(pid);
+}
+
 A::AspectList
 AstroFileHandler::calculateSynastryAspects()
 {
     qDebug() << "Calculate synatry apects" << file(0)->getAspectSet().id;
+    preparePvRelocalization();
     auto useFocal = !file(1)->focalPlanets().empty();
     for (const auto& p : file(1)->focalPlanets()) {
         if (files().count() <= p.fileId()) {
@@ -1266,8 +1303,12 @@ AstroFileHandler::calculateSynastryAspects()
         _focalMidpoints.clear();
         A::setOrbFactor(0.25);
         return A::calculateAspects(file(0)->getAspectSet(),
-                                   file(0)->horoscope().planets,
-                                   file(1)->horoscope().planets);
+                                   _pvRelocFileIndex == 0
+                                       ? _pvRelocPlanets
+                                       : file(0)->horoscope().planets,
+                                   _pvRelocFileIndex == 1
+                                       ? _pvRelocPlanets
+                                       : file(1)->horoscope().planets);
     }
 
     // is alt being held? @todo this should probably just be the default behavior
@@ -1313,8 +1354,8 @@ AstroFileHandler::calculateSynastryAspects()
             auto fid = cpid.fileId();
             if (fid < 0 || fid >= filesCount()) continue;
             if (cpid.isMidpt()) {
-                auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
-                auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
+                auto p1 = aspectPlanet(fid, cpid.planetId());
+                auto p2 = aspectPlanet(fid, cpid.planetId2());
                 if (p1 && p2) {
                     A::Planet synth;
                     synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
@@ -1333,7 +1374,7 @@ AstroFileHandler::calculateSynastryAspects()
                     _focalMidpoints.append(cpid);
                 }
             } else {
-                auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
+                auto pp = aspectPlanet(fid, cpid.planetId());
                 planets.emplace(cpid, pp);
             }
         }
@@ -1373,8 +1414,12 @@ AstroFileHandler::calculateSynastryAspects()
             if (oh > 1) hs.insert(unsigned(oh));
         }
 
-        A::PlanetProfile pf { &file(0)->horoscope().planetsOrig,
-                              &file(1)->horoscope().planetsOrig };
+        A::PlanetProfile pf { _pvRelocFileIndex == 0
+                                  ? &_pvRelocPlanetsOrig
+                                  : &file(0)->horoscope().planetsOrig,
+                              _pvRelocFileIndex == 1
+                                  ? &_pvRelocPlanetsOrig
+                                  : &file(1)->horoscope().planetsOrig };
         A::setOrbFactor(useOrb / A::harmonicsMaxQOrb());
         QList<A::Aspect> alist;
         _syntheticMidpointPlanets.clear();
@@ -1411,8 +1456,8 @@ AstroFileHandler::calculateSynastryAspects()
                 auto fid = cpid.fileId();
                 if (fid < 0) continue;
                 if (cpid.isMidpt()) {
-                    auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
-                    auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
+                    auto p1 = aspectPlanet(fid, cpid.planetId());
+                    auto p2 = aspectPlanet(fid, cpid.planetId2());
                     if (p1 && p2) {
                         A::Planet synth;
                         synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());
@@ -1431,7 +1476,7 @@ AstroFileHandler::calculateSynastryAspects()
                         _focalMidpoints.append(cpid);
                     }
                 } else {
-                    auto pp = file(fid)->horoscope().getPlanet(cpid.planetId());
+                    auto pp = aspectPlanet(fid, cpid.planetId());
                     planets.emplace(cpid, pp);
                 }
             }
@@ -1472,8 +1517,8 @@ AstroFileHandler::calculateSynastryAspects()
             if (_focalMidpoints.contains(cpid)) continue;
             auto fid = cpid.fileId();
             if (fid < 0 || fid >= filesCount()) continue;
-            auto p1 = file(fid)->horoscope().getPlanet(cpid.planetId());
-            auto p2 = file(fid)->horoscope().getPlanet(cpid.planetId2());
+            auto p1 = aspectPlanet(fid, cpid.planetId());
+            auto p2 = aspectPlanet(fid, cpid.planetId2());
             if (p1 && p2) {
                 A::Planet synth;
                 synth.id = A::PlanetId(-100 - _syntheticMidpointPlanets.size());

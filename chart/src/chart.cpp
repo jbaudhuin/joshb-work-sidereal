@@ -648,6 +648,22 @@ Chart::finishPlanetSlide()
     }
 }
 
+qreal
+Chart::displayPvPos(const A::Star& b, int fileIndex)
+{
+    if (filesCount() > 1) {
+        int refIdx = -1;
+        if (fileIndex == 0 && circleStart == Start_Outer_Ascendant)
+            refIdx = 1;
+        else if (fileIndex == 1 && circleStart == Start_Ascendent)
+            refIdx = 0;
+        if (refIdx >= 0)
+            return A::relocalizedPvPos(b, file(refIdx)->horoscope().houses,
+                                       file(refIdx)->getLocation().y());
+    }
+    return b.pvPos;
+}
+
 void
 Chart::updatePlanetsAndCusps(int fileIndex)
 {
@@ -712,32 +728,9 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         switch (A::aspectModeForChartDraw()) {
         case A::amcEcliptic:      angle = b.eclipticPos.x(); break;
         case A::amcEquatorial:    angle = b.equatorialPos.x(); break;
-        case A::amcPrimeVertical: {
-            angle = b.pvPos;
-            if (filesCount() > 1 && b.tropicalEclipticPos.x() >= 0.0) {
-                int refIdx = -1;
-                if (fileIndex == 0 && circleStart == Start_Outer_Ascendant)
-                    refIdx = 1;
-                else if (fileIndex == 1 && circleStart == Start_Ascendent)
-                    refIdx = 0;
-                if (refIdx >= 0) {
-                    const auto& refHouses = file(refIdx)->horoscope().houses;
-                    double xpin[2] = { b.tropicalEclipticPos.x(),
-                                       b.tropicalEclipticPos.y() };
-                    char pvErr[256] = "";
-                    double hp = swe_house_pos(refHouses.RAMC,
-                                              file(refIdx)->getLocation().y(),
-                                              refHouses.eps,
-                                              'C', xpin, pvErr);
-                    if (hp >= 1.0 && hp <= 13.0) {
-                        angle = (hp - 1.0) / 12.0 * 360.0;
-                        if (b.id == A::Planet_SouthNode)
-                            angle = swe_degnorm(angle + 180.0);
-                    }
-                }
-            }
+        case A::amcPrimeVertical:
+            angle = displayPvPos(b, fileIndex);
             break;
-        }
         default:                  hide = true; break;
         }
 
@@ -938,6 +931,13 @@ Chart::updateAspects()
     // (PV if PV-on, else the normal compute mode which honors GC).
     A::modalize<A::aspectModeType> drawCtx(A::aspectMode,
                                             A::aspectModeForChartAspects());
+    // PV aspect math must run in the same frame the wheel draws in
+    // (relocalization anchor per circleStart, matching displayPvPos), or
+    // cross-file "aspects" compare pvPos values from two different local
+    // frames.  Start_ZeroDegree draws both files raw, so no relocalization.
+    setPvFrameFile(circleStart == Start_Outer_Ascendant ? 1
+                   : circleStart == Start_Ascendent     ? 0
+                                                        : -1);
     auto list =
         (filesCount() == 1 ? calculateAspects() : calculateSynastryAspects());
     for (const A::Aspect& asp : std::as_const(list)) {
@@ -1111,16 +1111,18 @@ Chart::drawMidpointFigures()
         // markers — otherwise in equatorial / prime-vertical modes the
         // wheel rotates per equatorialPos/pvPos but midAngle stays in
         // ecliptic, so the solid line drawn from the chord-center to
-        // mid-angle-on-ring lands at the wrong place.
-        auto aspectModeAngle = [](const A::Planet& b) -> double {
+        // mid-angle-on-ring lands at the wrong place.  PV positions go
+        // through displayPvPos so biwheel bodies from different files are
+        // compared in the common (relocalized) frame.
+        auto aspectModeAngle = [this](const A::Planet& b, int bfid) -> double {
             switch (A::aspectModeForChartDraw()) {
             case A::amcEquatorial:    return b.equatorialPos.x();
-            case A::amcPrimeVertical: return b.pvPos;
+            case A::amcPrimeVertical: return displayPvPos(b, bfid);
             default:                  return b.eclipticPos.x();
             }
         };
-        double posB_ang = aspectModeAngle(p1Data);
-        double posC_ang = aspectModeAngle(p2Data);
+        double posB_ang = aspectModeAngle(p1Data, fid);
+        double posC_ang = aspectModeAngle(p2Data, fid);
         double diff = swe_difdeg2n(posC_ang, posB_ang);
         double midAngle = swe_degnorm(posB_ang + diff / 2.0);
         double farAngle = swe_degnorm(midAngle + 180.0);
@@ -1179,7 +1181,7 @@ Chart::drawMidpointFigures()
                 int cfid = cpid.fileId();
                 if (cfid < 0) cfid = fi;
                 const auto aPlanet = file(cfid)->horoscope().planets.value(aPid);
-                double aPos  = aspectModeAngle(aPlanet);
+                double aPos  = aspectModeAngle(aPlanet, cfid);
                 double dNear = fabs(swe_difdeg2n(aPos, midAngle));
                 double dFar  = fabs(swe_difdeg2n(aPos, farAngle));
                 double d = qMin(dNear, dFar);
@@ -1202,7 +1204,7 @@ Chart::drawMidpointFigures()
                 int cfid = cpid.fileId();
                 if (cfid < 0) cfid = 1;
                 const auto aPlanet = file(cfid)->horoscope().planets.value(aPid);
-                double aPos  = aspectModeAngle(aPlanet);
+                double aPos  = aspectModeAngle(aPlanet, cfid);
                 double dNear = fabs(swe_difdeg2n(aPos, midAngle));
                 double dFar  = fabs(swe_difdeg2n(aPos, farAngle));
                 double d = qMin(dNear, dFar);

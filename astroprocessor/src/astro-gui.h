@@ -528,6 +528,24 @@ class AstroFileHandler : public QWidget, public Customizable {
     /// Midpoint ChartPlanetIds found in the current focal set.
     QList<A::ChartPlanetId> _focalMidpoints;
 
+    /// PV-display biwheel support: pvPos is a local-frame quantity, so when
+    /// chart aspects are computed in prime-vertical mode the two files'
+    /// values live in different frames (natal vs transit RAMC).  These hold
+    /// copies of the non-reference file's planets with pvPos re-projected
+    /// into the reference file's frame (the same relocalization the chart
+    /// wheel draws with), so aspect matching agrees with drawn positions.
+    /// Members (not locals) because returned aspect lists keep Planet*.
+    A::PlanetMap _pvRelocPlanets, _pvRelocPlanetsOrig;
+    int          _pvRelocFileIndex = -1; ///< file relocalized, -1 = inactive
+    int          _pvRefFileIndex   = 0;  ///< frame anchor (chart circleStart)
+
+    /// Rebuild _pvRelocPlanets[Orig] for the current aspectMode/file set.
+    /// Active (returns true) only in PV aspect mode with 2+ files.
+    bool preparePvRelocalization();
+    /// file(fid) planet for aspect math: the PV-relocalized copy when
+    /// active for fid, else the horoscope's own planet.
+    const A::Planet* aspectPlanet(int fid, A::PlanetId pid);
+
     MembersList blankMembers();
     bool        isAnyFileSuspended(); // returns true if any file has
                                       // isSuspendedUpdate() == true
@@ -563,6 +581,11 @@ class AstroFileHandler : public QWidget, public Customizable {
     AstroFileHandler(QWidget* parent = nullptr);
     A::AspectList calculateAspects();
     A::AspectList calculateSynastryAspects();
+
+    /// Which file's frame anchors PV-mode synastry aspect math (the chart
+    /// wheel sets this from circleStart so aspects match drawn positions).
+    /// -1 disables relocalization (wheel draws both files' raw pvPos).
+    void setPvFrameFile(int idx) { _pvRefFileIndex = idx; }
 
     /// Return the set of midpoint ChartPlanetIds in the current focal set
     /// (populated after calculateAspects/calculateSynastryAspects).
