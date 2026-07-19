@@ -36,6 +36,7 @@ using QKeyValueList = QList<QPair<QString, QVariant>>;
 class QTabWidget;
 class Customizable;
 class QFormLayout;
+class QVBoxLayout;
 class QLineEdit;
 class QComboBox;
 class QSpinBox;
@@ -92,6 +93,8 @@ private:
     bool changed;
 
     QTabWidget* tabs;
+    QVBoxLayout* pageLayout;   // current tab's outer layout (forms + group boxes)
+    QFormLayout* currentForm;  // form layout receiving new rows
     QPushButton* ok;
     QPushButton* cancel;
     QPushButton* bApply;
@@ -115,7 +118,7 @@ public:
     ~AppSettingsEditor();
 
     void addTab(const QString& tabName);
-    //void beginGroup  ( const QString& groupName );
+    void beginGroup(const QString& groupName);
     void endGroup();
     void addSpacing(int spacing);
     void addStretch();
@@ -123,6 +126,9 @@ public:
     void addCustomWidget(QWidget* wdg, const QString& label, const char* changeSignal);
     QLineEdit* addLineEdit(const QString& valueName, const QString& label);
     QCheckBox* addCheckBox(const QString& valueName, const QString& label);
+    // One form row holding several checkboxes side by side, wrapping after
+    // perRow items. Each pair is {settings key, checkbox text}.
+    void addCheckBoxRow(const QString& label, const QKeyValueList& boxes, int perRow = 4);
     QSpinBox* addSpinBox(const QString& valueName, const QString& label, int minValue, int MaxValue);
     QDoubleSpinBox* addDoubleSpinBox(const QString& valueName, const QString& label, double minValue, double maxValue, double step = 0.1);
     QComboBox* addComboBox(const QString& valueName, const QString& label, QKeyValueList values);

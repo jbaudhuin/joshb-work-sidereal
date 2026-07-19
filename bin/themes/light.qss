@@ -672,6 +672,52 @@ QRadioButton::indicator:checked {
 	);
 }
 
+/* Settings-dialog group boxes (AppSettingsEditor beginGroup/endGroup) */
+QGroupBox {
+	color: #2C2C2C;
+	font-weight: bold;
+	border: 1px solid #A0A0A0;
+	border-radius: 4px;
+	margin-top: 10px;	/* room for the floating title */
+	padding-top: 4px;
+}
+
+QGroupBox::title {
+	subcontrol-origin: margin;
+	subcontrol-position: top left;
+	left: 8px;
+	padding: 0 4px;
+	color: #2C2C2C;
+	background: transparent;
+}
+
+QCheckBox {
+	color: #2C2C2C;
+	background: transparent;
+	spacing: 5px;
+}
+
+/* Unchecked matches the radio indicator; checked matches the toolbuttons'
+   checked blue. (Styling any indicator state disables native rendering for
+   all of them, so checked must be styled explicitly too.) */
+QCheckBox::indicator {
+	width: 13px;
+	height: 13px;
+}
+
+QCheckBox::indicator:unchecked {
+	border: 1px solid #808080;
+	border-radius: 3px;
+	background: #FFFFFF;
+}
+
+QCheckBox::indicator:checked {
+	border: 1px solid #3377BB;
+	border-radius: 3px;
+	background: #5599DD;
+	image: url(style/checkbox.png);
+}
+
 /* Planets widget specific radio buttons (styled as buttons) */
 Planets QRadioButton {
 	background: #E3F0FF;

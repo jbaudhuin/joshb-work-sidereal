@@ -33,6 +33,8 @@
 #include <QComboBox>
 #include <QTabWidget>
 #include <QFormLayout>
+#include <QGridLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QTextCodec>
@@ -109,6 +111,8 @@ void AppSettings::save(const QString& fileName)
 AppSettingsEditor::AppSettingsEditor() : QDialog()
 {
     changed = false;
+    pageLayout = nullptr;
+    currentForm = nullptr;
 
     tabs = new QTabWidget(this);
     ok = new QPushButton(tr("OK"), this);
@@ -173,23 +177,38 @@ void AppSettingsEditor::change()
 
 void AppSettingsEditor::addTab(const QString& tabName)
 {
+    // Page structure: QVBoxLayout holding one or more QFormLayouts/QGroupBoxes,
+    // with a trailing stretch so groups keep their natural height. New forms and
+    // groups are always inserted before that stretch.
     QWidget* w = new QWidget;
-    w->setLayout(new QFormLayout);
+    pageLayout = new QVBoxLayout(w);
+    currentForm = new QFormLayout;
+    currentForm->setContentsMargins(0, 0, 0, 0);
+    pageLayout->addLayout(currentForm);
+    pageLayout->addStretch(1);
     tabs->addTab(w, tabName);
 }
 
-/*void AppSettingsEditor :: beginGroup  ( QString groupName )
- {
-  if (!tabs->count()) addTab(tr("General"));
+void AppSettingsEditor::beginGroup(const QString& groupName)
+{
+    if (!tabs->count()) addTab(tr("General"));
+    QGroupBox* box = new QGroupBox(groupName);
+    currentForm = new QFormLayout(box);
+    pageLayout->insertWidget(pageLayout->count() - 1, box);
+}
 
-  // ...
- }*/
+void AppSettingsEditor::endGroup()
+{
+    if (!tabs->count()) { addTab(tr("General")); return; }
+    currentForm = new QFormLayout;
+    currentForm->setContentsMargins(0, 0, 0, 0);
+    pageLayout->insertLayout(pageLayout->count() - 1, currentForm);
+}
 
 QFormLayout* AppSettingsEditor::lastLayout()
 {
     if (!tabs->count()) addTab(tr("General"));
-    int last = tabs->count() - 1;
-    return (QFormLayout*)tabs->widget(last)->layout();
+    return currentForm;
 }
 
 QWidget* 
@@ -264,7 +283,32 @@ AppSettingsEditor::addCheckBox(const QString& valueName, const QString&
     return edit;
 }
 
-QSpinBox* 
+void
+AppSettingsEditor::addCheckBoxRow(const QString& label,
+                                  const QKeyValueList& boxes,
+                                  int perRow /*=4*/)
+{
+    QWidget* holder = new QWidget;
+    QGridLayout* grid = new QGridLayout(holder);
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(12);
+    grid->setVerticalSpacing(2);
+
+    int i = 0;
+    for (const auto& pair : boxes) {
+        QCheckBox* cb = new QCheckBox(pair.second.toString());
+        cb->setChecked(settings.value(pair.first).toBool());
+        grid->addWidget(cb, i / perRow, i % perRow);
+
+        boundControls[pair.first] = cb;
+        connect(cb, SIGNAL(toggled(bool)), this, SLOT(change()));
+        ++i;
+    }
+
+    lastLayout()->addRow(label, holder);
+}
+
+QSpinBox*
 AppSettingsEditor::addSpinBox(const QString& valueName,
                               const QString& label,
                               int minValue,

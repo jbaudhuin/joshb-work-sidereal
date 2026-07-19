@@ -13,6 +13,7 @@ class QComboBox;
 class QPushButton;
 class QToolButton;
 class QAction;
+class QActionGroup;
 class QLabel;
 
 /* ============================== SECTION TOGGLE
@@ -98,7 +99,9 @@ class Plain : public AstroFileHandler {
     SectionToggle* togDirections;
     SectionToggle* togSpeculum;
     SectionToggle* togParans;
-    QComboBox*     displayModeSelector;
+    QToolButton*   displayModeButton;  ///< clock-glyph dropdown of display modes
+    QActionGroup*  displayModeGroup;   ///< exclusive Local/Sidereal/RA actions
+    A::SpeculumDisplayMode _displayMode;
     QTextBrowser*  view;
 
     bool               showAllDiurnalEvents;
@@ -130,6 +133,10 @@ class Plain : public AstroFileHandler {
         const char*    base;    ///< base for Plain/<base>_f1 / _f2 file keys
     };
     QList<SectionKey> sectionKeys() const;
+
+    /// Switch the speculum display mode: sync the toolbutton/actions, and on an
+    /// actual change emit displayModeChanged and re-render the report.
+    void setDisplayMode(A::SpeculumDisplayMode mode);
 
     /// HTML anchor name for a section (fileIndex -1) or its per-file subsection.
     QString sectionAnchor(SectionToggle* t, int fileIndex) const;

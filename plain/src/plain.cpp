@@ -3,6 +3,8 @@
 #include "../../astroprocessor/src/citydb.h"
 #include <Astroprocessor/Output>
 #include <QAction>
+#include <QActionGroup>
+#include <QMenu>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDebug>
@@ -434,17 +436,38 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
 
     toolbar->addSeparator();
 
-    // Create display mode selector combo box (no label)
-    displayModeSelector = new QComboBox();
-    displayModeSelector->addItem(tr("Local Time"), A::DisplayLocalTime);
-    displayModeSelector->addItem(tr("Sidereal Time"), A::DisplaySiderealTime);
-    displayModeSelector->addItem(tr("Right Ascension"), A::DisplayRightAscension);
-    displayModeSelector->setCurrentIndex(0); // Default to Local Time
-    toolbar->addWidget(displayModeSelector);
+    // Compact display-mode selector: clock toolbutton whose dropdown lists the
+    // three speculum time formats (replaces the old always-wide combo box).
+    _displayMode = A::DisplayLocalTime;
+    displayModeButton = new QToolButton();
+    displayModeButton->setObjectName("plainDisplayModeButton");
+    displayModeButton->setPopupMode(QToolButton::InstantPopup);
+    QMenu* dmMenu = new QMenu(displayModeButton);
+    displayModeGroup = new QActionGroup(dmMenu);
+    displayModeGroup->setExclusive(true);
+    const QList<QPair<QString, A::SpeculumDisplayMode>> dmModes = {
+        { tr("Local Time"),      A::DisplayLocalTime },
+        { tr("Sidereal Time"),   A::DisplaySiderealTime },
+        { tr("Right Ascension"), A::DisplayRightAscension },
+    };
+    for (const auto& m : dmModes) {
+        QAction* a = dmMenu->addAction(m.first);
+        a->setCheckable(true);
+        a->setData(int(m.second));
+        displayModeGroup->addAction(a);
+    }
+    displayModeButton->setMenu(dmMenu);
+    connect(displayModeGroup, &QActionGroup::triggered, this,
+            [this](QAction* a) {
+                setDisplayMode(A::SpeculumDisplayMode(a->data().toInt()));
+            });
+    setDisplayMode(_displayMode);   // sync checked action & button face
+    toolbar->addWidget(displayModeButton);
 
-    // Match the section toggles' height to the display-mode combo so the whole
+    // Match the section toggles' height to the display-mode button so the whole
     // toolbar row is uniform (and tall enough for the rounded frames).
-    const int rowH = displayModeSelector->sizeHint().height();
+    const int rowH = qMax(displayModeButton->sizeHint().height(), 26);
+    displayModeButton->setFixedHeight(rowH);
     for (SectionToggle* t : sectionToggles())
         t->setFixedHeight(rowH);
 
@@ -480,12 +503,6 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
                 [this, t](int fileIndex) { scrollToSection(t, fileIndex); });
     }
 
-    connect(displayModeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
-        A::SpeculumDisplayMode mode = A::SpeculumDisplayMode(displayModeSelector->currentData().toInt());
-        emit displayModeChanged(mode);
-        refresh();
-    });
-
     // Connect to theme changes to regenerate HTML with theme-appropriate inline colors
     connect(&ThemeManager::instance(),
             &ThemeManager::themeChanged,
@@ -496,6 +513,39 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     // QFile cssfile("plain/style.css");
     // cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
     // setStyleSheet(cssfile.readAll());
+}
+
+/// Short label shown on the toolbar clock button next to the glyph.
+static QString displayModeAbbrev(A::SpeculumDisplayMode m)
+{
+    switch (m) {
+    case A::DisplaySiderealTime:   return QObject::tr("ST");
+    case A::DisplayRightAscension: return QObject::tr("RA");
+    default:                       return QObject::tr("LT");
+    }
+}
+
+void
+Plain::setDisplayMode(A::SpeculumDisplayMode mode)
+{
+    // Always sync the UI (checked action, button face), even when the mode is
+    // unchanged — the ctor and settings load rely on this to seed the button.
+    QString name;
+    for (QAction* a : displayModeGroup->actions()) {
+        if (A::SpeculumDisplayMode(a->data().toInt()) == mode) {
+            a->setChecked(true);
+            name = a->text();
+            break;
+        }
+    }
+    displayModeButton->setText(QString::fromUtf8("\U0001F550 ")  // 🕐
+                               + displayModeAbbrev(mode));
+    displayModeButton->setToolTip(tr("Display mode: %1").arg(name));
+
+    if (_displayMode == mode) return;
+    _displayMode = mode;
+    emit displayModeChanged(mode);
+    refresh();
 }
 
 void
@@ -603,19 +653,6 @@ Plain::filesUpdated(MembersList m)
     // Show/hide each section's [1]/[2] file toggles based on the file count.
     for (SectionToggle* t : sectionToggles()) t->setFileCount(filesCount());
 
-    // File-data changes (GMT, Location) that affect aspect positions
-    bool needsAspectUpdate = false;
-    for (const auto& members : m) {
-        if (members & (AstroFile::GMT | AstroFile::Location)) {
-            needsAspectUpdate = true;
-            break;
-        }
-    }
-
-    if (chartsCountChanged || needsAspectUpdate) {
-        aspectsCached = false;
-    }
-
     // Refresh on a change to ANY file, not just file(0). The Directions/Parans
     // tables for Chart #2 are rendered from file(1) (e.g. the moving chart of a
     // Par=N biwheel), so paran cycling — which steps file(1)'s GMT — must
@@ -623,6 +660,15 @@ Plain::filesUpdated(MembersList m)
     bool anyChanged = false;
     for (const auto& members : m)
         if (members) { anyChanged = true; break; }
+
+    // Any file change also invalidates the aspect cache: the cached AspectLists
+    // hold Planet* into the files' horoscopes, and any change that triggers a
+    // recalculation (GMT, harmonic, zodiac, aspect set, …) reallocates that
+    // storage, leaving the cached pointers dangling (crash in
+    // describeAspectsTable). Recomputing is cheap next to rendering.
+    if (chartsCountChanged || anyChanged) {
+        aspectsCached = false;
+    }
 
     if (chartsCountChanged || anyChanged) {
         refresh();
@@ -669,9 +715,7 @@ Plain::refresh()
         return t->sectionOn() && twoCharts && t->fileOn(1);
     };
 
-    // Get display mode from combo box data
-    A::SpeculumDisplayMode displayMode =
-        A::SpeculumDisplayMode(displayModeSelector->currentData().toInt());
+    const A::SpeculumDisplayMode displayMode = _displayMode;
 
     // Update aspects cache if needed (only when aspects will be displayed)
     if (togAspects->sectionOn()) {
@@ -1251,8 +1295,7 @@ Plain::currentSettings()
         s.setValue(QString("Plain/%1_f1").arg(sk.base), sk.t->fileOn(0));
         s.setValue(QString("Plain/%1_f2").arg(sk.base), sk.t->fileOn(1));
     }
-    s.setValue("Mundane/displayMode",
-               unsigned(displayModeSelector->currentData().toInt()));
+    s.setValue("Mundane/displayMode", unsigned(_displayMode));
     s.setValue("Mundane/primDirMode", unsigned(A::primDirMode));
     s.setValue("Mundane/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Mundane/paranOrb", paranOrb);
@@ -1291,14 +1334,8 @@ Plain::applySettings(const AppSettings& s)
             1, s.value(QString("Plain/%1_f2").arg(sk.base), true).toBool());
     }
 
-    A::SpeculumDisplayMode loadedMode =
-        A::SpeculumDisplayMode(s.value("Mundane/displayMode").toUInt());
-
-    // Set combo box to the loaded display mode
-    int index = displayModeSelector->findData(loadedMode);
-    if (index >= 0) {
-        displayModeSelector->setCurrentIndex(index);
-    }
+    setDisplayMode(
+        A::SpeculumDisplayMode(s.value("Mundane/displayMode").toUInt()));
 
     // Check if primDirMode changed - if so, need to recalculate charts
     A::PrimDirMode newPrimDirMode =
@@ -1370,52 +1407,24 @@ Plain::applySettings(const AppSettings& s)
 void
 Plain::setupSettingsEditor(AppSettingsEditor* ed)
 {
+    // Organized by report section: general rows first, then a group per table.
+    // (Display mode is set from the toolbar's clock button, not here.)
     ed->addTab(tr("Tables"));
+    ed->addComboBox("Text/aspectSortOrder",
+                    tr("Sort aspects by"),
+                    { { "Planet pairs", A::SortByPlanets },
+                      { "Orb strength", A::SortByOrbStrength },
+                      { "Aspect type", A::SortByAspectType } });
+
+    ed->beginGroup(tr("Directions && Speculum"));
     ed->addComboBox("Mundane/primDirMode",
                     tr("Speculum type"),
                     { { "Mundane", A::prdMundane },
                       { "Zodiacal", A::prdZodiacal },
                       { "Active", A::prdActive } });
-    ed->addComboBox("Mundane/displayMode",
-                    tr("Display mode"),
-                    { { "Local Time", A::DisplayLocalTime },
-                      { "Sidereal Time", A::DisplaySiderealTime },
-                      { "Right Ascension", A::DisplayRightAscension } });
     ed->addCheckBox("Mundane/showAllDiurnalEvents",
-
                     tr("Show all planetary diurnal events"));
-    ed->addDoubleSpinBox("Mundane/paranOrb",
-                         tr("Orb for paranatellontas"),
-                         1. / 60. /*1 minute*/,
-                         5.0 /*5 degrees*/);
-    ed->addDoubleSpinBox("Mundane/paranCityLatTol",
-                         tr("Paran-latitude city tolerance (degrees)"),
-                         0.05 /*~5.5 km*/,
-                         5.0 /*~550 km*/);
-    ed->addSpinBox("Mundane/paranMaxCitiesPerRow",
-                   tr("Max cities listed per paran-latitude row"),
-                   1,
-                   30);
-    ed->addCheckBox("Mundane/paranShowAbsent",
-                    tr("Show paran latitudes that are not present in the natal chart"));
-    ed->addCheckBox("Mundane/paranCity_PopSmall",
-                    tr("Cities: small (15k–100k)"));
-    ed->addCheckBox("Mundane/paranCity_PopMedium",
-                    tr("Cities: medium (100k–500k)"));
-    ed->addCheckBox("Mundane/paranCity_PopLarge",
-                    tr("Cities: large (500k–2M)"));
-    ed->addCheckBox("Mundane/paranCity_PopHuge",
-                    tr("Cities: huge (>2M)"));
-    ed->addCheckBox("Mundane/paranCity_ContAfrica",       tr("Cities in Africa"));
-    ed->addCheckBox("Mundane/paranCity_ContAsia",         tr("Cities in Asia"));
-    ed->addCheckBox("Mundane/paranCity_ContEurope",       tr("Cities in Europe"));
-    ed->addCheckBox("Mundane/paranCity_ContNorthAmerica", tr("Cities in North America"));
-    ed->addCheckBox("Mundane/paranCity_ContSouthAmerica", tr("Cities in South America"));
-    ed->addCheckBox("Mundane/paranCity_ContOceania",      tr("Cities in Oceania"));
-    ed->addCheckBox("Mundane/paranCity_ContAntarctica",   tr("Cities in Antarctica"));
     ed->addCheckBox("Mundane/includeFixedStars", tr("Include fixed stars"));
-    ed->addCheckBox("Mundane/showParanNatalRows",
-                    tr("Show natal ex-precessed positions in paran table"));
     ed->addComboBox("Mundane/dirMethodSolarReturn",
                     tr("Derived directions for Solar Returns"),
                     { { "None (Primary Directions)", unsigned(A::DirNone) },
@@ -1424,15 +1433,43 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                       { "SQ (mean sun)",             unsigned(A::DirSQ) },
                       { "NeoSQ (apparent sun)",      unsigned(A::DirNeoSQ) } });
     ed->addComboBox("Mundane/dirMethodOther",
-                    tr("Derived directions for other charts (lunar returns, ingresses)"),
+                    tr("Derived directions for other charts\n(lunar returns, ingresses)"),
                     { { "None (Primary Directions)", unsigned(A::DirNone) },
                       { "SQ (mean sun)",             unsigned(A::DirSQ) },
                       { "NeoSQ (apparent sun)",      unsigned(A::DirNeoSQ) } });
-    ed->addComboBox("Text/aspectSortOrder",
-                    tr("Sort aspects by"),
-                    { { "Planet pairs", A::SortByPlanets },
-                      { "Orb strength", A::SortByOrbStrength },
-                      { "Aspect type", A::SortByAspectType } });
+    ed->endGroup();
+
+    ed->beginGroup(tr("Parans"));
+    ed->addDoubleSpinBox("Mundane/paranOrb",
+                         tr("Orb for paranatellontas"),  // also Directions table
+                         1. / 60. /*1 minute*/,
+                         5.0 /*5 degrees*/);
+    ed->addCheckBox("Mundane/showParanNatalRows",
+                    tr("Show natal ex-precessed positions"));
+    ed->addCheckBox("Mundane/paranShowAbsent",
+                    tr("Include all latitudes"));
+    ed->addDoubleSpinBox("Mundane/paranCityLatTol",
+                         tr("City latitude tolerance"),
+                         0.05 /*~5.5 km*/,
+                         5.0 /*~550 km*/);
+    ed->addSpinBox("Mundane/paranMaxCitiesPerRow",
+                   tr("Max cities listed per row"),
+                   1,
+                   30);
+    ed->addCheckBoxRow(tr("City sizes"),
+                       { { "Mundane/paranCity_PopSmall",  tr("15k–100k") },
+                         { "Mundane/paranCity_PopMedium", tr("100k–500k") },
+                         { "Mundane/paranCity_PopLarge",  tr("500k–2M") },
+                         { "Mundane/paranCity_PopHuge",   tr(">2M") } });
+    ed->addCheckBoxRow(tr("Continents"),
+                       { { "Mundane/paranCity_ContAfrica",       tr("Africa") },
+                         { "Mundane/paranCity_ContAsia",         tr("Asia") },
+                         { "Mundane/paranCity_ContEurope",       tr("Europe") },
+                         { "Mundane/paranCity_ContNorthAmerica", tr("N. America") },
+                         { "Mundane/paranCity_ContSouthAmerica", tr("S. America") },
+                         { "Mundane/paranCity_ContOceania",      tr("Oceania") },
+                         { "Mundane/paranCity_ContAntarctica",   tr("Antarctica") } });
+    ed->endGroup();
 }
 
 void

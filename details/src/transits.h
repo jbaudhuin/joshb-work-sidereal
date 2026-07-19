@@ -60,8 +60,23 @@ class TransitTreeView : public QTreeView {
   protected:
     void currentChanged(const QModelIndex& now, const QModelIndex&) override
     {
-        emit currently(now);
+        if (!_inFocusIn) emit currently(now);
     }
+
+    void focusInEvent(QFocusEvent* e) override
+    {
+        // Regaining focus (e.g. returning from the Settings dialog) must not
+        // impersonate a row click: QAbstractItemView::focusInEvent auto-sets a
+        // current index when none survived a model rebuild, which would switch
+        // the displayed chart to the top event row (and once crashed in the
+        // resulting refresh).
+        _inFocusIn = true;
+        QTreeView::focusInEvent(e);
+        _inFocusIn = false;
+    }
+
+  private:
+    bool _inFocusIn = false;
 };
 
 class InputProgressOverlay; // defined in transits.cpp; search-progress widget
