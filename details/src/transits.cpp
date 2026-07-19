@@ -3081,6 +3081,45 @@ Transits::cancelAndRemoveFinder(AstroFile* af)
     _finders.erase(it);
 }
 
+bool
+Transits::resumeActiveFinder()
+{
+    if (filesCount() == 0 || !file(0) || !_evm) return false;
+    auto fit = _finders.find(file(0));
+    if (fit == _finders.end()) return false;
+    auto& fs = fit.value();
+    if (!fs.finder || !fs.thread || fs.thread->isFinished()) return false;
+
+    qDebug() << "[RESUME FINDER] Resuming existing finder for"
+             << file(0)->getName() << "state:" << fs.finder->getState();
+
+    // Reconnect signals
+    connect(fs.finder, SIGNAL(progress(double)), this, SLOT(onProgress(double)));
+    connect(fs.thread, SIGNAL(finished()), this, SLOT(onCompleted()),
+            Qt::UniqueConnection);
+    connect(this, SIGNAL(cancelActive()), fs.finder, SLOT(cancel()));
+
+    // Set as current-tab active finder
+    _active       = fs.thread;
+    _activeFinder = fs.finder;
+    _chs          = fs.chs;
+
+    // Update model to show events accumulated so far
+    const A::Horoscope& scope(file()->horoscope());
+    _evm->setZodiac(scope.zodiac);
+    _evm->setTimezone(transitsAF()->getTimezone());
+    _evm->clearAllEvents();
+    _evm->addEvents(file(0)->events());
+    _evm->sort();
+
+    // Resume if paused
+    if (fs.finder->isPaused()) {
+        qDebug() << "[RESUME FINDER] Calling resume() on paused finder";
+        fs.finder->resume();
+    }
+    return true;
+}
+
 void
 Transits::refreshLocationUI()
 {
@@ -3415,9 +3454,7 @@ Transits::updateTransits()
         // The stored transit location is the authoritative observer location;
         // push it to transitsAF() so the finder (and location-dependent events
         // like heliacal/parans) observe from it. Respect a manual timezone lock
-        // only for the clock. If the location actually differs, invalidate the
-        // cache so those events recompute (this also heals a bi-wheel whose
-        // transit chart carried a stale, e.g. natal, location).
+        // only for the clock.
         if (transitsAF()->getLocation() != file(0)->getTransitLocation()) {
             transitsAF()->suspendUpdate();
             transitsAF()->setLocation(file(0)->getTransitLocation());
@@ -3425,7 +3462,17 @@ Transits::updateTransits()
             if (!transitsAF()->isTimezoneLocked())
                 transitsAF()->setTimezone(file(0)->getTransitTimezone());
             transitsAF()->resumeUpdate();
-            file(0)->markEventsForRecalc();
+            // Invalidate the cache only when the observer file is this tab's
+            // own (a bi-wheel's file(1) that carried a stale, e.g. natal,
+            // location) — there the mismatch means location-dependent events
+            // really were computed elsewhere.  For a single-file natal tab
+            // transitsAF() is the SHARED _trans scratch file, whose location
+            // is just "whatever natal tab was current last"; invalidating on
+            // that mismatch threw away every natal tab's cache on each tab
+            // switch (and canceled in-flight finders).  Genuine location
+            // edits invalidate explicitly in updateTimezone().
+            if (filesCount() >= 2)
+                file(0)->markEventsForRecalc();
         }
     }
 
@@ -3436,10 +3483,20 @@ Transits::updateTransits()
     // ran, so the widget reflects the current tab regardless.)
     if (!_autoReconcile) {
         qDebug() << "[UPDATE TRANSITS] Auto-reconcile off — skipping automatic recompute";
+        ensureEventsModel();
+        // A live finder for this tab (paused when the tab was switched away,
+        // or still running in background mode) must be reconnected and
+        // resumed even though Auto is off — the user explicitly started that
+        // search (Refresh force-enables Auto only for the click).  Without
+        // this it sat paused forever: partial table, dead progress overlay,
+        // and only a hard restart could clear it.
+        if (resumeActiveFinder()) {
+            updateRefreshButtonState();
+            return;
+        }
         // "Compute on demand" defers only the *recompute*. A tab switch
         // quietClear()s the model, so still repopulate it from cache when it's
         // empty — otherwise the switched-to tab shows nothing until Refresh.
-        ensureEventsModel();
         if (_evm && _evm->rowCount() == 0 && !file(0)->events().empty()) {
             const A::Horoscope& scope(file()->horoscope());
             _evm->setZodiac(scope.zodiac);
@@ -3521,34 +3578,7 @@ Transits::updateTransits()
                 // Entry already removed from map — fall through to create new finder
             } else {
                 // Finder is still alive (paused or running) — resume it
-                qDebug() << "[UPDATE TRANSITS] Resuming existing finder for" << file(0)->getName()
-                         << "state:" << fs.finder->getState();
-
-                // Reconnect signals
-                connect(fs.finder, SIGNAL(progress(double)), this, SLOT(onProgress(double)));
-                connect(fs.thread, SIGNAL(finished()), this, SLOT(onCompleted()),
-                        Qt::UniqueConnection);
-                connect(this, SIGNAL(cancelActive()), fs.finder, SLOT(cancel()));
-
-                // Set as current-tab active finder
-                _active       = fs.thread;
-                _activeFinder = fs.finder;
-                _chs          = fs.chs;
-
-                // Update model to show events accumulated so far
-                const A::Horoscope& scope(file()->horoscope());
-                _evm->setZodiac(scope.zodiac);
-                _evm->setTimezone(transitsAF()->getTimezone());
-                _evm->clearAllEvents();
-                _evm->addEvents(file(0)->events());
-                _evm->sort();
-
-                // Resume if paused
-                if (fs.finder->isPaused()) {
-                    qDebug() << "[UPDATE TRANSITS] Calling resume() on paused finder";
-                    fs.finder->resume();
-                }
-                return;
+                if (resumeActiveFinder()) return;
             }
         } else {
             // Thread finished while we weren't looking — clean up stale entry

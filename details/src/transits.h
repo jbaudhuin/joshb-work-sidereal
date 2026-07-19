@@ -354,6 +354,12 @@ class Transits : public AstroFileHandler {
     void disconnectFinder(FinderState& fs);         // Disconnect UI signals from a finder
     void cancelAndRemoveFinder(AstroFile* af);       // Cancel finder + remove from map
 
+    /// Reconnect a live (paused or background) finder for the current tab,
+    /// make it the active one, repopulate the model with the events found so
+    /// far, and resume it if paused.  Returns false when no live finder
+    /// exists (a finished thread's stale map entry is left for the caller).
+    bool resumeActiveFinder();
+
     /// Launch a scoped finder for only the specified event types.
     /// Appends results to the existing event list (no clear).
     void launchScopedFinder(const A::EventTypeSet& types);
