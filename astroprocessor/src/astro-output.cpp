@@ -1260,16 +1260,12 @@ describeParans(const AstroFileList& scopes,
 
             Star ns;
             ns.name = np.name;
-            // Store RAMC at each transit time so sidereal-time/RA display lines up
-            // with other entries in the same paran group (all share the same RAMC
-            // within 1°). Using the body's own ex-precessed RA would be wrong for
-            // Asc/Desc crossings where body RA ≠ RAMC.
+            // computeNatalParanTransits reports RAMC at each transit time, so
+            // sidereal-time/RA display lines up with other entries in the same
+            // paran group (all share the same RAMC within 1°).
             for (int i = 0; i < 4; ++i) {
-                if (angleTransit[i].isValid()) {
-                    double jd_i = getJulianDate(angleTransit[i]);
-                    ns.angleTransitRA[i] =
-                        swe_degnorm(swe_sidtime(jd_i) * 15.0 + lon);
-                }
+                if (angleTransit[i].isValid())
+                    ns.angleTransitRA[i] = angleTransitRA[i];
             }
             natalStarStorage.append(ns);
             const Star* starPtr = &natalStarStorage.last();
@@ -1300,10 +1296,11 @@ describeParans(const AstroFileList& scopes,
 
     std::sort(events.begin(), events.end());
 
-    // Focused paran chart: keep only the cluster anchored on the *Radix* event,
-    // using the same anchor-chained adjacency the full-listing render loop uses.
-    // This guarantees the focused view matches whichever cluster produced the
-    // event — no centroid-vs-edge clipping.
+    // Focused paran chart: keep only the cluster anchored on the *Radix* event.
+    // Radix, transit planets, AND natal ex-precessed bodies all act as anchors
+    // (a fixed star that paranatellons a natal body is a genuine paran), so the
+    // chain extends through any of them; only fixed stars ride along without
+    // extending it. Every row in the resulting range is a cluster member.
     if (isParanChart) {
         const qint64 clusterOrbSecs = qint64(paranOrb * 240);
 
@@ -1312,33 +1309,22 @@ describeParans(const AstroFileList& scopes,
             if (!events[i]._star) { radixIdx = i; break; }
         }
         if (radixIdx >= 0) {
-            auto isAnchor = [](const event& e) {
-                return !e._star || dynamic_cast<const Planet*>(e._star) != nullptr;
-            };
+            QVector<ParanClusterCandidate> cands;
+            cands.reserve(events.size());
+            for (const event& e : std::as_const(events))
+                cands.append({ e._dt,
+                               !e._star
+                                   || dynamic_cast<const Planet*>(e._star)
+                                          != nullptr
+                                   || e._isNatal });
 
-            int leftAnchor = radixIdx;
-            int left       = radixIdx;
-            while (left > 0
-                   && qAbs(events[left - 1]._dt.secsTo(events[leftAnchor]._dt))
-                          <= clusterOrbSecs)
-            {
-                --left;
-                if (isAnchor(events[left])) leftAnchor = left;
-            }
-
-            int rightAnchor = radixIdx;
-            int right       = radixIdx;
-            while (right + 1 < events.size()
-                   && qAbs(events[right + 1]._dt.secsTo(events[rightAnchor]._dt))
-                          <= clusterOrbSecs)
-            {
-                ++right;
-                if (isAnchor(events[right])) rightAnchor = right;
-            }
+            const auto range =
+                radixParanClusterRange(cands, radixIdx, clusterOrbSecs);
 
             QVector<event> pruned;
-            pruned.reserve(right - left + 1);
-            for (int i = left; i <= right; ++i) pruned.append(events[i]);
+            pruned.reserve(range.second - range.first + 1);
+            for (int i = range.first; i <= range.second; ++i)
+                pruned.append(events[i]);
             events = std::move(pruned);
         }
     }
@@ -1363,6 +1349,14 @@ describeParans(const AstroFileList& scopes,
     ret += "<th style='padding: 4px 8px;'></th>";
     ret += "</tr>";
 
+    if (isParanChart) {
+        // events is already pruned to the radix-anchored cluster, so every row
+        // is a member — render them all in time order. No barrier grouping:
+        // that would drop legitimate fringe stars paranatellonting a natal or
+        // transit anchor on the cluster's edge.
+        for (auto it = events.constBegin(); it != events.constEnd(); ++it)
+            ret += it->fmt(tz, cellPadding, false, displayMode);
+    } else {
     double orb        = paranOrb * 240;
     bool   anyPrinted = false;
 
@@ -1435,6 +1429,7 @@ describeParans(const AstroFileList& scopes,
         } else {
             ++it; // Skip non-planet, non-radix events when not showing all
         }
+    }
     }
 
     ret += "</table>";

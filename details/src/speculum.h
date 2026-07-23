@@ -68,6 +68,7 @@ class Speculum : public AstroFileHandler {
     void onChartButtonClicked(int chartIndex);
     void refreshSpeculum();
     void onThemeChanged();
+    void copySelection();
 
   public slots:
     void setCurrentPlanet(A::PlanetId, int);
@@ -107,6 +108,7 @@ class Speculum : public AstroFileHandler {
     // Settings
     bool        _showFixedStars;
     bool        _showParanNatalRows;
+    double      _paranOrb;  ///< Mundane/paranOrb (deg); paran-cluster orb
     double      m_timezone;
     A::PlanetId _selectedPlanet;
     int         _fileIndex;

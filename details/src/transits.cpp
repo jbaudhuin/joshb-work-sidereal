@@ -4205,19 +4205,36 @@ Transits::onCompleted()
     }
     
     // Final restore attempt - if anchor can't be found now, it won't be found
-    if (_anchor.isValid()) {
+    if (_anchor.isValid() || _anchor.hasSelEvent) {
         restoreScrollPos();
-        
-        // Try one more time to see if we can find it
-        bool matches = false;
+
         int col = _evm->sortColumn();
         auto order = _evm->sortOrder();
-        int targetRow = _evm->rowForData(_anchor.event, matches, col, order == Qt::DescendingOrder);
-        
-        if (!matches || targetRow < 0) {
-            // Event not found after completion - clear anchor
-            qDebug() << "[ON COMPLETED] Anchor event not found, clearing anchor";
-            _anchor.clear();
+
+        // The remembered selection's event no longer exists (e.g. a location
+        // change shifted every event time): drop it for good, quietly.
+        if (_anchor.hasSelEvent) {
+            bool selMatches = false;
+            int selRow = _evm->rowForData(_anchor.selEvent, selMatches, col,
+                                          order == Qt::DescendingOrder);
+            if (!selMatches || selRow < 0) {
+                qDebug() << "[ON COMPLETED] Selected event not found, dropping selection";
+                _anchor.selEvent = A::HarmonicEvent();
+                _anchor.hasSelEvent = false;
+            }
+        }
+
+        // Try one more time to see if we can find the scroll-anchor event
+        if (_anchor.isValid()) {
+            bool matches = false;
+            int targetRow = _evm->rowForData(_anchor.event, matches, col, order == Qt::DescendingOrder);
+
+            if (!matches || targetRow < 0) {
+                // Event not found after completion - clear the scroll anchor
+                // (a still-valid selection was vetted just above and is kept)
+                qDebug() << "[ON COMPLETED] Anchor event not found, clearing anchor";
+                _anchor.clearScroll();
+            }
         }
     }
     
@@ -4288,14 +4305,26 @@ Transits::saveScrollPos()
     if (!_evm || !_tview) return;
 
     if (_evm->rowCount() == 0) {
-        _anchor.clear();
+        // Transiently empty during a rebuild (clearAllEvents → addEvents):
+        // keep the remembered selection so it can be restored on repopulation;
+        // onCompleted drops it if the event is truly gone.
+        _anchor.clearScroll();
         return;
     }
 
     // Determine anchor type based on what triggered the save
     auto cur = ttv()->currentIndex();
     bool hasSelection = cur.isValid();
-    
+
+    // Record the selected row's identity regardless of viewport visibility so
+    // restoreScrollPos() can re-select it after a model rebuild. Deliberately
+    // left untouched when nothing is current: a restore may still be pending
+    // from a cycle whose rows haven't been re-added yet.
+    if (hasSelection) {
+        _anchor.selEvent = _evm->rowData(_filterProxy->mapToSource(cur));
+        _anchor.hasSelEvent = true;
+    }
+
     // Check if this is from a scroll event by examining scroll bar position
     int currentScrollValue = ttv()->verticalScrollBar()->value();
     bool isScrollEvent = (_lastScrollValue >= 0 && currentScrollValue != _lastScrollValue);
@@ -4377,42 +4406,40 @@ Transits::restoreScrollPos()
 {
     // Guard against calls during destruction
     if (!_evm || !_tview) return;
-    
-    if (!_anchor.isValid()) return;
+
+    if (!_anchor.isValid() && !_anchor.hasSelEvent) return;
 
     if (_inRestoreScrollPos) return;
 
     A::modalize<bool> irsp(_inRestoreScrollPos);
     int               col   = _evm->sortColumn();
     auto              order = _evm->sortOrder();
-    
+
     // Check if sort order changed - if so, we need to find the item again
     bool sortChanged = (col != _anchor.sortColumn || order != _anchor.sortOrder);
-    
-    // Try to find the anchored event in the current model
-    bool matches = false;
-    int targetRow = _evm->rowForData(_anchor.event, matches, col, order == Qt::DescendingOrder);
-    
-    if (!matches || targetRow < 0) {
-        // Event not found yet (still calculating) or not found at all
-        // During progressive updates, this is normal - just return and wait
-        // After final completion, onCompleted will clear invalid anchors
-        return;
-    }
-    
-    // Found the event - restore based on anchor type
-    QModelIndex sourceIndex = _evm->index(targetRow, 0);
-    QModelIndex targetIndex = _filterProxy->mapFromSource(sourceIndex);
-    if (!targetIndex.isValid()) return;  // Filtered out — nothing to restore
-    
-    switch (_anchor.type) {
+
+    // Scroll-anchor restore. A miss here (event not found yet during
+    // progressive updates, or filtered out) is normal — just leave the scroll
+    // alone and still attempt the selection restore below; after final
+    // completion, onCompleted will clear invalid anchors.
+    if (_anchor.isValid()) do {
+        bool matches = false;
+        int targetRow = _evm->rowForData(_anchor.event, matches, col, order == Qt::DescendingOrder);
+        if (!matches || targetRow < 0) break;
+
+        // Found the event - restore based on anchor type
+        QModelIndex sourceIndex = _evm->index(targetRow, 0);
+        QModelIndex targetIndex = _filterProxy->mapFromSource(sourceIndex);
+        if (!targetIndex.isValid()) break;  // Filtered out — nothing to restore
+
+        switch (_anchor.type) {
         case AnchorType::Selection:
             // Restore selected row at its previous visual offset
             {
                 QSignalBlocker blocker(ttv()->selectionModel());
                 ttv()->setCurrentIndex(targetIndex);
             }
-            
+
             // Scroll to maintain the same visual offset from top
             if (_anchor.visibleRowOffset >= 0) {
                 int proxyRow = targetIndex.row();
@@ -4427,26 +4454,55 @@ Transits::restoreScrollPos()
                 ttv()->scrollTo(targetIndex, QAbstractItemView::PositionAtCenter);
             }
             break;
-            
+
         case AnchorType::Top:
             // Scroll so this item is at the top of the viewport
             ttv()->scrollTo(targetIndex, QAbstractItemView::PositionAtTop);
             break;
-            
+
         case AnchorType::Bottom:
             // Scroll so this item is at the bottom of the viewport
             ttv()->scrollTo(targetIndex, QAbstractItemView::PositionAtBottom);
             break;
-            
+
         case AnchorType::None:
         default:
             break;
-    }
-    
-    // Update anchor's sort info if it changed
-    if (sortChanged) {
-        _anchor.sortColumn = col;
-        _anchor.sortOrder = order;
+        }
+
+        // Update anchor's sort info if it changed
+        if (sortChanged) {
+            _anchor.sortColumn = col;
+            _anchor.sortOrder = order;
+        }
+    } while (false);
+
+    // Selection restore, independent of the scroll anchor: re-select the
+    // remembered row even when it sits outside the viewport, WITHOUT scrolling
+    // to it (the scroll anchor above owns the viewport). Skipped when a valid
+    // current index exists — Qt preserved it through a layoutChanged sort, the
+    // Selection branch above just restored it, or the user has since picked
+    // another row (never override). Blocked selection-model signals keep this
+    // free of side effects (no currently → clickedCell chart switch).
+    if (_anchor.hasSelEvent && !ttv()->currentIndex().isValid()) {
+        bool selMatches = false;
+        int  selRow     = _evm->rowForData(_anchor.selEvent, selMatches, col,
+                                           order == Qt::DescendingOrder);
+        if (selMatches && selRow >= 0) {
+            QModelIndex selIndex =
+                _filterProxy->mapFromSource(_evm->index(selRow, 0));
+            if (selIndex.isValid()) {
+                int scrollPos = ttv()->verticalScrollBar()->value();
+                {
+                    QSignalBlocker blocker(ttv()->selectionModel());
+                    ttv()->setCurrentIndex(selIndex);
+                }
+                // Defensive: setCurrentIndex must not move the viewport.
+                ttv()->verticalScrollBar()->setValue(scrollPos);
+                // Blocked signals suppress the repaint too.
+                ttv()->viewport()->update();
+            }
+        }
     }
 }
 

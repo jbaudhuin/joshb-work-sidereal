@@ -18,6 +18,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QShortcut>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTimer>
@@ -77,6 +78,7 @@ Speculum::Speculum(QWidget* parent) :
     _filterOrbMinutes(4.0), // Default 4 minutes
     _showFixedStars(true),
     _showParanNatalRows(false),
+    _paranOrb(1.0),
     m_timezone(0),
     _clickedRow(-1),
     _clickedCol(-1),
@@ -87,10 +89,15 @@ Speculum::Speculum(QWidget* parent) :
     _table->setSelectionBehavior(
         QAbstractItemView::SelectItems); // Select individual cells, not rows
     _table->setSelectionMode(
-        QAbstractItemView::SingleSelection); // Only one cell at a time
+        QAbstractItemView::ExtendedSelection); // Drag/Ctrl to select a range
     _table->setAlternatingRowColors(true);
     _table->verticalHeader()->setVisible(false); // Hide row numbers
     _table->setShowGrid(false);                  // No grid lines needed
+
+    // Ctrl+C copies the selected cells (QTableWidget has no built-in copy)
+    auto* copySc = new QShortcut(QKeySequence::Copy, _table);
+    copySc->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(copySc, &QShortcut::activated, this, &Speculum::copySelection);
     
     // Install custom delegate for painting highlighted cells
     _table->setItemDelegate(new SpeculumDelegate(this));
@@ -349,57 +356,60 @@ Speculum::populateSpeculumTable()
     AstroFile* paranFile    = file(_selectedChartIndex);
     bool       isParanChart = paranFile && paranFile->getType() == TypeParan;
 
-    // Build the set of transit-body PlanetIds for paran filtering.
-    // fileId=1 entries are transit planets (from the transit chart, file index 1).
-    QSet<A::PlanetId> paranTransitPlanets;
-    if (isParanChart) {
-        for (const auto& entry : paranFile->getParanGroupPlanets()) {
-            if (entry.first == 1)
-                paranTransitPlanets.insert(entry.second);
-        }
-    }
-
     // The "natal" file for ex-precessed rows is the other chart in a biwheel
     int        natalIdx  = 1 - _selectedChartIndex;
     AstroFile* natalFile = (filesCount() > 1 && natalIdx >= 0) ? file(natalIdx) : nullptr;
 
-    // Count natal ex-precessed rows for Par=N charts (feature 3)
-    int  natalParanCount = 0;
-    bool showNatalRows   = isParanChart
-        && _showParanNatalRows
-        && paranFile->getOriginEventType() == A::etcParanatellontaToNatal
-        && natalFile != nullptr;
-    if (showNatalRows) {
-        for (const auto& entry : paranFile->getParanGroupPlanets()) {
-            if (entry.first == 0) natalParanCount++;  // fileId=0 = natal planets
+    // Natal ex-precessed rows follow the same rule as describeParans(): shown
+    // for a Par=N (ToNatal) paran chart always, and for a plain paran chart
+    // only when the natal chart is a radix and the user enabled natal rows.
+    const bool natalCtxIsRadix = natalFile
+        && (natalFile->getType() == TypeMale
+            || natalFile->getType() == TypeFemale
+            || natalFile->getType() == TypeEvent
+            || natalFile->getType() == TypeComposite);
+    const bool runNatalRows = isParanChart && natalFile
+        && (paranFile->getOriginEventType() == A::etcParanatellontaToNatal
+            || (paranFile->getOriginEventType() == A::etcParanatellonta
+                && _showParanNatalRows && natalCtxIsRadix));
+
+    // --- Non-paran charts: the original full planet + star listing ---------
+    if (!isParanChart) {
+        int planetCount = 0;
+        for (const A::Planet& p : scope.planets) {
+            if (p.id == A::Planet_MC || p.id == A::Planet_Asc) continue;
+            planetCount++;
         }
+        int totalRows = planetCount + (_showFixedStars ? scope.stars.count() : 0);
+        _table->setRowCount(totalRows);
+
+        int row = 0;
+        for (const A::Planet& p : scope.planets) {
+            if (p.id == A::Planet_MC || p.id == A::Planet_Asc) continue;
+            addPlanetRow(p, row++);
+        }
+        if (_showFixedStars) {
+            for (const A::Star& s : scope.stars) addStarRow(s, row++);
+        }
+        return;
     }
 
-    // Count transit planet rows (filtered for paran charts)
-    int planetCount = 0;
-    for (const A::Planet& p : scope.planets) {
-        if (p.id == A::Planet_MC || p.id == A::Planet_Asc) continue;
-        if (isParanChart && !paranTransitPlanets.contains(p.id)) continue;
-        planetCount++;
-    }
+    // --- Paran charts: model the Directions focused cluster ----------------
+    // Compute the natal ex-precessed crossings up front (needed both as
+    // cluster candidates and as rendered rows), then gather every candidate
+    // crossing (radix + planets + stars + natal), prune to the radix-anchored
+    // cluster with the shared anchor-chained walk, and show every body that
+    // has at least one crossing in the cluster (planets also always include
+    // the event's own focal set). Participating cells are highlighted.
+    struct NatalRowData {
+        A::PlanetId pid;
+        QString     name;
+        QDateTime   angleTransit[4];
+        double      angleTransitRA[4];
+    };
+    QVector<NatalRowData> natalRows;
 
-    // Add fixed stars if enabled (suppressed for paran charts — not relevant)
-    int totalRows = planetCount + natalParanCount;
-    if (_showFixedStars && !isParanChart)
-        totalRows += scope.stars.count();
-
-    _table->setRowCount(totalRows);
-
-    // Populate transit planet rows
-    int row = 0;
-    for (const A::Planet& p : scope.planets) {
-        if (p.id == A::Planet_MC || p.id == A::Planet_Asc) continue;
-        if (isParanChart && !paranTransitPlanets.contains(p.id)) continue;
-        addPlanetRow(p, row++);
-    }
-
-    // Populate natal ex-precessed rows for Par=N (right-justified italic)
-    if (showNatalRows) {
+    if (runNatalRows) {
         double jdNatal = A::getJulianDate(natalFile->getGMT());
         double jdParan = A::getJulianDate(paranFile->getGMT());
         // Search the same midnight-to-midnight window that findParans() uses,
@@ -410,48 +420,164 @@ Speculum::populateSpeculumTable()
         double lat     = scope.inputData.location().y();
         double lon     = scope.inputData.location().x();
 
-        const bool natalIsComposite =
-            natalFile->getType() == TypeComposite;
+        const bool natalIsComposite = natalFile->getType() == TypeComposite;
 
-        for (const auto& entry : paranFile->getParanGroupPlanets()) {
-            if (entry.first != 0) continue;  // fileId=0 = natal planets from natalFile
-            A::PlanetId pid = entry.second;
-
-            QString planetName;
-            const A::Planet* natalPlanet = nullptr;
-            for (const A::Planet& p : natalFile->horoscope().planets) {
-                if (p.id == pid) { planetName = p.name; natalPlanet = &p; break; }
-            }
-            if (planetName.isEmpty()) continue;
+        // Every natal planet is a candidate (matching describeParans); the
+        // cluster prune below keeps only those falling in the paran group.
+        for (const A::Planet& np : natalFile->horoscope().planets) {
+            A::PlanetId pid = np.id;
 
             // Get tropical (non-sidereal) natal RA/Dec — same convention as
             // NatalExprecessedPosition._natalRA so exprecess_equatorial works correctly.
             // Composite: use the synthesized horoscope positions (no real natal sky).
             double tropRA, tropDec;
             if (natalIsComposite) {
+                if (pid <= A::Planet_None || pid >= A::Angles_Start) continue;
                 if (!A::horoscopeTropicalEquatorialPos(
-                        *natalPlanet, natalFile->horoscope(), tropRA, tropDec))
+                        np, natalFile->horoscope(), tropRA, tropDec))
                     continue;
             } else if (!A::natalTropicalEquatorialPos(pid, jdNatal, tropRA, tropDec))
                 continue;
 
-            QDateTime angleTransit[4];
-            double    angleTransitRA[4];
+            NatalRowData nr;
+            nr.pid  = pid;
+            nr.name = np.name;
             A::computeNatalParanTransits(
                 tropRA, tropDec,
                 jdNatal, jdMidnight, lat, lon,
-                angleTransit, angleTransitRA,
+                nr.angleTransit, nr.angleTransitRA,
                 /*jdAnchor=*/jdParan);
-
-            addNatalParanRow(planetName, angleTransit, angleTransitRA, row++);
+            natalRows.append(nr);
         }
     }
 
-    // Fixed star rows (suppressed for paran charts)
-    if (_showFixedStars && !isParanChart) {
-        for (const A::Star& s : scope.stars) {
-            addStarRow(s, row++);
+    // Gather cluster candidates. kind: 0=radix, 1=planet, 2=star, 3=natal.
+    // Radix, transit planets, AND natal ex-precessed bodies anchor the chain;
+    // only fixed stars ride along without extending it — matching describeParans().
+    struct Cand {
+        QDateTime   dt;
+        bool        isAnchor;
+        int         kind;
+        A::PlanetId key;    // planet/star/natal body id (Planet_None for radix)
+        int         angle;  // 0..3, -1 for radix
+    };
+    QVector<Cand> cands;
+    cands.append({ paranFile->getGMT(), true, 0, A::Planet_None, -1 });
+
+    for (const A::Planet& p : scope.planets) {
+        if (p.id == A::Planet_MC || p.id == A::Planet_Asc) continue;
+        for (int m = 0; m < 4; ++m) {
+            const QDateTime& dt = p.angleTransit.at(m);
+            if (dt.isValid()) cands.append({ dt, true, 1, p.id, m });
         }
+    }
+    if (_showFixedStars) {
+        for (const A::Star& s : scope.stars) {
+            for (int m = 0; m < 4; ++m) {
+                const QDateTime& dt = s.angleTransit.at(m);
+                if (dt.isValid())
+                    cands.append({ dt, false, 2, s.id, m });
+            }
+        }
+    }
+    for (const NatalRowData& nr : natalRows) {
+        for (int m = 0; m < 4; ++m) {
+            if (nr.angleTransit[m].isValid())
+                cands.append({ nr.angleTransit[m], true, 3, nr.pid, m });
+        }
+    }
+
+    std::sort(cands.begin(), cands.end(),
+              [](const Cand& a, const Cand& b) { return a.dt < b.dt; });
+
+    // Membership by body → participating angle indices (for highlighting), plus
+    // a time-ordered, deduplicated row list: each body is emitted once, at its
+    // first in-cluster crossing. Because cands is sorted by time, this reproduces
+    // the Directions table's focal-paran ordering (which lists crossings by time).
+    QMap<A::PlanetId, QSet<int>> planetAngles, starAngles, natalAngles;
+    struct RowRef { int kind; A::PlanetId key; };
+    QVector<RowRef> orderedRows;
+    int radixIdx = -1;
+    for (int i = 0; i < cands.size(); ++i)
+        if (cands[i].kind == 0) { radixIdx = i; break; }
+
+    if (radixIdx >= 0) {
+        QVector<A::ParanClusterCandidate> pcc;
+        pcc.reserve(cands.size());
+        for (const Cand& c : std::as_const(cands))
+            pcc.append({ c.dt, c.isAnchor });
+
+        const qint64 orbSecs = qint64(_paranOrb * 240);
+        const auto range = A::radixParanClusterRange(pcc, radixIdx, orbSecs);
+        for (int i = range.first; i <= range.second; ++i) {
+            const Cand& c = cands[i];
+            // First appearance of a body (map doesn't yet contain its key) marks
+            // its row position in time order.
+            switch (c.kind) {
+            case 1:
+                if (!planetAngles.contains(c.key)) orderedRows.append({ 1, c.key });
+                planetAngles[c.key].insert(c.angle);
+                break;
+            case 2:
+                if (!starAngles.contains(c.key)) orderedRows.append({ 2, c.key });
+                starAngles[c.key].insert(c.angle);
+                break;
+            case 3:
+                if (!natalAngles.contains(c.key)) orderedRows.append({ 3, c.key });
+                natalAngles[c.key].insert(c.angle);
+                break;
+            default: break;
+            }
+        }
+    }
+
+    // Body lookups for rendering by id (planet/natal keyed by PlanetId; star by
+    // its Stars_Start+i id). Kept in separate maps so a transit body and its
+    // natal ex-precessed twin — same PlanetId — don't collide.
+    QMap<A::PlanetId, const A::Planet*> planetById;
+    for (const A::Planet& p : scope.planets) planetById[p.id] = &p;
+    QMap<A::PlanetId, const A::Star*> starById;
+    for (const A::Star& s : scope.stars) starById[s.id] = &s;
+    QMap<A::PlanetId, const NatalRowData*> natalByPid;
+    for (const NatalRowData& nr : natalRows) natalByPid[nr.pid] = &nr;
+
+    _table->setRowCount(orderedRows.size());
+
+    // Column order in the table is {Rise, MC, Set, IC} = angle indices
+    // {0, 2, 1, 3}; reverse map angle → column (1-based, col 0 is the name).
+    static const int angleToCol[4] = { 1, 3, 2, 4 };
+    auto highlight = [&](int r, const QSet<int>& angles) {
+        for (int m : angles)
+            if (QTableWidgetItem* it = _table->item(r, angleToCol[m]))
+                it->setData(CellHighlightRole, MatchedHighlight);
+    };
+
+    int row = 0;
+    for (const RowRef& rr : std::as_const(orderedRows)) {
+        switch (rr.kind) {
+        case 1:
+            if (const A::Planet* p = planetById.value(rr.key)) {
+                addPlanetRow(*p, row);
+                highlight(row, planetAngles.value(rr.key));
+            }
+            break;
+        case 2:
+            if (const A::Star* s = starById.value(rr.key)) {
+                addStarRow(*s, row);
+                highlight(row, starAngles.value(rr.key));
+            }
+            break;
+        case 3:
+            if (const NatalRowData* nr = natalByPid.value(rr.key)) {
+                addNatalParanRow(nr->name,
+                                 const_cast<QDateTime*>(nr->angleTransit),
+                                 const_cast<double*>(nr->angleTransitRA), row);
+                highlight(row, natalAngles.value(rr.key));
+            }
+            break;
+        default: break;
+        }
+        ++row;
     }
 }
 
@@ -1011,6 +1137,7 @@ Speculum::applySettings(const AppSettings& s)
 
     // Read orb in degrees and convert based on display mode
     double orbDegrees = s.value("Mundane/paranOrb", 1.0).toDouble();
+    _paranOrb = orbDegrees;  // paran-cluster orb (shared with Directions)
 
     // Read display mode from shared Plain widget setting
     _displayMode = A::SpeculumDisplayMode(
@@ -1040,6 +1167,30 @@ Speculum::onThemeChanged()
     if (_filterActive) {
         highlightFilteredRows();
     }
+}
+
+void
+Speculum::copySelection()
+{
+    // Copy the selected cells to the clipboard as a tab-delimited grid
+    // spanning the selection's bounding box (unselected cells left empty).
+    const auto items = _table->selectedItems();
+    if (items.isEmpty()) return;
+
+    QMap<int, QMap<int, QString>> cells;  // row → col → text
+    for (const QTableWidgetItem* it : items)
+        cells[it->row()][it->column()] = it->text().trimmed();
+
+    QStringList lines;
+    for (auto rit = cells.constBegin(); rit != cells.constEnd(); ++rit) {
+        QStringList fields;
+        const int firstCol = rit->firstKey();
+        const int lastCol  = rit->lastKey();
+        for (int c = firstCol; c <= lastCol; ++c)
+            fields << rit->value(c);
+        lines << fields.join('\t');
+    }
+    QApplication::clipboard()->setText(lines.join('\n'));
 }
 
 void

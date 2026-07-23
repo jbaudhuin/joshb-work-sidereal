@@ -7426,12 +7426,44 @@ computeNatalParanTransits(double natalRA,
         const QDateTime when = dateTimeFromJulian(best);
         if (!when.isValid()) continue;
         angleTransit_out[m] = when;
-        double ra, dec, dRA, dDec;
-        if (bodyAt(best, ra, dec, dRA, dDec))
-            angleTransitRA_out[m] = ra;
+        // Report the RAMC (local sidereal time) at the crossing, matching the
+        // per-angle semantics of Planet::angleTransitRA so sidereal-time/RA
+        // display lines up with the other entries in the same paran group.
+        // The body's own ex-precessed RA would be wrong for Asc/Desc crossings
+        // (body RA ≠ RAMC there) and near-constant across the day, rendering
+        // all four columns identical.
+        angleTransitRA_out[m] =
+            swe_degnorm(swe_sidtime(best) * 15.0 + longitudeE);
         any = true;
     }
     return any;
+}
+
+QPair<int, int>
+radixParanClusterRange(const QVector<ParanClusterCandidate>& sorted,
+                       int radixIdx, qint64 orbSecs)
+{
+    int leftAnchor = radixIdx;
+    int left       = radixIdx;
+    while (left > 0
+           && qAbs(sorted[left - 1].dt.secsTo(sorted[leftAnchor].dt))
+                  <= orbSecs)
+    {
+        --left;
+        if (sorted[left].isAnchor) leftAnchor = left;
+    }
+
+    int rightAnchor = radixIdx;
+    int right       = radixIdx;
+    while (right + 1 < sorted.size()
+           && qAbs(sorted[right + 1].dt.secsTo(sorted[rightAnchor].dt))
+                  <= orbSecs)
+    {
+        ++right;
+        if (sorted[right].isAnchor) rightAnchor = right;
+    }
+
+    return { left, right };
 }
 
 namespace

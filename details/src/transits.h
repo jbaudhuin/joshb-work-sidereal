@@ -241,15 +241,32 @@ class Transits : public AstroFileHandler {
         int sortColumn = -1;
         Qt::SortOrder sortOrder = Qt::AscendingOrder;
         int visibleRowOffset = -1; // Offset from viewport top (for Selection type)
-        
-        void clear() {
+
+        // Selected row's identity, tracked independently of the scroll anchor
+        // so the selection survives model rebuilds even when it has been
+        // scrolled off-viewport (where `event` holds a viewport-edge row
+        // instead). Sticky across restore attempts until the user selects
+        // another row or the event disappears for good (see onCompleted).
+        A::HarmonicEvent selEvent;
+        bool             hasSelEvent = false;
+
+        // Drop only the scroll anchor, keeping the remembered selection: the
+        // model is transiently empty mid-rebuild (clearAllEvents → addEvents)
+        // and the selection must survive to the repopulation.
+        void clearScroll() {
             event = A::HarmonicEvent();
             type = AnchorType::None;
             sortColumn = -1;
             sortOrder = Qt::AscendingOrder;
             visibleRowOffset = -1;
         }
-        
+
+        void clear() {
+            clearScroll();
+            selEvent = A::HarmonicEvent();
+            hasSelEvent = false;
+        }
+
         bool isValid() const { return type != AnchorType::None; }
     };
 

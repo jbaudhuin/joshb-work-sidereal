@@ -448,7 +448,10 @@ horoscopeTropicalEquatorialPos(const Planet& p, const Horoscope& scope,
 /// Compute the 4 angle-transit times and RAs for a natal body at its
 /// ex-precessed position on the day containing d_jd, at the given location.
 /// angleTransit_out[0..3] = Asc/Desc/MC/IC QDateTimes (invalid if unavailable).
-/// angleTransitRA_out[0..3] = the body's RA at each transit (degrees).
+/// angleTransitRA_out[0..3] = RAMC (local sidereal time, degrees) at each
+/// transit — the same per-angle semantics as Planet::angleTransitRA, NOT the
+/// body's own RA (which differs from RAMC at Asc/Desc crossings and is
+/// near-constant across the day).
 /// Returns true if at least one transit was found.
 ///
 /// Because a body crosses each angle ~1.0027 times per solar day, the
@@ -468,6 +471,25 @@ computeNatalParanTransits(double natalRA_deg,
                           QDateTime angleTransit_out[4],
                           double    angleTransitRA_out[4],
                           double    jdAnchor = -1.0);
+
+/// One candidate angle-crossing for radix-anchored paran-cluster pruning.
+/// isAnchor: the radix instant and transit-planet crossings anchor the chain;
+/// fixed-star and natal ex-precessed crossings join a cluster but don't
+/// extend it.
+struct ParanClusterCandidate {
+    QDateTime dt;
+    bool      isAnchor;
+};
+
+/// Anchor-chained cluster walk shared by the Directions table and the
+/// Speculum focal display. `sorted` must be ordered by dt and contain the
+/// radix entry at radixIdx; orbSecs = paranOrb * 240 (1° = 4 min). A candidate
+/// joins the cluster when it lies within orbSecs of the nearest anchor already
+/// in the cluster, walking outward from the radix in both directions.
+/// Returns the inclusive [first, last] index range of the cluster.
+QPair<int, int>
+radixParanClusterRange(const QVector<ParanClusterCandidate>& sorted,
+                       int radixIdx, qint64 orbSecs);
 
 /// A single natal-paran latitude row: which two natal bodies, which angle
 /// each, the latitude at which the paran crosses precisely, and the
