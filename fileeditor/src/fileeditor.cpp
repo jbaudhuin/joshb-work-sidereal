@@ -159,6 +159,11 @@ AstroFileEditor::AstroFileEditor(QWidget *parent) :
         bool usesZoneTime = (dateTime->timeMode() == A::Time_ZoneTime);
         timeZone->setEnabled(usesZoneTime);
         lockTimezone->setEnabled(usesZoneTime);
+        // LMT/LAT show a computed effective offset (e.g. 0.308611h from
+        // longitude), not a round zone — 1 decimal would display it as a
+        // seemingly-truncated "0.3". The underlying stored value is always
+        // full precision; this only affects the read-only display here.
+        timeZone->setDecimals(usesZoneTime ? 1 : 4);
 
         if (!_inUpdate && !_inApply) {
             _userEditedTime = true;
@@ -346,6 +351,13 @@ void AstroFileEditor::update(AstroFile::Members m)
     
     geoSearch->setLocation(source->getLocation(),
                            source->getLocationName());
+    // Set decimals BEFORE the value: QDoubleSpinBox::setValue() snaps the
+    // stored value to the box's *current* decimals() setting, so calling
+    // setDecimals() afterward is too late — it only changes how the
+    // already-rounded value is displayed, permanently losing precision
+    // (e.g. 0.308889 -> 0.3) rather than just truncating the display.
+    bool usesZoneTime = (source->getTimeMode() == A::Time_ZoneTime);
+    timeZone->setDecimals(usesZoneTime ? 1 : 4);
     timeZone->setValue(source->getTimezone());
     lockTimezone->setChecked(source->isTimezoneLocked());
     
@@ -356,10 +368,18 @@ void AstroFileEditor::update(AstroFile::Members m)
         tr("Timezone locked - click to unlock") : 
         tr("Click to lock timezone (for relocation charts)"));
     
-    // Convert GMT to local time in the chart's timezone
-    auto gmtDt = source->getGMT();
-    QTimeZone tz(3600 * source->getTimezone());
-    QDateTime localDt = gmtDt.toTimeZone(tz);
+    // Convert GMT to local time. For LMT/LAT this is NOT a fixed
+    // fractional-hour offset from UTC — LAT in particular differs from UTC
+    // by longitude *plus* the continuously-varying Equation of Time, so a
+    // stored "effective timezone" can only round-trip exactly when the true
+    // difference happens to land on a whole second (essentially never).
+    // UTCtoLocal() recomputes LMT/LAT directly from longitude every time,
+    // which is exact regardless of what's stored in source->getTimezone().
+    auto      gmtDt   = source->getGMT();
+    QDateTime localDt = A::UTCtoLocal(gmtDt, source->getTimezone(),
+                                       source->getLocation().x(),
+                                       source->getTimeMode(),
+                                       source->getCalendarType());
     
     // Set the datetime widget — calendar type, time mode, then date/time
     dateTime->blockSignals(true);
@@ -371,10 +391,9 @@ void AstroFileEditor::update(AstroFile::Members m)
     dateTime->blockSignals(false);
     
     // Disable timezone controls when LMT/LAT is active
-    bool usesZoneTime = (source->getTimeMode() == A::Time_ZoneTime);
     timeZone->setEnabled(usesZoneTime);
     lockTimezone->setEnabled(usesZoneTime);
-    
+
     qDebug() << "Loading: GMT" << gmtDt << "TZ offset" << source->getTimezone()
              << "-> Local time" << localDt.date() << localDt.time();
     
@@ -576,6 +595,14 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
         qint64 utcEpoch   = gmt.toSecsSinceEpoch();
         double effectiveTz = (localEpoch - utcEpoch) / 3600.0;
         dst->setTimezone(effectiveTz);
+        // Reflect the freshly computed offset in the spinbox immediately.
+        // Without this, the box keeps showing whatever value it had before
+        // this edit (e.g. a stale, lower-precision 0.3) until the dialog is
+        // closed and reopened — the dateTimeChanged handler above only
+        // adjusts setDecimals(), it never re-syncs the value itself.
+        timeZone->blockSignals(true);
+        timeZone->setValue(effectiveTz);
+        timeZone->blockSignals(false);
         qDebug() << "Saving: Local time" << localDt
                  << "mode" << (tMode == A::Time_LMT ? "LMT" : "LAT")
                  << "effective TZ" << effectiveTz

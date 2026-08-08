@@ -35,6 +35,22 @@ makeQDate(int y, int m, int d)
     return qd;
 }
 
+/// Round a QTime to the nearest second. Computed times (e.g. from
+/// dateTimeFromJulian()) often carry floating-point noise in the
+/// milliseconds (59.99999996s instead of 60.0s); QTime::toString("HH:mm:ss")
+/// truncates rather than rounds, so without this the display would show
+/// ":59:59" instead of rolling over to the intended second/minute.
+/// Note: wraps within the day (23:59:59.6 -> 00:00:00) without carrying
+/// into the date; callers that have a full QDateTime should round that
+/// instead (see setDateTime) so the day carries over correctly.
+static QTime
+roundToNearestSecond(const QTime& t)
+{
+    int msec = t.msec();
+    if (msec == 0) return t;
+    return (msec >= 500) ? t.addMSecs(1000 - msec) : t.addMSecs(-msec);
+}
+
 // -------------------------------------------------------------------------
 // Construction
 // -------------------------------------------------------------------------
@@ -189,7 +205,12 @@ AstroDateTimeEdit::setDate(const QDate& date)
     } else {
         txt = date.toString(QStringLiteral("yyyy-MM-dd"));
     }
-    // Append calendar suffix when overriding
+    // Append calendar suffix when overriding. (Cal_Auto's resolved
+    // calendar is surfaced via the tooltip instead of the text itself —
+    // any suffix typed here gets re-parsed on editingFinished, so an
+    // "auto-detected" marker would risk being read back as an explicit
+    // override and permanently pinning the calendar type. See
+    // onDateTextEdited()/parseDate().)
     if (_calType == Cal_Julian) txt += QStringLiteral(" OS");
     else if (_calType == Cal_Gregorian && _parsedDate.astroYear < 1582)
         txt += QStringLiteral(" NS");
@@ -202,12 +223,13 @@ void
 AstroDateTimeEdit::setTime(const QTime& time)
 {
     if (!time.isValid()) return;
-    _parsedTime.time     = time;
+    QTime rounded         = roundToNearestSecond(time);
+    _parsedTime.time     = rounded;
     _parsedTime.valid    = true;
     _parsedTime.timeMode = _timeMode;
 
     // Format with time-mode suffix
-    QString txt = time.toString(QStringLiteral("HH:mm:ss"));
+    QString txt = rounded.toString(QStringLiteral("HH:mm:ss"));
     if (_timeMode == Time_LMT) txt += QStringLiteral(" LMT");
     else if (_timeMode == Time_LAT) txt += QStringLiteral(" LAT");
     _timeEdit->setText(txt);
@@ -232,8 +254,13 @@ void
 AstroDateTimeEdit::setDateTime(const QDateTime& dt)
 {
     if (!dt.isValid()) return;
-    setDate(dt.date());
-    setTime(dt.time());
+    // Round to the nearest second across the full date/time so a computed
+    // instant like 23:59:59.999... (floating-point noise) rolls over into
+    // the next day rather than displaying as ":59:59" on the wrong day.
+    int       msec    = dt.time().msec();
+    QDateTime rounded = (msec >= 500) ? dt.addMSecs(1000 - msec) : dt.addMSecs(-msec);
+    setDate(rounded.date());
+    setTime(rounded.time());
 }
 
 void

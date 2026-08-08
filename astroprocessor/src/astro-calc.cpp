@@ -921,28 +921,33 @@ localToUTC(const QDateTime& localDt,
     switch (mode) {
     case Time_ZoneTime: {
         // Standard zone-time path: local – tz → UTC
-        QTimeZone qtz(static_cast<int>(tz * 3600));
+        // qRound, not a truncating cast: tz*3600 can land just under the
+        // intended whole second due to floating-point residue.
+        QTimeZone qtz(qRound(tz * 3600));
         QDateTime local(localDt.date(), localDt.time(), qtz);
         return local.toUTC();
     }
     case Time_LMT: {
         // LMT offset = longitude / 15  (hours, east-positive)
         double lmtOffsetSec = (geolon / 15.0) * 3600.0;
-        QTimeZone qtz(static_cast<int>(lmtOffsetSec));
+        QTimeZone qtz(qRound(lmtOffsetSec));
         QDateTime local(localDt.date(), localDt.time(), qtz);
         return local.toUTC();
     }
     case Time_LAT: {
         // LAT → LMT → UT
-        // 1. Treat entered time as LAT at the given longitude
-        double lmtOffsetSec = (geolon / 15.0) * 3600.0;
-        // Rough initial UT estimate (needed to seed swe_lat_to_lmt)
-        QTimeZone qtz(static_cast<int>(lmtOffsetSec));
-        QDateTime roughUTC(localDt.date(), localDt.time(), qtz);
-        // Convert entered LAT (as if it were LMT) to JD
+        // getJulianDate() only reads the QDateTime's calendar/clock fields
+        // (see its implementation — it never looks at the attached
+        // QTimeZone), so treating the entered LAT clock reading as JD is a
+        // direct field read, not a zone conversion. The previous version
+        // routed this through a QTimeZone-tagged "roughUTC" + toUTC() and
+        // then added the offset back — pure obfuscation that, because
+        // QTimeZone offsets are whole seconds, quantized the offset on the
+        // way out but not on the way back in, leaking a sub-second residual
+        // (up to ~0.5s) into jdLAT on every LAT entry.
         double jdLAT =
-            getJulianDate(roughUTC.toUTC(), false, calType)
-            + lmtOffsetSec / 86400.0; // make it an LMT-like JD
+            getJulianDate(QDateTime(localDt.date(), localDt.time()),
+                          false, calType);
         // SWE: LAT → LMT
         double jdLMT = latToLmt(jdLAT, geolon);
         // LMT → UT
@@ -951,9 +956,42 @@ localToUTC(const QDateTime& localDt,
     }
     }
     // fallback
-    QTimeZone qtz(static_cast<int>(tz * 3600));
+    QTimeZone qtz(qRound(tz * 3600));
     QDateTime local(localDt.date(), localDt.time(), qtz);
     return local.toUTC();
+}
+
+QDateTime
+UTCtoLocal(const QDateTime& utcDt,
+           double           tz,
+           double           geolon,
+           TimeMode         mode,
+           CalendarType     calType /*=Cal_Auto*/)
+{
+    switch (mode) {
+    case Time_ZoneTime: {
+        QTimeZone qtz(qRound(tz * 3600));
+        QDateTime local = utcDt.toTimeZone(qtz);
+        return QDateTime(local.date(), local.time());
+    }
+    case Time_LMT: {
+        double jdUT  = getJulianDate(utcDt, false, calType);
+        double jdLMT = jdUT + (geolon / 15.0) / 24.0;
+        QDateTime local = dateTimeFromJulian(jdLMT, calType);
+        return QDateTime(local.date(), local.time());
+    }
+    case Time_LAT: {
+        double jdUT  = getJulianDate(utcDt, false, calType);
+        double jdLMT = jdUT + (geolon / 15.0) / 24.0;
+        double jdLAT = lmtToLat(jdLMT, geolon);
+        QDateTime local = dateTimeFromJulian(jdLAT, calType);
+        return QDateTime(local.date(), local.time());
+    }
+    }
+    // fallback
+    QTimeZone qtz(qRound(tz * 3600));
+    QDateTime local = utcDt.toTimeZone(qtz);
+    return QDateTime(local.date(), local.time());
 }
 
 EoTInfo
@@ -3438,9 +3476,30 @@ dateTimeFromJulian(double jd, CalendarType calType /*=Cal_Auto*/)
     int32  hr, min, sec;
     double dsec;
     swe_jdut1_to_utc(jd, gregFlag, &y, &m, &d, &hr, &min, &dsec);
-    sec      = dsec;
-    int msec = int((dsec - double(sec)) * 1000.0);
-    return QDateTime(QDate(y, m, d), QTime(hr, min, sec, msec), QTimeZone::UTC);
+
+    // dsec often carries floating-point noise (e.g. 59.99999996 instead of
+    // 60.0). Truncating that (as the old `sec = dsec` did) silently drops
+    // ~1 second and propagates downstream — into GMT storage, into the
+    // effective-timezone math in localToUTC()'s callers, and into every
+    // display built from this QDateTime. Round to the nearest millisecond
+    // and propagate any carry into minute/hour/day so the result is exact.
+    int totalMsec = qRound(dsec * 1000.0);
+    sec           = totalMsec / 1000;
+    int msec      = totalMsec % 1000;
+    QDate date(y, m, d);
+    if (sec >= 60) {
+        sec -= 60;
+        min++;
+        if (min >= 60) {
+            min -= 60;
+            hr++;
+            if (hr >= 24) {
+                hr -= 24;
+                date = date.addDays(1);
+            }
+        }
+    }
+    return QDateTime(date, QTime(hr, min, sec, msec), QTimeZone::UTC);
 }
 
 namespace

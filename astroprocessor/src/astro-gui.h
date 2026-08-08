@@ -304,8 +304,14 @@ class AstroFile : public QObject, public A::EventStore {
 
     QDateTime getLocalTime() const
     {
-        return getGMT().toTimeZone(
-            QTimeZone(static_cast<int>(getTimezone() * 3600)));
+        // For LMT/LAT, getTimezone() is only an informational snapshot of
+        // the effective offset, not something that can exactly reproduce
+        // the local time (LAT's true UTC difference includes the
+        // continuously-varying Equation of Time, so it essentially never
+        // lands on a whole second). Recompute directly from longitude
+        // instead of replaying that stored value.
+        return A::UTCtoLocal(getGMT(), getTimezone(), getLocation().x(),
+                              getTimeMode(), getCalendarType());
     }
 
     A::CalendarType getCalendarType() const

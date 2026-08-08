@@ -46,6 +46,7 @@
 #include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QFile>
 #include <QGraphicsBlurEffect>
 #include <QHeaderView>
 #include <QListWidget>
@@ -541,6 +542,25 @@ AstroFileInfo::refresh()
     QString dayOfWeek = dt.date().toString("ddd");
     QString time      = dt.time().toString();
 
+    // Calendar type annotation — mirrors describeInput() in astro-output.cpp.
+    // Shown even under Cal_Auto (which silently applies Julian before the
+    // 1582 cutover) so the effective calendar is never ambiguous.
+    QString calNote;
+    if (currentFile()->getCalendarType() == A::Cal_Julian)
+        calNote = " (OS)";
+    else if (currentFile()->getCalendarType() == A::Cal_Gregorian)
+        calNote = " (NS)";
+    else if (currentFile()->data().resolvedSweCalFlag() == 0)
+        calNote = " (OS)"; // Auto resolved to Julian (pre-1582 cutover)
+
+    // Time mode annotation — mirrors describeInput() in astro-output.cpp,
+    // so an LMT/LAT-entered time isn't shown looking like plain zone time.
+    QString modeNote;
+    if (currentFile()->getTimeMode() == A::Time_LMT)
+        modeNote = " [LMT]";
+    else if (currentFile()->getTimeMode() == A::Time_LAT)
+        modeNote = " [LAT]";
+
     QString age;
     if (showAge) {
         float a1;
@@ -582,7 +602,8 @@ AstroFileInfo::refresh()
     }
 
     setText(QString("%1\n").arg(currentFile()->getName())
-            + tr("%1 %2 %3 (%4)%5\n").arg(date, dayOfWeek, time, timezone, age)
+            + tr("%1%2 %3 %4%5 (%6)%7\n")
+                  .arg(date, calNote, dayOfWeek, time, modeNote, timezone, age)
             + place);
 }
 

@@ -321,7 +321,12 @@ AstroFile::save()
 
     file.setValue("name", getName());
     file.setValue("type", typeToString(getType()));
-    file.setValue("GMT", getGMT().toString(Qt::ISODate));
+    // Qt::ISODate has no sub-second field, so it silently truncates GMT's
+    // milliseconds on every save — for LMT/LAT charts that fractional
+    // second is real (Equation-of-Time-derived), not noise, and losing it
+    // reintroduces the exact "off by a fraction of a second" bug on every
+    // save/reload round-trip. ISODateWithMs preserves it.
+    file.setValue("GMT", getGMT().toString(Qt::ISODateWithMs));
     file.setValue("timezone", getTimezone());
     file.setValue("lon", getLocation().x());
     file.setValue("lat", getLocation().y());
@@ -342,7 +347,7 @@ AstroFile::save()
 
     // Base chart support for progressed charts
     if (hasBaseChart()) {
-        file.setValue("baseChartGMT", getBaseChartGMT().toString(Qt::ISODate));
+        file.setValue("baseChartGMT", getBaseChartGMT().toString(Qt::ISODateWithMs));
     } else {
         file.remove("baseChartGMT");
     }
@@ -460,7 +465,7 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
 
     auto dts = file.value("GMT").toString();
     if (!dts.endsWith('Z')) dts += 'Z';
-    setGMT(QDateTime::fromString(dts, Qt::ISODate));
+    setGMT(QDateTime::fromString(dts, Qt::ISODateWithMs));
 
     setTimezone(file.value("timezone").toDouble());
     setLocation(QVector3D(file.value("lon").toFloat(),
@@ -485,7 +490,7 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
     if (file.contains("baseChartGMT")) {
         auto baseDts = file.value("baseChartGMT").toString();
         if (!baseDts.endsWith('Z')) baseDts += 'Z';
-        setBaseChart(QDateTime::fromString(baseDts, Qt::ISODate));
+        setBaseChart(QDateTime::fromString(baseDts, Qt::ISODateWithMs));
     } else {
         clearBaseChart();
     }
@@ -570,7 +575,7 @@ AstroFile::loadInputData(const AFileInfo& fi)
     A::InputData ind;
     auto dts = file.value("GMT").toString();
     if (!dts.endsWith('Z')) dts += 'Z';
-    ind.setGMT(QDateTime::fromString(dts, Qt::ISODate));
+    ind.setGMT(QDateTime::fromString(dts, Qt::ISODateWithMs));
     ind.setTZ(file.value("timezone").toDouble());
     ind.setLocation(QVector3D(file.value("lon").toFloat(),
                               file.value("lat").toFloat(),

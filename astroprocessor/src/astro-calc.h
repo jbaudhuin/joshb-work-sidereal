@@ -372,6 +372,21 @@ localToUTC(const QDateTime& localDt,
            TimeMode         mode,
            CalendarType     calType = Cal_Auto);
 
+/// Exact inverse of localToUTC(): convert a UTC QDateTime back to the local
+/// date/time (a naive QDateTime, no zone attached) for the given TimeMode.
+/// For Time_LMT/Time_LAT this recomputes directly from longitude via the
+/// Equation of Time rather than replaying a stored fractional-hour offset —
+/// a stored "effective timezone" can only round-trip exactly when the true
+/// UTC/local difference happens to be a whole number of seconds, which is
+/// essentially never true for LAT (its offset from UTC includes the
+/// continuously-varying Equation of Time).
+QDateTime
+UTCtoLocal(const QDateTime& utcDt,
+           double           tz,
+           double           geolon,
+           TimeMode         mode,
+           CalendarType     calType = Cal_Auto);
+
 /// Compute the equation of time in seconds for a given UTC moment and
 /// longitude, returning both the EoT value and the LAT equivalent.
 struct EoTInfo {

@@ -261,12 +261,16 @@ describeInput(const InputData& data)
     auto    time = QLocale().toString(data.GMT().time(), QLocale::LongFormat);
     QString dayOfWeek = data.GMT().date().toString("ddd");
 
-    // Calendar type annotation
+    // Calendar type annotation. Shown even under Cal_Auto (which silently
+    // applies Julian before the 1582 cutover) so the effective calendar is
+    // never ambiguous.
     QString calNote;
     if (data.calendarType() == Cal_Julian)
         calNote = " (OS)";
     else if (data.calendarType() == Cal_Gregorian)
         calNote = " (NS)";
+    else if (data.resolvedSweCalFlag() == 0)
+        calNote = " (OS)"; // Auto resolved to Julian (pre-1582 cutover)
 
     // Time mode annotation
     QString modeNote;
