@@ -215,9 +215,10 @@ class AstroFile : public QObject, public A::EventStore {
     A::EventType getOriginEventType() const { return _originEventType; }
     void setOriginEventType(A::EventType et) { _originEventType = et; }
 
-    // For paran charts: the bodies that form the paran event.
-    // Each entry is (fileId, PlanetId): fileId 0 = transit, 1 = natal ex-precessed.
-    using ParanGroupEntry = QPair<int, A::PlanetId>;
+    // For paran charts: the bodies that form the paran event. fileId 0 =
+    // transit, 1 = natal ex-precessed. A midpoint participant (e.g.
+    // Ven-r/Mar-r) carries both planetId() and planetId2() via isMidpt().
+    using ParanGroupEntry = A::ChartPlanetId;
     const QVector<ParanGroupEntry>& getParanGroupPlanets() const { return _paranGroupPlanets; }
     void setParanGroupPlanets(const QVector<ParanGroupEntry>& g) { _paranGroupPlanets = g; }
 

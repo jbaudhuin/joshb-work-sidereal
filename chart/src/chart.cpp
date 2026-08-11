@@ -1322,27 +1322,53 @@ Chart::drawParanFigures()
         if (file(i)->getType() != TypeParan) continue;
 
         // The full set of bodies that participated in the paran event, each
-        // tagged with the file (radix=0 / transit=1) it belongs to.
+        // tagged with the file (radix=0 / transit=1) it belongs to. A midpoint
+        // participant (isMidpt()) has no marker of its own — its spoke must
+        // terminate on the midpoint's ring position, not on planetId()'s
+        // marker (which would point at just one constituent, e.g. Venus of a
+        // Venus/Mars midpoint).
         const auto& group = file(i)->getParanGroupPlanets();
         if (group.size() < 2) continue;
 
-        struct Spoke { QGraphicsItem* marker; QString name; };
+        struct Spoke { QGraphicsItem* marker; QPointF pos; QString name; };
         QVector<Spoke> spokes;
         for (const auto& entry : group) {
-            int fid = entry.first;
+            int fid = entry.fileId();
             if (fid < 0) fid = 0;
             // In transit-only mode the chart has a single file but the event
             // stores transit bodies under fileId 1; collapse any unrenderable
             // file index to 0 so the marker resolves on the lone wheel.
             if (fid >= filesCount()) fid = 0;
-            QGraphicsItem* m = innerMarker(fid, entry.second);
-            if (!m && fid != 0) m = innerMarker(0, entry.second);
-            // A marker hidden this draw (e.g. a body with no valid prime-
-            // vertical position) keeps its stale rotation/position; never
-            // anchor a spoke to it.
-            if (!m || !m->isVisible()) continue;
-            spokes.append({ m,
-                            file(fid)->horoscope().planets.value(entry.second).name });
+
+            if (entry.isMidpt()) {
+                QGraphicsItem* mB = innerMarker(fid, entry.planetId());
+                QGraphicsItem* mC = innerMarker(fid, entry.planetId2());
+                if (!mB && fid != 0) mB = innerMarker(0, entry.planetId());
+                if (!mC && fid != 0) mC = innerMarker(0, entry.planetId2());
+                if (!mB || !mC || !mB->isVisible() || !mC->isVisible()) continue;
+                QPointF posB = mB->sceneBoundingRect().center();
+                QPointF posC = mC->sceneBoundingRect().center();
+                QPointF chordCenter = (posB + posC) / 2.0;
+                const qreal r    = innerRadius(fid);
+                const qreal cLen = std::hypot(chordCenter.x(), chordCenter.y());
+                QPointF mpScene = (cLen > 1e-6)
+                    ? QPointF(chordCenter.x() / cLen * r,
+                              chordCenter.y() / cLen * r)
+                    : QPointF(-r, 0);
+                const auto& p1 = file(fid)->horoscope().planets.value(entry.planetId());
+                const auto& p2 = file(fid)->horoscope().planets.value(entry.planetId2());
+                spokes.append({ nullptr, mpScene,
+                                p1.name + "/" + p2.name });
+            } else {
+                QGraphicsItem* m = innerMarker(fid, entry.planetId());
+                if (!m && fid != 0) m = innerMarker(0, entry.planetId());
+                // A marker hidden this draw (e.g. a body with no valid prime-
+                // vertical position) keeps its stale rotation/position; never
+                // anchor a spoke to it.
+                if (!m || !m->isVisible()) continue;
+                spokes.append({ m, m->sceneBoundingRect().center(),
+                                file(fid)->horoscope().planets.value(entry.planetId()).name });
+            }
         }
         if (spokes.size() < 2) continue;
 
@@ -1350,12 +1376,12 @@ Chart::drawParanFigures()
 
         // Spokes radiate from the wheel center (scene origin) to each body.
         // Remember the marker each spoke tracks so the slide can keep them
-        // attached while the bodies glide between steps.
+        // attached while the bodies glide between steps. A midpoint spoke has
+        // no marker to track (nullptr): its computed ring point is fixed for
+        // this draw and re-derived on the next drawParanFigures() call.
         QPen spokePen(neutral, 1.5, Qt::SolidLine);
         for (const auto& sp : spokes) {
-            auto* line = s->addLine(
-                QLineF(QPointF(0, 0), sp.marker->sceneBoundingRect().center()),
-                spokePen);
+            auto* line = s->addLine(QLineF(QPointF(0, 0), sp.pos), spokePen);
             line->setZValue(0.5);
             line->setToolTip(file(i)->getName() + "  →  " + sp.name);
             pf.spokes.append(line);
@@ -1380,6 +1406,7 @@ Chart::clearDeclinationStrip()
     declStripItems.clear();
     declMarkers.clear();
     declGlyphs.clear();
+    declLabelXRanges.clear();
 }
 
 int
@@ -1448,9 +1475,13 @@ Chart::drawDeclinationAxis()
         if (isLabeled(t)) {
             auto* lbl = s->addSimpleText(QString("%1°").arg(t), labelFont);
             lbl->setBrush(labelColor);
-            lbl->setPos(x - lbl->boundingRect().width() / 2,
-                        baselineY + 7);
+            float lw = lbl->boundingRect().width();
+            float lx = x - lw / 2;
+            lbl->setPos(lx, baselineY + 7);
             declStripItems << lbl;
+            // Record this label's horizontal span so layoutDeclinationGlyphs()
+            // can tell which north-side glyphs actually need to clear it.
+            declLabelXRanges.append({ lx, lx + lw });
         }
     }
 }
@@ -1535,11 +1566,24 @@ void
 Chart::layoutDeclinationGlyphs()
 {
     int baselineY = declBaselineY();
-    int spacing = declGlyphSpacing;
+
+    // A north rung-0 glyph only needs to clear a number label if it actually
+    // lands on top of one (labels are sparse: 0°, 10°, 20°, 28°) — otherwise
+    // it only needs to clear the short tick marks, same as the south side.
+    auto overlapsLabel = [&](float left, float right) {
+        for (const auto& r : declLabelXRanges)
+            if (left < r.second && right > r.first) return true;
+        return false;
+    };
 
     struct Entry {
         QGraphicsItem* glyph;
-        float          absDec;
+        float          x;
+        float          halfW;
+        int            rung      = 0;
+        int            parentIdx = -1; // index (in this hemisphere's bucket)
+                                        // of the rung-(N-1) glyph this one
+                                        // escalated past, or -1 for rung 0
     };
 
     // Collision avoidance is hemisphere-wide across ALL files so that file 0
@@ -1552,31 +1596,114 @@ Chart::layoutDeclinationGlyphs()
             for (auto it = glyphMap.begin(); it != glyphMap.end(); ++it) {
                 float dec = it.value()->data(3).toFloat();
                 if ((dec < 0) != south) continue;
-                bucket.append({ it.value(), qMin(qAbs(dec), declMaxDeg) });
+                float absDec = qMin(qAbs(dec), declMaxDeg);
+                bucket.append({ it.value(), declXForDeg(absDec),
+                                 float(it.value()->boundingRect().width() / 2.0) });
             }
         }
         std::sort(bucket.begin(), bucket.end(),
-                  [](const Entry& a, const Entry& b){
-                      return a.absDec < b.absDec;
-                  });
+                  [](const Entry& a, const Entry& b){ return a.x < b.x; });
 
-        // Per-rung last-X tracker; rung 0 = closest to axis.
-        QVector<float> rungLastX;
-        for (const Entry& e : bucket) {
-            float x = declXForDeg(e.absDec);
+        // Pass 1 — assign each glyph to the first rung (row) it clears,
+        // testing against the ACTUAL rendered width of the glyph already
+        // placed there (not a generic spacing constant): this is what lets
+        // a glyph land back on rung 0 when it's genuinely clear of the
+        // rung-0 occupant, even if an intervening glyph needed a higher
+        // rung. Also record which specific glyph it escalated past
+        // (parentIdx) — needed in pass 3 so each column's vertical spacing
+        // chains off what THAT column actually needed, rather than a single
+        // clearance value shared by the whole (possibly far wider) hemisphere.
+        QVector<float> rungRightEdge; // right edge (px) of the last glyph in each rung
+        QVector<int>   rungLastIdx;   // bucket index of that glyph
+        for (int i = 0; i < bucket.size(); ++i) {
+            Entry& e = bucket[i];
+            float left = e.x - e.halfW;
             int rung = 0;
-            while (rung < rungLastX.size() && x - rungLastX[rung] < spacing)
+            while (rung < rungRightEdge.size()
+                   && left - rungRightEdge[rung] < declGlyphHPad)
                 rung++;
-            if (rung == rungLastX.size()) rungLastX.append(-1e9f);
-            rungLastX[rung] = x;
+            if (rung == rungRightEdge.size()) {
+                rungRightEdge.append(-1e9f);
+                rungLastIdx.append(-1);
+            }
+            e.rung      = rung;
+            e.parentIdx = (rung > 0) ? rungLastIdx[rung - 1] : -1;
+            rungRightEdge[rung] = e.x + e.halfW;
+            rungLastIdx[rung]   = i;
+        }
+        int rungsNeeded = rungRightEdge.size();
 
-            float gw = e.glyph->boundingRect().width();
-            float gh = e.glyph->boundingRect().height();
-            float gx = x - gw / 2;
-            float gy = south
-                ? baselineY - spacing * (rung + 1) - gh
-                : baselineY + declLabelClearance + spacing * rung;
-            e.glyph->setPos(gx, gy);
+        // Pass 2 — pick the row spacing. Compression should only kick in
+        // when the rungs actually needed don't fit the available budget at
+        // default spacing — not at a fixed rung-count threshold. Only the
+        // chain(s) that actually reach the deepest rung can force this (a
+        // shallow chain always fits if the deepest one does); so trace
+        // those specific chains back to their rung-0 ancestor and check
+        // *their* clearance need, rather than whether ANY rung-0 item
+        // anywhere in the hemisphere needs a label — an unrelated item
+        // sitting near a number must not force a distant, deep cluster to
+        // compress (or vice versa: a deep tick-only cluster must not be
+        // penalized for a shallow, unrelated item that happens to sit under
+        // a label).
+        bool rung0NeedsLabel = false;
+        if (!south && rungsNeeded > 0) {
+            int maxRung = rungsNeeded - 1;
+            for (int i = 0; i < bucket.size(); ++i) {
+                if (bucket[i].rung != maxRung) continue;
+                int anc = i;
+                while (bucket[anc].rung != 0) anc = bucket[anc].parentIdx;
+                float gw = bucket[anc].glyph->boundingRect().width();
+                float gx = bucket[anc].x - gw / 2;
+                if (overlapsLabel(gx, gx + gw)) { rung0NeedsLabel = true; break; }
+            }
+        }
+        int   budget         = south ? declStripAbove : declStripBelow;
+        int   rung0Clearance = rung0NeedsLabel ? declLabelClearance : declTickClearance;
+        float spacing        = declGlyphSpacing;
+        float required = rung0Clearance + declGlyphHeightApx + declEdgeMargin
+                        + (rungsNeeded - 1) * declGlyphSpacing;
+        if (required > budget) {
+            float avail = budget - declEdgeMargin - declGlyphHeightApx - rung0Clearance;
+            spacing = qMax(float(declMinGlyphSpacing),
+                           avail / qMax(1, rungsNeeded - 1));
+        }
+
+        // Pass 3 — place each glyph, processing rung 0 first, then rung 1,
+        // etc. (every parentIdx is strictly in a lower rung, so this order
+        // guarantees a glyph's parent is already placed when needed). Each
+        // rung-0 glyph gets its own tick-or-label clearance independently;
+        // each higher-rung glyph simply adds one row of spacing on top of
+        // whatever ITS specific parent needed — so an unrelated column
+        // elsewhere in the hemisphere that happens to need label clearance
+        // can never widen the gap in a column that doesn't.
+        QVector<float> nearEdge(bucket.size()); // px from axis to this glyph's near edge
+        for (int level = 0; level < rungsNeeded; ++level) {
+            for (int i = 0; i < bucket.size(); ++i) {
+                Entry& e = bucket[i];
+                if (e.rung != level) continue;
+                float gw = e.glyph->boundingRect().width();
+                float gh = e.glyph->boundingRect().height();
+                float gx = e.x - gw / 2;
+                float edge;
+                if (level == 0) {
+                    edge = south ? declTickClearance
+                                 : (overlapsLabel(gx, gx + gw)
+                                        ? declLabelClearance : declTickClearance);
+                } else {
+                    edge = nearEdge[e.parentIdx] + spacing;
+                }
+                nearEdge[i] = edge;
+                float gy = south ? baselineY - edge - gh : baselineY + edge;
+                e.glyph->setPos(gx, gy);
+
+                // TEMPORARY diagnostic — remove once rung placement is
+                // confirmed correct. Appends to the existing hover tooltip.
+                bool usedLabel = (level == 0 && !south && edge > declTickClearance);
+                e.glyph->setToolTip(e.glyph->toolTip()
+                    + QString(" [rung %1, edge %2px%3]")
+                          .arg(level).arg(edge, 0, 'f', 1)
+                          .arg(usedLabel ? " label" : ""));
+            }
         }
     }
 }

@@ -126,9 +126,15 @@ private:
     /// X = |declination|; southern bodies above the axis line, northern below.
     static constexpr float declMaxDeg          = 28.0f;
     static constexpr int   declMaxRungs        = 3;
-    static constexpr int   declGlyphSpacing    = 16;   ///< px between rungs
+    static constexpr int   declGlyphSpacing    = 16;   ///< default px between rungs
+    static constexpr int   declMinGlyphSpacing = 10;   ///< floor when compressing rungs
     static constexpr int   declGlyphHeightApx  = 18;   ///< approx glyph bbox height
+    static constexpr int   declGlyphHPad       = 3;    ///< px pad between adjacent glyph bboxes
+    static constexpr int   declEdgeMargin      = 4;    ///< px slack at the strip's outer edge
+    static constexpr int   declTickClearance   = 8;    ///< px from baseline to nearest rung
+                                                        ///< when there's no number label to clear
     static constexpr int   declLabelClearance  = 24;   ///< px from baseline to north rung 0
+                                                        ///< when a number label must be cleared
     static constexpr int   declStripAbove      = 4 + declMaxRungs * declGlyphSpacing
                                                 + declGlyphHeightApx;
     static constexpr int   declStripBelow      = declLabelClearance
@@ -139,6 +145,7 @@ private:
     QList<QGraphicsItem*>          declStripItems;  ///< axis line, ticks, labels
     QMap<int, graphicsItemDict>    declMarkers;     ///< [fileIndex][PlanetId] -> ellipse
     QMap<int, graphicsItemDict>    declGlyphs;      ///< [fileIndex][PlanetId] -> text
+    QList<QPair<float,float>>      declLabelXRanges; ///< [left,right] px span of each number label
 
     float zodiacWidth() { return l_zodiacWidth * zoom; }
     float innerRadius(int fileIndex = 0);

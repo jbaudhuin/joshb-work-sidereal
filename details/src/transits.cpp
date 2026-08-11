@@ -4722,7 +4722,7 @@ Transits::clickedCell(QModelIndex inx)
                 for (const auto& loc : ev.locations()) {
                     qDebug() << "paranGroup fileId=" << loc.planet.fileId()
                              << "planet=" << loc.planet.name();
-                    group.append({ loc.planet.fileId(), loc.planet.planetId() });
+                    group.append(loc.planet);
                 }
                 file()->setParanGroupPlanets(group);
                 file()->setParanOccurrences(ev.occurrences());
@@ -4831,7 +4831,7 @@ Transits::clickedCell(QModelIndex inx)
                 for (const auto& loc : ev.locations()) {
                     qDebug() << "paranGroup fileId=" << loc.planet.fileId()
                              << "planet=" << loc.planet.name();
-                    group.append({ loc.planet.fileId(), loc.planet.planetId() });
+                    group.append(loc.planet);
                 }
                 taf->setParanGroupPlanets(group);
                 taf->setParanOccurrences(ev.occurrences());
@@ -4957,7 +4957,7 @@ Transits::doubleClickedCell(QModelIndex inx)
         // Store the paran group so the speculum can filter to these bodies
         QVector<AstroFile::ParanGroupEntry> group;
         for (const auto& loc : ev.locations())
-            group.append({ loc.planet.fileId(), loc.planet.planetId() });
+            group.append(loc.planet);
         af->setParanGroupPlanets(group);
         af->setParanOccurrences(ev.occurrences());
     }
