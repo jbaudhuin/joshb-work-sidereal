@@ -2,6 +2,36 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [0.9.9] - 2026-08-14
+
+### Added
+- **Heliacal Apparitions**: apparition-based event detection for planets, fixed stars, and lunar crescents, with navigable MF/Acr/Cul/Cs/EL stops (or elongation variants), using the same discrete occurrence transport as parans
+- **Midpoint-Composite Charts**: synthesize a composite chart from two source files, with midpointed positions, composite-derived houses, and progressed-composite handling
+- **Quotidian Direction Modes**: SQ/NeoSQ/PSSR/NeoPSSR direction methods resolved per-chart, with richer angular-date primary-direction context and tooltips
+- **Paran Latitude Bands**: meridional (MC/IC-only) paran rows plus in-orb latitude band output with clearer formatting
+- **Prime Vertical Relocalization**: biwheel PV aspects now share a common reference frame with the drawn wheel positions
+- **Paran Midpoints**: paran chains can include synthetic midpoint participants, positioned from the chord midpoint on the chart wheel
+- **Grouped Event-Filter Toolbar**: split-button groups (including a new Heliacal toggle) replace many individual filter actions
+- **SectionToggle Controls**: compact, themeable per-file/per-section toggles in Plain's toolbar
+
+### Improved
+- **Declination Glyph Layout**: multi-pass placement reduces collisions/overlap of declination labels
+- **Settings UI**: grouped form layout with multi-checkbox rows in the settings editor
+- **Paran Clustering**: radix-anchored cluster logic centralized and shared between Directions and Speculum for consistent behavior
+- **Speculum**: cell copy (Ctrl+C), extended selection, and a dedicated paran orb setting
+- **Transits Selection**: scroll anchor and selected-row identity tracked independently so selection survives model rebuilds
+- **Search Filter**: case-insensitive matching
+- **Paran Presentation**: angle designators (As/Ds/Mc/Ic) appended to rulership labels, clearer list separators
+
+### Fixed
+- **Time Rounding**: exact LMT/LAT round-trips, millisecond-accurate Julian date conversion, eliminating persistent ~0.5s residuals
+- **Invalid Julian Leap Days**: guard against bogus dates for Julian-calendar-only leap days (e.g. 1100/1300/1400/1500) so they no longer contaminate paran searches
+- **Par=N Natal Cusps**: inner-wheel house cusps stay visible in normal ecliptic draw mode (only hidden in PV/mundoscope)
+- **Active Finder Resume**: paused/background finders reconnect and repopulate correctly via the new resumeActiveFinder path
+
+### Changed
+- Version bumped to 0.9.9
+
 ## [0.9.8.3] - 2026-06-29
 
 ### Added
