@@ -857,10 +857,13 @@ Chart::updatePlanetsAndCusps(int fileIndex)
                 .arg(A::zodiacPosition(cusp, file()->horoscope().zodiac)));
     };
 
-    // Par=N inner wheel: items exist (avoiding null-deref) but stay hidden.
-    // Detect via EITHER file: the origin type is tagged on file(1) for the
-    // in-place biwheel but copied onto file(0) for the new-tab path.
+    // Par=N inner wheel in PV/mundoscope draw mode: items exist (avoiding
+    // null-deref) but stay hidden. In normal (ecliptic) draw mode the
+    // natal house cusps are shown, matching plain Par charts. Detect via
+    // EITHER file: the origin type is tagged on file(1) for the in-place
+    // biwheel but copied onto file(0) for the new-tab path.
     if (filesCount() > 1 && fileIndex == 0
+        && A::aspectModeForChartDraw() != A::amcEcliptic
         && (file(0)->getOriginEventType() == A::etcParanatellontaToNatal
             || file(1)->getOriginEventType() == A::etcParanatellontaToNatal))
     {
