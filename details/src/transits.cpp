@@ -431,7 +431,10 @@ class EventsTableModel : public QAbstractItemModel {
         QString t = index(row, transitBodyCol).data(SummaryRole).toString();
         QString n = index(row, natalTransitBodyCol).data(SummaryRole).toString();
         if (!n.isEmpty()) {
-            return h + " " + t + "=" + n;
+            // h reads as a connector for named aspects (e.g. "tri" ->
+            // "Sat-r tri Sun"); Dynamic mode's "H4" reads fine in the same
+            // slot ("Sat-r H4 Sun").
+            return t + " " + h + " " + n;
         }
         auto dt = rowDate(row).toTimeZone(QTimeZone(_tzOffset * 3600));
         QString dateStr = dt.toString(QString("yyyy MMMM"));
@@ -978,10 +981,32 @@ class EventsTableModel : public QAbstractItemModel {
 
     bool getPlanetPair(const A::PlanetRangeBySpeed& locs, locPair& pp) const
     {
-        if (singleColumn(locs)) return false;
+        // Pattern events (e.g. TNA) carry their bodies in asp.planets(),
+        // not asp.locations() -- locs is empty there. singleColumn() only
+        // rejects the exactly-1 case, so an empty locs would otherwise fall
+        // through to begin()/rbegin() on an empty range (UB/crash).
+        if (locs.empty() || singleColumn(locs)) return false;
         pp.first  = &(*locs.begin());
         pp.second = &(*locs.rbegin());
         return true;
+    }
+
+    // Resolve the named (non-Harmonic) aspect matching this row, for
+    // display (icon/name/abbreviation) in harmonicCol. Two-body hits go
+    // through calculateAspect() for an exact angle match; pattern events
+    // (TA/TNA — no locations() pair, just a shared harmonic across all
+    // bodies) fall back to a representative aspect for that harmonic via
+    // aspectForHarmonic(), since there's no specific angle to match.
+    // Returns nullptr for Harmonic/Dynamic mode or when nothing matches.
+    const A::AspectType* resolveNamedAspectType(const A::HarmonicAspect& asp) const
+    {
+        if (aspects().name.startsWith("Harmonic")) return nullptr;
+        locPair pp;
+        if (getPlanetPair(asp.locations(), pp)) {
+            auto a = A::calculateAspect(aspects(), pp.first, pp.second);
+            if (a.d && a.d->id != A::Aspect_None) return a.d;
+        }
+        return A::aspectForHarmonic(aspects(), asp.harmonic());
     }
 
     QVariant data(const QModelIndex& index,
@@ -1011,6 +1036,7 @@ class EventsTableModel : public QAbstractItemModel {
         if (role != Qt::DisplayRole && role != Qt::FontRole
             && role != Qt::ToolTipRole && role != Qt::EditRole
             && role != SummaryRole && role != RawRole
+            && role != Qt::DecorationRole
             && (col < transitBodyCol
                 || (role != Qt::FontRole && role != Qt::ForegroundRole)))
         {
@@ -1095,6 +1121,22 @@ class EventsTableModel : public QAbstractItemModel {
             return A::degreeToString(asp.orb());
 
         case harmonicCol:
+            // Named aspect sets (Basic, Reasonable, ...) show the aspect's
+            // own icon from aspects.csv instead of the "H4" text — Dynamic
+            // mode has no named icon, so it keeps the H# cell below.
+            if (role == Qt::DecorationRole) {
+                if (singleColumn(asp.locations())) return QVariant();
+                if (et == A::etcParanatellonta
+                    || et == A::etcParanatellontaToNatal
+                    || et == A::etcHeliacalEvents || et == A::etcHeliacalStars
+                    || et == A::etcHeliacalLunar)
+                    return QVariant();
+                if (auto* d = resolveNamedAspectType(asp)) {
+                    QString icon = d->userData["icon"].toString();
+                    if (!icon.isEmpty()) return QIcon(icon);
+                }
+                return QVariant();
+            }
             if (role == Qt::ToolTipRole) {
                 if (et == A::etcParanatellonta
                     || et == A::etcParanatellontaToNatal)
@@ -1139,16 +1181,19 @@ class EventsTableModel : public QAbstractItemModel {
                 }
                 if (singleColumn(asp.locations())) return "station";
                 if (asp.orb() != qreal() /*asp.locations().empty()*/) {
+                    // Named aspect sets (Basic, Reasonable, ...) get their
+                    // own aspect name + orb; the harmonic-number notation
+                    // (H4, H12, ...) is reserved for the Dynamic set, whose
+                    // "aspects" are generated on the fly rather than named.
+                    if (auto* d = resolveNamedAspectType(asp)) {
+                        return d->name + " "
+                             + A::degreeToString(asp.orb(), A::HighPrecision);
+                    }
                     return QString("H%1 %2")
                         .arg(asp.harmonic())
                         .arg(A::degreeToString(asp.orb(), A::HighPrecision));
                 } else {
-                    locPair pp;
-                    if (getPlanetPair(asp.locations(), pp)) {
-                        auto a =
-                            A::calculateAspect(aspects(), pp.first, pp.second);
-                        return a.d->name;
-                    }
+                    if (auto* d = resolveNamedAspectType(asp)) return d->name;
                 }
             }
             if (role == RawRole) return asp.harmonic();
@@ -1193,6 +1238,17 @@ class EventsTableModel : public QAbstractItemModel {
                 for (const auto& loc : asp.locations())
                     if (!loc.desc.isEmpty()) return loc.desc;
                 return QString();
+            }
+            // Named aspect sets show their icon (Qt::DecorationRole above)
+            // instead of text in the cell — leave the cell text empty so the
+            // icon isn't paired with a redundant/misleading "H#". Full name +
+            // orb is still available in the tooltip. SummaryRole (used to
+            // build compact chart-title text like "Sat-r tri Sun" in
+            // rowDesc()) isn't a table cell, so it gets the abbreviation
+            // instead of going blank.
+            if (auto* d = resolveNamedAspectType(asp)) {
+                if (role == SummaryRole) return A::aspectAbbrev(d->name);
+                if (!d->userData["icon"].toString().isEmpty()) return QString();
             }
             // Display H# (optionally with ratio in parentheses)
             // Orb is shown in tooltip, not in the cell
@@ -2291,6 +2347,74 @@ public:
     }
 };
 
+// Aspect-set icons (Qt::DecorationRole, harmonicCol) are drawn full-size and
+// left-anchored by the default delegate's icon-then-text layout, which — with
+// the cell's text left empty (the icon carries the identity) — reads as an
+// oversized, off-center glyph. Shrink the decoration to a text-line-sized box
+// and center it; rows with no icon (Dynamic mode's "H4" text) are untouched.
+class HarmonicColDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QSize sizeHint(const QStyleOptionViewItem& option,
+                   const QModelIndex& index) const override
+    {
+        QSize s = QStyledItemDelegate::sizeHint(option, index);
+        int compact = option.fontMetrics.height() + 4;
+        if (s.height() > compact) s.setHeight(compact);
+        return s;
+    }
+
+    // decorationAlignment only centers the icon within its own decoration
+    // sub-rect; that sub-rect is still left-anchored by the standard
+    // icon-then-text layout even with empty text (there's no style flag for
+    // "expect no text, center in the full cell"). So for icon rows, paint
+    // the background/selection via the base delegate (with icon & text
+    // cleared) and then draw the icon by hand, centered in the whole cell.
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override
+    {
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+        if (opt.icon.isNull()) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        // QStyledItemDelegate::paint() calls initStyleOption() again
+        // internally, re-fetching the icon from the model regardless of
+        // what we clear here — so go through the style directly for the
+        // background/selection/focus rect instead of the delegate.
+        QStyleOptionViewItem bgOpt = opt;
+        bgOpt.icon = QIcon();
+        bgOpt.text.clear();
+        QStyle* style = bgOpt.widget ? bgOpt.widget->style()
+                                      : QApplication::style();
+        style->drawControl(QStyle::CE_ItemViewItem, &bgOpt, painter,
+                           bgOpt.widget);
+
+        QRect iconRect(0, 0, opt.decorationSize.width(),
+                        opt.decorationSize.height());
+        iconRect.moveCenter(opt.rect.center());
+        opt.icon.paint(painter, iconRect, Qt::AlignCenter,
+                       (opt.state & QStyle::State_Enabled) ? QIcon::Normal
+                                                            : QIcon::Disabled,
+                       (opt.state & QStyle::State_Open) ? QIcon::On
+                                                         : QIcon::Off);
+    }
+
+protected:
+    void initStyleOption(QStyleOptionViewItem* option,
+                          const QModelIndex& index) const override
+    {
+        QStyledItemDelegate::initStyleOption(option, index);
+        if (!option->icon.isNull()) {
+            int edge = option->fontMetrics.height();
+            option->decorationSize      = QSize(edge, edge);
+            option->decorationAlignment = Qt::AlignCenter;
+        }
+    }
+};
+
 // Lightweight progress indicator painted directly over the pattern combo.
 //
 // Previously the search progress bar was drawn by calling
@@ -2418,6 +2542,8 @@ Transits::Transits(QWidget* parent) :
     // Create and set custom header
     auto hdr = new TransitHeaderView(Qt::Horizontal, _tview);
     _tview->setHeader(hdr);
+    _tview->setItemDelegateForColumn(EventsTableModel::harmonicCol,
+                                      new HarmonicColDelegate(_tview));
 
     // Note: Will connect sort signal after model is created in ensureEventsModel()
     connect(hdr,
@@ -3613,7 +3739,9 @@ Transits::updateTransits()
 
     qDebug() << "filesCount()" << filesCount();
 
-    auto       hs = A::dynAspState();
+    auto* evmForAspects = ensureEventsModel();
+    auto  hs = evmForAspects ? A::activeHarmonicSet(evmForAspects->aspects())
+                              : A::dynAspState();
     _filterProxy->setEnabledHarmonics(hs);
     ADateRange r { _start->date(), _end->date() };
 
@@ -3973,7 +4101,7 @@ Transits::launchScopedFinder(const A::EventTypeSet& types)
     ensureEventsModel();
     if (!_evm) return;
 
-    auto       hs  = A::dynAspState();
+    auto       hs  = A::activeHarmonicSet(_evm->aspects());
     ADateRange r { _start->date(), _end->date() };
     auto&      evs = file(0)->events();
 
@@ -4662,9 +4790,23 @@ Transits::clickedCell(QModelIndex inx)
     } else if (focal.empty()) {
         desc = _evm->rowDesc(srcInx.row());
     } else {
-        desc =
-            inx.siblingAtColumn(EventsTableModel::harmonicCol).data().toString()
-            + " " + describePlanetsForEvent(focal, et);
+        // SummaryRole, not the default DisplayRole: DisplayRole is blank for
+        // named-aspect rows (the Events table shows the icon there instead;
+        // see EventsTableModel::data(), harmonicCol) — SummaryRole carries
+        // the abbreviation ("sqr") or "H4" text regardless of display mode.
+        QString h = inx.siblingAtColumn(EventsTableModel::harmonicCol)
+                        .data(EventsTableModel::SummaryRole)
+                        .toString();
+        QString bodies = describePlanetsForEvent(focal, et);
+        if (focal.size() == 2 && !_evm->aspects().name.startsWith("Harmonic")) {
+            // Two-body named-aspect hits read as "Chi-r ssq Chi" — the
+            // abbreviation as a connector, matching rowDesc()'s format —
+            // rather than prefixed. describePlanetsForEvent() joins exactly
+            // two bodies with a single "=", so swap that in place.
+            desc = bodies.replace('=', ' ' + h + ' ');
+        } else {
+            desc = h + " " + bodies;
+        }
     }
     qDebug() << "[MIDPT-NAME] clickedCell: focal.size()=" << focal.size()
              << "desc=" << desc;
@@ -5152,18 +5294,30 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
         
         // Harmonic/Orb - include ratio and only show orb if non-zero
         auto& asp = *_evs[row];
-        QString harmonicStr = QString("H%1").arg(asp.harmonic());
-        
-        // Add aspect ratio if available and setting is enabled
         typedef std::pair<const A::Loc*, const A::Loc*> locPair;
-        locPair pp;
-        if (A::EventOptions::current().showHarmonicDividend && getPlanetPair(asp.locations(), pp)) {
-            auto a = A::calculateAspect(aspects(), pp.first, pp.second);
-            if (a.d && a.d->_harmonic > 0) {
-                harmonicStr += " (" + a.d->name + ")";
+
+        // Named aspect sets (Basic, Reasonable, ...) show their own aspect
+        // name (two-body angle match, or a representative aspect for the
+        // shared harmonic on pattern events); harmonic-number notation
+        // (H4, H12, ...) is reserved for the Harmonic/Dynamic set.
+        QString harmonicStr;
+        if (auto* d = resolveNamedAspectType(asp)) {
+            harmonicStr = d->name;
+        } else {
+            harmonicStr = QString("H%1").arg(asp.harmonic());
+
+            // Add aspect ratio if available and setting is enabled
+            if (A::EventOptions::current().showHarmonicDividend) {
+                locPair pp;
+                if (getPlanetPair(asp.locations(), pp)) {
+                    auto a = A::calculateAspect(aspects(), pp.first, pp.second);
+                    if (a.d && a.d->_harmonic > 0) {
+                        harmonicStr += " (" + a.d->name + ")";
+                    }
+                }
             }
         }
-        
+
         // Only show orb if non-zero
         if (asp.orb() != qreal()) {
             harmonicStr += " " + A::degreeToString(asp.orb(), A::HighPrecision);
@@ -5580,7 +5734,8 @@ Transits::filesUpdated(MembersList m)
             _input->setCurrentText(file(0)->getTransitPattern());
             _lastUsedPattern = file(0)->getTransitPattern();
             _filterProxy->setPatternActive(!_lastUsedPattern.isEmpty());
-            _filterProxy->setEnabledHarmonics(A::dynAspState());
+            _filterProxy->setEnabledHarmonics(
+                _evm ? A::activeHarmonicSet(_evm->aspects()) : A::dynAspState());
             _filterProxy->setSkipByDuration(_tabSkipByDuration);  // tab-specific
 
             _previousFile = file(0);
@@ -5747,7 +5902,7 @@ Transits::viewSettingsUpdated(MembersList m)
         // Detect dynAspState-only change: the aspect set ID didn't change,
         // only individual harmonics were toggled.  Try filter-only update.
         if (aspectSetOnly && !_fileJustSwitched && _filterProxy) {
-            auto newHs = A::dynAspState();
+            auto newHs = A::activeHarmonicSet(evm->aspects());
             auto oldHs = _filterProxy->enabledHarmonics();
             bool sameSetId = (evm->aspects().id
                               == file()->getAspectSetId());

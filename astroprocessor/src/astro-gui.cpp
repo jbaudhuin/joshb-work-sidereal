@@ -4,9 +4,11 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QMetaType>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTextCodec>
+#include <QTimeZone>
 #include <QAbstractItemModel>
 #include <memory>
 
@@ -308,6 +310,72 @@ AstroFile::_fixedChartDirMapKeys()
     return s_keys;
 }
 
+namespace {
+
+/// Build a QDate for any (nonzero) astronomical year, including years Qt's
+/// plain constructor won't accept. Mirrors AstroDateTimeEdit's makeQDate.
+QDate
+makeAnyYearQDate(int y, int m, int d)
+{
+    QDate qd(y, m, d);
+    if (qd.isValid()) return qd;
+
+    // Standard Julian Day Number formula (Meeus, Astronomical Algorithms),
+    // valid for all dates including year 0 and negative (BC) years.
+    int   a   = (14 - m) / 12;
+    int   yr  = y + 4800 - a;
+    int   mo  = m + 12 * a - 3;
+    qint64 jdn = d + (153 * mo + 2) / 5 + 365 * yr
+               + yr / 4 - yr / 100 + yr / 400 - 32045;
+    return QDate::fromJulianDay(jdn);
+}
+
+/// Serialize a UTC QDateTime to milliseconds.
+///
+/// Qt::ISODate(WithMs) silently refuses to round-trip years outside
+/// 0..9999 (QDate::toString returns "" and QDateTime::fromString rejects
+/// year 0 and anything with a sign — see QTBUG-91070). Saving a BC chart
+/// with that format therefore wrote an empty "GMT" string, which reloaded
+/// as an invalid QDateTime and fed year/month/day 0 into the ephemeris —
+/// the observed date corruption. Format/parse the fields ourselves instead
+/// so any year, including BC ones, survives a save/load round-trip.
+QString
+serializeUtcDateTime(const QDateTime& dt)
+{
+    const QDate d = dt.date();
+    const QTime t = dt.time();
+    return QString::asprintf("%d-%02d-%02dT%02d:%02d:%02d.%03dZ", d.year(),
+                              d.month(), d.day(), t.hour(), t.minute(),
+                              t.second(), t.msec());
+}
+
+QDateTime
+deserializeUtcDateTime(const QString& s)
+{
+    static const QRegularExpression re(
+        QStringLiteral("^(-?\\d+)-(\\d{2})-(\\d{2})T"
+                        "(\\d{2}):(\\d{2}):(\\d{2})(?:\\.(\\d{1,3}))?Z?$"));
+    auto m = re.match(s);
+    if (!m.hasMatch()) return QDateTime();
+
+    QDate date = makeAnyYearQDate(m.captured(1).toInt(), m.captured(2).toInt(),
+                                   m.captured(3).toInt());
+    if (!date.isValid()) return QDateTime();
+
+    QTime time(m.captured(4).toInt(), m.captured(5).toInt(),
+               m.captured(6).toInt(), m.captured(7).toInt());
+    return QDateTime(date, time, QTimeZone::UTC);
+}
+
+} // namespace
+
+/*static*/
+QDateTime
+AstroFile::parseStoredGMT(const QString& stored)
+{
+    return deserializeUtcDateTime(stored);
+}
+
 void
 AstroFile::save()
 {
@@ -325,8 +393,9 @@ AstroFile::save()
     // milliseconds on every save — for LMT/LAT charts that fractional
     // second is real (Equation-of-Time-derived), not noise, and losing it
     // reintroduces the exact "off by a fraction of a second" bug on every
-    // save/reload round-trip. ISODateWithMs preserves it.
-    file.setValue("GMT", getGMT().toString(Qt::ISODateWithMs));
+    // save/reload round-trip. serializeUtcDateTime preserves it, and unlike
+    // Qt::ISODateWithMs also round-trips BC (negative-year) dates.
+    file.setValue("GMT", serializeUtcDateTime(getGMT()));
     file.setValue("timezone", getTimezone());
     file.setValue("lon", getLocation().x());
     file.setValue("lat", getLocation().y());
@@ -347,7 +416,7 @@ AstroFile::save()
 
     // Base chart support for progressed charts
     if (hasBaseChart()) {
-        file.setValue("baseChartGMT", getBaseChartGMT().toString(Qt::ISODateWithMs));
+        file.setValue("baseChartGMT", serializeUtcDateTime(getBaseChartGMT()));
     } else {
         file.remove("baseChartGMT");
     }
@@ -463,9 +532,7 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
         }
     }
 
-    auto dts = file.value("GMT").toString();
-    if (!dts.endsWith('Z')) dts += 'Z';
-    setGMT(QDateTime::fromString(dts, Qt::ISODateWithMs));
+    setGMT(parseStoredGMT(file.value("GMT").toString()));
 
     setTimezone(file.value("timezone").toDouble());
     setLocation(QVector3D(file.value("lon").toFloat(),
@@ -488,9 +555,7 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
 
     // Load base chart if present (for progressed charts)
     if (file.contains("baseChartGMT")) {
-        auto baseDts = file.value("baseChartGMT").toString();
-        if (!baseDts.endsWith('Z')) baseDts += 'Z';
-        setBaseChart(QDateTime::fromString(baseDts, Qt::ISODateWithMs));
+        setBaseChart(parseStoredGMT(file.value("baseChartGMT").toString()));
     } else {
         clearBaseChart();
     }
@@ -573,9 +638,7 @@ AstroFile::loadInputData(const AFileInfo& fi)
 #endif
 
     A::InputData ind;
-    auto dts = file.value("GMT").toString();
-    if (!dts.endsWith('Z')) dts += 'Z';
-    ind.setGMT(QDateTime::fromString(dts, Qt::ISODateWithMs));
+    ind.setGMT(AstroFile::parseStoredGMT(file.value("GMT").toString()));
     ind.setTZ(file.value("timezone").toDouble());
     ind.setLocation(QVector3D(file.value("lon").toFloat(),
                               file.value("lat").toFloat(),

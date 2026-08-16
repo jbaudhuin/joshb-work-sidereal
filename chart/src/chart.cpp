@@ -1964,12 +1964,16 @@ Chart::normalPlanetPosX(QGraphicsItem* planet, QGraphicsItem* marker)
 const QPen&
 Chart::aspectPen(const A::Aspect& asp)
 {
-    QString                      tag = asp.d->userData["good"].toString();
-    static QMap<QString, QBrush> brushes {
-        { "--", QColor(207, 41, 33) },  { "-", QColor(230, 155, 57) },
-        { "0", QColor(15, 114, 248) },  { "+", QColor(14, 162, 98) },
-        { "++", QColor(77, 206, 113) },
-    };
+    // Color by harmonic family (same derivation as the harmonic search/
+    // filter and the aspect-toggle button order), not aspects.csv's "good"
+    // benefic/malefic rating: "good" only ever matched a fixed 5-value scale
+    // for the classical sets, and was reused inconsistently as a loose
+    // harmonic-family proxy for the larger minor-aspect sets (e.g. Square
+    // and Opposition shared a color despite being different harmonics).
+    // This also makes a named set's own coloring agree with the synthetic
+    // per-harmonic override used for focal-click chart redraws.
+    QString                      tag = QString::number(A::harmonicOfAngle(asp.d->angle));
+    static QMap<QString, QBrush> brushes;
     static bool s_inited = false;
     if (!s_inited) {
         for (unsigned i = 1, n = 32; i <= n; ++i) {

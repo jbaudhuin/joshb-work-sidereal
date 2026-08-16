@@ -153,6 +153,11 @@ class AstroFile : public QObject, public A::EventStore {
     /// from a chart file without constructing an AstroFile.
     static A::InputData loadInputData(const AFileInfo& fi);
 
+    /// Parse a "GMT"/"baseChartGMT" value as stored by save(). Unlike
+    /// QDateTime::fromString(Qt::ISODate...), this round-trips BC
+    /// (negative-year) dates correctly.
+    static QDateTime parseStoredGMT(const QString& stored);
+
     void suspendUpdate() { _holdUpdate = true; }
     bool isSuspendedUpdate() const { return _holdUpdate; }
     void resumeUpdate();

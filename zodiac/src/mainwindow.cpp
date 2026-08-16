@@ -1214,9 +1214,9 @@ AstroWidget::addHoroscopeControls()
     harmonicSelector->setMinimumWidth(100);
     harmonicSelector->setValidator(new QDoubleValidator(1, 360 * 360, 4, this));
 
-    zodiacSelector->setToolTip(tr("Sign"));
+    zodiacSelector->setToolTip(tr("Zodiac / Ayanamsha"));
     hsystemSelector->setToolTip(tr("House system"));
-    aspectsSelector->setToolTip(tr("Aspect sets\n(by A.Podvodny)"));
+    aspectsSelector->setToolTip(tr("Aspect Set"));
     aspectModeSelector->setToolTip(tr("Aspect computation"));
     harmonicSelector->setToolTip("Harmonic");
 
@@ -1228,13 +1228,20 @@ AstroWidget::addHoroscopeControls()
     for (const A::HouseSystem& sys : A::getHouseSystems())
         hsystemSelector->addItem(sys.name, sys.id);
 
-    // create combo box with aspect sets
-    for (const A::AspectsSet& s : A::getAspectSets())
+    // create combo box with aspect sets — skip the on-demand "H1".."H32"
+    // family (Data::init() generates these unconditionally for internal use,
+    // e.g. the focal-click chart-redraw override); they're not meant to be
+    // user-selectable and just add noise alongside "Harmonic" above, which
+    // already covers the same ground with individually toggleable harmonics.
+    const auto topId = A::topAspectSet().id;
+    for (const A::AspectsSet& s : A::getAspectSets()) {
+        if (s.id > topId && s.id <= topId + 32) continue;
         aspectsSelector->addItem(s.name, s.id);
+    }
 
     A::AspectSetId daspId = -1;
     for (auto&& as : A::getAspectSets()) {
-        if (as.name.startsWith("Dynamic")) {
+        if (as.name.startsWith("Harmonic")) {
             daspId = as.id;
         }
     }
@@ -1319,18 +1326,41 @@ AstroWidget::addHoroscopeControls()
         // act->dumpObjectInfo();
     }
 
+    // A widget-local setStyleSheet() call has a hard priority edge over the
+    // app-wide theme stylesheet in Qt's cascade order, regardless of
+    // selector specificity — moving this to themes/*.qss (matching colors
+    // there stayed fine) let some other app-wide QToolButton rule win
+    // instead, visibly shrinking these buttons. Geometry stays inline;
+    // themes/*.qss still carries the (unaffected) per-state colors.
     QStringList ssl {
-        "QToolBar { padding: 0px; }",
+        "QToolBar#dynAspectControls { padding: 0px; }",
         "QToolBar#dynAspectControls QToolButton { padding: 0px; margin: 0px; "
         "border-width: 0px; max-width: 45px; min-width: 15px; }",
     };
-
     dynAspectControls->setStyleSheet(ssl.join(" "));
 #if 0
     qDebug() << ssh;
     dynAspectControls->dumpObjectInfo();
     dynAspectControls->dumpObjectTree();
 #endif
+
+    // Named (data-driven) aspect sets get the same kind of per-aspect
+    // toggle row as Harmonic's dynAspectControls above, but icon buttons
+    // (aspects.csv already has one per aspect) instead of numbered harmonic
+    // badges — populated on demand in rebuildNamedAspectControls() since the
+    // aspect roster differs per selected set.
+    namedAspectControls = new QToolBar();
+    namedAspectControls->setObjectName("namedAspectControls");
+    namedAspectControls->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    namedAspectControls->setIconSize(QSize(16, 16));
+    // Geometry inline (see dynAspectControls comment above for why); the
+    // per-state colors (:hover/:checked) stay in themes/{dark,light}.qss.
+    QStringList nssl {
+        "QToolBar#namedAspectControls { padding: 0px; }",
+        "QToolBar#namedAspectControls QToolButton { padding: 0px; margin: 0px; "
+        "border-width: 0px; max-width: 20px; min-width: 20px; }",
+    };
+    namedAspectControls->setStyleSheet(nssl.join(" "));
 
     // Primary frame combo: only the two mutually-exclusive frames.  The
     // legacy Great-Circle and Prime-Vertical entries are demoted to
@@ -1480,6 +1510,57 @@ AstroWidget::aspectSelectionChanged()
 {
 }
 
+void
+AstroWidget::rebuildNamedAspectControls(A::AspectSetId setId)
+{
+    namedAspectControls->clear();
+    auto& set = A::getAspectSet(setId);
+
+    // aspects.csv's `id` column isn't harmonic-ordered, and plain angle
+    // order isn't quite right either (it interleaves harmonic families:
+    // semisextile 30, semisquare 45, sextile 60, square 90, ...). Reduce
+    // each angle/360 to lowest terms and sort by harmonic (denominator)
+    // first, then by the within-harmonic multiple (numerator) — e.g. within
+    // the 8th harmonic, semisquare (1/8) before sesquisquare (3/8).
+    QList<A::AspectId> order = set.aspects.keys();
+    std::sort(order.begin(), order.end(), [&set](A::AspectId a, A::AspectId b) {
+        auto fa = A::harmonicFractionOfAngle(set.aspects[a].angle);
+        auto fb = A::harmonicFractionOfAngle(set.aspects[b].angle);
+        if (fa.denominator != fb.denominator) return fa.denominator < fb.denominator;
+        return fa.numerator < fb.numerator;
+    });
+
+    for (A::AspectId aid : order) {
+        A::AspectType& asp = set.aspects[aid];
+        QString        icon = asp.userData["icon"].toString();
+        QAction*       act  = icon.isEmpty()
+                                 ? namedAspectControls->addAction(asp.name.left(3))
+                                 : namedAspectControls->addAction(QIcon(icon), QString());
+        act->setObjectName("nasp" + QString::number(aid));
+        act->setCheckable(true);
+        act->setChecked(asp.isEnabled());
+        act->setToolTip(asp.name);
+
+        if (auto* btn = namedAspectControls->widgetForAction(act)) {
+            btn->setObjectName("nasp" + QString::number(aid) + "btn");
+            btn->setMaximumWidth(20);
+        }
+
+        connect(act, &QAction::toggled, this, [this, setId, aid](bool b) {
+            auto& live = A::getAspectSet(setId);
+            if (!live.aspects.contains(aid)) return;
+            live.aspects[aid].setEnabled(b);
+            if (_dynAspChange) return;
+            // The aspect-set ID isn't changing, only its content — force the
+            // AspectSet-changed notification the same way the Dynamic/
+            // Harmonic harmonic-toggle buttons do, or Transits won't know to
+            // recompute (see DisplaySettings::apply's forceAspectSet param).
+            A::modalize<bool> change(_dynAspChange, true);
+            horoscopeControlChanged();
+        });
+    }
+}
+
 AppSettings
 AstroWidget::defaultSettings()
 {
@@ -1494,8 +1575,9 @@ AstroWidget::defaultSettings()
     s.setValue("Scope/zodiac",
                2); // Fagan-Bradley (Sidereal)
     s.setValue("Scope/houseSystem", 2); // Campanus
-    s.setValue("Scope/aspectSet", 5); // Dynamic
+    s.setValue("Scope/aspectSet", 5); // Harmonic
     s.setValue("Scope/dynamic", "1, 2, 3, 4, 6, 8, 12"); // Ptolemaic
+    s.setValue("Scope/disabledAspects", QStringList()); // all named-set aspects enabled
     s.setValue("Scope/aspectMode", 1); // ecliptic (legacy key, kept for migration)
     s.setValue("Scope/primaryFrame", int(A::amcEcliptic));
     s.setValue("Scope/useGreatCircle", false);
@@ -1529,6 +1611,7 @@ AstroWidget::currentSettings()
     QVariant var;
     A::getDynAspState(var);
     s.setValue("Scope/dynamic", var);
+    s.setValue("Scope/disabledAspects", A::disabledAspectsState());
 
     s.setValue("harmonic", harmonicSelector->currentText().toDouble());
     s.setValue("slide", slides->currentIndex());
@@ -1544,6 +1627,11 @@ AstroWidget::applySettings(const AppSettings& s)
 
     zodiacSelector->setCurrentIndex(s.value("Scope/zodiac").toInt());
     hsystemSelector->setCurrentIndex(s.value("Scope/houseSystem").toInt());
+    // Restore per-aspect enable/disable state before switching the combo, so
+    // that if the index-change fires (and rebuilds namedAspectControls) it
+    // picks up the freshly-restored flags rather than whatever was left over
+    // from the previously-active set.
+    A::setDisabledAspectsState(s.value("Scope/disabledAspects").toStringList());
     aspectsSelector->setCurrentIndex(s.value("Scope/aspectSet").toInt());
 
     // Decoupled aspect-mode controls.  Honor the three new keys if present;
@@ -1589,7 +1677,7 @@ AstroWidget::applySettings(const AppSettings& s)
     if (auto dactrls = getDynAspectControls()) {
         A::AspectSetId daspId = -1;
         for (auto&& as : A::getAspectSets()) {
-            if (as.name.startsWith("Dynamic")) {
+            if (as.name.startsWith("Harmonic")) {
                 daspId = as.id;
             }
         }
@@ -1618,6 +1706,11 @@ AstroWidget::applySettings(const AppSettings& s)
             }
         }
     }
+
+    // Named-set toggle-row rebuild + visibility sync now lives in
+    // MainWindow::syncAspectSetControls(), called after astroWidget's
+    // applySettings() returns (see MainWindow::applySettings) — it needs
+    // statusBar(), which isn't reachable from here.
 
     slides->setSlide(s.value("slide").toInt());
     toolBar->actions()[slides->currentIndex()]->setChecked(true);
@@ -4804,7 +4897,7 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, bool autoRestore
 
     A::AspectsSet* dynAspSet = nullptr;
     for (auto&& as : A::getAspectSets()) {
-        if (as.name.startsWith("Dynamic")) {
+        if (as.name.startsWith("Harmonic")) {
             dynAspSet = &as;
             break;
         }
@@ -4813,18 +4906,8 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, bool autoRestore
     auto aspectsSelector = astroWidget->getAspectsSelector();
     connect(aspectsSelector,
             QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [this, aspectsSelector](int i) {
-                A::AspectId id      = aspectsSelector->itemData(i).toInt();
-                const auto& asp     = A::getAspectSet(id);
-                bool        add     = asp.name.startsWith("Dynamic");
-                auto        dactrls = astroWidget->getDynAspectControls();
-                if (add) {
-                    if (dactrls->parent()) dactrls->setVisible(true);
-                    else
-                        statusBar()->insertPermanentWidget(0, dactrls);
-                } else {
-                    if (dactrls->parent()) dactrls->setVisible(false);
-                }
+            [this](int) {
+                syncAspectSetControls();
             });
 
     connect(wdg,
@@ -5218,6 +5301,31 @@ MainWindow::createActionForPanel(QWidget* w)
     connect(a, SIGNAL(triggered(bool)), w, SLOT(setVisible(bool)));
     connect(w, SIGNAL(visibilityChanged(bool)), a, SLOT(setChecked(bool)));
     return a;
+}
+
+void
+MainWindow::syncAspectSetControls()
+{
+    auto* aspectsSelector = astroWidget->getAspectsSelector();
+    A::AspectId id  = aspectsSelector
+                          ->itemData(aspectsSelector->currentIndex())
+                          .toInt();
+    const auto& asp     = A::getAspectSet(id);
+    bool        harmonic = asp.name.startsWith("Harmonic");
+    auto        dactrls  = astroWidget->getDynAspectControls();
+    auto        nactrls  = astroWidget->getNamedAspectControls();
+    if (harmonic) {
+        if (dactrls->parent()) dactrls->setVisible(true);
+        else
+            statusBar()->insertPermanentWidget(0, dactrls);
+        if (nactrls->parent()) nactrls->setVisible(false);
+    } else {
+        if (dactrls->parent()) dactrls->setVisible(false);
+        astroWidget->rebuildNamedAspectControls(id);
+        if (nactrls->parent()) nactrls->setVisible(true);
+        else
+            statusBar()->insertPermanentWidget(0, nactrls);
+    }
 }
 
 void
@@ -5700,8 +5808,24 @@ void
 MainWindow::applySettings(const AppSettings& s)
 {
     astroWidget->applySettings(s);
+    // Restoring to whatever index the combo already defaulted to (e.g. its
+    // post-construction index 0) does not fire currentIndexChanged, so
+    // neither aspect-toggle toolbar would otherwise get inserted/shown.
+    syncAspectSetControls();
     this->restoreGeometry(s.value("Window/Geometry").toByteArray());
-    this->restoreState(s.value("Window/State").toByteArray());
+    QByteArray windowState = s.value("Window/State").toByteArray();
+    this->restoreState(windowState);
+    if (windowState.isEmpty()) {
+        // No saved panel layout (first-ever launch, or a session seeded from
+        // raw defaultSettings()): every dock starts hidden (see the
+        // construction loop above) and every toolbar starts visible. Apply
+        // the curated out-of-box layout instead of that raw state — Events
+        // and Speculum front the app's scope; Details/Harmonics and the Hint
+        // toolbar stay tucked away until asked for.
+        if (auto* d = astroWidget->findDock<Transits>()) d->setVisible(true);
+        if (auto* d = astroWidget->findDock<Speculum>()) d->setVisible(true);
+        helpToolBar->setVisible(false);
+    }
     askToSave = s.value("askToSave").toBool();
     
     // Apply theme

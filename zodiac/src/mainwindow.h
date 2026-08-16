@@ -89,6 +89,7 @@ class AstroWidget : public QWidget {
     QToolButton*             pvToggle = nullptr;
     QComboBox*               harmonicSelector;
     QToolBar*                dynAspectControls;
+    QToolBar*                namedAspectControls;
     QWidgetList              horoscopeControls;
     QList<AstroFileHandler*> handlers;
     QList<AstroFileHandler*> dockHandlers;
@@ -165,7 +166,9 @@ class AstroWidget : public QWidget {
         return horoscopeControls;
     }
     QToolBar*  getDynAspectControls() const { return dynAspectControls; }
+    QToolBar*  getNamedAspectControls() const { return namedAspectControls; }
     QComboBox* getAspectsSelector() const { return aspectsSelector; }
+    void       rebuildNamedAspectControls(A::AspectSetId setId);
     const QList<QDockWidget*>& getDockPanels() { return docks; }
     template <class T>
     T* findDockHdlr() const
@@ -174,6 +177,18 @@ class AstroWidget : public QWidget {
             if (auto td = qobject_cast<T*>(d)) {
                 return td;
             }
+        }
+        return nullptr;
+    }
+
+    // Same lookup as findDockHdlr(), but returns the enclosing QDockWidget
+    // (needed to toggle panel visibility) rather than the handler widget.
+    // docks/dockHandlers are pushed together index-for-index in addDockWidget().
+    template <class T>
+    QDockWidget* findDock() const
+    {
+        for (int i = 0; i < dockHandlers.size(); ++i) {
+            if (qobject_cast<T*>(dockHandlers[i])) return docks[i];
         }
         return nullptr;
     }
@@ -534,6 +549,13 @@ class MainWindow : public QMainWindow, public Customizable {
 
     void     addToolBarActions();
     QAction* createActionForPanel(QWidget* w /*, const QIcon &icon*/);
+    // Show the aspect-toggle toolbar matching the currently-selected aspect
+    // set (dynAspectControls for Harmonic, namedAspectControls otherwise)
+    // and hide the other. Called both from the aspectsSelector
+    // currentIndexChanged signal and after settings restore, since restoring
+    // to whatever index the combo already defaulted to (e.g. index 0) does
+    // NOT fire that signal, leaving neither toolbar inserted otherwise.
+    void syncAspectSetControls();
     
     void saveSession();
     void restoreSession();

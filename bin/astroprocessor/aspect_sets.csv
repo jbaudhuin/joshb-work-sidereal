@@ -1,15 +1,7 @@
 ﻿id;name;name_ru
-0;Basic aspects;Простые аспекты
-1;Reasonable;Разумные аспекты
-2;Harmonic;Гармонические аспекты
-3;Harmonic w/ minor;Гармонические с минорными аспекты
-4;Harmonic w/ very minor;Гармонические со всеми минорными аспекты
-5;Dynamic aspects;Динамические аспекты
-10;Aspects for I initiation;Аспекты I посвящения
-11;Aspects for II initiation;Аспекты II посвящения
-12;Aspects for III initiation;Аспекты III посвящения
-13;Aspects for IV initiation;Аспекты IV посвящения
-20;Synastry aspects for I initiation;Синастр. аспекты I посвящения
-21;Synastry aspects for II initiation;Синастр. аспекты II посвящения
-22;Synastry aspects for III initiation;Синастр. аспекты III посвящения
-23;Synastry aspects for IV initiation;Синастр. аспекты IV посвящения
+0;Ptolemaic;Птолемеевы
+1;Modern;Современные
+2;Modern + minor;Современные + минорные
+3;Modern + unusual;Современные + необычные
+4;Modern + obscure;Современные + редкие
+5;Harmonic;Гармонические

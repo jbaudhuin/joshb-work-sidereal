@@ -439,9 +439,7 @@ void AstroFileEditor::update(AstroFile::Members m)
             if (source->hasBaseChart()) {
                 // Load this file to check its GMT
                 QSettings testFile(fi.absoluteFilePath(), QSettings::IniFormat);
-                auto testGmt = testFile.value("GMT").toString();
-                if (!testGmt.endsWith('Z')) testGmt += 'Z';
-                auto testDT = QDateTime::fromString(testGmt, Qt::ISODate);
+                auto testDT = AstroFile::parseStoredGMT(testFile.value("GMT").toString());
                 
                 if (testDT == source->getBaseChartGMT()) {
                     selectedIndex = i + 1; // +1 because "(None)" is at index 0
@@ -562,9 +560,7 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
         if (!baseFilePath.isEmpty()) {
             // Load the base chart file to get its GMT
             QSettings baseFile(baseFilePath, QSettings::IniFormat);
-            auto baseGmtStr = baseFile.value("GMT").toString();
-            if (!baseGmtStr.endsWith('Z')) baseGmtStr += 'Z';
-            auto baseGmt = QDateTime::fromString(baseGmtStr, Qt::ISODate);
+            auto baseGmt = AstroFile::parseStoredGMT(baseFile.value("GMT").toString());
             dst->setBaseChart(baseGmt);
         } else {
             dst->clearBaseChart();

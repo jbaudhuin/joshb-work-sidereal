@@ -1,4 +1,5 @@
 
+#include <cmath>
 #include <set>
 #include <swephexp.h>
 // #undef MSDOS     // undef macroses that made by SWE library
@@ -52,7 +53,7 @@ Data::load(QString language)
         AspectsSet s;
         s.id   = f.row(0).toInt();
         s.name = language == "ru" ? f.row(2) : f.row(1);
-        if (s.name.startsWith("Dynamic")) dynAspSet = s.id;
+        if (s.name.startsWith("Harmonic")) dynAspSet = s.id;
 
         // for (int i = 3; i < f.columnsCount(); i++)
         //   s.userData[f.header(i)] = f.row(i);
@@ -1034,6 +1035,124 @@ setDynAspState(const uintSSet& state)
 {
     _haspEnabled.assign(33, false);
     for (unsigned h : state) setDynAspState(h, true);
+}
+
+HarmonicFraction
+harmonicFractionOfAngle(double angleDeg, unsigned maxHarmonic)
+{
+    // Tolerance: aspects.csv angles for higher harmonics are rounded to as
+    // few as 3 decimals (e.g. Septile = 51.417, true 360/7 = 51.42857...),
+    // an error of ~0.0116 deg -- just over a naive 0.01 deg tolerance, which
+    // makes the scan skip the correct (low) harmonic and lock onto an
+    // unrelated higher one by coincidence instead. 0.02 clears the worst
+    // rounding seen in the data with margin, well under the multi-degree
+    // spacing between any two distinct aspects.
+    double x = std::fmod(std::fabs(angleDeg), 360.0) / 360.0;
+    for (unsigned h = 1; h <= maxHarmonic; ++h) {
+        double k      = x * h;
+        double frac   = std::fabs(k - std::round(k));
+        double errDeg = frac * 360.0 / h;
+        if (errDeg < 0.02)
+            return { static_cast<unsigned>(std::llround(k)), h };
+    }
+    return { static_cast<unsigned>(std::llround(x * maxHarmonic)), maxHarmonic };
+}
+
+unsigned
+harmonicOfAngle(double angleDeg, unsigned maxHarmonic)
+{
+    return harmonicFractionOfAngle(angleDeg, maxHarmonic).denominator;
+}
+
+uintSSet
+activeHarmonicSet(const AspectsSet& set)
+{
+    if (set.name.startsWith("Harmonic")) return dynAspState();
+
+    uintSSet hs;
+    for (auto& at : set.aspects)
+        if (at.isEnabled()) hs.insert(harmonicOfAngle(at.angle));
+    return hs;
+}
+
+const AspectType*
+aspectForHarmonic(const AspectsSet& set, unsigned harmonic)
+{
+    const AspectType* best = nullptr;
+    unsigned bestNumerator = 999999u;
+    for (auto& at : set.aspects) {
+        auto frac = harmonicFractionOfAngle(at.angle);
+        if (frac.denominator != harmonic) continue;
+        if (frac.numerator < bestNumerator) {
+            bestNumerator = frac.numerator;
+            best          = &at;
+        }
+    }
+    return best;
+}
+
+QString
+aspectAbbrev(const QString& aspectName)
+{
+    static const QMap<QString, QString> abbr {
+        { "Conjunction",   "cnj" },
+        { "Opposition",    "opp" },
+        { "Trine",         "tri" },
+        { "Square",        "sqr" },
+        { "Sextile",       "sxt" },
+        { "Semisquare",    "ssq" },
+        { "Sesquisquare",  "sqq" },
+        { "Semisextile",   "sxx" },
+        { "Quincunx",      "qcx" },
+        { "Quintile",      "qui" },
+        { "Biquintile",    "bqu" },
+        { "Septile",       "sep" },
+        { "Biseptile",     "bsp" },
+        { "Triseptile",    "tsp" },
+        { "Novile",        "nov" },
+        { "Nonagon",       "nov" },
+        { "Decile",        "dec" },
+        { "Undecile",      "und" },
+    };
+    auto it = abbr.find(aspectName);
+    if (it != abbr.end()) return it.value();
+    return aspectName.left(3).toLower();
+}
+
+QStringList
+disabledAspectsState()
+{
+    QStringList out;
+    for (const auto& set : getAspectSets()) {
+        if (set.name.startsWith("Harmonic")) continue;
+        for (auto it = set.aspects.constBegin(); it != set.aspects.constEnd();
+             ++it)
+            if (!it.value().isEnabled())
+                out << QString("%1:%2").arg(set.id).arg(it.key());
+    }
+    return out;
+}
+
+void
+setDisabledAspectsState(const QStringList& tokens)
+{
+    for (const auto& set : getAspectSets()) {
+        if (set.name.startsWith("Harmonic")) continue;
+        auto& live = getAspectSet(set.id);
+        for (auto it = live.aspects.begin(); it != live.aspects.end(); ++it)
+            it.value().setEnabled(true);
+    }
+    for (const QString& tok : tokens) {
+        auto parts = tok.split(':');
+        if (parts.size() != 2) continue;
+        bool okSet = false, okAsp = false;
+        AspectSetId setId = parts[0].toInt(&okSet);
+        AspectId    aspId = parts[1].toInt(&okAsp);
+        if (!okSet || !okAsp) continue;
+        auto& live = getAspectSet(setId);
+        if (live.aspects.contains(aspId))
+            live.aspects[aspId].setEnabled(false);
+    }
 }
 
 qreal _orbFactor = 1.0;

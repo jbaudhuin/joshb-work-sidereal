@@ -404,6 +404,44 @@ QToolButton#pvToggle:checked {
 	padding: 3px 6px;
 }
 
+/* Named aspect-set toggle row (status bar): one icon button per aspect in
+   the selected set (aspects.csv icon), enable/disable via checked state.
+   The default QToolButton:checked tint (#998, see below) reads too close
+   to the unchecked background to tell "on" from "off" at this size — use
+   the system highlight color instead, same convention as gcToggle/pvToggle
+   above. */
+QToolBar#dynAspectControls,
+QToolBar#namedAspectControls {
+	padding: 0px;
+}
+
+QToolBar#dynAspectControls QToolButton {
+	padding: 0px;
+	margin: 0px;
+	border-width: 0px;
+	max-width: 45px;
+	min-width: 15px;
+}
+
+QToolBar#namedAspectControls QToolButton {
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 3px;
+	padding: 0px;
+	margin: 0px;
+	max-width: 20px;
+	min-width: 20px;
+}
+
+QToolBar#namedAspectControls QToolButton:hover {
+	background: #585F6A;
+}
+
+QToolBar#namedAspectControls QToolButton:checked {
+	background: palette(highlight);
+	border-color: palette(highlight);
+}
+
 /* ====================== Aspect Range Navigator ============================= */
 /* Compact transport (objectName aspectRangeNavigator) and the revert-to-saved
    corner button: strip the chunky default QToolButton chrome; themed glyphs. */

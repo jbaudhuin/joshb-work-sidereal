@@ -737,6 +737,60 @@ struct AspectsSet {
 typedef QList<Aspect> AspectList;
 typedef QList<Planet> PlanetList;
 
+/// angleDeg reduced to lowest terms as numerator/denominator of
+/// angleDeg/360 -- e.g. 90 deg (Square) -> 1/4, 135 deg (Sesquisquare) ->
+/// 3/8 (not a unit fraction: "360/angle" alone doesn't capture this).
+struct HarmonicFraction {
+    unsigned numerator;
+    unsigned denominator;
+};
+HarmonicFraction
+harmonicFractionOfAngle(double angleDeg, unsigned maxHarmonic = 60);
+
+/// Smallest harmonic h such that angleDeg is (near) a multiple of 360/h --
+/// e.g. 90 deg (Square) -> 4, 150 deg (Quincunx) -> 12, 51.417 deg
+/// (Septile, stored rounded) -> 7. Used to bridge named/orb-based aspect
+/// sets onto the harmonic-number search & filter machinery. Equivalent to
+/// harmonicFractionOfAngle(angleDeg).denominator.
+unsigned
+harmonicOfAngle(double angleDeg, unsigned maxHarmonic = 60);
+
+/// The harmonic numbers to search/filter for the given aspect set: for a
+/// "Dynamic..." set this is just the user's dynAspState() toggle set (its
+/// aspects list is generated on the fly, not data-driven); for a named,
+/// data-driven set (Basic, Reasonable, Harmonic, ...) it's the harmonics
+/// implied by that set's enabled aspects' angles.
+uintSSet
+activeHarmonicSet(const AspectsSet& set);
+
+/// A representative aspect in `set` for a bare harmonic number with no
+/// specific angle to match against — e.g. a harmonic-pattern event (T-square
+/// analog: all bodies mutually in aspect at the same shared harmonic),
+/// which carries only harmonic() and no exact two-body angle to run through
+/// calculateAspect(). Picks the entry with the smallest within-harmonic
+/// numerator (e.g. for h=8: Semisquare 1/8 over Sesquisquare 3/8). Returns
+/// nullptr if no aspect in the set reduces to that harmonic.
+const AspectType*
+aspectForHarmonic(const AspectsSet& set, unsigned harmonic);
+
+/// Short (3-4 letter, lowercase) abbreviation for a named aspect (aspects.csv
+/// full name), e.g. "Square" -> "sqr", for compact contexts like a tab/window
+/// title where the aspect icon (an image) can't be embedded. Falls back to
+/// the first 3 letters, lowercased, for aspects outside the curated map
+/// (the long tail of minor decile/undecile-family aspects).
+QString
+aspectAbbrev(const QString& aspectName);
+
+/// Per-aspect enable/disable state for named (data-driven) aspect sets —
+/// the "Harmonic" set (formerly Dynamic) has its own dynAspState()
+/// mechanism and is excluded. Serialized as "<setId>:<aspectId>" tokens,
+/// one per currently-*disabled* aspect (default is enabled, so only
+/// exceptions are recorded) — mirrors how Scope/dynamic stores dynAspState.
+QStringList
+disabledAspectsState();
+void
+setDisabledAspectsState(const QStringList& tokens);
+
 class PlanetMap : public QMap<PlanetId, Planet> {
   public:
     using Base = QMap<PlanetId, Planet>;
