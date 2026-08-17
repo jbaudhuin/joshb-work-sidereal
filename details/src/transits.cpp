@@ -3707,8 +3707,21 @@ Transits::updateTransits()
                 if (resumeActiveFinder()) return;
             }
         } else {
-            // Thread finished while we weren't looking — clean up stale entry
+            // Thread's run() has returned (isFinished() is true) but its queued
+            // finished() signal may not have been delivered yet — the main
+            // thread can go a long time between event-loop pumps during
+            // restoreSession()'s back-to-back property-setter cascade, so
+            // onCompleted() hasn't necessarily run for this finder yet. If we
+            // just erase the bookkeeping and leave the connections live, that
+            // signal fires later and onCompleted() — unable to find this
+            // (already erased) entry by thread pointer — falls back to
+            // treating it as "current tab" and clobbers _active/_activeFinder,
+            // orphaning whatever finder we start below (which by then owns
+            // those aliases) while it's still writing into the shared events
+            // list by reference. Disconnect first, exactly like
+            // cancelAndRemoveFinder(), so that belated signal can't fire.
             qDebug() << "[UPDATE TRANSITS] Stale finder entry for" << file(0)->getName() << ", removing";
+            disconnectFinder(fs);
             delete fs.chs;
             _finders.erase(fit);
         }
@@ -4245,17 +4258,26 @@ Transits::onCompleted()
 #if 1
     qDebug() << "[ON COMPLETED] Starting cleanup, thread:" << _active.data() << "finder:" << _activeFinder.data();
 
-    // Find which file this finder belongs to and remove from map.
-    // Use sender() (the QThread that emitted finished()) to match,
-    // because for background finders _active/_activeFinder point to
-    // the *current* tab, not the background one.
+    // Find which file this finder belongs to and remove from map. Match
+    // strictly by sender() (the QThread that actually emitted finished()) —
+    // NOT by falling back to "thread == _active / finder == _activeFinder",
+    // which matches whichever finder currently owns those aliases regardless
+    // of whether it's the one that actually emitted this signal. A belated
+    // finished() signal from an old finder (queued before its map entry was
+    // erased by updateTransits()'s stale-entry cleanup, but not delivered
+    // until a later event-loop pump — disconnecting doesn't retroactively
+    // cancel an already-queued invocation) would otherwise be misattributed
+    // to whatever finder is *currently* active/current-tab, erasing its
+    // live map entry and nulling _active/_activeFinder out from under it —
+    // orphaning a still-running finder that keeps writing into the shared
+    // events list by reference while a subsequent updateTransits() call,
+    // seeing no active finder, starts yet another one. That's what produced
+    // duplicated events on session restore (see project memory).
     auto* senderThread = sender();
     AstroFile* ownerFile = nullptr;
     FinderState completedState;  // capture metadata before erasing
     for (auto it = _finders.begin(); it != _finders.end(); ++it) {
-        if (it.value().thread == senderThread
-            || it.value().thread == _active
-            || it.value().finder == _activeFinder) {
+        if (it.value().thread == senderThread) {
             ownerFile = it.key();
             completedState = it.value();
             // Delete _chs stored in the map entry
@@ -4267,8 +4289,18 @@ Transits::onCompleted()
         }
     }
 
-    bool isCurrentTab = (ownerFile == nullptr || (filesCount() > 0 && ownerFile == file(0)));
-    qDebug() << "[ON COMPLETED] ownerFile:" << (ownerFile ? ownerFile->getName() : "unknown")
+    if (!ownerFile) {
+        // No live entry for this thread — it was already cleaned up
+        // elsewhere (canceled or superseded). _active/_activeFinder may by
+        // now belong to a different, still-running finder for this same
+        // file; leave them alone.
+        qDebug() << "[ON COMPLETED] No matching finder entry for sender"
+                 << senderThread << "(stale/belated signal), ignoring";
+        return;
+    }
+
+    bool isCurrentTab = (filesCount() > 0 && ownerFile == file(0));
+    qDebug() << "[ON COMPLETED] ownerFile:" << ownerFile->getName()
              << "isCurrentTab:" << isCurrentTab;
 
     if (!isCurrentTab) {

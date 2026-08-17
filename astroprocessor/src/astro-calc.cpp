@@ -196,10 +196,15 @@ bool animating = false;
 bool
 isSolarReturn(const QString& chartName)
 {
-    // Two naming conventions: the event-finder comparison name ("Sun-r=Sun")
-    // and the descriptive name from "Open with Solar Return" ("… Solar Return …",
-    // including harmonics like "Solar H2 Return").
-    return chartName.contains("Sun-r=Sun")
+    // Two naming conventions: the event-finder's compact chart title —
+    // "Sun-r" <connector> "Sun", where the connector is "H1"/"H2"/"H4" in
+    // Harmonic aspect mode or "cnj"/"opp"/"sqr" in a named aspect mode
+    // (e.g. "Sun-r H4 Sun" vs "Sun-r sqr Sun") — regardless of which
+    // Sun-to-Sun harmonic triggered the return; and the descriptive name
+    // from "Open with Solar Return" ("… Solar Return …", including
+    // harmonics like "Solar H2 Return").
+    static const QRegularExpression rx(R"(\bSun-r\b[\s\S]*\bSun\b)");
+    return rx.match(chartName).hasMatch()
         || (chartName.contains("Solar", Qt::CaseInsensitive)
             && chartName.contains("Return", Qt::CaseInsensitive));
 }
@@ -208,8 +213,11 @@ bool
 isLunarReturn(const QString& chartName)
 {
     // The finder abbreviates body names to 3 letters, so Moon → "Moo"
-    // (Sun stays "Sun").  Also accept the descriptive "… Lunar Return …" name.
-    return chartName.contains("Moo-r=Moo")
+    // (Sun stays "Sun"). Matches "Moo-r" <connector> "Moo" in either
+    // Harmonic ("H1") or named ("cnj") aspect mode; see isSolarReturn().
+    // Also accept the descriptive "… Lunar Return …" name.
+    static const QRegularExpression rx(R"(\bMoo-r\b[\s\S]*\bMoo\b)");
+    return rx.match(chartName).hasMatch()
         || (chartName.contains("Lunar", Qt::CaseInsensitive)
             && chartName.contains("Return", Qt::CaseInsensitive));
 }
@@ -242,9 +250,19 @@ classifyDirChart(const AstroFile* file)
 {
     if (!file) return DirChartNotEligible;
 
-    // Genuine progressed / solar-arc / primary-direction charts never get a
-    // quotidian direction column.
+    // Charts that stand on their own as an independent natal-like subject —
+    // rather than representing a moment in time relative to some other
+    // chart — never get a quotidian direction column: two-person synastry
+    // charts, midpoint/Davison composites (TypeEvent is how Davison charts
+    // are tagged so the rest of the app treats them as a natal subject; see
+    // FilesBar::openFileCompositeDavison), and genuine progressed /
+    // solar-arc / primary-direction charts (which already have their own
+    // direction technique).
     switch (file->getType()) {
+    case TypeMale:
+    case TypeFemale:
+    case TypeEvent:
+    case TypeComposite:
     case TypeDerivedProg:
     case TypeDerivedSA:
     case TypeDerivedPD:
@@ -253,12 +271,24 @@ classifyDirChart(const AstroFile* file)
         break;
     }
 
+    // A Sun-to-Sun return (any harmonic — conjunction, opposition, square,
+    // ...) gets the Sun-specific sidereal PSSR/NeoPSSR technique; any other
+    // moment-in-time chart (returns of other bodies, ingresses, transit-to-
+    // natal events, aspect patterns, parans, heliacal apparitions, ...)
+    // gets the generic quotidian SQ/NeoSQ technique.
     const QString name = file->getName();
     if (isSolarReturn(name))
         return DirChartSolarReturn;
-    if (isLunarReturn(name) || isAnyIngress(name))
+
+    switch (file->getType()) {
+    case TypeOther:
+    case TypeReturn:
+    case TypeParan:
+    case TypeApparition:
         return DirChartOther;
-    return DirChartNotEligible;
+    default:
+        return DirChartNotEligible;
+    }
 }
 
 DirMethod
@@ -2077,7 +2107,7 @@ calculateStar(const QString&   name,
     char starName[256];
     strcpy(starName, ret.name.toStdString().c_str());
     if (swe_fixstar_ut(starName, jd, flags | SEFLG_SWIEPH, xx, errStr) != ERR
-        && strlen(errStr) != ERR)
+        && strlen(errStr) == 0)
     {
         if (!(ret.sweFlags & invertPositionFlag)) ret.eclipticPos.setX(xx[0]);
         else // found 'inverted position' flag
@@ -3464,6 +3494,14 @@ brentGlobalMin(F       f,
 QDateTime
 dateTimeFromJulian(double jd, CalendarType calType /*=Cal_Auto*/)
 {
+    // A non-finite jd means the caller's formula had no real solution (e.g. a
+    // star's rise/set time computed via asin(tan(dec)*tan(lat)) when the star
+    // is circumpolar or never rises at that latitude) — there is no date to
+    // report. Return an invalid QDateTime rather than feeding NaN into
+    // swe_jdut1_to_utc() and qRound() below, which asserts on NaN in debug
+    // builds and silently produces garbage in release builds.
+    if (!std::isfinite(jd)) return QDateTime();
+
     // Resolve calendar from JD when Auto
     int gregFlag = 1;
     if (calType == Cal_Julian) {
