@@ -670,6 +670,10 @@ Plain::filesUpdated(MembersList m)
         aspectsCached = false;
     }
 
+    // While scrubbing (wheel drag / animation), skip the HTML rebuild; the
+    // catch-up recompute on scrub-exit refreshes it once.
+    if (A::isScrubbing()) return;
+
     if (chartsCountChanged || anyChanged) {
         refresh();
     }

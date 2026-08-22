@@ -42,6 +42,15 @@ protected:
     bool _inApply;
     bool _userEditedTime;  // Track if user manually changed time in this session
 
+    // Identity the basis combo was last populated for. update() runs on
+    // every AstroFile change broadcast (comment/name edits included, not
+    // just ones the combo depends on); skip the directory scan + per-file
+    // GMT re-parse when none of these actually changed.
+    AstroFile*  _lastBasisSource  = nullptr;
+    FileType    _lastBasisType    = TypeCount; // sentinel: no prior populate
+    bool        _lastBasisHasBase = false;
+    QDateTime   _lastBasisGmt;
+
     void update(AstroFile::Members);
     void updateTabs();
 

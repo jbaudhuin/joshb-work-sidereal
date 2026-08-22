@@ -489,6 +489,15 @@ Chart::beginPlanetSlide(int durationMs)
     }
     if (durationMs <= 0) { _slidePending = false; return; }
 
+    // A hidden chart doesn't need a tween — it just needs the correct end
+    // state once shown again. Arming here anyway captures a start snapshot
+    // that goes stale across every step taken while hidden (filesUpdated()
+    // never runs to move anything while we're not visible), and the eventual
+    // catch-up dispatch would snap glyphs back to that stale position before
+    // animating away from it — visible as a frozen wheel until the tween
+    // (if it even completes cleanly right as the widget is shown) catches up.
+    if (!isVisible()) { _slidePending = false; return; }
+
     snapshotPlanetState(_slideStart);
 
     // Capture pre-step declination glyph/marker positions (keyed by file+id) so
@@ -965,21 +974,26 @@ Chart::updateAspects()
             aspects[i]->setPen(aspectPen(asp));
         }
 
-        QString toolTip;
-        if (filesCount() > 1)
-            // @todo fix #1/#2 -- should come from cpid
-            toolTip = A::describeAspectFull(asp, "#1", "#2");
-        else
-            toolTip = A::describeAspectFull(asp);
+        // Tooltip text embeds the orb, which changes every frame while
+        // scrubbing; skip formatting it during that window (nobody is
+        // hovering mid-animation) and let the scrub-exit catch-up fill it in.
+        if (!A::isScrubbing()) {
+            QString toolTip;
+            if (filesCount() > 1)
+                // @todo fix #1/#2 -- should come from cpid
+                toolTip = A::describeAspectFull(asp, "#1", "#2");
+            else
+                toolTip = A::describeAspectFull(asp);
 
-        // assign messages
-        if (aspects[i]->toolTip() != toolTip) {
-            aspects[i]->setToolTip(toolTip);
-            circle->setHelpTag(
-                aspects[i],
-                QString("%1+%2+%3")
-                    .arg(asp.d->name, asp.planet1->name, asp.planet2->name));
-            // qDebug() << toolTip;
+            // assign messages
+            if (aspects[i]->toolTip() != toolTip) {
+                aspects[i]->setToolTip(toolTip);
+                circle->setHelpTag(
+                    aspects[i],
+                    QString("%1+%2+%3")
+                        .arg(asp.d->name, asp.planet1->name, asp.planet2->name));
+                // qDebug() << toolTip;
+            }
         }
 
         i++;
@@ -1008,20 +1022,6 @@ void
 Chart::drawMidpointFigures()
 {
     clearMidpointFigures();
-
-    {
-        QStringList fileTags;
-        for (int i = 0; i < filesCount(); ++i) {
-            fileTags << QString("[%1 type=%2 focal=%3]")
-                            .arg(i)
-                            .arg(file(i)->getType())
-                            .arg(file(i)->focalPlanets().size());
-        }
-        qDebug().noquote() << "[MPFIG-ENTRY]"
-            << "focalMidpoints=" << focalMidpoints().size()
-            << "filesCount=" << filesCount()
-            << "files=" << fileTags.join(" ");
-    }
 
     // Build the working set of focal midpoints. For non-paran charts this is
     // simply _focalMidpoints (populated by calculateAspects[Synastry]).  For
@@ -1698,14 +1698,6 @@ Chart::layoutDeclinationGlyphs()
                 nearEdge[i] = edge;
                 float gy = south ? baselineY - edge - gh : baselineY + edge;
                 e.glyph->setPos(gx, gy);
-
-                // TEMPORARY diagnostic — remove once rung placement is
-                // confirmed correct. Appends to the existing hover tooltip.
-                bool usedLabel = (level == 0 && !south && edge > declTickClearance);
-                e.glyph->setToolTip(e.glyph->toolTip()
-                    + QString(" [rung %1, edge %2px%3]")
-                          .arg(level).arg(edge, 0, 'f', 1)
-                          .arg(usedLabel ? " label" : ""));
             }
         }
     }

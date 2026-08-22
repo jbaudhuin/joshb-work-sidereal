@@ -104,6 +104,7 @@ namespace {
 
 // Static member initialization
 QString SessionManager::s_currentSessionFile;
+QHash<QString, QPair<QDateTime, SessionManager::SessionInfo>> SessionManager::s_infoCache;
 
 QString 
 SessionManager::sessionDirectory()
@@ -263,6 +264,48 @@ SessionManager::removeFromMRU(const QString& sessionFile)
     }
 }
 
+SessionManager::SessionInfo
+SessionManager::getSessionInfo(const QString& filename)
+{
+    const QDateTime mtime = QFileInfo(filename).lastModified();
+
+    auto cached = s_infoCache.constFind(filename);
+    if (cached != s_infoCache.constEnd() && cached->first == mtime) {
+        return cached->second;
+    }
+
+    SessionInfo info;
+    info.filename = filename;
+
+    // Read session metadata
+    QSettings sessionSettings(filename, QSettings::IniFormat);
+    info.tabCount = sessionSettings.value(QStringLiteral("Session/tabCount"), 0).toInt();
+    info.name = sessionSettings.value(QStringLiteral("Session/name"), QString()).toString();
+    info.inaugurated = sessionSettings.value(QStringLiteral("Session/inaugurated")).toDateTime();
+
+    // Named sessions identify by filename — fall back to that for the label
+    // if the (legacy/optional) Session/name key is absent.
+    if (info.name.isEmpty() && isNamedSession(filename))
+        info.name = sessionNameFromFile(filename);
+
+    // Prefer the stored save time.  Otherwise: a true timestamped
+    // (session-<digits>) file can be parsed from its name, but doing mid(8)
+    // on a *named* file yields garbage (epoch 0) — use the file's
+    // modification time for those instead.
+    if (sessionSettings.contains(QStringLiteral("Session/lastSaved"))) {
+        info.timestamp = sessionSettings.value(QStringLiteral("Session/lastSaved")).toDateTime();
+    } else if (!isNamedSession(filename)) {
+        // Extract timestamp from filename: session-1234567890.zos
+        QString base = QFileInfo(filename).baseName(); // "session-1234567890"
+        info.timestamp = QDateTime::fromSecsSinceEpoch(base.mid(8).toLongLong());
+    } else {
+        info.timestamp = mtime;
+    }
+
+    s_infoCache.insert(filename, {mtime, info});
+    return info;
+}
+
 QList<SessionManager::SessionInfo>
 SessionManager::getRecentSessions(int maxCount)
 {
@@ -270,44 +313,16 @@ SessionManager::getRecentSessions(int maxCount)
     QString sessionsIni = sessionDirectory() + "/sessions.ini";
     QSettings sessions(sessionsIni, QSettings::IniFormat);
     QStringList mru = sessions.value(QStringLiteral("MRU/sessions")).toStringList();
-    
+
     for (const QString& filename : mru) {
         if (result.count() >= maxCount) break;
-        
+
         // Check if file exists
         if (!QFile::exists(filename)) continue;
-        
-        SessionInfo info;
-        info.filename = filename;
-        
-        // Read session metadata
-        QSettings sessionSettings(filename, QSettings::IniFormat);
-        info.tabCount = sessionSettings.value(QStringLiteral("Session/tabCount"), 0).toInt();
-        info.name = sessionSettings.value(QStringLiteral("Session/name"), QString()).toString();
-        info.inaugurated = sessionSettings.value(QStringLiteral("Session/inaugurated")).toDateTime();
 
-        // Named sessions identify by filename — fall back to that for the label
-        // if the (legacy/optional) Session/name key is absent.
-        if (info.name.isEmpty() && isNamedSession(filename))
-            info.name = sessionNameFromFile(filename);
-
-        // Prefer the stored save time.  Otherwise: a true timestamped
-        // (session-<digits>) file can be parsed from its name, but doing mid(8)
-        // on a *named* file yields garbage (epoch 0) — use the file's
-        // modification time for those instead.
-        if (sessionSettings.contains(QStringLiteral("Session/lastSaved"))) {
-            info.timestamp = sessionSettings.value(QStringLiteral("Session/lastSaved")).toDateTime();
-        } else if (!isNamedSession(filename)) {
-            // Extract timestamp from filename: session-1234567890.zos
-            QString base = QFileInfo(filename).baseName(); // "session-1234567890"
-            info.timestamp = QDateTime::fromSecsSinceEpoch(base.mid(8).toLongLong());
-        } else {
-            info.timestamp = QFileInfo(filename).lastModified();
-        }
-
-        result.push_back(info);
+        result.push_back(getSessionInfo(filename));
     }
-    
+
     return result;
 }
 
@@ -2308,19 +2323,12 @@ AstroDatabase::updateList()
             int j = 0;
             
             for (const QString& sessionFile : sessionFiles) {
-                // Get session info for display name
+                // Get session info for display name (mtime-cached — avoids a
+                // full .zos re-parse on every routine save elsewhere).
                 QString absolutePath = dir.absoluteFilePath(sessionFile);
-                SessionManager::SessionInfo sessionInfo;
+                SessionManager::SessionInfo sessionInfo =
+                    SessionManager::getSessionInfo(absolutePath);
                 sessionInfo.filename = sessionFile;
-                
-                // Read session metadata
-                QSettings sessionSettings(absolutePath, QSettings::IniFormat);
-                sessionInfo.name = sessionSettings.value("Session/name", "").toString();
-                sessionInfo.timestamp = sessionSettings.value("Session/lastSaved").toDateTime();
-                sessionInfo.inaugurated = sessionSettings.value("Session/inaugurated").toDateTime();
-
-                // Read tab count
-                sessionInfo.tabCount = sessionSettings.value("Session/tabCount", 0).toInt();
 
                 auto child = new QStandardItem(sessionInfo.displayName());
                 child->setData(sessionType, TypeRole);

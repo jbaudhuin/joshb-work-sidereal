@@ -398,22 +398,31 @@ void AstroFileEditor::update(AstroFile::Members m)
              << "-> Local time" << localDt.date() << localDt.time();
     
     // Populate basis combo box with available natal charts
-    basis->clear();
-    basis->addItem(tr("(None)"), QVariant());
-    
     FileType curType = source->getType();
-    bool showBasis = (curType == TypeDerivedProg || curType == TypeDerivedSA || 
+    bool showBasis = (curType == TypeDerivedProg || curType == TypeDerivedSA ||
                      curType == TypeDerivedPD || curType == TypeReturn);
-    
+
+    const bool basisIdentityUnchanged =
+        source == _lastBasisSource && curType == _lastBasisType &&
+        source->hasBaseChart() == _lastBasisHasBase &&
+        (!source->hasBaseChart() || source->getBaseChartGMT() == _lastBasisGmt);
+
     // Always populate basis combo for types that need it, even during _inUpdate
-    // (because user might be changing the type manually)
-    if (showBasis) {
+    // (because user might be changing the type manually). But skip the
+    // directory scan + per-file GMT re-parse entirely when nothing the combo
+    // actually depends on has changed since the last populate — update() is
+    // called on every AstroFile change broadcast, including ones (comment,
+    // name, ...) that don't touch the basis.
+    if (showBasis && !basisIdentityUnchanged) {
+        basis->clear();
+        basis->addItem(tr("(None)"), QVariant());
+
         // Get all chart files from the chart directory (including subdirectories)
         QString chartDir = AstroFile::fixedChartDir();
         QDir dir(chartDir);
         QStringList filters;
         filters << "*.dat";
-        
+
         // Recursively find all .dat files in subdirectories
         QFileInfoList files;
         QDirIterator it(chartDir, filters, QDir::Files, QDirIterator::Subdirectories);
@@ -421,8 +430,9 @@ void AstroFileEditor::update(AstroFile::Members m)
             it.next();
             files.append(it.fileInfo());
         }
-        
+
         int selectedIndex = 0;
+        bool haveBase = !source->hasBaseChart(); // nothing to find if there's no base
         for (int i = 0; i < files.size(); ++i) {
             QFileInfo fi = files.at(i);
             // Show relative path from chart directory for files in subdirectories
@@ -434,21 +444,32 @@ void AstroFileEditor::update(AstroFile::Members m)
                 // File is in root directory, just show basename
                 basis->addItem(fi.baseName(), fi.absoluteFilePath());
             }
-            
-            // Check if this is the current base chart
-            if (source->hasBaseChart()) {
-                // Load this file to check its GMT
+
+            // Check if this is the current base chart (stop once found; the
+            // item-list build above still has to visit every file, but the
+            // GMT re-parse doesn't).
+            if (!haveBase) {
                 QSettings testFile(fi.absoluteFilePath(), QSettings::IniFormat);
                 auto testDT = AstroFile::parseStoredGMT(testFile.value("GMT").toString());
-                
+
                 if (testDT == source->getBaseChartGMT()) {
                     selectedIndex = i + 1; // +1 because "(None)" is at index 0
+                    haveBase = true;
                 }
             }
         }
         basis->setCurrentIndex(selectedIndex);
+
+        _lastBasisSource  = source;
+        _lastBasisType    = curType;
+        _lastBasisHasBase = source->hasBaseChart();
+        _lastBasisGmt     = source->hasBaseChart() ? source->getBaseChartGMT() : QDateTime();
+    } else if (!showBasis) {
+        basis->clear();
+        basis->addItem(tr("(None)"), QVariant());
+        _lastBasisSource = nullptr; // force a rebuild if this type becomes basis-bearing again
     }
-    
+
     basis->setVisible(showBasis);
     basisLbl->setVisible(showBasis);
     

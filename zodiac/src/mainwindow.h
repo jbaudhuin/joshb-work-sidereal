@@ -6,6 +6,8 @@
 #include <QDockWidget>
 #include <QTreeView>
 #include <QSet>
+#include <QHash>
+#include <QDateTime>
 
 #include <Astroprocessor/Gui>
 #include "help.h"
@@ -448,7 +450,14 @@ public:
     
     // Get list of recent sessions from sessions.ini
     static QList<SessionInfo> getRecentSessions(int maxCount = 10);
-    
+
+    // Read a session's display metadata (name/timestamp/inaugurated/tabCount).
+    // Cached by file mtime, since a .zos carries every tab's full chart state
+    // and QSettings parses the whole file just to serve these few scalars —
+    // callers that just want the display label (session list refresh, MRU
+    // lookup) shouldn't pay that cost on every routine save elsewhere.
+    static SessionInfo getSessionInfo(const QString& filename);
+
     // Create a fresh timestamped auto-session file, set it current, and stamp
     // its inauguration time.  Returns the new file path.
     static QString newAutoSessionFile();
@@ -477,6 +486,7 @@ public:
     
 private:
     static QString s_currentSessionFile;
+    static QHash<QString, QPair<QDateTime, SessionInfo>> s_infoCache;
 };
 
 /* =========================== MAIN WINDOW
