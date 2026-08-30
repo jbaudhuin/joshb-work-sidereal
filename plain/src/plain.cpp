@@ -16,7 +16,11 @@
 #include <QFile>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QRegularExpression>
+#include <QSet>
+#include <QTimer>
 #include <QScrollBar>
 #include <QTextBrowser>
 #include <QFont>
@@ -31,6 +35,7 @@
 #include <QTextTableCell>
 #include <QToolBar>
 #include <QToolButton>
+#include <QToolTip>
 #include <QVBoxLayout>
 #include "../../zodiac/src/slidewidget.h"
 
@@ -53,7 +58,31 @@ class ReportBrowser : public QTextBrowser {
 
   protected:
     QMimeData* createMimeDataFromSelection() const override;
+    void       mouseMoveEvent(QMouseEvent* event) override;
 };
+
+// Fixed-star names are wrapped (see astro-output.cpp's formatStarNameHtml) in
+// an inert "star:<full constellation name>" anchor purely so we have
+// somewhere to hang a hover tooltip; it's never meant to navigate (see
+// setOpenLinks(false) in Plain's ctor). anchorAt() returns the href exactly
+// as written, so no QUrl percent-encoding round-trip to worry about for
+// constellation names containing spaces.
+void
+ReportBrowser::mouseMoveEvent(QMouseEvent* event)
+{
+    static const QString prefix = "star:";
+    const QPoint          pos   = event->position().toPoint();
+    const QString         href  = anchorAt(pos);
+    QTextBrowser::mouseMoveEvent(event);
+    if (href.startsWith(prefix)) {
+        // Offset right/down from the cursor so the pointer doesn't sit on
+        // top of the tooltip's left edge.
+        QToolTip::showText(mapToGlobal(pos) + QPoint(20, 8),
+                            href.mid(prefix.length()), this);
+    } else if (!QToolTip::text().isEmpty()) {
+        QToolTip::hideText();
+    }
+}
 
 QMimeData*
 ReportBrowser::createMimeDataFromSelection() const
@@ -329,6 +358,113 @@ void SectionToggle::paintEvent(QPaintEvent*)
     }
 }
 
+/* ============================ DISPLAY MODE BUTTON
+ * ======================================== */
+
+// Self-painted geometry: glyph, abbreviation and a small arrow, packed tight
+// against the frame edges instead of the style's generic min-width/menu-
+// indicator reservations.
+static constexpr int kDmPadL     = 8;  ///< left padding before the glyph
+static constexpr int kDmGap      = 4;  ///< gap between glyph and abbreviation
+static constexpr int kDmGapArrow = 6;  ///< gap between abbreviation and arrow
+static constexpr int kDmArrowW   = 8;  ///< arrow triangle width
+static constexpr int kDmPadR     = 8;  ///< right padding after the arrow
+
+DisplayModeButton::DisplayModeButton(QWidget* parent)
+    : QToolButton(parent), _glyph(QString::fromUtf8("\U0001F550")) // 🕐
+{
+    setCursor(Qt::PointingHandCursor);
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+    _glyphFont = font();
+    _glyphFont.setPointSize(11);
+    _textFont = font();
+    _textFont.setPointSize(9);
+
+    // Palette-derived defaults; the theme .qss overrides via qproperty-*.
+    const QPalette pal = palette();
+    _offColor          = pal.color(QPalette::Button);
+    _hoverColor        = _offColor;
+    _activeColor       = pal.color(QPalette::Highlight);
+    _textColor         = pal.color(QPalette::ButtonText);
+    _activeTextColor   = pal.color(QPalette::HighlightedText);
+    _borderColor       = pal.color(QPalette::Mid);
+    _hoverBorderColor  = _borderColor;
+    _activeBorderColor = pal.color(QPalette::Highlight);
+}
+
+void DisplayModeButton::setGlyph(const QString& glyph)
+{
+    if (_glyph == glyph) return;
+    _glyph = glyph;
+    updateGeometry();
+    update();
+}
+
+void DisplayModeButton::setAbbrev(const QString& abbrev)
+{
+    if (_abbrev == abbrev) return;
+    _abbrev = abbrev;
+    updateGeometry();
+    update();
+}
+
+QSize DisplayModeButton::sizeHint() const
+{
+    const QFontMetrics gfm(_glyphFont);
+    const QFontMetrics tfm(_textFont);
+    const int w = kDmPadL + gfm.horizontalAdvance(_glyph) + kDmGap
+                + tfm.horizontalAdvance(_abbrev) + kDmGapArrow + kDmArrowW
+                + kDmPadR;
+    return QSize(w, 26);
+}
+
+void DisplayModeButton::paintEvent(QPaintEvent*)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    const bool active  = isDown() || (menu() && menu()->isVisible());
+    const bool hovered = underMouse() && isEnabled();
+
+    const QColor bg     = active ? _activeColor : hovered ? _hoverColor : _offColor;
+    const QColor border = active ? _activeBorderColor
+                         : hovered ? _hoverBorderColor : _borderColor;
+    const QColor text    = active ? _activeTextColor : _textColor;
+
+    const QRectF fr = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+    p.setPen(QPen(border, 1));
+    p.setBrush(bg);
+    p.drawRoundedRect(fr, 3, 3);
+
+    QFont textFont = _textFont;
+    textFont.setBold(active);
+    p.setPen(text);
+
+    int x = kDmPadL;
+    p.setFont(_glyphFont);
+    const QFontMetrics gfm(_glyphFont);
+    const int glyphW = gfm.horizontalAdvance(_glyph);
+    p.drawText(QRect(x, 0, glyphW, height()), Qt::AlignLeft | Qt::AlignVCenter,
+               _glyph);
+    x += glyphW + kDmGap;
+
+    p.setFont(textFont);
+    const QFontMetrics tfm(textFont);
+    p.drawText(QRect(x, 0, tfm.horizontalAdvance(_abbrev), height()),
+               Qt::AlignLeft | Qt::AlignVCenter, _abbrev);
+
+    // Small down-arrow, hard against the right edge.
+    const int ax = width() - kDmPadR - kDmArrowW;
+    const int ay = height() / 2 - 2;
+    QPolygon  arrow;
+    arrow << QPoint(ax, ay) << QPoint(ax + kDmArrowW, ay)
+          << QPoint(ax + kDmArrowW / 2, ay + 4);
+    p.setPen(Qt::NoPen);
+    p.setBrush(text);
+    p.drawPolygon(arrow);
+}
+
 void SectionToggle::mousePressEvent(QMouseEvent* e)
 {
     const QPoint pos  = e->pos();
@@ -439,7 +575,7 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     // Compact display-mode selector: clock toolbutton whose dropdown lists the
     // three speculum time formats (replaces the old always-wide combo box).
     _displayMode = A::DisplayLocalTime;
-    displayModeButton = new QToolButton();
+    displayModeButton = new DisplayModeButton();
     displayModeButton->setObjectName("plainDisplayModeButton");
     displayModeButton->setPopupMode(QToolButton::InstantPopup);
     QMenu* dmMenu = new QMenu(displayModeButton);
@@ -471,12 +607,39 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     for (SectionToggle* t : sectionToggles())
         t->setFixedHeight(rowH);
 
+    // Report search: filters/highlights the already-rendered report (see
+    // applySearch/filterReportHtml) rather than triggering any recalculation.
+    // Debounced so fast typing doesn't re-scan on every keystroke.
+    toolbar->addSeparator();
+    searchField = new QLineEdit();
+    searchField->setObjectName("plainSearchField");
+    searchField->setPlaceholderText(tr("Search"));
+    searchField->setClearButtonEnabled(true);
+    searchField->setFixedHeight(rowH);
+    searchField->setToolTip(
+        tr("Search the report (e.g. \"Jupiter Venus\" for both). Matching "
+           "rows/blocks are kept and highlighted; whole paran groupings stay "
+           "together."));
+    toolbar->addWidget(searchField);
+
+    searchDebounce = new QTimer(this);
+    searchDebounce->setSingleShot(true);
+    searchDebounce->setInterval(300);
+    connect(searchField, &QLineEdit::textChanged, searchDebounce,
+            qOverload<>(&QTimer::start));
+    connect(searchDebounce, &QTimer::timeout, this, &Plain::applySearch);
+
     view = new ReportBrowser();
     view->setAcceptDrops(false); // Disable drops on the view so parent Plain widget handles them
+    // Fixed-star "star:" anchors (see astro-output.cpp's formatStarNameHtml)
+    // are hover-tooltip hooks only, not real links; don't let QTextBrowser
+    // try to navigate to them on click.
+    view->setOpenLinks(false);
 
     showAllDiurnalEvents = false;
     includeFixedStars    = true;
     showParanNatalRows   = false;
+    includeOutOfOrbNatalRows = false;
     paranCityLatTol      = 0.5;
     paranMaxCitiesPerRow = 8;
     paranShowAbsent      = true;
@@ -538,8 +701,7 @@ Plain::setDisplayMode(A::SpeculumDisplayMode mode)
             break;
         }
     }
-    displayModeButton->setText(QString::fromUtf8("\U0001F550 ")  // 🕐
-                               + displayModeAbbrev(mode));
+    displayModeButton->setAbbrev(displayModeAbbrev(mode));
     displayModeButton->setToolTip(tr("Display mode: %1").arg(name));
 
     if (_displayMode == mode) return;
@@ -696,6 +858,266 @@ Plain::viewSettingsUpdated(MembersList m)
     }
 }
 
+/* ================================== SEARCH
+ * ======================================== */
+// The report is one big HTML string rebuilt from scratch by refresh(); there's
+// no live DOM to query. Searching therefore re-scans that string as a second
+// pass: split the search box text into terms, walk the report's tables (and
+// the Dignities section's per-planet blocks) keeping only rows/blocks that
+// contain a term, highlight the matches, and drop a whole section's header
+// when nothing in it survived. Free-text sections with no table/dignity
+// structure (Input, the Chart Calculation summary) aren't row data to filter,
+// so they're always shown untouched.
+
+/// Splits the search box text on whitespace; each term matches independently
+/// (OR across terms — "Jupiter Venus" shows both bodies' rows), case-insensitive.
+static QStringList
+searchTerms(const QString& text)
+{
+    return text.trimmed().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+}
+
+/// Splits html into (isTag, text) tokens so matching/highlighting only ever
+/// touches text content, never tag markup or attribute values.
+static QVector<QPair<bool, QString>>
+tokenizeHtml(const QString& html)
+{
+    static const QRegularExpression tagRe("<[^>]*>");
+    QVector<QPair<bool, QString>> tokens;
+    int  pos = 0;
+    auto it  = tagRe.globalMatch(html);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch m = it.next();
+        if (m.capturedStart() > pos)
+            tokens.append({ false, html.mid(pos, m.capturedStart() - pos) });
+        tokens.append({ true, m.captured() });
+        pos = m.capturedEnd();
+    }
+    if (pos < html.length())
+        tokens.append({ false, html.mid(pos) });
+    return tokens;
+}
+
+/// Wraps case-insensitive term matches within an HTML fragment's text nodes in
+/// a themed highlight span, leaving tags/attributes untouched. Sets *matched
+/// when any wrapping happened. Safe to call on non-matching text (a no-op).
+static QString
+highlightMatches(const QString& fragment, const QStringList& terms, bool* matched)
+{
+    bool any = false;
+    QString out;
+    for (const auto& tok : tokenizeHtml(fragment)) {
+        if (tok.first || tok.second.isEmpty()) {
+            out += tok.second;
+            continue;
+        }
+        const QString& text = tok.second;
+        QVector<QPair<int, int>> spans; // start, length
+        for (const QString& term : terms) {
+            if (term.isEmpty()) continue;
+            int from = 0;
+            for (;;) {
+                const int idx = text.indexOf(term, from, Qt::CaseInsensitive);
+                if (idx < 0) break;
+                spans.append({ idx, term.length() });
+                from = idx + term.length();
+            }
+        }
+        if (spans.isEmpty()) {
+            out += text;
+            continue;
+        }
+        std::sort(spans.begin(), spans.end());
+        QVector<QPair<int, int>> merged;
+        for (const auto& s : spans) {
+            if (!merged.isEmpty()
+                && s.first <= merged.last().first + merged.last().second) {
+                const int endA = merged.last().first + merged.last().second;
+                const int endB = s.first + s.second;
+                merged.last().second = qMax(endA, endB) - merged.last().first;
+            } else {
+                merged.append(s);
+            }
+        }
+        int cur = 0;
+        for (const auto& s : merged) {
+            out += text.mid(cur, s.first - cur);
+            out += "<span class='search-hit'>" + text.mid(s.first, s.second)
+                   + "</span>";
+            cur = s.first + s.second;
+            any = true;
+        }
+        out += text.mid(cur);
+    }
+    if (matched) *matched = any;
+    return out;
+}
+
+/// Row-level filter for one <table ...>...</table> fragment: header rows
+/// (containing <th>) always survive; data rows survive if they match a term,
+/// OR — for Directions rows carrying a data-pgroup="N" marker (see
+/// describeParans/event::fmt) — if any other row in the same paran cluster
+/// matched, so a hit anywhere in a cluster keeps the whole grouping intact.
+static QString
+filterTable(const QString& tableHtml, const QStringList& terms, int* keptRows)
+{
+    static const QRegularExpression rowRe(
+        "<tr\\b[^>]*>.*?</tr>", QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression pgroupRe("data-pgroup=\"(\\d+)\"");
+
+    const int tableOpenEnd = tableHtml.indexOf('>') + 1;
+    const QString openTag  = tableHtml.left(tableOpenEnd);
+    QString       inner    = tableHtml.mid(tableOpenEnd);
+    inner.chop(QStringLiteral("</table>").length());
+
+    struct Row {
+        bool    isHeader;
+        int     pgroup;
+        bool    matched;
+        QString html; // raw for headers, highlighted for data rows
+    };
+    QVector<Row> rows;
+    for (auto it = rowRe.globalMatch(inner); it.hasNext();) {
+        const QRegularExpressionMatch m   = it.next();
+        const QString                 raw = m.captured();
+        Row                            r;
+        r.isHeader = raw.contains(QLatin1String("<th"));
+        const auto gm = pgroupRe.match(raw);
+        r.pgroup = gm.hasMatch() ? gm.captured(1).toInt() : -1;
+        if (r.isHeader) {
+            r.matched = false;
+            r.html    = raw;
+        } else {
+            r.html = highlightMatches(raw, terms, &r.matched);
+        }
+        rows.append(r);
+    }
+
+    QSet<int> matchedGroups;
+    for (const Row& r : std::as_const(rows))
+        if (r.matched && r.pgroup >= 0) matchedGroups.insert(r.pgroup);
+
+    QString out = openTag;
+    int     kept = 0;
+    for (const Row& r : std::as_const(rows)) {
+        if (r.isHeader) {
+            out += r.html;
+            continue;
+        }
+        const bool keep =
+            r.matched || (r.pgroup >= 0 && matchedGroups.contains(r.pgroup));
+        if (!keep) continue;
+        out += r.html;
+        ++kept;
+    }
+    out += "</table>";
+    if (keptRows) *keptRows = kept;
+    return out;
+}
+
+/// Block-level filter for a Dignities chunk: each <h4>Planet</h4><div
+/// class='dignity-list'>...</div> pair is kept as a unit when the planet name
+/// or its dignity text matches; everything else in the chunk (anchor, section
+/// header, whitespace) passes through untouched.
+static QString
+filterDignityChunk(const QString& chunk, const QStringList& terms, int* keptBlocks)
+{
+    static const QRegularExpression blockRe(
+        "<h4>.*?</h4>\\s*<div class='dignity-list'>.*?</div>",
+        QRegularExpression::DotMatchesEverythingOption);
+
+    QString out;
+    int     kept = 0;
+    int     pos  = 0;
+    for (auto it = blockRe.globalMatch(chunk); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        out += chunk.mid(pos, m.capturedStart() - pos);
+        bool          matched     = false;
+        const QString highlighted = highlightMatches(m.captured(), terms, &matched);
+        if (matched) {
+            out += highlighted;
+            ++kept;
+        }
+        pos = m.capturedEnd();
+    }
+    out += chunk.mid(pos);
+    if (keptBlocks) *keptBlocks = kept;
+    return out;
+}
+
+/// One "sec_X" anchor-delimited chunk (a whole section, or one chart's
+/// sub-section of it): tables get row-filtered, Dignities blocks get
+/// block-filtered, and the chunk (anchor + headers included) disappears
+/// entirely if nothing in it survived. Anything else (Input, free text) has
+/// no row structure to filter and is always kept as-is.
+static QString
+processSectionChunk(const QString& chunk, const QStringList& terms)
+{
+    if (chunk.contains(QLatin1String("<table"))) {
+        const int tStart = chunk.indexOf(QLatin1String("<table"));
+        int       tEnd   = chunk.indexOf(QLatin1String("</table>"), tStart);
+        if (tStart < 0 || tEnd < 0) return chunk; // malformed guard
+        tEnd += QStringLiteral("</table>").length();
+
+        int           kept = 0;
+        const QString filtered =
+            filterTable(chunk.mid(tStart, tEnd - tStart), terms, &kept);
+        if (kept == 0) return QString();
+        return chunk.left(tStart) + filtered + chunk.mid(tEnd);
+    }
+    if (chunk.contains(QLatin1String("dignity-list"))) {
+        int           kept     = 0;
+        const QString filtered = filterDignityChunk(chunk, terms, &kept);
+        return kept == 0 ? QString() : filtered;
+    }
+    return chunk;
+}
+
+/// Filters/highlights the full report for the given search terms. The
+/// preamble (Chart Calculation, before the first gated section) is always
+/// kept; each "sec_X" chunk after it is processed independently.
+static QString
+filterReportHtml(const QString& fullHtml, const QStringList& terms)
+{
+    if (terms.isEmpty()) return fullHtml;
+
+    const int bodyTagEnd = fullHtml.indexOf("<body>");
+    const int bodyEnd    = fullHtml.indexOf("</body>");
+    if (bodyTagEnd < 0 || bodyEnd < 0) return fullHtml;
+
+    const int     bodyStart = bodyTagEnd + QStringLiteral("<body>").length();
+    const QString head      = fullHtml.left(bodyStart);
+    const QString tail      = fullHtml.mid(bodyEnd);
+    const QString body      = fullHtml.mid(bodyStart, bodyEnd - bodyStart);
+
+    static const QRegularExpression anchorRe("<a name=\"sec_[^\"]*\"></a>");
+    QVector<QRegularExpressionMatch> anchors;
+    for (auto it = anchorRe.globalMatch(body); it.hasNext();)
+        anchors.append(it.next());
+
+    if (anchors.isEmpty()) return fullHtml; // nothing gated to filter
+
+    QString out = body.left(anchors.first().capturedStart()); // preamble
+
+    for (int i = 0; i < anchors.size(); ++i) {
+        const int start = anchors[i].capturedStart();
+        const int end =
+            (i + 1 < anchors.size()) ? anchors[i + 1].capturedStart() : body.length();
+        out += processSectionChunk(body.mid(start, end - start), terms);
+    }
+
+    return head + out + tail;
+}
+
+void
+Plain::applySearch()
+{
+    if (!file()) return;
+    const QStringList terms = searchTerms(searchField->text());
+    view->setHtml(terms.isEmpty() ? _reportHtml
+                                   : filterReportHtml(_reportHtml, terms));
+}
+
 void
 Plain::refresh()
 {
@@ -745,6 +1167,14 @@ Plain::refresh()
         rowHighlightColor = "rgba(0,0,0,0.08)"; // Subtle black overlay for light theme
     }
 
+    // Search-match highlight: distinguishable from the bold planet-name
+    // styling and readable for un-bold text (fixed stars) alike, so a solid
+    // themed yellow with forced dark text rather than just a font weight.
+    const bool   isDarkTheme = ThemeManager::instance().currentTheme()
+                              == ThemeManager::Theme::Dark;
+    const QString searchHighlightBg = isDarkTheme ? "#D4AC0D" : "#FFF176";
+    const QString searchHighlightFg = "#1a1a1a";
+
     // Build the HTML content - colors inherit from QTextBrowser stylesheet
     QString html = "<!DOCTYPE html><html><head>";
     html += "<meta charset='utf-8'>";
@@ -764,6 +1194,8 @@ Plain::refresh()
             "border: 1px solid #555; }";
     html += "li { margin: 1px 0; line-height: 1.2; }";
     html += "strong { font-weight: bold; }";
+    html += ".search-hit { background-color: " + searchHighlightBg
+            + "; color: " + searchHighlightFg + "; border-radius: 2px; }";
     html += ".dignity-list { margin: 4px 0; }";
     html += ".dignity-list p { margin: 1px 0; padding: 0; line-height: 1.1; }";
     html += "</style>";
@@ -1077,6 +1509,7 @@ Plain::refresh()
                                       paranOrb,
                                       displayMode,
                                       showParanNatalRows,
+                                      includeOutOfOrbNatalRows,
                                       nullptr);
         } else if (filesCount() > 1) {
             // Chart #1 Parans
@@ -1096,6 +1529,7 @@ Plain::refresh()
                                       paranOrb,
                                       displayMode,
                                       showParanNatalRows,
+                                      includeOutOfOrbNatalRows,
                                       nullptr);
             }
 
@@ -1116,6 +1550,7 @@ Plain::refresh()
                                       paranOrb,
                                       displayMode,
                                       showParanNatalRows,
+                                      includeOutOfOrbNatalRows,
                                       file(0));
             }
         }
@@ -1239,7 +1674,8 @@ Plain::refresh()
     }
 
     html += "</body></html>";
-    view->setHtml(html);
+    _reportHtml = html;
+    applySearch(); // shows _reportHtml as-is, or re-scans it if search is active
 
     // Restore scroll position
     vScrollBar->setValue(scrollPos);
@@ -1283,6 +1719,7 @@ Plain::defaultSettings()
     s.setValue("Mundane/paranCity_ContAntarctica",   true);
     s.setValue("Mundane/includeFixedStars", true);
     s.setValue("Mundane/showParanNatalRows", false);
+    s.setValue("Mundane/includeOutOfOrbNatalRows", false);
     s.setValue("Mundane/dirMethodSolarReturn", unsigned(A::DirNeoPSSR));
     s.setValue("Mundane/dirMethodOther",       unsigned(A::DirNeoSQ));
     s.setValue("Text/aspectSortOrder", unsigned(A::SortByPlanets));
@@ -1319,6 +1756,7 @@ Plain::currentSettings()
     s.setValue("Mundane/paranCity_ContAntarctica",   bool(paranCityContinentMask & A::CityCont_Antarctica));
     s.setValue("Mundane/includeFixedStars", includeFixedStars);
     s.setValue("Mundane/showParanNatalRows", showParanNatalRows);
+    s.setValue("Mundane/includeOutOfOrbNatalRows", includeOutOfOrbNatalRows);
     s.setValue("Mundane/dirMethodSolarReturn", unsigned(A::dirMethodSolarReturn));
     s.setValue("Mundane/dirMethodOther",       unsigned(A::dirMethodOther));
     s.setValue("Text/aspectSortOrder", unsigned(aspectSortOrder));
@@ -1367,6 +1805,7 @@ Plain::applySettings(const AppSettings& s)
     if (s.value("Mundane/paranCity_ContAntarctica",   true).toBool()) paranCityContinentMask |= A::CityCont_Antarctica;
     includeFixedStars    = s.value("Mundane/includeFixedStars").toBool();
     showParanNatalRows   = s.value("Mundane/showParanNatalRows").toBool();
+    includeOutOfOrbNatalRows = s.value("Mundane/includeOutOfOrbNatalRows").toBool();
     aspectSortOrder =
         A::AspectSortOrder(s.value("Text/aspectSortOrder").toUInt());
 
@@ -1429,6 +1868,8 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addCheckBox("Mundane/showAllDiurnalEvents",
                     tr("Show all planetary diurnal events"));
     ed->addCheckBox("Mundane/includeFixedStars", tr("Include fixed stars"));
+    ed->addCheckBox("Mundane/includeOutOfOrbNatalRows",
+                    tr("Always include natal ex-precessed positions\n(when shown, ignores the Parans orb filter)"));
     ed->addComboBox("Mundane/dirMethodSolarReturn",
                     tr("Derived directions for Solar Returns"),
                     { { "None (Primary Directions)", unsigned(A::DirNone) },

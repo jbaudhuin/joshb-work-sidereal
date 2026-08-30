@@ -924,6 +924,192 @@ _formatTime(const QDateTime& dt, double tz)
 
 namespace
 {
+// IAU 3-letter constellation abbreviations (as parsed into Star::constellation
+// from sefstars.txt's Bayer designation) -> full name. For the 12 zodiacal
+// constellations, signIndex is the 0-based sign order (Ari=0..Psc=11,
+// matching astroprocessor/signs.csv row order) so the Almagest sign glyph can
+// be looked up via Data::getSignGlyph(Ingresses_Start + signIndex); -1 marks
+// a non-zodiacal constellation (no glyph, name-only tooltip).
+struct ConstellationInfo {
+    const char* name;
+    int         signIndex;
+};
+
+const QHash<QString, ConstellationInfo>&
+constellationTable()
+{
+    static const QHash<QString, ConstellationInfo> table {
+        { "And", { "Andromeda", -1 } },
+        { "Ant", { "Antlia", -1 } },
+        { "Aps", { "Apus", -1 } },
+        { "Aqr", { "Aquarius", 10 } },
+        { "Aql", { "Aquila", -1 } },
+        { "Ara", { "Ara", -1 } },
+        { "Ari", { "Aries", 0 } },
+        { "Aur", { "Auriga", -1 } },
+        { "Boo", { "Bootes", -1 } },
+        { "Cae", { "Caelum", -1 } },
+        { "Cam", { "Camelopardalis", -1 } },
+        { "Cnc", { "Cancer", 3 } },
+        { "CVn", { "Canes Venatici", -1 } },
+        { "CMa", { "Canis Major", -1 } },
+        { "CMi", { "Canis Minor", -1 } },
+        { "Cap", { "Capricornus", 9 } },
+        { "Car", { "Carina", -1 } },
+        { "Cas", { "Cassiopeia", -1 } },
+        { "Cen", { "Centaurus", -1 } },
+        { "Cep", { "Cepheus", -1 } },
+        { "Cet", { "Cetus", -1 } },
+        { "Cha", { "Chamaeleon", -1 } },
+        { "Cir", { "Circinus", -1 } },
+        { "Col", { "Columba", -1 } },
+        { "Com", { "Coma Berenices", -1 } },
+        { "CrA", { "Corona Australis", -1 } },
+        { "CrB", { "Corona Borealis", -1 } },
+        { "Crv", { "Corvus", -1 } },
+        { "Crt", { "Crater", -1 } },
+        { "Cru", { "Crux", -1 } },
+        { "Cyg", { "Cygnus", -1 } },
+        { "Del", { "Delphinus", -1 } },
+        { "Dor", { "Dorado", -1 } },
+        { "Dra", { "Draco", -1 } },
+        { "Equ", { "Equuleus", -1 } },
+        { "Eri", { "Eridanus", -1 } },
+        { "For", { "Fornax", -1 } },
+        { "Gem", { "Gemini", 2 } },
+        { "Gru", { "Grus", -1 } },
+        { "Her", { "Hercules", -1 } },
+        { "Hor", { "Horologium", -1 } },
+        { "Hya", { "Hydra", -1 } },
+        { "Hyi", { "Hydrus", -1 } },
+        { "Ind", { "Indus", -1 } },
+        { "Lac", { "Lacerta", -1 } },
+        { "Leo", { "Leo", 4 } },
+        { "LMi", { "Leo Minor", -1 } },
+        { "Lep", { "Lepus", -1 } },
+        { "Lib", { "Libra", 6 } },
+        { "Lup", { "Lupus", -1 } },
+        { "Lyn", { "Lynx", -1 } },
+        { "Lyr", { "Lyra", -1 } },
+        { "Men", { "Mensa", -1 } },
+        { "Mic", { "Microscopium", -1 } },
+        { "Mon", { "Monoceros", -1 } },
+        { "Mus", { "Musca", -1 } },
+        { "Nor", { "Norma", -1 } },
+        { "Oct", { "Octans", -1 } },
+        { "Oph", { "Ophiuchus", -1 } },
+        { "Ori", { "Orion", -1 } },
+        { "Pav", { "Pavo", -1 } },
+        { "Peg", { "Pegasus", -1 } },
+        { "Per", { "Perseus", -1 } },
+        { "Phe", { "Phoenix", -1 } },
+        { "Pic", { "Pictor", -1 } },
+        { "Psc", { "Pisces", 11 } },
+        { "PsA", { "Piscis Austrinus", -1 } },
+        { "Pup", { "Puppis", -1 } },
+        { "Pyx", { "Pyxis", -1 } },
+        { "Ret", { "Reticulum", -1 } },
+        { "Sge", { "Sagitta", -1 } },
+        { "Sgr", { "Sagittarius", 8 } },
+        { "Sco", { "Scorpius", 7 } },
+        { "Scl", { "Sculptor", -1 } },
+        { "Sct", { "Scutum", -1 } },
+        { "Ser", { "Serpens", -1 } },
+        { "Sex", { "Sextans", -1 } },
+        { "Tau", { "Taurus", 1 } },
+        { "Tel", { "Telescopium", -1 } },
+        { "Tri", { "Triangulum", -1 } },
+        { "TrA", { "Triangulum Australe", -1 } },
+        { "Tuc", { "Tucana", -1 } },
+        { "UMa", { "Ursa Major", -1 } },
+        { "UMi", { "Ursa Minor", -1 } },
+        { "Vel", { "Vela", -1 } },
+        { "Vir", { "Virgo", 5 } },
+        { "Vol", { "Volans", -1 } },
+        { "Vul", { "Vulpecula", -1 } },
+    };
+    return table;
+}
+} // namespace
+
+// Full name of an IAU 3-letter constellation abbreviation (e.g. "CMa" ->
+// "Canis Major"), or the abbreviation itself if not recognized.
+QString
+constellationFullName(const QString& abbrev)
+{
+    auto it = constellationTable().find(abbrev);
+    return it != constellationTable().end() ? QString(it->name) : abbrev;
+}
+
+// Almagest zodiac-sign glyph codepoint for a constellation abbreviation, or 0
+// when the constellation isn't one of the 12 zodiacal ones.
+int
+constellationSignGlyph(const QString& abbrev)
+{
+    auto it = constellationTable().find(abbrev);
+    if (it == constellationTable().end() || it->signIndex < 0) return 0;
+    return Data::getSignGlyph(Ingresses_Start + it->signIndex);
+}
+
+// Bayer designation for a star, formatted "<Constellation>-<Greek letter>"
+// (e.g. "Orion-η") using the actual Greek glyph rather than the Latin
+// genitive form (which reads oddly to non-specialists, e.g. "eta Orionis").
+// Returns empty if the raw SE nomenclature (Star::bayer, e.g. "alTau")
+// doesn't match the plain "<2-letter Greek code><3-letter constellation>"
+// pattern -- multi-star suffixes and Flamsteed numbers (e.g. "b01Cyg",
+// "10Vul") are left alone rather than risk mislabeling them.
+QString
+bayerDesignation(const Star& s)
+{
+    if (s.bayer.length() != 5 || s.constellation.isEmpty()) return QString();
+    if (!s.bayer.endsWith(s.constellation)) return QString();
+
+    static const QHash<QString, QChar> letters {
+        { "al", QChar(0x03B1) }, { "be", QChar(0x03B2) }, { "ga", QChar(0x03B3) },
+        { "de", QChar(0x03B4) }, { "ep", QChar(0x03B5) }, { "ze", QChar(0x03B6) },
+        { "et", QChar(0x03B7) }, { "th", QChar(0x03B8) }, { "io", QChar(0x03B9) },
+        { "ka", QChar(0x03BA) }, { "la", QChar(0x03BB) }, { "mu", QChar(0x03BC) },
+        { "nu", QChar(0x03BD) }, { "xi", QChar(0x03BE) }, { "pi", QChar(0x03C0) },
+        { "rh", QChar(0x03C1) }, { "si", QChar(0x03C3) }, { "ta", QChar(0x03C4) },
+        { "up", QChar(0x03C5) }, { "ph", QChar(0x03C6) }, { "kh", QChar(0x03C7) },
+        { "ch", QChar(0x03C7) }, { "ps", QChar(0x03C8) }, { "om", QChar(0x03C9) },
+    };
+    auto it = letters.find(s.bayer.left(2));
+    if (it == letters.end()) return QString();
+    return constellationFullName(s.constellation) + "-" + *it;
+}
+
+// Wraps a fixed star's already-formatted name for HTML display: an inert
+// "star:<tooltip text>" hover-tooltip anchor (handled by ReportBrowser in
+// Plain, not real navigation) -- the Bayer designation when recognized (e.g.
+// "Eta Orion"), else just the full constellation name -- plus, for the 12
+// zodiacal constellations, a small Almagest sign glyph. Falls back to
+// nameHtml unchanged when the star has no recorded constellation (e.g. the
+// synthetic natal-position Star objects used for ex-precessed Directions
+// rows).
+QString
+formatStarNameHtml(const Star& s, const QString& nameHtml)
+{
+    if (s.constellation.isEmpty()) return nameHtml;
+    QString tip = bayerDesignation(s);
+    if (tip.isEmpty()) tip = constellationFullName(s.constellation);
+    // Qt's rich-text CSS doesn't honor "color: inherit" on <a> (it falls back
+    // to its own default anchor color instead of the surrounding cell's), so
+    // the star's normal (non-bold) text color has to be spelled out here.
+    QString ret = "<a href=\"star:" + tip.toHtmlEscaped()
+                  + "\" style=\"text-decoration:none; color: "
+                  + ThemeManager::instance().getTextColor() + ";\">" + nameHtml
+                  + "</a>";
+    int glyph = constellationSignGlyph(s.constellation);
+    if (glyph != 0) {
+        ret += " <span style=\"font-family:'Almagest';\">" + QString(QChar(glyph))
+               + "</span>";
+    }
+    return ret;
+}
+
+namespace
+{
 
 struct event {
     QDateTime   _dt;
@@ -981,7 +1167,8 @@ struct event {
     QString fmt(double              tz,
                 const QString&      padding        = "1px",
                 bool                isFirstInGroup = false,
-                SpeculumDisplayMode displayMode    = DisplayLocalTime) const
+                SpeculumDisplayMode displayMode    = DisplayLocalTime,
+                int                 pgroup         = -1) const
     {
         static QStringList AT { QObject::tr("Rise"),
                                 QObject::tr("Set"),
@@ -991,12 +1178,24 @@ struct event {
 
         QString       planetName = _star ? _star->name : QObject::tr("*Radix*");
         const Planet* planet     = dynamic_cast<const Planet*>(_star);
+        // Genuine fixed star (not a Planet, not the radix placeholder, and not
+        // one of the synthetic natal-position Star objects used for
+        // ex-precessed rows, which carry no constellation): gloss it with a
+        // constellation tooltip and, for zodiacal stars, a sign glyph.
+        if (_star && !planet) {
+            planetName = formatStarNameHtml(*_star, planetName);
+        }
 
         QString borderStyle =
             isFirstInGroup ? " border-top: 1px solid #777;" : "";
         QString backgroundColor =
             planet ? " background-color: rgba(255,255,255,0.03);" : "";
-        QString ret = "<tr>";
+        // data-pgroup marks which paran cluster this row belongs to, so the
+        // Plain search filter can keep/highlight a whole cluster when any one
+        // row in it matches, without having to re-derive the grouping itself.
+        QString ret = (pgroup >= 0)
+            ? QString("<tr data-pgroup=\"%1\">").arg(pgroup)
+            : "<tr>";
 
         // Planet name cell gets bold styling, other cells do not
         QString nameCellStyle =
@@ -1118,6 +1317,7 @@ describeParans(const AstroFileList& scopes,
                double               paranOrb,
                SpeculumDisplayMode  displayMode,
                bool                 showParanNatalRows,
+               bool                 includeOutOfOrbNatalRows,
                AstroFile*           natalContext)
 {
     // CONFIGURABLE: Cell padding for parans table - change this to adjust row
@@ -1232,11 +1432,24 @@ describeParans(const AstroFileList& scopes,
 
         natalStarStorage.reserve(natalContext->horoscope().planets.size());
         double jdNatal = getJulianDate(natalContext->getGMT());
-        // Truncate to midnight UTC of the chart day so computeNatalParanTransits
-        // searches [midnight, midnight+1) and doesn't miss morning transits.
-        // JD convention: midnight UTC = floor(jd + 0.5) - 0.5
         double jdParanRaw = getJulianDate(file->getGMT());
-        double jdParan    = std::floor(jdParanRaw + 0.5) - 0.5;
+        // Focused Par=N: truncate to midnight UTC of the chart day so
+        // computeNatalParanTransits searches [midnight, midnight+1), matching
+        // the same daily grid findParans() used to find the event — otherwise
+        // the display could pick a different diurnal occurrence than the one
+        // actually reported. JD convention: midnight UTC = floor(jd+0.5)-0.5.
+        //
+        // Full listing (non-paran chart): transiting-body angle transits
+        // (calculatePlanet's default/zodiacal mode) are computed via
+        // jd0 + swe_difdeg2n(...)/360*siderealDay, i.e. a window centered on
+        // the radix moment (±12h). A midnight-anchored natal window is offset
+        // from that by up to half a day, which skews natal ex-precessed rows
+        // to one side of the local-time axis — starving one end of the table
+        // and stacking the other. Center the window on the radix here too so
+        // natal rows distribute the same way transiting rows already do.
+        double jdParan = isParanChart
+            ? (std::floor(jdParanRaw + 0.5) - 0.5)
+            : (jdParanRaw - 0.5);
         double lat = scope.inputData.location().y();
         double lon = scope.inputData.location().x();
 
@@ -1279,9 +1492,13 @@ describeParans(const AstroFileList& scopes,
                 if (!angleTransit[m].isValid()) { u++; continue; }
                 // Focused paran view: collect all valid natal angle-transits;
                 // the post-sort cluster walk decides which ones belong.
-                // Full listing: filter by proximity to any return-planet transit.
+                // Full listing: filter by proximity to any return-planet transit,
+                // unless includeOutOfOrbNatalRows requests every natal
+                // ex-precessed body regardless of whether it happens to paran
+                // with a transiting planet that day (e.g. so the Directions/PD
+                // arc-dating always includes every natal point).
                 bool pass;
-                if (isParanChart) {
+                if (isParanChart || includeOutOfOrbNatalRows) {
                     pass = true;
                 } else {
                     pass = std::any_of(
@@ -1353,13 +1570,29 @@ describeParans(const AstroFileList& scopes,
     ret += "<th style='padding: 4px 8px;'></th>";
     ret += "</tr>";
 
+    // pgroup/groupOpen assign each rendered row the id of the paran cluster it
+    // belongs to (see event::fmt's data-pgroup). A new id is cut in whenever
+    // the existing grouping logic below would otherwise draw a fresh border
+    // (or on the very first row), so the numbering tracks the visual clusters
+    // exactly without duplicating their orb/adjacency logic.
+    int  pgroup     = -1;
+    bool groupOpen  = false;
+    auto pgroupFor  = [&](bool newGroup) {
+        if (newGroup || !groupOpen) {
+            ++pgroup;
+            groupOpen = true;
+        }
+        return pgroup;
+    };
+
     if (isParanChart) {
         // events is already pruned to the radix-anchored cluster, so every row
         // is a member — render them all in time order. No barrier grouping:
         // that would drop legitimate fringe stars paranatellonting a natal or
         // transit anchor on the cluster's edge.
+        const int gid = pgroupFor(true);
         for (auto it = events.constBegin(); it != events.constEnd(); ++it)
-            ret += it->fmt(tz, cellPadding, false, displayMode);
+            ret += it->fmt(tz, cellPadding, false, displayMode, gid);
     } else {
     double orb        = paranOrb * 240;
     bool   anyPrinted = false;
@@ -1369,7 +1602,7 @@ describeParans(const AstroFileList& scopes,
          it != events.constEnd();) // Note: no ++it here, we manage it manually
     {
         if (showAll) {
-            ret += it->fmt(tz, cellPadding, false, displayMode);
+            ret += it->fmt(tz, cellPadding, false, displayMode, pgroupFor(true));
             ++it;
             continue;
         }
@@ -1411,7 +1644,8 @@ describeParans(const AstroFileList& scopes,
                 // Add border to first row of group if there was a previous
                 // group
                 bool addBorder = (isFirstInThisGroup && anyPrinted);
-                ret += bit->fmt(tz, cellPadding, addBorder, displayMode);
+                ret += bit->fmt(tz, cellPadding, addBorder, displayMode,
+                                pgroupFor(addBorder));
                 lastPrinted = bit;
                 ++bit;
                 anyPrinted         = true;
@@ -1426,7 +1660,8 @@ describeParans(const AstroFileList& scopes,
             bool addBorder = anyPrinted
                              && (lastPrinted == events.constEnd()
                                  || qAbs(lastPrinted->_dt.secsTo(it->_dt)) > orb);
-            ret += it->fmt(tz, cellPadding, addBorder, displayMode);
+            ret += it->fmt(tz, cellPadding, addBorder, displayMode,
+                           pgroupFor(addBorder));
             lastPrinted = it;
             anyPrinted  = true;
             ++it;
@@ -1508,7 +1743,8 @@ describeSpeculum(const Horoscope&    scope,
     if (showFixedStars) {
         for (const Star& s : scope.stars) {
             ret += "<tr>";
-            ret += "<td style='padding: 0px 8px;'>" + s.name + "</td>";
+            ret += "<td style='padding: 0px 8px;'>" + formatStarNameHtml(s, s.name)
+                   + "</td>";
             for (int i : QList<int>({ 0, 2, 1, 3 })) {
                 QString timeStr;
                 // Check if transit time is valid

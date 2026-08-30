@@ -197,6 +197,40 @@ SectionToggle {
 	qproperty-miniOffTextColor: #4A5560;
 }
 
+/* Compact self-painted display-mode dropdown (Plain toolbar clock button).
+   Colors mirror the Plain QToolBar QToolButton off/hover/pressed look. */
+DisplayModeButton {
+	qproperty-offColor: #E0E0E0;
+	qproperty-hoverColor: #D0D0D0;
+	qproperty-activeColor: #5599DD;
+	qproperty-textColor: #2C2C2C;
+	qproperty-activeTextColor: #FFFFFF;
+	qproperty-borderColor: #B0B0B0;
+	qproperty-hoverBorderColor: #909090;
+	qproperty-activeBorderColor: #3377BB;
+}
+
+/* Report search box (trailing end of the Plain toolbar). Same find.png icon
+   and focus treatment as the AstroDatabase search field for a consistent
+   "search" affordance across the app. */
+Plain QToolBar QLineEdit#plainSearchField {
+	color: #2C2C2C;
+	background-color: #E0E0E0;
+	background-image: url("style/find.png");
+	background-repeat: 0;
+	border: 1px solid #B0B0B0;
+	border-radius: 4px;
+	padding: 3px 6px 3px 20px;
+	margin: 2px;
+	min-width: 140px;
+}
+
+Plain QToolBar QLineEdit#plainSearchField:focus {
+	color: #000;
+	background-color: #FFFACD;
+	border-color: #DAA520;
+}
+
 Plain QToolBar QPushButton[chartButton="true"] {
 	color: #2C2C2C;
 	font-size: 10pt;

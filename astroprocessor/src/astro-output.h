@@ -103,6 +103,7 @@ describeParans(const AstroFileList& scopes,
                double               paranOrb,
                SpeculumDisplayMode  displayMode    = DisplayLocalTime,
                bool                 showParanNatalRows = false,
+               bool                 includeOutOfOrbNatalRows = false,
                AstroFile*           natalContext   = nullptr);
 QString
 describeSpeculum(const Horoscope&    scope,

@@ -308,6 +308,9 @@ Data::load(QString language)
                 // abbreviation (e.g. "alCMa" → "CMa"), matching the ecliptic
                 // test above.
                 stars[name].constellation = constellar.right(3);
+                // Full raw nomenclature (e.g. "alTau"), kept so display code
+                // can recover the Bayer Greek-letter designation when present.
+                stars[name].bayer = constellar;
             }
         }
     }

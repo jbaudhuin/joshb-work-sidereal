@@ -516,6 +516,7 @@ struct Star {
     PlanetId                id;
     QString                 name;
     QString                 constellation;  // 3-letter IAU abbrev (e.g. "CMa")
+    QString                 bayer;          // raw SE nomenclature (e.g. "alTau")
     int                     sweFlags;
     PlanetId                configuredWithPlanet;
     QMap<QString, QVariant> userData;
