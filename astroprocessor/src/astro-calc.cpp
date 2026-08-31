@@ -10529,10 +10529,7 @@ AspectFinder::findAspects(AspectSearchState& state, modalize<bool>& mum)
                 }
             }
 
-            if (skipByDuration == SkipNone
-                || (includeTransitRange
-                    && (et == etcSignIngress || et == etcHouseIngress
-                        || et == etcTransitToStation)))
+            if (skipByDuration == SkipNone || !skippableEvent(et))
             {
                 localEnqueued++;
                 // enqueue it now if we know it would not be skipped
@@ -10607,7 +10604,7 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
             auto desc = QString("[%1 - %2]")
                             .arg(dtToString(dateTimeFromJulian(r.first)),
                                  dtToString(dateTimeFromJulian(r.second)));
-            if (skipByDuration != SkipNone) {
+            if (skipByDuration != SkipNone && skippableEvent(hps.eventType)) {
                 double duration  = r.second - r.first;
                 double threshold = 0.0;
                 switch (skipByDuration) {
