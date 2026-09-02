@@ -5,7 +5,7 @@
 #include <Astroprocessor/Gui>
 #include <Astroprocessor/Output>
 #include <QWidget>
-#include <QToolButton>
+#include <QPoint>
 
 class QCheckBox;
 class QTextBrowser;
@@ -16,6 +16,7 @@ class QAction;
 class QActionGroup;
 class QLabel;
 class QLineEdit;
+class QMenu;
 class QTimer;
 
 /* ============================== SECTION TOGGLE
@@ -57,10 +58,14 @@ class SectionToggle : public QWidget {
     /// whole, 0 = Chart #1, 1 = Chart #2. Emitted when a state is enabled or on
     /// a Ctrl-click of an already-enabled body/mini.
     void navigate(int fileIndex);
+    /// Right-click (or Menu key) on the control. Owner decides whether this
+    /// section has any quick options worth showing.
+    void contextMenuRequested(const QPoint& globalPos);
 
   protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
+    void contextMenuEvent(QContextMenuEvent*) override;
 
   private:
     QRect miniRect(int i) const;       ///< geometry of the "1"/"2" box (i=0/1)
@@ -83,50 +88,6 @@ class SectionToggle : public QWidget {
     QColor _miniOffTextColor;
 };
 
-/* ============================ DISPLAY MODE BUTTON
- * ======================================== */
-
-/// Compact, self-painted clock-glyph dropdown for the speculum display-mode
-/// selector (Local/Sidereal/RA). A plain QToolButton with a menu sizes itself
-/// (and lays out its content) using the style's generic min-width and
-/// menu-indicator reservations, which left a lot of dead space between the
-/// glyph/abbreviation and the drop-down arrow. This subclass keeps
-/// QToolButton's menu-popup behavior but paints its own tightly-fitted frame,
-/// glyph, abbreviation and arrow instead — same approach as SectionToggle.
-class DisplayModeButton : public QToolButton {
-    Q_OBJECT
-    // Painted colors, overridable from the theme .qss via `qproperty-*`.
-    Q_PROPERTY(QColor offColor          MEMBER _offColor)
-    Q_PROPERTY(QColor hoverColor        MEMBER _hoverColor)
-    Q_PROPERTY(QColor activeColor       MEMBER _activeColor)
-    Q_PROPERTY(QColor textColor         MEMBER _textColor)
-    Q_PROPERTY(QColor activeTextColor   MEMBER _activeTextColor)
-    Q_PROPERTY(QColor borderColor       MEMBER _borderColor)
-    Q_PROPERTY(QColor hoverBorderColor  MEMBER _hoverBorderColor)
-    Q_PROPERTY(QColor activeBorderColor MEMBER _activeBorderColor)
-  public:
-    explicit DisplayModeButton(QWidget* parent = nullptr);
-
-    void setGlyph(const QString& glyph);   ///< icon shown left of the abbreviation
-    void setAbbrev(const QString& abbrev); ///< short mode label (e.g. "LT")
-
-    QSize sizeHint() const override;
-    QSize minimumSizeHint() const override { return sizeHint(); }
-
-  protected:
-    void paintEvent(QPaintEvent*) override;
-
-  private:
-    QString _glyph;
-    QString _abbrev;
-    QFont   _glyphFont;
-    QFont   _textFont;
-
-    QColor _offColor, _hoverColor, _activeColor;
-    QColor _textColor, _activeTextColor;
-    QColor _borderColor, _hoverBorderColor, _activeBorderColor;
-};
-
 /* ================================== WIDGET
  * ======================================== */
 
@@ -145,8 +106,6 @@ class Plain : public AstroFileHandler {
     SectionToggle* togDirections;
     SectionToggle* togSpeculum;
     SectionToggle* togParans;
-    DisplayModeButton* displayModeButton; ///< clock-glyph dropdown of display modes
-    QActionGroup*  displayModeGroup;   ///< exclusive Local/Sidereal/RA actions
     A::SpeculumDisplayMode _displayMode;
     QTextBrowser*  view;
 
@@ -185,14 +144,27 @@ class Plain : public AstroFileHandler {
     };
     QList<SectionKey> sectionKeys() const;
 
-    /// Switch the speculum display mode: sync the toolbutton/actions, and on an
-    /// actual change emit displayModeChanged and re-render the report.
+    /// Switch the speculum display mode; on an actual change emit
+    /// displayModeChanged and re-render the report.
     void setDisplayMode(A::SpeculumDisplayMode mode);
+    /// Switch primary-direction mode (Mundane/Zodiacal/Active), recalculating
+    /// every eligible chart when it actually changes.
+    void setPrimDirMode(A::PrimDirMode mode);
 
     /// HTML anchor name for a section (fileIndex -1) or its per-file subsection.
     QString sectionAnchor(SectionToggle* t, int fileIndex) const;
     /// Scroll the report view to a section/subsection (see SectionToggle::navigate).
     void scrollToSection(SectionToggle* t, int fileIndex);
+
+    // Right-click quick-options menus for the Directions/Speculum/Parans
+    // toolbar buttons, built fresh from live state each time they're opened.
+    void addBoolAction(QMenu* menu, const QString& label, bool& member);
+    void addSpeculumTypeSubmenu(QMenu* menu);
+    void addDisplayModeSubmenu(QMenu* menu);
+    void addMoreOptionsAction(QMenu* menu);
+    void showDirectionsContextMenu(const QPoint& globalPos);
+    void showSpeculumContextMenu(const QPoint& globalPos);
+    void showParansContextMenu(const QPoint& globalPos);
 
   signals:
     void displayModeChanged(A::SpeculumDisplayMode mode);

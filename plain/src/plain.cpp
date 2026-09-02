@@ -7,6 +7,7 @@
 #include <QMenu>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QDebug>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
@@ -358,115 +359,16 @@ void SectionToggle::paintEvent(QPaintEvent*)
     }
 }
 
-/* ============================ DISPLAY MODE BUTTON
- * ======================================== */
-
-// Self-painted geometry: glyph, abbreviation and a small arrow, packed tight
-// against the frame edges instead of the style's generic min-width/menu-
-// indicator reservations.
-static constexpr int kDmPadL     = 8;  ///< left padding before the glyph
-static constexpr int kDmGap      = 4;  ///< gap between glyph and abbreviation
-static constexpr int kDmGapArrow = 6;  ///< gap between abbreviation and arrow
-static constexpr int kDmArrowW   = 8;  ///< arrow triangle width
-static constexpr int kDmPadR     = 8;  ///< right padding after the arrow
-
-DisplayModeButton::DisplayModeButton(QWidget* parent)
-    : QToolButton(parent), _glyph(QString::fromUtf8("\U0001F550")) // 🕐
-{
-    setCursor(Qt::PointingHandCursor);
-    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-
-    _glyphFont = font();
-    _glyphFont.setPointSize(11);
-    _textFont = font();
-    _textFont.setPointSize(9);
-
-    // Palette-derived defaults; the theme .qss overrides via qproperty-*.
-    const QPalette pal = palette();
-    _offColor          = pal.color(QPalette::Button);
-    _hoverColor        = _offColor;
-    _activeColor       = pal.color(QPalette::Highlight);
-    _textColor         = pal.color(QPalette::ButtonText);
-    _activeTextColor   = pal.color(QPalette::HighlightedText);
-    _borderColor       = pal.color(QPalette::Mid);
-    _hoverBorderColor  = _borderColor;
-    _activeBorderColor = pal.color(QPalette::Highlight);
-}
-
-void DisplayModeButton::setGlyph(const QString& glyph)
-{
-    if (_glyph == glyph) return;
-    _glyph = glyph;
-    updateGeometry();
-    update();
-}
-
-void DisplayModeButton::setAbbrev(const QString& abbrev)
-{
-    if (_abbrev == abbrev) return;
-    _abbrev = abbrev;
-    updateGeometry();
-    update();
-}
-
-QSize DisplayModeButton::sizeHint() const
-{
-    const QFontMetrics gfm(_glyphFont);
-    const QFontMetrics tfm(_textFont);
-    const int w = kDmPadL + gfm.horizontalAdvance(_glyph) + kDmGap
-                + tfm.horizontalAdvance(_abbrev) + kDmGapArrow + kDmArrowW
-                + kDmPadR;
-    return QSize(w, 26);
-}
-
-void DisplayModeButton::paintEvent(QPaintEvent*)
-{
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
-
-    const bool active  = isDown() || (menu() && menu()->isVisible());
-    const bool hovered = underMouse() && isEnabled();
-
-    const QColor bg     = active ? _activeColor : hovered ? _hoverColor : _offColor;
-    const QColor border = active ? _activeBorderColor
-                         : hovered ? _hoverBorderColor : _borderColor;
-    const QColor text    = active ? _activeTextColor : _textColor;
-
-    const QRectF fr = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-    p.setPen(QPen(border, 1));
-    p.setBrush(bg);
-    p.drawRoundedRect(fr, 3, 3);
-
-    QFont textFont = _textFont;
-    textFont.setBold(active);
-    p.setPen(text);
-
-    int x = kDmPadL;
-    p.setFont(_glyphFont);
-    const QFontMetrics gfm(_glyphFont);
-    const int glyphW = gfm.horizontalAdvance(_glyph);
-    p.drawText(QRect(x, 0, glyphW, height()), Qt::AlignLeft | Qt::AlignVCenter,
-               _glyph);
-    x += glyphW + kDmGap;
-
-    p.setFont(textFont);
-    const QFontMetrics tfm(textFont);
-    p.drawText(QRect(x, 0, tfm.horizontalAdvance(_abbrev), height()),
-               Qt::AlignLeft | Qt::AlignVCenter, _abbrev);
-
-    // Small down-arrow, hard against the right edge.
-    const int ax = width() - kDmPadR - kDmArrowW;
-    const int ay = height() / 2 - 2;
-    QPolygon  arrow;
-    arrow << QPoint(ax, ay) << QPoint(ax + kDmArrowW, ay)
-          << QPoint(ax + kDmArrowW / 2, ay + 4);
-    p.setPen(Qt::NoPen);
-    p.setBrush(text);
-    p.drawPolygon(arrow);
-}
-
 void SectionToggle::mousePressEvent(QMouseEvent* e)
 {
+    if (e->button() != Qt::LeftButton) {
+        // Right-click (and other buttons) are left alone here so the platform's
+        // synthesized QContextMenuEvent can drive contextMenuEvent() instead —
+        // otherwise this handler would toggle the section on a right-click too.
+        e->ignore();
+        return;
+    }
+
     const QPoint pos  = e->pos();
     const bool   ctrl = e->modifiers().testFlag(Qt::ControlModifier);
 
@@ -514,6 +416,12 @@ void SectionToggle::mousePressEvent(QMouseEvent* e)
     if (_sectionOn) emit navigate(-1);       // scroll to it when enabling
 }
 
+void SectionToggle::contextMenuEvent(QContextMenuEvent* e)
+{
+    emit contextMenuRequested(e->globalPos());
+    e->accept();
+}
+
 /* ================================== WIDGET
  * ======================================== */
 
@@ -552,16 +460,18 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     togDignities->setSectionOn(false);
     togDirections = new SectionToggle(
         tr("Dir"),
-        tr("Directions — natal parans rolled up against primary directions"),
+        tr("Directions — natal parans rolled up against primary directions\n"
+           "(right-click for quick options)"),
         this);
     togDirections->setSectionOn(true);
     togSpeculum = new SectionToggle(QString::fromUtf8("\U0001F50E"), // 🔎
-                                    tr("Speculum — rise/set/MC/IC times"), this);
+                                    tr("Speculum — rise/set/MC/IC times\n"
+                                       "(right-click for quick options)"), this);
     togSpeculum->setSectionOn(true);
     togParans = new SectionToggle(
         tr("Par"),
         tr("Parans — latitudes (and cities) where each natal-body pair forms a "
-           "paran"),
+           "paran\n(right-click for quick options)"),
         this);
     togParans->setSectionOn(false);
 
@@ -570,40 +480,18 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
                               togParans })
         toolbar->addWidget(t);
 
-    toolbar->addSeparator();
-
-    // Compact display-mode selector: clock toolbutton whose dropdown lists the
-    // three speculum time formats (replaces the old always-wide combo box).
     _displayMode = A::DisplayLocalTime;
-    displayModeButton = new DisplayModeButton();
-    displayModeButton->setObjectName("plainDisplayModeButton");
-    displayModeButton->setPopupMode(QToolButton::InstantPopup);
-    QMenu* dmMenu = new QMenu(displayModeButton);
-    displayModeGroup = new QActionGroup(dmMenu);
-    displayModeGroup->setExclusive(true);
-    const QList<QPair<QString, A::SpeculumDisplayMode>> dmModes = {
-        { tr("Local Time"),      A::DisplayLocalTime },
-        { tr("Sidereal Time"),   A::DisplaySiderealTime },
-        { tr("Right Ascension"), A::DisplayRightAscension },
-    };
-    for (const auto& m : dmModes) {
-        QAction* a = dmMenu->addAction(m.first);
-        a->setCheckable(true);
-        a->setData(int(m.second));
-        displayModeGroup->addAction(a);
-    }
-    displayModeButton->setMenu(dmMenu);
-    connect(displayModeGroup, &QActionGroup::triggered, this,
-            [this](QAction* a) {
-                setDisplayMode(A::SpeculumDisplayMode(a->data().toInt()));
-            });
-    setDisplayMode(_displayMode);   // sync checked action & button face
-    toolbar->addWidget(displayModeButton);
 
-    // Match the section toggles' height to the display-mode button so the whole
-    // toolbar row is uniform (and tall enough for the rounded frames).
-    const int rowH = qMax(displayModeButton->sizeHint().height(), 26);
-    displayModeButton->setFixedHeight(rowH);
+    connect(togDirections, &SectionToggle::contextMenuRequested, this,
+            [this](const QPoint& p) { showDirectionsContextMenu(p); });
+    connect(togSpeculum, &SectionToggle::contextMenuRequested, this,
+            [this](const QPoint& p) { showSpeculumContextMenu(p); });
+    connect(togParans, &SectionToggle::contextMenuRequested, this,
+            [this](const QPoint& p) { showParansContextMenu(p); });
+
+    // Match the section toggles' height across the toolbar row (tall enough
+    // for the rounded frames).
+    const int rowH = 26;
     for (SectionToggle* t : sectionToggles())
         t->setFixedHeight(rowH);
 
@@ -679,35 +567,26 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     // setStyleSheet(cssfile.readAll());
 }
 
-/// Short label shown on the toolbar clock button next to the glyph.
-static QString displayModeAbbrev(A::SpeculumDisplayMode m)
-{
-    switch (m) {
-    case A::DisplaySiderealTime:   return QObject::tr("ST");
-    case A::DisplayRightAscension: return QObject::tr("RA");
-    default:                       return QObject::tr("LT");
-    }
-}
-
 void
 Plain::setDisplayMode(A::SpeculumDisplayMode mode)
 {
-    // Always sync the UI (checked action, button face), even when the mode is
-    // unchanged — the ctor and settings load rely on this to seed the button.
-    QString name;
-    for (QAction* a : displayModeGroup->actions()) {
-        if (A::SpeculumDisplayMode(a->data().toInt()) == mode) {
-            a->setChecked(true);
-            name = a->text();
-            break;
-        }
-    }
-    displayModeButton->setAbbrev(displayModeAbbrev(mode));
-    displayModeButton->setToolTip(tr("Display mode: %1").arg(name));
-
     if (_displayMode == mode) return;
     _displayMode = mode;
     emit displayModeChanged(mode);
+    refresh();
+}
+
+void
+Plain::setPrimDirMode(A::PrimDirMode mode)
+{
+    if (A::primDirMode == mode) return;
+    A::primDirMode = mode;
+    // Speculum type feeds primary-direction calc; every eligible chart needs
+    // to recompute (mirrors the primDirModeChanged branch in applySettings()).
+    for (int i = 0; i < filesCount(); i++) {
+        if (file(i)) file(i)->calculate();
+    }
+    aspectsCached = false;
     refresh();
 }
 
@@ -716,6 +595,118 @@ Plain::setParanOrb(double orb)
 {
     paranOrb = orb;
     refresh();
+}
+
+/* ============================ QUICK OPTIONS MENUS
+ * ======================================== */
+
+/// One line in a quick-options menu: a checkable action bound directly to a
+/// bool member (no round-trip through AppSettings — the member is the state,
+/// and it's picked up automatically next time settings are persisted). The
+/// action (and its connection) only lives as long as the transient menu, so
+/// binding straight to the member reference is safe.
+void
+Plain::addBoolAction(QMenu* menu, const QString& label, bool& member)
+{
+    QAction* a = menu->addAction(label);
+    a->setCheckable(true);
+    a->setChecked(member);
+    connect(a, &QAction::toggled, this, [this, &member](bool on) {
+        member = on;
+        refresh();
+    });
+}
+
+void
+Plain::addSpeculumTypeSubmenu(QMenu* menu)
+{
+    QMenu* sub = menu->addMenu(tr("Speculum type"));
+    QActionGroup* grp = new QActionGroup(sub);
+    grp->setExclusive(true);
+    const QList<QPair<QString, A::PrimDirMode>> modes = {
+        { tr("Mundane"),  A::prdMundane },
+        { tr("Zodiacal"), A::prdZodiacal },
+        { tr("Active"),   A::prdActive },
+    };
+    for (const auto& m : modes) {
+        QAction* a = sub->addAction(m.first);
+        a->setCheckable(true);
+        a->setChecked(A::primDirMode == m.second);
+        grp->addAction(a);
+        A::PrimDirMode mode = m.second;
+        connect(a, &QAction::triggered, this, [this, mode]() { setPrimDirMode(mode); });
+    }
+}
+
+void
+Plain::addDisplayModeSubmenu(QMenu* menu)
+{
+    QMenu* sub = menu->addMenu(tr("Display mode"));
+    QActionGroup* grp = new QActionGroup(sub);
+    grp->setExclusive(true);
+    const QList<QPair<QString, A::SpeculumDisplayMode>> modes = {
+        { tr("Local Time"),      A::DisplayLocalTime },
+        { tr("Sidereal Time"),   A::DisplaySiderealTime },
+        { tr("Right Ascension"), A::DisplayRightAscension },
+    };
+    for (const auto& m : modes) {
+        QAction* a = sub->addAction(m.first);
+        a->setCheckable(true);
+        a->setChecked(_displayMode == m.second);
+        grp->addAction(a);
+        A::SpeculumDisplayMode mode = m.second;
+        connect(a, &QAction::triggered, this, [this, mode]() { setDisplayMode(mode); });
+    }
+}
+
+void
+Plain::addMoreOptionsAction(QMenu* menu)
+{
+    menu->addSeparator();
+    connect(menu->addAction(tr("More options…")), &QAction::triggered, this,
+            [this]() { openSettingsEditor(); });
+}
+
+void
+Plain::showDirectionsContextMenu(const QPoint& globalPos)
+{
+    QMenu menu(this);
+    addBoolAction(&menu, tr("Include fixed stars"), includeFixedStars);
+    addBoolAction(&menu, tr("Include out-of-orb natal ex-precessed rows"),
+                 includeOutOfOrbNatalRows);
+    menu.addSeparator();
+    addSpeculumTypeSubmenu(&menu);
+    addDisplayModeSubmenu(&menu);
+    addMoreOptionsAction(&menu);
+    menu.exec(globalPos);
+}
+
+void
+Plain::showSpeculumContextMenu(const QPoint& globalPos)
+{
+    QMenu menu(this);
+    addBoolAction(&menu, tr("Include fixed stars"), includeFixedStars);
+    addBoolAction(&menu, tr("Show all planetary diurnal events"),
+                 showAllDiurnalEvents);
+    menu.addSeparator();
+    addSpeculumTypeSubmenu(&menu);
+    addDisplayModeSubmenu(&menu);
+    addMoreOptionsAction(&menu);
+    menu.exec(globalPos);
+}
+
+void
+Plain::showParansContextMenu(const QPoint& globalPos)
+{
+    QMenu menu(this);
+    addBoolAction(&menu, tr("Include fixed stars"), includeFixedStars);
+    addBoolAction(&menu, tr("Show natal ex-precessed positions"),
+                 showParanNatalRows);
+    addBoolAction(&menu, tr("Include all latitudes"), paranShowAbsent);
+    menu.addSeparator();
+    addDisplayModeSubmenu(&menu);
+    addMoreOptionsAction(&menu);
+    menu.exec(globalPos);
 }
 
 void
