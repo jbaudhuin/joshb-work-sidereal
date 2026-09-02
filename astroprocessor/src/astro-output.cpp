@@ -1890,13 +1890,19 @@ describeParanLatitudes(const Horoscope&    natal,
         // Latitude cell. Meridional pairs are latitude-independent ("All").
         // Horizon pairs show the exact-paran latitude, with the in-orb band on
         // a smaller second line.
-        // Degrees+minutes, e.g. 44°03′N -> "44N03".
+        // Degrees+minutes, e.g. 44°03′N -> "44<b>N</b>03". Bolding the
+        // hemisphere letter here (the main latitude line only, not the
+        // smaller in-orb band below) makes it easier to spot at a glance
+        // without widening the column.
         auto fmtLatDM = [](double latDeg) {
             const QString hemi = latDeg >= 0 ? QObject::tr("N") : QObject::tr("S");
             int deg = int(std::abs(latDeg));
             int min = int(std::round((std::abs(latDeg) - deg) * 60.0));
             if (min >= 60) { min -= 60; ++deg; }
-            return QString("%1%2%3").arg(deg).arg(hemi).arg(min, 2, 10, QChar('0'));
+            return QString("%1<b>%2</b>%3")
+                .arg(deg)
+                .arg(hemi)
+                .arg(min, 2, 10, QChar('0'));
         };
         // Whole-degree, e.g. "32N".
         auto fmtLatDeg = [](double latDeg) {

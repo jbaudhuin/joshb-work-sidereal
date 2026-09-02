@@ -617,9 +617,10 @@ Plain::Plain(QWidget* parent) : AstroFileHandler(parent)
     searchField->setClearButtonEnabled(true);
     searchField->setFixedHeight(rowH);
     searchField->setToolTip(
-        tr("Search the report (e.g. \"Jupiter Venus\" for both). Matching "
-           "rows/blocks are kept and highlighted; whole paran groupings stay "
-           "together."));
+        tr("Search the report. Terms are OR'd together (Jupiter Venus shows "
+           "both); quote a phrase to match it together (\"Jupiter Dsc\" finds "
+           "only Jupiter on the Descendant). Matching rows/blocks are kept "
+           "and highlighted; whole paran groupings stay together."));
     toolbar->addWidget(searchField);
 
     searchDebounce = new QTimer(this);
@@ -869,12 +870,23 @@ Plain::viewSettingsUpdated(MembersList m)
 // structure (Input, the Chart Calculation summary) aren't row data to filter,
 // so they're always shown untouched.
 
-/// Splits the search box text on whitespace; each term matches independently
-/// (OR across terms — "Jupiter Venus" shows both bodies' rows), case-insensitive.
+/// Splits the search box text into terms; each term matches independently (OR
+/// across terms — "Jupiter Venus" shows both bodies' rows), case-insensitive.
+/// A "quoted phrase" is kept as one term instead of being split on its
+/// internal whitespace, so "Jupiter Dsc" (quoted) matches only rows where
+/// that exact phrase appears together — e.g. Jupiter specifically on the
+/// Descendant — rather than the OR of the two bare words.
 static QStringList
 searchTerms(const QString& text)
 {
-    return text.trimmed().split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+    QStringList terms;
+    static const QRegularExpression tokenRe(QStringLiteral("\"([^\"]*)\"|(\\S+)"));
+    for (auto it = tokenRe.globalMatch(text); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        const QString term = m.captured(1).isNull() ? m.captured(2) : m.captured(1);
+        if (!term.isEmpty()) terms << term;
+    }
+    return terms;
 }
 
 /// Splits html into (isTag, text) tokens so matching/highlighting only ever
@@ -898,31 +910,142 @@ tokenizeHtml(const QString& html)
     return tokens;
 }
 
+/// One text token's contribution to the flattened (whitespace-joined) text of
+/// a row: which token it came from, where its trimmed content starts within
+/// that token's raw text, and where that content landed in the flattened
+/// string. Needed because the Directions table puts a planet's name and its
+/// angle abbreviation ("Jupiter", "Set") in adjacent but separate <td> cells,
+/// so a quoted phrase like "Jupiter Set" only ever matches across that cell
+/// boundary in the flattened text -- and this map lets the match still be
+/// highlighted back in each contributing cell.
+struct FlattenedSegment {
+    int tokenIndex;
+    int startInToken;
+    int startInFlattened;
+    int length;
+};
+
+/// Tag names that represent a real visual break between text runs (a new
+/// table cell/row, an explicit line break, a block element) -- crossing one
+/// of these is what should turn into a joining space in the flattened text.
+/// Inline styling tags (<b>, <span>, ...) do NOT: e.g. the Parans table's
+/// bolded latitude hemisphere letter ("44<b>N</b>03") must still flatten to
+/// the contiguous "44N03", not "44 N 03", or a plain search for "44N03"
+/// would silently stop matching it.
+static bool
+isBreakingTag(const QString& tag)
+{
+    static const QStringList breakers = {
+        QStringLiteral("<td"), QStringLiteral("<th"), QStringLiteral("<tr"),
+        QStringLiteral("<br"), QStringLiteral("<div"), QStringLiteral("<p"),
+        QStringLiteral("<li")
+    };
+    for (const QString& b : breakers)
+        if (tag.startsWith(b, Qt::CaseInsensitive)) return true;
+    return false;
+}
+
+static QString
+flattenForMatching(const QVector<QPair<bool, QString>>& tokens,
+                    QVector<FlattenedSegment>&           segments)
+{
+    QString flattened;
+    bool    pendingBreak = false;
+    for (int ti = 0; ti < tokens.size(); ++ti) {
+        if (tokens[ti].first) {
+            if (isBreakingTag(tokens[ti].second)) pendingBreak = true;
+            continue;
+        }
+        const QString& raw = tokens[ti].second;
+        int lead = 0;
+        while (lead < raw.size() && raw.at(lead).isSpace()) ++lead;
+        const int len = raw.trimmed().length();
+        if (len == 0) continue;
+        if (!flattened.isEmpty() && pendingBreak) flattened += QLatin1Char(' ');
+        segments.append({ ti, lead, int(flattened.length()), len });
+        flattened += raw.mid(lead, len);
+        pendingBreak = false;
+    }
+    return flattened;
+}
+
 /// Wraps case-insensitive term matches within an HTML fragment's text nodes in
 /// a themed highlight span, leaving tags/attributes untouched. Sets *matched
-/// when any wrapping happened. Safe to call on non-matching text (a no-op).
+/// when any wrapping happened. A phrase term (one containing whitespace) is
+/// also tried against the flattened cross-cell text via flattenForMatching(),
+/// so e.g. "Jupiter Set" matches and highlights even when "Jupiter" and "Set"
+/// live in separate <td> cells, not just when they share one text node.
 static QString
 highlightMatches(const QString& fragment, const QStringList& terms, bool* matched)
 {
-    bool any = false;
-    QString out;
-    for (const auto& tok : tokenizeHtml(fragment)) {
-        if (tok.first || tok.second.isEmpty()) {
-            out += tok.second;
-            continue;
+    const QVector<QPair<bool, QString>> tokens = tokenizeHtml(fragment);
+
+    QVector<FlattenedSegment> segments;
+    QString flattened;
+    bool    flattenedBuilt = false;
+    auto    ensureFlattened = [&] {
+        if (!flattenedBuilt) {
+            flattened      = flattenForMatching(tokens, segments);
+            flattenedBuilt = true;
         }
-        const QString& text = tok.second;
-        QVector<QPair<int, int>> spans; // start, length
-        for (const QString& term : terms) {
-            if (term.isEmpty()) continue;
+    };
+
+    bool any = false;
+    QVector<QVector<QPair<int, int>>> tokenSpans(tokens.size());
+
+    for (const QString& term : terms) {
+        if (term.isEmpty()) continue;
+
+        // Per-token search: plain single-word terms, and phrase terms that
+        // happen to fit inside one cell (e.g. the Parans table's "Jupiter
+        // Dsc", combined into a single <td>).
+        for (int ti = 0; ti < tokens.size(); ++ti) {
+            if (tokens[ti].first) continue;
+            const QString& text = tokens[ti].second;
             int from = 0;
             for (;;) {
                 const int idx = text.indexOf(term, from, Qt::CaseInsensitive);
                 if (idx < 0) break;
-                spans.append({ idx, term.length() });
+                tokenSpans[ti].append({ idx, term.length() });
+                any  = true;
                 from = idx + term.length();
             }
         }
+
+        // Cross-cell search: only phrase terms need this (a single word is
+        // always caught by the per-token pass, since a lone token IS the
+        // flattened text when there's nothing else to join it to).
+        if (!term.contains(QLatin1Char(' '))) continue;
+        ensureFlattened();
+        int from = 0;
+        for (;;) {
+            const int idx = flattened.indexOf(term, from, Qt::CaseInsensitive);
+            if (idx < 0) break;
+            const int end = idx + term.length();
+            for (const FlattenedSegment& seg : std::as_const(segments)) {
+                const int segEnd = seg.startInFlattened + seg.length;
+                const int os     = qMax(idx, seg.startInFlattened);
+                const int oe     = qMin(end, segEnd);
+                if (os < oe) {
+                    tokenSpans[seg.tokenIndex].append(
+                        { seg.startInToken + (os - seg.startInFlattened),
+                          oe - os });
+                    any = true;
+                }
+            }
+            from = end;
+        }
+    }
+
+    QString out;
+    for (int ti = 0; ti < tokens.size(); ++ti) {
+        const auto& tok = tokens[ti];
+        if (tok.first || tok.second.isEmpty()) {
+            out += tok.second;
+            continue;
+        }
+        const QString& text  = tok.second;
+        auto&          spans = tokenSpans[ti];
         if (spans.isEmpty()) {
             out += text;
             continue;
@@ -945,7 +1068,6 @@ highlightMatches(const QString& fragment, const QStringList& terms, bool* matche
             out += "<span class='search-hit'>" + text.mid(s.first, s.second)
                    + "</span>";
             cur = s.first + s.second;
-            any = true;
         }
         out += text.mid(cur);
     }
