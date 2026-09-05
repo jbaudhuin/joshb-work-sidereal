@@ -1814,6 +1814,7 @@ Plain::defaultSettings()
     }
     s.setValue("Mundane/displayMode", unsigned(A::DisplayLocalTime));
     s.setValue("Mundane/primDirMode", unsigned(A::prdMundane));
+    s.setValue("Mundane/pdTimingKey", unsigned(A::PDPtolemy));
     s.setValue("Mundane/showAllDiurnalEvents", false);
     s.setValue("Mundane/paranOrb", 1.0);
     s.setValue("Mundane/paranCityLatTol", 0.5);
@@ -1851,6 +1852,7 @@ Plain::currentSettings()
     }
     s.setValue("Mundane/displayMode", unsigned(_displayMode));
     s.setValue("Mundane/primDirMode", unsigned(A::primDirMode));
+    s.setValue("Mundane/pdTimingKey", unsigned(A::pdTimingKey));
     s.setValue("Mundane/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Mundane/paranOrb", paranOrb);
     s.setValue("Mundane/paranCityLatTol", paranCityLatTol);
@@ -1897,6 +1899,14 @@ Plain::applySettings(const AppSettings& s)
         A::PrimDirMode(s.value("Mundane/primDirMode").toUInt());
     bool primDirModeChanged = (A::primDirMode != newPrimDirMode);
     A::primDirMode          = newPrimDirMode;
+
+    // pdTimingKey only affects calculateAngularDate's date-conversion step,
+    // read fresh on every Directions-table render — no recalculate() needed,
+    // just a redraw (see the primDirModeChanged block below).
+    A::PDTimingKey newPdTimingKey = A::PDTimingKey(
+        s.value("Mundane/pdTimingKey", unsigned(A::PDPtolemy)).toUInt());
+    bool pdTimingKeyChanged = (A::pdTimingKey != newPdTimingKey);
+    A::pdTimingKey          = newPdTimingKey;
 
     showAllDiurnalEvents = s.value("Mundane/showAllDiurnalEvents").toBool();
     paranOrb             = s.value("Mundane/paranOrb").toDouble();
@@ -1957,6 +1967,12 @@ Plain::applySettings(const AppSettings& s)
         aspectsCached = false;
     }
 
+    // pdTimingKey doesn't feed the ephemeris (no calculate() needed) but the
+    // Directions-table HTML is cached, so it still needs invalidating.
+    if (pdTimingKeyChanged) {
+        aspectsCached = false;
+    }
+
     refresh();
 }
 
@@ -1978,6 +1994,10 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                     { { "Mundane", A::prdMundane },
                       { "Zodiacal", A::prdZodiacal },
                       { "Active", A::prdActive } });
+    ed->addComboBox("Mundane/pdTimingKey",
+                    tr("Primary Direction timing key\n(Directions table, and the Events tab's Primary Directions)"),
+                    { { "Ptolemy (1 deg/year)", unsigned(A::PDPtolemy) },
+                      { "Naibod (0.98565 deg/year)", unsigned(A::PDNaibod) } });
     ed->addCheckBox("Mundane/showAllDiurnalEvents",
                     tr("Show all planetary diurnal events"));
     ed->addCheckBox("Mundane/includeFixedStars", tr("Include fixed stars"));

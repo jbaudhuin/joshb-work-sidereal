@@ -705,6 +705,32 @@ struct EventOptions {
 
     bool showHarmonicDividend = false;
 
+    // Primary Directions: show the promissor/significator's right ascension
+    // in the T/P/S T/P/N cells (for verifying the AD/OA/arc math by hand).
+    // Off by default — the two values are each body's own fixed natal RA and
+    // don't visually "match" at exact contact (see the semi-arc explanation
+    // in findPrimaryDirections()), which reads as confusing without context.
+    bool showPDRightAscension = false;
+
+    // Primary Directions: whether to enumerate the promissor's Ptolemaic
+    // rays (sextile/square/trine/opposition) in addition to its own body
+    // (conjunction). Off restricts to conjunction only.
+    bool pdIncludeRays = true;
+
+    // Primary Directions: which of a pair's two possible directions to
+    // enumerate. Both is the classical default.
+    enum PDDirectionScope { PDBothDirections, PDDirectOnly, PDConverseOnly };
+    PDDirectionScope pdDirectionScope = PDBothDirections;
+
+    // Primary Directions: orb of effect, in RA degrees, converted to a
+    // start/end date range around the exact date via the same
+    // Mundane/pdTimingKey rate used for the exact date itself. Symmetric.
+    // Traditional sources vary widely here, and unlike a transit orb (where
+    // 1 degree is anywhere from hours to weeks depending on the body's real
+    // speed), 1 degree of RA in a direction is always about a year under
+    // either key — so this defaults well under a typical transit orb.
+    double pdOrbDegrees = 0.5;
+
     // Display modes for column content: 0=default glyphs, 1=rulership,
     // 2=rulership+natal_house
     enum DisplayMode {
@@ -963,6 +989,7 @@ class AspectFinder : public QObject, public EventOptions {
     void findStations();
     void findParans();
     void findHeliacalEvents();
+    void findPrimaryDirections();
     void findAspectsAndPatterns();
 
     bool isActive() const { return _numTasks != 0; }
@@ -1389,6 +1416,72 @@ calculateAngularDate(const QDateTime&   radixTime,
                      const PSSRContext* pssrCtx = nullptr,
                      const QString&     debugLabel = {},
                      double             radixRA = -1000.0);
+
+// --- Primary Directions (classical, Placidian semi-arc) -------------------
+//
+// Distinct from calculateAngularDate's PD fallback branch above, which is a
+// flat |arc|*365.25 kept for the existing Directions/Speculum tables (its
+// arc there is a byproduct of angle-transit LST encoding, not a real
+// promissor/significator direction, and it discards direct/converse by
+// taking qAbs). The functions below are used by findPrimaryDirections().
+
+/// Timing key converting an arc of direction (degrees) into elapsed days.
+/// Ptolemy (the default) is exactly 365.25 days/degree — the existing
+/// Directions table's long-standing hardcoded rate, reproduced exactly so
+/// switching that table over to this shared setting causes zero drift for
+/// anyone who doesn't touch it. Naibod is the more historically precise
+/// alternative: the sun's true mean daily motion (360 / 365.2422 =~
+/// 0.98565 deg/day), i.e. 365.2422 / 0.98565 days/degree. User setting:
+/// Mundane/pdTimingKey.
+enum PDTimingKey { PDNaibod, PDPtolemy };
+extern PDTimingKey pdTimingKey;
+
+inline double pdDaysPerDegree(PDTimingKey k)
+{
+    return k == PDNaibod ? (365.2422 / 0.98565) : 365.25;
+}
+
+/// One body's speculum entry at the radix: right ascension, declination, and
+/// the derived Placidian quantities. Oblique ascension is computed inline
+/// and discarded in several places already (calculatePlanet's analytic
+/// branch, astro-calc.cpp:1656-1711; the Houses overloads at :2308-2315 and
+/// :2463-2469) — this stores it instead of throwing it away.
+struct DirSpeculumEntry {
+    double ra = 0.0, dec = 0.0;
+    double ad = 0.0;             // ascensional difference (signed; NaN if circumpolar)
+    double oa = 0.0, od = 0.0;   // oblique ascension / descension
+    double sda = 0.0, sna = 0.0; // semi-diurnal / semi-nocturnal arc (90 +/- ad)
+    double md = 0.0;             // meridian distance from RAMC, folded (-180,180]
+    bool   circumpolar = false;
+};
+
+DirSpeculumEntry
+buildDirSpeculumEntry(double ra, double dec, double ramc, double lat);
+
+/// The four angles, for significators that are angles rather than bodies —
+/// an angle has no semi-arc of its own, so it uses the exact classical
+/// identities (OA/OD for Asc/Desc, bare RA for MC/IC; see
+/// astro-calc.cpp:7327-7329's note that OAAC == RAMC + 90 always) rather
+/// than the semi-arc ratio below.
+enum DirAngle { DirNotAngle = -1, DirAsc = 0, DirDesc, DirMC, DirIC };
+
+/// Placidian ("in mundo") arc of direction, in RA degrees, from promissor to
+/// significator: the promissor's own meridian-distance/semi-arc ratio is
+/// matched to the significator's. Positive = direct (promissor reaches the
+/// significator's mundane place moving forward in RAMC); negative = converse.
+/// Returns NaN if the promissor is circumpolar, or (for a planet
+/// significator) if the significator is circumpolar.
+double
+primaryDirectionArc(const DirSpeculumEntry& promissor,
+                    const DirSpeculumEntry& significator,
+                    double                  ramc,
+                    DirAngle                sigAngle = DirNotAngle);
+
+/// Convert a signed arc of direction into a directed date via the timing
+/// key. Unlike calculateAngularDate's PD branch, direction is not discarded —
+/// callers label direct/converse from the arc's own sign before calling this.
+QDateTime
+primaryDirectionDate(const QDateTime& radixTime, double arc, PDTimingKey key);
 
 Horoscope
 calculateAll(const InputData& input);

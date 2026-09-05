@@ -190,6 +190,13 @@ aspectModeType::current()
 PrimDirMode primDirMode = prdMundane;
 DirMethod dirMethodSolarReturn = DirNeoPSSR; // matches legacy default (apparent sun PSSR)
 DirMethod dirMethodOther = DirNeoSQ;         // apparent-sun SQ for lunar/ingress
+// Ptolemy (flat 1 deg/year) by default: this is what calculateAngularDate's
+// PD branch has always effectively used for the existing Directions table
+// (|arc| * 365.25 days), so wiring that table to this shared setting doesn't
+// silently change dates users already trust. Naibod is available as an
+// explicit opt-in (Mundane/pdTimingKey) for both this and the new
+// Events-table Primary Directions feature.
+PDTimingKey pdTimingKey = PDPtolemy;
 bool scrubbing = false;
 bool animating = false;
 
@@ -665,11 +672,28 @@ NatalExprecessedPosition::NatalExprecessedPosition(
             << "_natalRA=" << QString::number(_natalRA, 'f', 4)
             << "_natalDec=" << QString::number(_natalDec, 'f', 4);
     } else {
-        // 4. True planets: get natal RA/Dec via SWE (equatorial, tropical)
+        // 4. True planets: get natal RA/Dec via SWE (equatorial, tropical
+        // frame — sidereal only relabels ecliptic longitude, never RA/Dec, in
+        // principle. In practice, though, SEFLG_SIDEREAL does perturb SWE's
+        // returned RA/Dec by a small amount (a fraction of a degree, not a
+        // full ayanamsa rotation — most likely a nutation/frame-of-reference
+        // detail tied to the sidereal calculation path, not a real
+        // equatorial-frame difference), and calculatePlanet's equatorial call
+        // (astro-calc.cpp ~1538-1544) conditionally sets SEFLG_SIDEREAL to
+        // match. This constructor used to unconditionally strip it, which
+        // was fine for tropical charts but silently diverged from
+        // calculatePlanet's own RA/Dec for sidereal ones — small enough
+        // (~0.005deg for Uranus) to be easy to miss, but enough to shift a
+        // primary-direction date by a day or two. Match calculatePlanet's
+        // logic exactly instead of assuming sidereal is a no-op here.
         const Planet& p = getPlanet(pid);
         uint          flags = (SEFLG_SWIEPH | p.sweFlags | SEFLG_EQUATORIAL
                                | SEFLG_SPEED)
-                     & ~SEFLG_TRUEPOS & ~SEFLG_SIDEREAL;
+                     & ~SEFLG_TRUEPOS;
+        if (ida.zodiac() > 1) {
+            flags |= SEFLG_SIDEREAL;
+            swe_set_sid_mode(ida.zodiac() - 2, 0, 0);
+        }
         swe_calc_ut(_jdNatal, p.sweNum, flags, xx, errStr);
 
         _natalRA  = xx[0];
@@ -4373,34 +4397,130 @@ calculateAngularDate(const QDateTime&   radixTime,
         return result;
         
     } else {
-        // Primary Direction mode (Ptolemy/Naibod ~1°/year).
-        //
-        // The arc of direction is the sidereal separation between the radix
-        // RAMC and the body's angle-transit — at most 180° (the nearest
-        // transit within ±12h). Its *magnitude* dates both direct (transit
-        // after the radix) and converse (before) directions forward from the
-        // radix, exactly as the original did:
+        // Primary Direction mode — the arc of direction is the sidereal
+        // separation between the radix RAMC and the body's angle-transit — at
+        // most 180° (the nearest transit within ±12h). Its *magnitude* dates
+        // both direct (transit after the radix) and converse (before)
+        // directions forward from the radix, exactly as the original did:
         //   arc°  = signed(angleRA − radixRA) folded into (−180°, 180°]
-        //   days  = |arc°| × 365.25
+        //   days  = |arc°| × pdDaysPerDegree(pdTimingKey)
+        //
+        // Uses the same Mundane/pdTimingKey setting as findPrimaryDirections()
+        // so this table and the Events-table Primary Directions feature date
+        // the same arc the same way. Default (Ptolemy) is exactly the
+        // original hardcoded 365.25 — zero drift for anyone who hasn't
+        // touched the setting.
         //
         // Prefer deriving this from right ascension (calendar-independent). The
         // legacy datetime path radixTime→angleTime is corrupted when the two
         // live in different calendars — e.g. an Old-Style (Julian) radix vs a
         // Gregorian transit datetime differ by the ~10-day 17th-century gap,
         // inflating the arc (and the directed date) by millennia.
-        double dayDiff;
+        const double yearDays = pdDaysPerDegree(pdTimingKey);
+        double       dayDiff;
         if (radixRA >= 0.0) {
             double arc = angleRA - radixRA;
             while (arc > 180.0)   arc -= 360.0;
             while (arc <= -180.0) arc += 360.0;
-            dayDiff = qAbs(arc) * 365.25;
+            dayDiff = qAbs(arc) * yearDays;
         } else {
             // Legacy fallback (no radix RA supplied).
             double dist = qAbs(radixTime.secsTo(angleTime));
-            dayDiff = dist * (365.25 / 240.0);
+            dayDiff = dist * (yearDays / 240.0);
         }
         return radixTime.addDays(static_cast<qint64>(dayDiff));
     }
+}
+
+// swe_difdegn(p1,p2) is swe_degnorm(p1-p2), which folds to [0,360) — NOT the
+// signed (-180,180] range a "distance from the meridian"/arc value needs.
+// (A doc comment a few lines above swe_difdegn in swephlib.c, for [-180,180[,
+// actually documents the next function, swe_difcs2n — easy to misread.) Use
+// this everywhere a signed fold is wanted instead.
+static double
+foldSigned180(double x)
+{
+    x = swe_degnorm(x);
+    if (x > 180.0) x -= 360.0;
+    return x;
+}
+
+DirSpeculumEntry
+buildDirSpeculumEntry(double ra, double dec, double ramc, double lat)
+{
+    DirSpeculumEntry e;
+    e.ra  = ra;
+    e.dec = dec;
+    e.ad  = asind(tand(dec) * tand(lat));
+    e.circumpolar = !std::isfinite(e.ad);
+    e.oa  = ra - e.ad;
+    e.od  = ra + e.ad;
+    e.sda = 90.0 + e.ad;
+    e.sna = 90.0 - e.ad;
+    e.md  = foldSigned180(ra - ramc); // signed, folded (-180,180]
+    return e;
+}
+
+double
+primaryDirectionArc(const DirSpeculumEntry& promissor,
+                    const DirSpeculumEntry& significator,
+                    double                  ramc,
+                    DirAngle                sigAngle)
+{
+    if (promissor.circumpolar) return qQNaN();
+
+    // Angles have no semi-arc of their own — use the exact classical
+    // identities instead of the meridian-distance/semi-arc ratio below.
+    // OAAC == RAMC + 90 and ODDC == RAMC - 90 always (astro-calc.cpp:7327-
+    // 7329), so these fall straight out of the promissor's own OA/OD/RA.
+    switch (sigAngle) {
+    case DirAsc:  return foldSigned180(promissor.oa - (ramc + 90.0));
+    case DirDesc: return foldSigned180(promissor.od - (ramc - 90.0));
+    case DirMC:   return foldSigned180(promissor.ra - ramc);
+    case DirIC:   return foldSigned180(promissor.ra - (ramc + 180.0));
+    default: break;
+    }
+
+    if (significator.circumpolar) return qQNaN();
+
+    // Planet significator: match the promissor's own meridian-distance /
+    // semi-arc ratio to the significator's. Both semi-arcs are each body's
+    // own (true latitude, true declination) — no fictitious "pole" needed for
+    // planet-to-planet or planet-to-angle directions; a pole substitute is
+    // only required when the significator is itself an intermediate house
+    // cusp, which is out of scope here (significators are limited to
+    // planets/luminaries and the four angles).
+    bool   sigDiurnal = qAbs(significator.md) <= significator.sda;
+    double sigRatio; // in [-1,1]; 0 at the near meridian, +-1 at the horizon
+    if (sigDiurnal) {
+        sigRatio = significator.md / significator.sda;
+    } else {
+        double distFromIC = significator.md > 0 ? significator.md - 180.0
+                                                 : significator.md + 180.0;
+        sigRatio = distFromIC / significator.sna;
+    }
+
+    double promMdTarget;
+    if (sigDiurnal) {
+        promMdTarget = sigRatio * promissor.sda;
+    } else {
+        double distFromIC = sigRatio * promissor.sna;
+        promMdTarget = distFromIC <= 0 ? distFromIC + 180.0 : distFromIC - 180.0;
+    }
+
+    // Arc is the change in RAMC that carries the promissor from its radix
+    // meridian distance to the target: MD_new = MD_0 - arc.
+    double arc = promissor.md - promMdTarget;
+    while (arc > 180.0)   arc -= 360.0;
+    while (arc <= -180.0) arc += 360.0;
+    return arc;
+}
+
+QDateTime
+primaryDirectionDate(const QDateTime& radixTime, double arc, PDTimingKey key)
+{
+    double days = qAbs(arc) * pdDaysPerDegree(key);
+    return radixTime.addSecs(qint64(days * 86400.0));
 }
 
 Horoscope
@@ -4777,6 +4897,11 @@ EventOptions::EventOptions(const QVariantMap& map)
     expandShowTransitAspectsToReturnPlanet =
         map.value("Events/expandShowTransitAspectsToReturnPlanet").toBool();
     showHarmonicDividend = map.value("Events/showHarmonicDividend").toBool();
+    showPDRightAscension = map.value("Events/showPDRightAscension").toBool();
+    pdIncludeRays = map.value("Events/pdIncludeRays", true).toBool();
+    pdDirectionScope = PDDirectionScope(
+        map.value("Events/pdDirectionScope", unsigned(PDBothDirections)).toUInt());
+    pdOrbDegrees = map.value("Events/pdOrbDegrees", 0.5).toDouble();
 
     s_transitBodyColMode =
         DisplayMode(map.value("Events/transitBodyColMode").toUInt());
@@ -4960,6 +5085,10 @@ EventOptions::toMap()
     ret.insert("Events/expandShowTransitAspectsToReturnPlanet",
                expandShowTransitAspectsToReturnPlanet);
     ret.insert("Events/showHarmonicDividend", showHarmonicDividend);
+    ret.insert("Events/showPDRightAscension", showPDRightAscension);
+    ret.insert("Events/pdIncludeRays", pdIncludeRays);
+    ret.insert("Events/pdDirectionScope", unsigned(pdDirectionScope));
+    ret.insert("Events/pdOrbDegrees", pdOrbDegrees);
     ret.insert("Events/transitBodyColMode", s_transitBodyColMode);
     ret.insert("Events/natalTransitBodyColMode", s_natalTransitBodyColMode);
     return ret;
@@ -5381,6 +5510,20 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
     }
     if (natal && showParanatellontaToNatal()) {
         for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
+            getNatalPlanet(pid);
+        }
+    }
+
+    // Primary Directions: natal-only, like Par=N above — findPrimaryDirections()
+    // walks _alist directly and needs no _staff entries. Significators and
+    // promissors are both drawn from the radix, so only the natal side matters;
+    // no transit locus is required (unlike parans, which resolve their observer
+    // location from the first TransitPosition).
+    if (natal && showPrimaryDirections()) {
+        for (auto pid : getPlanets(includeAsteroids, includeCentaurs)) {
+            getNatalPlanet(pid);
+        }
+        for (auto pid : getAngles()) {
             getNatalPlanet(pid);
         }
     }
@@ -7882,6 +8025,386 @@ enumerateNatalParanLatitudes(const Horoscope& natal,
             for (int mA = 0; mA < 4; ++mA)
                 for (int mB = 0; mB < 4; ++mB)
                     emitPair(T, mA, N, mB, eventLat, false, true);
+        }
+    }
+}
+
+// Classical Placidian primary directions: a closed-form enumeration over the
+// radix (no root-finding — see astro-calc.h's Primary Directions section for
+// why this differs fundamentally from every other pass in this finder).
+void
+AspectFinder::findPrimaryDirections()
+{
+    if (_alist.empty()) return;
+    if (!showPrimaryDirections()) return;
+    if (_ids.isEmpty()) return;
+
+    const InputData& natalIda = _ids.first();
+    const Houses      houses  = calculateHouses(natalIda);
+    const double      lat     = natalIda.location().y();
+    const double      ramc    = houses.RAMC;
+    const double      eps     = houses.eps;
+    const double      jdNatal = getJulianDate(natalIda.GMT(), false, natalIda.calendarType());
+
+    // One entry per candidate natal body (planets + the four angles). Mirrors
+    // findParans' natal-sidecar pattern (astro-calc.cpp ~8054-8058) — a plain
+    // NatalPosition only carries ecliptic loc, so build a NatalExprecessedPosition
+    // to get true RA/Dec when the alist entry isn't already equatorial-mode —
+    // but, unlike findParans, angles are NOT skipped: PD needs them as
+    // significators.
+    struct Body {
+        int              aIdx;
+        ChartPlanetId    cpid;
+        double           eclLon; // real ecliptic longitude, for computing ray points
+        DirSpeculumEntry entry;
+        DirAngle         angleKind;
+    };
+    QVector<Body> bodies;
+
+    for (int i = 0; i < int(_alist.size()); ++i) {
+        auto* pl = dynamic_cast<PlanetLoc*>(_alist[i]);
+        if (!pl) continue;
+        if (pl->planet.fileId() != 0) continue; // natal side only
+        if (pl->planet.isMidpt()) continue;
+        const PlanetId pid = pl->planet.planetId();
+        if (pid == Planet_None) continue;
+        if (pid >= Houses_Start) continue; // skip house cusps/ingress markers
+
+        // Read the raw natal-epoch RA/Dec/eclLon directly rather than via
+        // radecAt(jdNatal, ...): PD never leaves the radix, so there's no
+        // "different epoch" to ask for — this is one less indirection for a
+        // no-op case (radecAt() at jd==jdNatal was checked and is a true
+        // no-op; the earlier Uranus discrepancy traced to a real bug in the
+        // constructor's own sidereal-flag handling, since fixed).
+        double ra, dec, eclLon;
+        if (auto* nep = dynamic_cast<NatalExprecessedPosition*>(pl)) {
+            ra = nep->natalRA();
+            dec = nep->natalDec();
+            eclLon = nep->natalEclLon();
+        } else if (dynamic_cast<NatalPosition*>(pl)) {
+            NatalExprecessedPosition sidecar(pl->planet, natalIda, "r");
+            ra = sidecar.natalRA();
+            dec = sidecar.natalDec();
+            eclLon = sidecar.natalEclLon();
+        } else {
+            continue;
+        }
+
+        Body b;
+        b.aIdx   = i;
+        b.cpid   = pl->planet;
+        b.eclLon = eclLon; // real ecliptic longitude for both angles and planets
+        b.angleKind = (pid >= Angles_Start && pid < Angles_End)
+                        ? (pid == Planet_Asc  ? DirAsc
+                          : pid == Planet_Desc ? DirDesc
+                          : pid == Planet_MC   ? DirMC
+                          :                      DirIC)
+                        : DirNotAngle;
+        // primDirMode selects mundane (true declination, the default) vs
+        // zodiacal (declination of the ecliptic degree, latitude suppressed)
+        // — mirrors calculatePlanet's analytic branch (astro-calc.cpp ~1656-
+        // 1711), which likewise only swaps declination and keeps RA as the
+        // body's true equatorial RA in both modes. Angles have no latitude
+        // to suppress (already computed at lat=0 in NatalExprecessedPosition),
+        // so the mode only matters for planets.
+        double decForEntry = dec;
+        if (A::primDirMode == A::prdZodiacal && b.angleKind == DirNotAngle)
+            decForEntry = asind(sind(eps) * sind(b.eclLon));
+        b.entry = buildDirSpeculumEntry(ra, decForEntry, ramc, lat);
+        bodies.append(b);
+    }
+    if (bodies.size() < 2) return;
+
+    // Classical Ptolemaic rays: ecliptic offset in degrees + the harmonic byte
+    // matching this app's usual encoding (1=conj, 2=opp, 3=trine, 4=square,
+    // 6=sextile) so resolveNamedAspectType() picks up the right icon/label
+    // elsewhere (paran/heliacal-style events). `glyph` is the Almagest-font
+    // aspect codepoint, stored in the promissor's desc and rendered directly
+    // in the T/P/S cell — this is where the ray's aspect type is shown now,
+    // not the Asp column (which shows Dir/Con instead; see
+    // EventsTableModel::glyph()/harmonicCol handling). pdRayGlyphToText()
+    // translates these back to a readable name for non-glyph contexts
+    // (tooltips, summaries).
+    //
+    // Dexter and sinister are NOT a label derived by comparing one ray point
+    // to the significator — they are two genuinely different ray points,
+    // `prom.eclLon - offset` and `prom.eclLon + offset`, each its own
+    // direction with its own arc and date. (Comparing a single ray point to
+    // the significator, as this used to do, silently dropped whichever side
+    // wasn't tested — an entire half of every planet-to-planet direction —
+    // and made the dexter/sinister label track the offset's own sign rather
+    // than anything about the significator.) Conjunction and opposition stay
+    // single-point: +0/-0 and +180/-180 land on the same spot, so neither
+    // has a dexter/sinister side. `dexsin` is 0 for those, else 'D' or 'S'.
+    static const struct {
+        double offset; unsigned char harmonic; QChar glyph; char dexsin;
+    } kRays[] = {
+        {    0.0, 1, QChar(0x00C9), 0   }, // conjunction
+        {  -60.0, 6, QChar(0x00CB), 'D' }, // sextile, dexter
+        {   60.0, 6, QChar(0x00CB), 'S' }, // sextile, sinister
+        {  -90.0, 4, QChar(0x00CD), 'D' }, // square, dexter
+        {   90.0, 4, QChar(0x00CD), 'S' }, // square, sinister
+        { -120.0, 3, QChar(0x00CF), 'D' }, // trine, dexter
+        {  120.0, 3, QChar(0x00CF), 'S' }, // trine, sinister
+        {  180.0, 2, QChar(0x00D1), 0   }, // opposition
+    };
+
+    // Reference-app documentation for "Mundane Placidus Semi-Arc" (the
+    // system this whole feature targets) states it explicitly: "only
+    // calculate Promittor to aspects of the Significator." That is, the
+    // SIGNIFICATOR supplies the moving ray/aspect point, and the PROMISSOR
+    // is bare (its own real position) — the reverse of what this function
+    // used to do (ray on the promissor, significator bare). Verified against
+    // reference data: computing it the old way landed well off a known
+    // reference arc for a real case; this arrangement lands much closer.
+    //
+    // angleBaseRA() gives an angle SIGNIFICATOR's fixed RAMC-derived identity
+    // (OAAC=RAMC+90, ODDC=RAMC-90, RA(MC)=RAMC, RA(IC)=RAMC+180) at dec 0 —
+    // this is exact for that role, since a bare angle significator's own
+    // ratio is always trivially 1 (it's *defined* as being exactly at its
+    // own semi-arc boundary), so its own semi-arc value never actually
+    // enters the arc arithmetic; only its OA/OD/RA identity does, and dec=0
+    // reproduces that identity exactly (verified to sub-arcsecond precision).
+    // This shortcut is NOT used for angle promissors (see Body::entry usage
+    // below) — there, the angle's own semi-arc IS used directly to scale the
+    // significator's ratio, so a flattened dec=0 gives a materially wrong
+    // answer; only the angle's real declination does (also verified, against
+    // a different reference value).
+    auto angleBaseRA = [&](DirAngle kind) -> double {
+        switch (kind) {
+        case DirAsc:  return ramc + 90.0;
+        case DirDesc: return ramc - 90.0;
+        case DirMC:   return ramc;
+        case DirIC:   return ramc + 180.0;
+        default:      return 0.0;
+        }
+    };
+
+    // Placidus Mundane Aspectual Directions (Bob Makransky, "Primary
+    // Directions: A Primer of Calculation", Ch. VII). This is the actual
+    // documented construction for a planet significator's mundane ray — not
+    // a constructed (RA, Dec) point at all, but a purely proportional
+    // house-position measure (0=Asc, 90=IC, 180=Desc, 270=MC) onto which the
+    // aspect value is added directly. Verified against six independent
+    // reference ratios (dexter/sinister trine, sextile, square of a real
+    // planet) to 5 decimal places — every prior (RA,Dec)-based ray
+    // construction tried here (dec=0, own declination, negated declination,
+    // real ecliptic latitude preserved, Bianchini) was wrong; this one
+    // isn't an approximation of any of them.
+    //
+    // placidusMundanePosition: a body's own PMP, from its real md/sda/sna
+    // (quadrant 1: IC->Asc nocturnal; 2: IC->Desc nocturnal; 3: Desc->MC
+    // diurnal; 4: MC->Asc diurnal — matching the mundane-conjunction
+    // algorithm's T/V/R groupings above).
+    auto placidusMundanePosition = [](const DirSpeculumEntry& e, int& quadrant) -> double {
+        if (std::fabs(e.md) <= e.sda) {
+            const double ratio = std::fabs(e.md) / e.sda;
+            if (e.md > 0) { quadrant = 4; return swe_degnorm(270.0 + 90.0 * ratio); }
+            quadrant = 3; return swe_degnorm(270.0 - 90.0 * ratio);
+        }
+        const double distFromIC = e.md > 0 ? e.md - 180.0 : e.md + 180.0;
+        const double ratio = std::fabs(distFromIC) / e.sna;
+        if (distFromIC > 0) { quadrant = 2; return swe_degnorm(90.0 + 90.0 * ratio); }
+        quadrant = 1; return swe_degnorm(90.0 - 90.0 * ratio);
+    };
+    // Inverse: given a PMP (e.g. significator's PMP plus an aspect value),
+    // recover which quadrant it falls in and the (signed-by-quadrant)
+    // meridian-distance/semi-arc ratio Makransky's piecewise definition
+    // gives there.
+    auto placidusRatioFromPMP = [](double pmp, int& quadrant) -> double {
+        pmp = swe_degnorm(pmp);
+        if (pmp < 90.0)  { quadrant = 1; return 1.0 - pmp / 90.0; }
+        if (pmp < 180.0) { quadrant = 2; return pmp / 90.0 - 1.0; }
+        if (pmp < 270.0) { quadrant = 3; return 3.0 - pmp / 90.0; }
+        quadrant = 4; return pmp / 90.0 - 3.0;
+    };
+    // T/V/R for a given quadrant, matching the book's own mundane-
+    // conjunction arc formula: Arc = RAp - R + T*(90 + V*ADp)*ratio.
+    auto placidusQuadrantTVR = [&](int quadrant, double& T, double& V, double& R) {
+        const double raic = swe_degnorm(ramc + 180.0);
+        switch (quadrant) {
+        case 1: T = 1;  V = -1; R = raic; break;
+        case 2: T = -1; V = -1; R = raic; break;
+        case 3: T = 1;  V = 1;  R = ramc; break;
+        default: T = -1; V = 1;  R = ramc; break; // 4
+        }
+    };
+
+    for (const Body& prom : std::as_const(bodies)) {
+        // Promissor is always bare — never a ray. Body::entry already holds
+        // the right thing for EITHER kind of promissor: a planet's own real
+        // RA/Dec, or an angle's own real RA/Dec (the ecliptic degree that's
+        // rising/culminating, at its own true declination via the obliquity
+        // — not flattened). That real-declination form is essential here:
+        // unlike a bare angle SIGNIFICATOR (whose own ratio is trivially 1,
+        // by definition, so its own semi-arc value never actually enters the
+        // arithmetic — see below), an angle PROMISSOR's own semi-arc is used
+        // directly to scale the significator's ratio, so which declination
+        // it's given changes the answer. Verified against a reference value
+        // (Asc directed converse to Pluto, 65°54'44"): real declination
+        // matches to within half an arcsecond; a flattened dec=0 (matching
+        // what the significator side uses) is off by over 24°.
+        DirSpeculumEntry promEntryBare = prom.entry;
+        if (promEntryBare.circumpolar) continue;
+
+        for (const Body& sig : std::as_const(bodies)) {
+            // Angle-to-angle direction WAS excluded here on the assumption
+            // that directing one house angle to another isn't a meaningful
+            // classical technique — that assumption turned out to be wrong:
+            // the reference data includes a real, confirmed "Asc -> IC"
+            // direction (Ascendant as promissor, IC as significator).
+            // Mathematically it's no different from Asc -> Pluto (already
+            // validated to sub-arcsecond precision): IC's own bare ratio is
+            // trivially 1 by definition (nocturnal boundary), same as any
+            // other bare angle significator, so it scales the promissor's
+            // real semi-arc exactly like any other significator would.
+
+            for (const auto& ray : kRays) {
+                if (_state == cancelRequestedState) return;
+                if (ray.offset != 0.0 && !pdIncludeRays) continue;
+
+                // A body directed to its own conjunction ray (i.e. its own
+                // radix place) is a no-op arc — always excluded. But a body
+                // directed to one of its OWN non-conjunction rays (e.g.
+                // Jupiter's own sextile point) is a real, used classical
+                // technique, not self-direction — the promissor and
+                // significator are different points on the sphere even
+                // though they share a body. Only exclude the offset==0 case.
+                if (sig.aIdx == prom.aIdx && ray.offset == 0.0) continue;
+
+                // Ray construction depends on significator type and mode.
+                // Angle significators and Zodiacal-mode planet significators
+                // still build an actual (RA, Dec) point and run it through
+                // the generic ratio-matching arc formula (angle case proven
+                // exact to sub-arcsecond precision; Zodiacal case unverified
+                // against reference data but structurally the classical
+                // ecliptic-offset construction). Mundane-mode planet
+                // significators do NOT: a mundane ray is not a point on the
+                // sphere at all — it's Makransky's Placidus Mundane
+                // Aspectual Direction ("Primary Directions: A Primer of
+                // Calculation", Ch. VII), a purely proportional house-
+                // position measure (0=Asc, 90=IC, 180=Desc, 270=MC) that the
+                // aspect value is added to directly, with no declination
+                // ever entering the picture. Verified against six
+                // independent reference ratios (dexter/sinister trine,
+                // sextile, square of the same real planet) to 5 decimal
+                // places — every (RA,Dec)-based construction tried before
+                // this (dec=0, own declination, negated, real ecliptic
+                // latitude preserved, Bianchini) was measurably wrong, this
+                // one isn't an approximation of any of them.
+                double arc;
+                double sigDisplayRA; // RA shown in the T/P/N cell tooltip only
+                if (sig.angleKind != DirNotAngle) {
+                    const double rayRA =
+                        swe_degnorm(angleBaseRA(sig.angleKind) + ray.offset);
+                    DirSpeculumEntry sigEntry = buildDirSpeculumEntry(rayRA, 0.0, ramc, lat);
+                    arc = primaryDirectionArc(promEntryBare, sigEntry, ramc, DirNotAngle);
+                    sigDisplayRA = sigEntry.ra;
+                } else if (ray.offset == 0.0) {
+                    arc = primaryDirectionArc(promEntryBare, sig.entry, ramc, DirNotAngle);
+                    sigDisplayRA = sig.entry.ra;
+                } else if (A::primDirMode == A::prdZodiacal) {
+                    const double rayEclLon = swe_degnorm(sig.eclLon + ray.offset);
+                    double ra, dec;
+                    eclipticToEquatorial(rayEclLon, 0.0, eps, ra, dec);
+                    DirSpeculumEntry sigEntry = buildDirSpeculumEntry(ra, dec, ramc, lat);
+                    if (sigEntry.circumpolar) continue;
+                    arc = primaryDirectionArc(promEntryBare, sigEntry, ramc, DirNotAngle);
+                    sigDisplayRA = sigEntry.ra;
+                } else {
+                    int sigQuadrant;
+                    const double pmpSig = placidusMundanePosition(sig.entry, sigQuadrant);
+                    const double pmpAP = swe_degnorm(pmpSig + ray.offset);
+                    int apQuadrant;
+                    const double ratioAP = placidusRatioFromPMP(pmpAP, apQuadrant);
+                    double T, V, R;
+                    placidusQuadrantTVR(apQuadrant, T, V, R);
+                    arc = foldSigned180(promEntryBare.ra - R
+                                       + T * (90.0 + V * promEntryBare.ad) * ratioAP);
+                    sigDisplayRA = swe_degnorm(sig.entry.ra + ray.offset); // display only
+                }
+                if (!std::isfinite(arc) || arc == 0.0) continue;
+
+                const bool converse = arc < 0.0;
+                if (pdDirectionScope == PDDirectOnly && converse) continue;
+                if (pdDirectionScope == PDConverseOnly && !converse) continue;
+
+                QDateTime dt = primaryDirectionDate(natalIda.GMT(), arc,
+                                                    A::pdTimingKey);
+
+                // Include this direction whenever its orb of effect overlaps
+                // the search window at all, not just when the exact date
+                // falls inside it — the same principle a slow transit uses
+                // (perfecting outside the window still shows if its in-orb
+                // span reaches into it). Unlike a transit, this costs nothing
+                // extra: findPrimaryDirections() is a fixed-size closed-form
+                // enumeration over every (promissor, significator, ray)
+                // combination regardless of window size, not an iterative
+                // time-walk whose cost scales with how much time it covers.
+                const qint64 orbSecs = pdOrbDegrees > 0.0
+                    ? qint64(pdOrbDegrees * pdDaysPerDegree(A::pdTimingKey) * 86400.0)
+                    : 0;
+                const QDateTime rangeStart = dt.addSecs(-orbSecs);
+                const QDateTime rangeEnd   = dt.addSecs(orbSecs);
+                if (rangeEnd.date() < _range.first || rangeStart.date() > _range.second)
+                    continue;
+
+                // Sort order within the pair, not real motion: both bodies
+                // are fixed at the radix. The COLUMN is tied to the
+                // classical ROLE, not to which body happens to carry a ray
+                // this row: the promissor is always nudged to sort first
+                // (PlanetRangeBySpeed orders by |speed| descending) so it
+                // always lands in transitBodyCol (T/P/S), bare, with no ray
+                // decoration — and the significator always lands in
+                // natalTransitBodyCol (T/P/N), carrying the ray. (An earlier
+                // version of this tied the column to whichever body carried
+                // the ray instead, which meant a row like "Uranus's own
+                // conjunction directs to the Ascendant" and its converse
+                // "the Ascendant directs to Uranus" could each show Uranus
+                // in a different column depending on which one happened to
+                // be bare that row — genuinely confusing. Fixed: promissor
+                // is column-stable in T/P/S regardless of ray content.)
+                //
+                // Nothing moves in ecliptic longitude during a direction —
+                // only the RAMC rotates through the fixed sphere — and RA
+                // (not ecliptic longitude) is what the arc is actually
+                // computed from, so store right ascension in rasiLoc()
+                // rather than the usual ecliptic position; EventsTableModel's
+                // glyph()/display()/planetToText() special-case
+                // etcPrimaryDirections to render it as RA instead of a
+                // zodiac position (optional, off by default — see
+                // EventOptions::showPDRightAscension). Significator desc
+                // carries the ray's Almagest aspect-glyph codepoint, plus a
+                // trailing "D"/"S" for dexter/sinister, on every ray except
+                // the conjunction — conjunction isn't a projected ray, so
+                // dexter/sinister doesn't apply to it. Promissor desc stays
+                // just "Dir"/"Con", surfaced via the Asp column instead of
+                // the T/P/S cell (see EventsTableModel::data()'s harmonicCol
+                // handling, which reads it from the higher-speed/T-P-S slot
+                // now that the promissor — not the significator — sits
+                // there). Conjunction carries no glyph at all — it isn't a
+                // projected ray, just the significator's own place, so
+                // there's nothing to mark.
+                QString sigDesc;
+                if (ray.offset != 0.0) {
+                    sigDesc = QString(ray.glyph);
+                    if (ray.dexsin != 0) sigDesc += QChar(ray.dexsin);
+                }
+
+                PlanetLoc promLoc(prom.cpid, converse ? "Con" : "Dir",
+                                  promEntryBare.ra);
+                promLoc.speed = 2e-9;
+                PlanetLoc sigLoc(sig.cpid, sigDesc, sigDisplayRA);
+                sigLoc.speed = 1e-9;
+
+                PlanetRangeBySpeed locs;
+                locs.insert(promLoc);
+                locs.insert(sigLoc);
+
+                auto& ev = _evs.safe_emplace_back(dt, unsigned(etcPrimaryDirections),
+                                                  ray.harmonic, std::move(locs), 0.0);
+                if (orbSecs > 0) ev.setRange({ rangeStart, rangeEnd });
+            }
         }
     }
 }
@@ -11827,6 +12350,13 @@ AspectFinder::findStuff()
     // Wrap in lambda so we can conditionally establish the RAII context
     // for ex-precessed natal positions (equatorial mode).
     auto runFinder = [&]() {
+        // Primary Directions is a closed-form enumeration over the radix
+        // (no root-finding, no time stepping), so it runs first — the
+        // mirror image of running heliacal last (below) because it costs
+        // microseconds and can populate the table via progressive reveal
+        // ahead of the slower passes.
+        if (_state != cancelRequestedState && showPrimaryDirections())
+            findPrimaryDirections();
         if (showStations()) findStations();
         if (_state != cancelRequestedState
             && (showParanatellonta() || showParanatellontaToNatal()))

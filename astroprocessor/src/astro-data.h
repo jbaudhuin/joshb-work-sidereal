@@ -1726,6 +1726,19 @@ class NatalExprecessedPosition : public NatalPosition {
     qreal         operator()(double jd, int h) override;
     PlanetLocMode mode() const override { return plmNatal; }
 
+    /// Raw natal-epoch RA/Dec/ecliptic-longitude, as computed by the
+    /// constructor — bypasses radecAt(jdNatal, ...) entirely. Prefer these
+    /// when the caller's target epoch IS the natal epoch (e.g. primary
+    /// directions, which never leave the radix): radecAt() at jd==jdNatal
+    /// turned out to be a true no-op (verified), so this isn't needed to
+    /// dodge any exprecess_equatorial() artifact — it's just one less
+    /// indirection for a caller that was never really asking "at a different
+    /// epoch" in the first place.
+    double natalRA() const { return _natalRA; }
+    double natalDec() const { return _natalDec; }
+    double natalEclLon() const { return _eclLon; }
+    double natalEpochJd() const { return _jdNatal; }
+
     /// Ex-precessed RA/Dec at target epoch, without touching `loc`/`speed`.
     /// Used by paran finder which needs natal RA/Dec for the mundane
     /// angle-transit formula independent of the ecliptic-mode `loc` state.

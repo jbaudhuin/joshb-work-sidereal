@@ -523,6 +523,39 @@ class EventsTableModel : public QAbstractItemModel {
         }
     }
 
+    // Translate a Primary Direction ray glyph (Almagest aspect codepoint, set
+    // by findPrimaryDirections in the significator's PlanetLoc::desc) to the
+    // human-readable aspect name used in text contexts (tooltip, summary).
+    // Only the first character is examined, since the significator's desc
+    // may carry a trailing "D"/"S" dexter/sinister marker (see
+    // pdDexSinToText). Returns an empty string when desc is not a PD ray
+    // glyph (e.g. the promissor's "Dir"/"Con").
+    static QString pdRayGlyphToText(const QString& desc)
+    {
+        if (desc.isEmpty()) return {};
+        switch (desc[0].unicode()) {
+        case 0x00C9: return QStringLiteral("Conjunction");
+        case 0x00CB: return QStringLiteral("Sextile");
+        case 0x00CD: return QStringLiteral("Square");
+        case 0x00CF: return QStringLiteral("Trine");
+        case 0x00D1: return QStringLiteral("Opposition");
+        default:     return {};
+        }
+    }
+
+    // Translate the significator's trailing dexter/sinister marker ("D"/"S",
+    // set by findPrimaryDirections after the ray glyph — never present on
+    // the conjunction ray) to its full classical word. Returns an empty
+    // string when desc carries no such marker.
+    static QString pdDexSinToText(const QString& desc)
+    {
+        if (desc.length() < 2) return {};
+        QChar c = desc[desc.length() - 1];
+        if (c == QLatin1Char('D')) return QStringLiteral("Dexter");
+        if (c == QLatin1Char('S')) return QStringLiteral("Sinister");
+        return {};
+    }
+
     // Map a heliacal phase tag (set by findHeliacalEvents in PlanetLoc::desc) to
     // readable text: MF/EL/EF/ML → morning-first / evening-last / evening-first
     // / morning-last. Returns {} when desc is not a heliacal tag.
@@ -655,7 +688,8 @@ class EventsTableModel : public QAbstractItemModel {
     }
 
     QString display(const A::PlanetLoc& s,
-                    const QString& descOverride = {}) const
+                    const QString& descOverride = {},
+                    unsigned       eventType    = 0) const
     {
         // A decomposed apparition row overrides the shared anchor tag (s.desc)
         // with its own phase occurrence (e.g. "Cs" rather than the anchor "Cul").
@@ -676,6 +710,29 @@ class EventsTableModel : public QAbstractItemModel {
         QString suff;
         if (auto suf = modeToSuffix(s.mode()); !suf.isEmpty()) {
             suff = "-" + suf;
+        }
+        // Primary directions: rasiLoc() holds right ascension, not ecliptic
+        // longitude (see glyph()'s matching branch) — show it as RA rather
+        // than feeding it through zodiacPosition(), which would print a
+        // meaningless sign/degree, and only when the user has opted in.
+        if (eventType == A::etcPrimaryDirections) {
+            QString r = s.planet.name() + suff;
+            if (A::EventOptions::current().showPDRightAscension)
+                r += " " + A::raToString(s.rasiLoc(), A::HighPrecision);
+            if (!eff.isEmpty()) {
+                // Significator: eff is the ray's Almagest glyph, optionally
+                // followed by a "D"/"S" dexter/sinister marker -> readable
+                // ray name (+ ", Dexter"/", Sinister"). Promissor: eff is
+                // already "Dir"/"Con" -> shown as-is.
+                QString rayText = pdRayGlyphToText(eff);
+                if (rayText.isEmpty()) {
+                    r += " (" + eff + ")";
+                } else {
+                    QString dexSin = pdDexSinToText(eff);
+                    r += " (" + rayText + (dexSin.isEmpty() ? "" : ", " + dexSin) + ")";
+                }
+            }
+            return r;
         }
         // For paran entries whose desc is an Almagest angle codepoint (or a
         // heliacal phase tag), substitute readable text so the tooltip renders
@@ -741,6 +798,31 @@ class EventsTableModel : public QAbstractItemModel {
             if (s.speed < 0) out += " #"; // Almagest retrograde glyph
             return out;
         }
+        // Primary directions: nothing moves in ecliptic longitude during a
+        // direction (only the RAMC rotates through the fixed sphere), and RA
+        // is what the arc is actually computed from — so show right ascension
+        // (findPrimaryDirections() stores it in rasiLoc() for these events)
+        // rather than a zodiac position, and only when the user has opted in
+        // (off by default — the two values are each body's own fixed natal
+        // RA and don't "match" at exact contact, which reads as confusing
+        // without the semi-arc explanation).
+        if (eventType == A::etcPrimaryDirections) {
+            QString out = g;
+            if (A::EventOptions::current().showPDRightAscension)
+                out += " " + A::raToString(s.rasiLoc(), A::NormalPrecision);
+            // Significator's desc is a single-char Almagest aspect-glyph
+            // codepoint (the ray), optionally followed by a literal "D"/"S"
+            // dexter/sinister marker — append literally; this cell already
+            // renders in Almagest font, where uppercase letters render as
+            // literal text rather than glyphs. The conjunction carries no
+            // glyph at all (empty desc — it isn't a projected ray, just the
+            // significator's own place), so there's nothing to append.
+            // Promissor's desc ("Dir"/"Con", length 3) is suppressed here;
+            // it surfaces via the Asp column instead (see harmonicCol
+            // handling in data()).
+            if (!s.desc.isEmpty() && s.desc.length() <= 2) out += " " + s.desc;
+            return out;
+        }
         if (isPattern) return g;
         if (s.speed < 0 && !s.desc.startsWith("S")) {
             desc = "#" + desc; // retrograde
@@ -756,7 +838,7 @@ class EventsTableModel : public QAbstractItemModel {
         return cpid.name();
     }
 
-    QString summary(const A::PlanetLoc& s) const
+    QString summary(const A::PlanetLoc& s, unsigned eventType = 0) const
     {
         auto str = s.planet.name();
 
@@ -766,6 +848,21 @@ class EventsTableModel : public QAbstractItemModel {
             str += "-" + suffix;
         }
 
+        if (eventType == A::etcPrimaryDirections) {
+            // Significator: desc is the ray's Almagest glyph, optionally
+            // followed by a "D"/"S" dexter/sinister marker -> readable name.
+            // Promissor: desc is "Dir"/"Con" but that's shown via the Asp
+            // column (harmonicCol) instead, so suppress it here to avoid
+            // "Asc-Dir Dir" duplicating what rowDesc()'s connector already says.
+            QString rayText = pdRayGlyphToText(s.desc);
+            if (!rayText.isEmpty()) {
+                str += "-" + rayText;
+                QString dexSin = pdDexSinToText(s.desc);
+                if (!dexSin.isEmpty()) str += "-" + dexSin;
+            }
+            return str;
+        }
+
         // Add descriptor; translate paran angle glyphs / heliacal phase tags to
         // readable text.
         if (!s.desc.isEmpty()) {
@@ -773,7 +870,7 @@ class EventsTableModel : public QAbstractItemModel {
             if (angleText.isEmpty()) angleText = heliacalPhaseToText(s.desc);
             str += "-" + (angleText.isEmpty() ? s.desc : angleText);
         }
-        
+
         return str;
     }
 
@@ -808,9 +905,9 @@ class EventsTableModel : public QAbstractItemModel {
             if (role == Qt::DisplayRole || role == Qt::EditRole) {
                 sl << glyph(s, eventType);
             } else if (role == Qt::ToolTipRole) {
-                sl << display(s);
+                sl << display(s, {}, eventType);
             } else if (role == SummaryRole) {
-                sl << summary(s);
+                sl << summary(s, eventType);
             }
         }
 
@@ -923,12 +1020,12 @@ class EventsTableModel : public QAbstractItemModel {
             } else if (role == Qt::ToolTipRole) {
                 if constexpr (std::is_same_v<std::decay_t<decltype(s)>,
                                              A::PlanetLoc>) {
-                    sl << display(s, descOverride);
+                    sl << display(s, descOverride, eventType);
                 } else {
                     sl << display(s);
                 }
             } else if (role == SummaryRole) {
-                sl << summary(s);
+                sl << summary(s, eventType);
             }
         }
 
@@ -1121,6 +1218,30 @@ class EventsTableModel : public QAbstractItemModel {
             return A::degreeToString(asp.orb());
 
         case harmonicCol:
+            // Primary Directions: the ray (conjunction/sextile/square/trine/
+            // opposition) renders as an Almagest glyph directly in the
+            // significator's own T/P/N cell (see EventsTableModel::glyph()
+            // — the significator carries the ray, the promissor is always
+            // bare, per findPrimaryDirections), so this column shows
+            // direct/converse instead — the one piece of information about
+            // a PD row that isn't visible anywhere else, since
+            // converse/direct is a property of the whole arc, not either
+            // body individually.
+            if (et == A::etcPrimaryDirections) {
+                if (role == Qt::DecorationRole) return QVariant();
+                if (role == Qt::FontRole) return QFont(); // default, not Almagest
+                QString dirCon;
+                locPair pp;
+                if (getPlanetPair(asp.locations(), pp) && pp.first) {
+                    if (auto* ploc = dynamic_cast<const A::PlanetLoc*>(pp.first))
+                        dirCon = ploc->desc; // "Dir" or "Con", on the promissor (T/P/S)
+                }
+                if (role == Qt::ToolTipRole)
+                    return dirCon == "Con" ? tr("Converse") : tr("Direct");
+                if (role == RawRole) return asp.harmonic();
+                if (role == Qt::DisplayRole || role == SummaryRole) return dirCon;
+                return QVariant();
+            }
             // Named aspect sets (Basic, Reasonable, ...) show the aspect's
             // own icon from aspects.csv instead of the "H4" text — Dynamic
             // mode has no named icon, so it keeps the H# cell below.
@@ -1893,7 +2014,8 @@ class EventsTableModel : public QAbstractItemModel {
     QString exportToHtml(AstroFile* natalFile, AstroFile* transitFile) const;
     QString planetToText(const A::ChartPlanetModeId& cpid) const;
     QString planetToText(const A::PlanetLoc& ploc,
-                         const QString& descOverride = QString()) const;
+                         const QString& descOverride = QString(),
+                         unsigned       eventType    = 0) const;
 
   public slots:
     void rebuild()
@@ -2820,9 +2942,9 @@ Transits::Transits(QWidget* parent) :
         }
         saveEventOptionsAndRecalc(checked);
     });
-    
+
     toolbar->addSeparator();
-    
+
     // Event filter buttons: grouped split-buttons. Each consolidates several
     // related event types behind a master on/off; the dropdown menu holds the
     // members (some in optional-exclusive radio subgroups). See
@@ -2852,6 +2974,24 @@ Transits::Transits(QWidget* parent) :
     buildEventGroupButton(toolbar, "AP", "Aspect Patterns", {
         { A::etcTransitAspectPattern },
         { A::etcTransitNatalAspectPattern },
+    });
+
+    // Primary Directions button. Classical Placidian semi-arc directions
+    // (promissor bodies + Ptolemaic rays, directed to natal planets/angles as
+    // significators, dated via the Naibod/Ptolemy key) — a closed-form
+    // enumeration over the radix, computed by
+    // AspectFinder::findPrimaryDirections().
+    _actPrimaryDirections = toolbar->addAction("PD");
+    _actPrimaryDirections->setCheckable(true);
+    _actPrimaryDirections->setToolTip(tr("Primary Directions"));
+    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actPrimaryDirections))) {
+        btn->setStyleSheet("QToolButton { min-width: 20px !important; }");
+    }
+    connect(_actPrimaryDirections, &QAction::triggered, this,
+            [this, saveEventOptionsAndRecalc](bool checked) {
+        if (checked) _tabEventOptions.insert(A::etcPrimaryDirections);
+        else _tabEventOptions.erase(A::etcPrimaryDirections);
+        saveEventOptionsAndRecalc(checked);
     });
 
     // [Par▼] Paranatellonta
@@ -4793,6 +4933,15 @@ Transits::clickedCell(QModelIndex inx)
     if (!dt.isValid()) return;
     auto    ev = _evm->rowData(srcInx.row());
     auto    et = ev.eventType();
+    if (et == A::etcPrimaryDirections) {
+        // Deliberately a no-op for now: a primary direction's computed date
+        // has no real astronomical event at it (see findPrimaryDirections())
+        // — it's an age converted from an arc via a timing key, not a real
+        // transit/return moment — so building a chart there, ecliptic or
+        // equatorial, would misrepresent it. Revisit once a representation
+        // that actually reflects the direction is settled on.
+        return;
+    }
     // TA/TNA are harmonic aspect-PATTERN events: draw precisely the clicked
     // pattern ("exactly this").  Every other focal event (T=N, returns,
     // parans, …) wants the clicked aspect plus the other aspects involving its
@@ -5079,6 +5228,10 @@ Transits::doubleClickedCell(QModelIndex inx)
     if (!dt.isValid()) return;
     auto              ev   = _evm->rowData(row);
     auto              et   = ev.eventType();
+    if (et == A::etcPrimaryDirections) {
+        // See the matching guard in clickedCell() — deliberately a no-op.
+        return;
+    }
     const QString desc = (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal)
                          ? buildParanChartName(ev, !transitsOnly())
                          : _evm->rowDesc(row);
@@ -5383,9 +5536,9 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
                     A::PlanetLoc s = *it;
                     s._rasiLoc = occLons[occ];
                     if (occ < occSpds.size()) s.speed = occSpds[occ];
-                    transitBodies << this->planetToText(s, occLabel);
+                    transitBodies << this->planetToText(s, occLabel, asp.eventType());
                 } else {
-                    transitBodies << this->planetToText(*it, occLabel);
+                    transitBodies << this->planetToText(*it, occLabel, asp.eventType());
                 }
             }
         }
@@ -5406,7 +5559,7 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
             if (!singleColumn(asp.locations())) {
                 auto [begin, end] = getNTColIters(asp.locations());
                 for (auto it = begin; it != end; ++it) {
-                    natalTransitBodies << this->planetToText(*it);
+                    natalTransitBodies << this->planetToText(*it, {}, asp.eventType());
                 }
             }
         }
@@ -5438,7 +5591,8 @@ EventsTableModel::planetToText(const A::ChartPlanetModeId& cpid) const
 
 QString
 EventsTableModel::planetToText(const A::PlanetLoc& ploc,
-                               const QString& descOverride) const
+                               const QString& descOverride,
+                               unsigned       eventType) const
 {
     // Use 3-letter abbreviation
     QString name = ploc.planet.name().remove(' ').left(3);
@@ -5449,9 +5603,29 @@ EventsTableModel::planetToText(const A::PlanetLoc& ploc,
         name += "-" + suffix;
     }
 
+    const QString& desc = descOverride.isEmpty() ? ploc.desc : descOverride;
+
+    // Primary directions: rasiLoc() holds right ascension, not ecliptic
+    // longitude (see EventsTableModel::glyph()'s matching branch), shown
+    // only when the user has opted in. Significator's desc is the ray's
+    // Almagest glyph, optionally followed by a "D"/"S" dexter/sinister
+    // marker -> readable name here (plain text, not glyph font);
+    // promissor's desc ("Dir"/"Con") is shown via the Asp column instead,
+    // so suppressed here too.
+    if (eventType == A::etcPrimaryDirections) {
+        QString rayText = pdRayGlyphToText(desc);
+        if (!rayText.isEmpty()) {
+            name += "-" + rayText;
+            QString dexSin = pdDexSinToText(desc);
+            if (!dexSin.isEmpty()) name += "-" + dexSin;
+        }
+        if (A::EventOptions::current().showPDRightAscension)
+            name += " " + A::raToString(ploc.rasiLoc(), A::HighPrecision);
+        return name;
+    }
+
     // Add descriptor (SD, SR, etc.). A decomposed apparition row overrides the
     // anchor tag with its own phase (Acr/Cul/Cs/MF/EL).
-    const QString& desc = descOverride.isEmpty() ? ploc.desc : descOverride;
     if (!desc.isEmpty()) {
         name += "-" + desc;
     }
@@ -6082,7 +6256,13 @@ Transits::applySettings(const AppSettings& s)
          || s.value("Events/includeAsteroids").toBool() != curr.includeAsteroids
          || s.value("Events/includeCentaurs").toBool() != curr.includeCentaurs
          || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
-                != curr.includeOnlyInnerProgressionsToNatal);
+                != curr.includeOnlyInnerProgressionsToNatal
+         || s.value("Events/pdIncludeRays", true).toBool() != curr.pdIncludeRays
+         || A::EventOptions::PDDirectionScope(
+                s.value("Events/pdDirectionScope",
+                        unsigned(A::EventOptions::PDBothDirections)).toUInt())
+                != curr.pdDirectionScope
+         || s.value("Events/pdOrbDegrees", 0.5).toDouble() != curr.pdOrbDegrees);
 
     bool changedExpanded =
         (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
@@ -6147,6 +6327,18 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
 
     ed->addCheckBox("Events/includeAsteroids", tr("Include asteroids"));
     ed->addCheckBox("Events/includeCentaurs", tr("Include centaurs"));
+    ed->addCheckBox("Events/showPDRightAscension",
+                    tr("Show right ascension in Primary Directions rows"));
+    ed->addCheckBox("Events/pdIncludeRays",
+                    tr("Primary Directions: include aspect rays\n(sextile/square/trine/opposition, not just conjunction)"));
+    ed->addComboBox("Events/pdDirectionScope",
+                    tr("Primary Directions: direct/converse"),
+                    { { "Both", unsigned(A::EventOptions::PDBothDirections) },
+                      { "Direct only", unsigned(A::EventOptions::PDDirectOnly) },
+                      { "Converse only", unsigned(A::EventOptions::PDConverseOnly) } });
+    ed->addDoubleSpinBox("Events/pdOrbDegrees",
+                         tr("Primary Directions: orb of effect (RA degrees)"),
+                         0.0, 5.0);
     //ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
     ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"), 2, 6);
     ed->addDoubleSpinBox("Events/patternsSpreadOrb",
@@ -6385,7 +6577,7 @@ Transits::updateToolbarFromEventOptions()
     if (!_actStations) return;  // Toolbar not initialized yet (S is built first)
 
     // Block signals during bulk updates for the standalone QActions.
-    ASignalBlocker block({_actStations, _actReturns});
+    ASignalBlocker block({_actStations, _actReturns, _actPrimaryDirections});
 
     if (_actStations)
         _actStations->setChecked(_tabEventOptions.count(A::etcStation) > 0);
@@ -6393,6 +6585,9 @@ Transits::updateToolbarFromEventOptions()
         _actReturns->setChecked(_tabEventOptions.count(A::etcReturn) > 0 ||
                                 _tabEventOptions.count(A::etcSolarReturn) > 0 ||
                                 _tabEventOptions.count(A::etcLunarReturn) > 0);
+    if (_actPrimaryDirections)
+        _actPrimaryDirections->setChecked(
+            _tabEventOptions.count(A::etcPrimaryDirections) > 0);
 
     // Reconcile each grouped dropdown button from the option set.
     for (auto& grp : _eventGroups) syncGroupFromOptions(grp);
