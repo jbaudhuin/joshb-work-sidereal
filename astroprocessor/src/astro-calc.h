@@ -717,6 +717,14 @@ struct EventOptions {
     // (conjunction). Off restricts to conjunction only.
     bool pdIncludeRays = true;
 
+    // Primary Directions: whether the four angles (Asc/Desc/MC/IC) can act
+    // as a PROMISSOR (the bare, moving body) as well as a significator.
+    // Angles as significators are always allowed (that's the classical
+    // baseline — a planet directing to an angle); this only gates the
+    // reverse, an angle directing to another point (e.g. "Asc -> Pluto").
+    // On by default, matching findPrimaryDirections()'s original behavior.
+    bool pdAnglesAsPromissors = true;
+
     // Primary Directions: which of a pair's two possible directions to
     // enumerate. Both is the classical default.
     enum PDDirectionScope { PDBothDirections, PDDirectOnly, PDConverseOnly };

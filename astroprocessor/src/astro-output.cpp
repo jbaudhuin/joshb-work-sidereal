@@ -1117,6 +1117,35 @@ struct event {
     unsigned    _pivot;
     bool        _isNatal = false; // natal ex-precessed row — right-justified italic
 
+    // Directed date (GMT), hoisted out of fmt() so it can be filtered on
+    // before rendering (see the Primary Direction focal preview mode below).
+    // Invalid until computeDirected() runs; stays invalid for the radix
+    // marker row and _isProgressed rows, matching fmt()'s own guard.
+    QDateTime   _directed;
+
+    // Primary Direction focal preview: a synthesized row representing the
+    // clicked PD event itself (not a real angle-transit — _star stays null),
+    // shown bolded as an anchor alongside the angle-transit rows clustered
+    // near it. See makeFocusAnchor() below.
+    bool        _isFocusAnchor = false;
+    QString     _anchorLabel;
+    // "Equivalent simple-arc" RA for the anchor row's Sidereal-Time/RA
+    // column -- NOT the literal Placidus Mundane Position arc
+    // findPrimaryDirections() used to compute this event (that's a
+    // quadrant-aware formula over the significator's PMP, not a bare RA
+    // target). This is radixRA +/- the arc implied by inverting the simple
+    // elapsed-time-per-degree formula the *other* (legacy angle-transit)
+    // rows in this same table use, so it can be visually compared against
+    // them on the same axis. See makeFocusAnchor(). -1 (invalid RA) when
+    // not an anchor row.
+    double      _anchorImpliedRA = -1.0;
+    // The near-radix calendar moment at which local sidereal time equals
+    // _anchorImpliedRA -- i.e. the same "raw transit" concept the other
+    // rows' _dt represents, reverse-derived so Local Time mode has
+    // something to show too (same caveat as _anchorImpliedRA: equivalent,
+    // not literal).
+    QDateTime   _anchorImpliedDt;
+
     static int       _maxWidth;
     static QDateTime _radix;
     static double    _radixRA; // Radix Local Sidereal Time in RA degrees
@@ -1139,7 +1168,12 @@ struct event {
         _dt(other._dt),
         _star(other._star),
         _pivot(other._pivot),
-        _isNatal(other._isNatal)
+        _isNatal(other._isNatal),
+        _directed(other._directed),
+        _isFocusAnchor(other._isFocusAnchor),
+        _anchorLabel(other._anchorLabel),
+        _anchorImpliedRA(other._anchorImpliedRA),
+        _anchorImpliedDt(other._anchorImpliedDt)
     {
     }
 
@@ -1149,7 +1183,67 @@ struct event {
         _star   = other._star;
         _pivot  = other._pivot;
         _isNatal = other._isNatal;
+        _directed = other._directed;
+        _isFocusAnchor = other._isFocusAnchor;
+        _anchorLabel   = other._anchorLabel;
+        _anchorImpliedRA = other._anchorImpliedRA;
+        _anchorImpliedDt = other._anchorImpliedDt;
         return *this;
+    }
+
+    // Primary Direction focal preview: build the anchor row for the clicked
+    // PD event itself. _pivot is set to the "----" placeholder (index 4 of
+    // fmt()'s AT list) since a synthesized event has no Rise/Set/MC/IC of
+    // its own; fmt() overrides that cell to "PD" for anchor rows anyway.
+    // converse selects which side of radixRA the implied RA is inverted
+    // onto (see _anchorImpliedRA's comment above for what this is/isn't).
+    static event makeFocusAnchor(const QDateTime& directedDate, const QString& label,
+                                  bool converse)
+    {
+        event e;
+        e._pivot         = 4;
+        e._directed      = directedDate;
+        e._isFocusAnchor = true;
+        e._anchorLabel   = label;
+        if (_radix.isValid() && directedDate.isValid()) {
+            double elapsedDays = _radix.msecsTo(directedDate) / 86400000.0;
+            double yearDays    = pdDaysPerDegree(pdTimingKey);
+            if (yearDays > 0.0) {
+                double arcMag = elapsedDays / yearDays;
+                double ra     = _radixRA + (converse ? -arcMag : arcMag);
+                ra            = std::fmod(ra, 360.0);
+                if (ra < 0.0) ra += 360.0;
+                e._anchorImpliedRA = ra;
+
+                // Reverse the same near-radix RA->calendar-moment conversion
+                // the legacy angle-transit rows use (astro-calc.cpp's
+                // non-prdActive branch) to get a "raw transit"-equivalent
+                // moment for Local Time mode.
+                double deltaDeg = ra - _radixRA;
+                while (deltaDeg > 180.0)   deltaDeg -= 360.0;
+                while (deltaDeg <= -180.0) deltaDeg += 360.0;
+                const double siderealDay = 0.99726958; // days
+                double jd0      = getJulianDate(_radix);
+                double jdTarget = jd0 + deltaDeg / 360.0 * siderealDay;
+                e._anchorImpliedDt = dateTimeFromJulian(jdTarget);
+            }
+        }
+        return e;
+    }
+
+    // Fills _directed using the same calculation fmt() used to do inline.
+    // Call once per event, after the chronological sort (order doesn't
+    // matter for the math, but doing it once up front lets callers filter
+    // on the result before any rendering happens).
+    void computeDirected()
+    {
+        if (_star && !_isProgressed) {
+            double planetRA = _star->equatorialPos.x();
+            double angleRA  = _star->angleTransitRA[_pivot];
+            QString label   = _star->name + " @ " + angleTransitName(_pivot);
+            _directed = calculateAngularDate(_radix, _dt, planetRA, angleRA,
+                                             _pssrCtx, label, _radixRA);
+        }
     }
 
     bool operator<(const event& other) const
@@ -1176,7 +1270,9 @@ struct event {
                                 QObject::tr("IC"),
                                 "----" };
 
-        QString       planetName = _star ? _star->name : QObject::tr("*Radix*");
+        QString       planetName = _isFocusAnchor ? _anchorLabel
+                                  : _star           ? _star->name
+                                                     : QObject::tr("*Radix*");
         const Planet* planet     = dynamic_cast<const Planet*>(_star);
         // Genuine fixed star (not a Planet, not the radix placeholder, and not
         // one of the synthetic natal-position Star objects used for
@@ -1186,10 +1282,17 @@ struct event {
             planetName = formatStarNameHtml(*_star, planetName);
         }
 
+        // The focal-preview anchor row (the clicked PD event itself) is
+        // bolded like a planet row, plus a stronger highlight so it reads as
+        // the thing everything else is clustered around, not just another
+        // entry in the list.
+        const bool emphasize = planet || _isFocusAnchor;
+
         QString borderStyle =
             isFirstInGroup ? " border-top: 1px solid #777;" : "";
-        QString backgroundColor =
-            planet ? " background-color: rgba(255,255,255,0.03);" : "";
+        QString backgroundColor = _isFocusAnchor
+            ? " background-color: rgba(255,255,255,0.08);"
+            : planet ? " background-color: rgba(255,255,255,0.03);" : "";
         // data-pgroup marks which paran cluster this row belongs to, so the
         // Plain search filter can keep/highlight a whole cluster when any one
         // row in it matches, without having to re-derive the grouping itself.
@@ -1200,7 +1303,7 @@ struct event {
         // Planet name cell gets bold styling, other cells do not
         QString nameCellStyle =
             "padding: " + padding + " 8px;" + borderStyle + backgroundColor;
-        if (planet) {
+        if (emphasize) {
             nameCellStyle += " font-weight: bold;";
         }
         // Natal ex-precessed rows: right-justified italic to distinguish from transit
@@ -1215,8 +1318,8 @@ struct event {
             dataCellStyle += " font-style: italic;";
         }
 
-        // Planet name with color emphasis for planets
-        if (planet && !_isNatal) {
+        // Planet name with color emphasis for planets (and the focus anchor)
+        if (emphasize && !_isNatal) {
             ret += "<td style='" + nameCellStyle + " color: " + ThemeManager::instance().getHeadingColor() + ";'>"
                    + planetName + "</td>";
         } else {
@@ -1224,10 +1327,32 @@ struct event {
         }
 
         ret += "<td style='" + dataCellStyle + " text-align: center;'>"
-               + AT.at(_pivot) + "</td>";
+               + (_isFocusAnchor ? QObject::tr("PD") : AT.at(_pivot)) + "</td>";
 
-        // Display time/RA based on mode
-        if (displayMode == DisplaySiderealTime) {
+        // Display time/RA based on mode. The focus anchor is a synthesized
+        // row with no real raw transit moment of its own (that's the whole
+        // point — it's the PD event, not a transit), so all three modes
+        // show the equivalent-simple-arc reconstruction from
+        // makeFocusAnchor() instead of the real thing (an approximation --
+        // see its comment) rather than a blank dash.
+        if (_isFocusAnchor && displayMode == DisplaySiderealTime) {
+            ret += "<td style='" + dataCellStyle + " text-align: right;'>"
+                   + (_anchorImpliedRA >= 0.0
+                          ? siderealTimeToString(_anchorImpliedRA, HighPrecision)
+                          : "    --    ")
+                   + "</td>";
+        } else if (_isFocusAnchor && displayMode == DisplayRightAscension) {
+            ret += "<td style='" + dataCellStyle + " text-align: right;'>"
+                   + (_anchorImpliedRA >= 0.0
+                          ? raToString(_anchorImpliedRA, HighPrecision)
+                          : "    --    ")
+                   + "</td>";
+        } else if (_isFocusAnchor) {
+            // Local Time mode: same as the legacy rows below, just fed the
+            // reconstructed near-radix moment instead of a real _dt.
+            ret += "<td style='" + dataCellStyle + " text-align: right;'>"
+                   + _formatTime(_anchorImpliedDt, tz) + "</td>";
+        } else if (displayMode == DisplaySiderealTime) {
             // Sidereal Time mode: show HH:MM:SS format
             if (_star) {
                 if (!_dt.isValid()) {
@@ -1271,25 +1396,22 @@ struct event {
         }
 
         // Angular date calculation (PD or PSSR) - all display modes
-        if (_star && !_isProgressed) {
-            // Get the star/planet's RA and the angle RA
-            double planetRA = _star->equatorialPos.x();
-            double angleRA = _star->angleTransitRA[_pivot];
-            
-            QString label = _star->name + " @ " + angleTransitName(_pivot);
-            QDateTime angularDateGMT = calculateAngularDate(_radix, _dt, planetRA, angleRA, _pssrCtx, label, _radixRA);
+        if ((_star && !_isProgressed) || _isFocusAnchor) {
+            // _directed is hoisted (see computeDirected()) so it can be
+            // filtered on before rendering; just format it here. For the
+            // focus anchor, makeFocusAnchor() already set _directed directly.
             QString method = "PD"; // Default to Primary Directions
             QString dateFormat = "yyyy/MM/dd";
             if (_pssrCtx && _dirMethod != DirNone) {
                 method = dirMethodLabel(_dirMethod);
                 dateFormat = "ddd yyyy-MM-dd hh:mm";
             }
-            
+
             // Convert to local time using proper timezone offset
             int offsetSeconds = tz * 3600;
             QTimeZone timeZone = QTimeZone::fromSecondsAheadOfUtc(offsetSeconds);
-            QDateTime localDate = angularDateGMT.toTimeZone(timeZone);
-            
+            QDateTime localDate = _directed.toTimeZone(timeZone);
+
             ret += "<td style='" + dataCellStyle + "'> --&gt; "
                    + localDate.toString(dateFormat)
                    + " (" + method + ")</td>";
@@ -1318,7 +1440,11 @@ describeParans(const AstroFileList& scopes,
                SpeculumDisplayMode  displayMode,
                bool                 showParanNatalRows,
                bool                 includeOutOfOrbNatalRows,
-               AstroFile*           natalContext)
+               AstroFile*           natalContext,
+               bool                 focusOnDirection,
+               const ADateTimeRange& directionFocusRange,
+               const QDateTime&     directionFocusDate,
+               const QString&       directionFocusLabel)
 {
     // CONFIGURABLE: Cell padding for parans table - change this to adjust row
     // spacing Suggested values: "0px" (tight), "1px" (normal), "2px" (loose)
@@ -1364,6 +1490,15 @@ describeParans(const AstroFileList& scopes,
     // determine membership; no static time-proximity filter is needed.
     const bool isParanChart = file && file->getType() == TypeParan;
     const qint64 paranOrbSecs = qint64(paranOrb * 240); // 1° = 240 sidereal seconds ≈ clock seconds
+
+    // Primary Direction focal preview: an orthogonal, GMT-free filter mode —
+    // show only rows whose *directed* date (not raw transit time) falls
+    // within the clicked PD event's own orb window. Never touches the
+    // chart's GMT (unlike TypeParan), since a PD event's date is an
+    // arc-to-time conversion, not a real moment to anchor a chart on.
+    const bool isDirectionFocus = focusOnDirection
+        && directionFocusRange.first.isValid()
+        && directionFocusRange.second.isValid();
 
     QVector<event> events;
     events << event(scope.inputData.GMT(), NULL, 4); // radix
@@ -1517,6 +1652,11 @@ describeParans(const AstroFileList& scopes,
 
     std::sort(events.begin(), events.end());
 
+    // Hoist each row's directed date once, up front, so it can be filtered
+    // on (see the Primary Direction focal preview mode below) before any
+    // rendering happens. Order doesn't matter for the math.
+    for (event& e : events) e.computeDirected();
+
     // Focused paran chart: keep only the cluster anchored on the *Radix* event.
     // Radix, transit planets, AND natal ex-precessed bodies all act as anchors
     // (a fixed star that paranatellons a natal body is a genuine paran), so the
@@ -1548,6 +1688,51 @@ describeParans(const AstroFileList& scopes,
                 pruned.append(events[i]);
             events = std::move(pruned);
         }
+    } else if (isDirectionFocus) {
+        // Filter to rows whose *directed* date falls in the clicked PD
+        // event's own orb window, then re-sort by directed date -- for this
+        // view, chronological-by-prediction is what's meaningful, unlike
+        // the paran cluster above which cares about same-day transit
+        // adjacency. The radix marker row has no directed date
+        // (computeDirected() leaves it invalid), so it's naturally dropped
+        // here without special-casing it.
+        //
+        // Date proximity alone isn't enough, though: calculateAngularDate()
+        // takes |arc| before converting to days, so it's direction-blind —
+        // a row sitting ~64° *ahead* of radixRA and one sitting ~64°
+        // *behind* it land at nearly the same elapsed time even though
+        // they're on opposite sides of the sky. Left unfiltered, that pulls
+        // in rows from both RA neighborhoods around the anchor's own arc
+        // magnitude, blending its "Direct" side with its mirror-image
+        // "Converse" side into one misleading cluster. So also require the
+        // row be on the *same side* of radixRA as the clicked PD event's
+        // own Direct/Converse polarity.
+        // The label is built as "(Dir) Promissor → Significator" or
+        // "(Con) …" (see Transits::clickedCell()) -- pull the connector
+        // back out rather than threading yet another parameter through.
+        const bool anchorConverse = directionFocusLabel.startsWith("(Con");
+        auto sameSide = [anchorConverse](const event& e) {
+            if (!e._star) return false;
+            double arc = e._star->angleTransitRA[e._pivot] - event::_radixRA;
+            while (arc > 180.0)   arc -= 360.0;
+            while (arc <= -180.0) arc += 360.0;
+            return (arc < 0.0) == anchorConverse;
+        };
+        QVector<event> focused;
+        for (const event& e : std::as_const(events))
+            if (e._directed.isValid() && directionFocusRange.contains(e._directed)
+                && sameSide(e))
+                focused.append(e);
+        // Represent the clicked PD event itself as a bolded anchor row —
+        // otherwise the focused view shows only the rows clustered *around*
+        // it with no indication of what they're clustered around.
+        if (directionFocusDate.isValid() && !directionFocusLabel.isEmpty()) {
+            focused.append(event::makeFocusAnchor(directionFocusDate,
+                                                  directionFocusLabel, anchorConverse));
+        }
+        std::sort(focused.begin(), focused.end(),
+                  [](const event& a, const event& b) { return a._directed < b._directed; });
+        events = std::move(focused);
     }
 
     // Note: the section header (e.g. "Directions - Chart #2: …") is supplied
@@ -1590,6 +1775,13 @@ describeParans(const AstroFileList& scopes,
         // is a member — render them all in time order. No barrier grouping:
         // that would drop legitimate fringe stars paranatellonting a natal or
         // transit anchor on the cluster's edge.
+        const int gid = pgroupFor(true);
+        for (auto it = events.constBegin(); it != events.constEnd(); ++it)
+            ret += it->fmt(tz, cellPadding, false, displayMode, gid);
+    } else if (isDirectionFocus) {
+        // events is already filtered to the focus window and sorted by
+        // directed date — render every surviving row as one group, same
+        // shape as the paran case above, just keyed on a different axis.
         const int gid = pgroupFor(true);
         for (auto it = events.constBegin(); it != events.constEnd(); ++it)
             ret += it->fmt(tz, cellPadding, false, displayMode, gid);

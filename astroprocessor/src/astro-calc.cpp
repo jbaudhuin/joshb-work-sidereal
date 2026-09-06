@@ -4899,6 +4899,8 @@ EventOptions::EventOptions(const QVariantMap& map)
     showHarmonicDividend = map.value("Events/showHarmonicDividend").toBool();
     showPDRightAscension = map.value("Events/showPDRightAscension").toBool();
     pdIncludeRays = map.value("Events/pdIncludeRays", true).toBool();
+    pdAnglesAsPromissors =
+        map.value("Events/pdAnglesAsPromissors", true).toBool();
     pdDirectionScope = PDDirectionScope(
         map.value("Events/pdDirectionScope", unsigned(PDBothDirections)).toUInt());
     pdOrbDegrees = map.value("Events/pdOrbDegrees", 0.5).toDouble();
@@ -5087,6 +5089,7 @@ EventOptions::toMap()
     ret.insert("Events/showHarmonicDividend", showHarmonicDividend);
     ret.insert("Events/showPDRightAscension", showPDRightAscension);
     ret.insert("Events/pdIncludeRays", pdIncludeRays);
+    ret.insert("Events/pdAnglesAsPromissors", pdAnglesAsPromissors);
     ret.insert("Events/pdDirectionScope", unsigned(pdDirectionScope));
     ret.insert("Events/pdOrbDegrees", pdOrbDegrees);
     ret.insert("Events/transitBodyColMode", s_transitBodyColMode);
@@ -8246,6 +8249,10 @@ AspectFinder::findPrimaryDirections()
         // what the significator side uses) is off by over 24°.
         DirSpeculumEntry promEntryBare = prom.entry;
         if (promEntryBare.circumpolar) continue;
+        // Angles as promissors is a separate, optional extension beyond the
+        // classical baseline (a planet directing to an angle); angles as
+        // SIGNIFICATORS are unaffected — see pdAnglesAsPromissors's comment.
+        if (prom.angleKind != DirNotAngle && !pdAnglesAsPromissors) continue;
 
         for (const Body& sig : std::as_const(bodies)) {
             // Angle-to-angle direction WAS excluded here on the assumption

@@ -119,12 +119,20 @@ class AstroFile : public QObject, public A::EventStore {
         // lines but does not invalidate events.
         ChartDisplayMode = 0x2000,
 
+        // Primary Direction focal preview (see getDirectionFocusRange() below):
+        // a pure rendering-filter toggle, not file data or a view setting —
+        // deliberately its own bit rather than reusing Type, so setting it
+        // never runs recalculate() (change() only recalculates for
+        // Type/GMT/Location) and never collides with the many switch(getType())
+        // sites elsewhere in the codebase that assume a "normal" FileType.
+        DirectionFocus = 0x4000,
+
         // --- Group masks ---
         FileData     = Name | Type | GMT | Timezone | Location
                        | LocationName | Comment,
         ViewSettings = HouseSystem | Zodiac | AspectSet | AspectMode
                        | Harmonic | ChartDisplayMode,
-        All          = 0x3FFF
+        All          = 0x7FFF
     };
 
     Q_DECLARE_FLAGS(Members, Member)
@@ -251,10 +259,56 @@ class AstroFile : public QObject, public A::EventStore {
     }
 
     // Aspect Range Navigator: in-orb range + exact moment of a ranged event.
+    // NOTE: navMovingFile()/navSetGMT() (mainwindow.cpp) treat any file with
+    // a valid getAspectRange() as a candidate for GMT-scrubbing animation —
+    // deliberately NOT reused for Primary Direction focal preview below,
+    // since a PD event's date is a manufactured arc-to-time conversion, not
+    // a real moment; scrubbing the natal file's GMT to it would misrepresent
+    // it exactly the way the PD click guard in Transits::clickedCell() exists
+    // to prevent.
     const A::ADateTimeRange& getAspectRange() const { return _aspectRange; }
     void setAspectRange(const A::ADateTimeRange& r) { _aspectRange = r; }
     const QDateTime& getAspectExact() const { return _aspectExact; }
     void             setAspectExact(const QDateTime& t) { _aspectExact = t; }
+
+    // Primary Direction focal preview: the clicked PD event's own date +
+    // orb window, used only to filter the Directions table (describeParans())
+    // to nearby directed-date rows. Deliberately separate from
+    // getAspectRange()/getAspectExact() above -- see the note on those.
+    // Transient (not persisted), same as the paran-focal fields above --
+    // except, unlike those, setting these is what actually drives the
+    // redraw (via the dedicated DirectionFocus member bit) instead of
+    // piggybacking on a Type change: this feature has no FileType of its
+    // own precisely so it can't collide with the many switch(getType())
+    // sites elsewhere that assume a "normal" chart type.
+    const A::ADateTimeRange& getDirectionFocusRange() const { return _directionFocusRange; }
+    void setDirectionFocusRange(const A::ADateTimeRange& r)
+    {
+        if (_directionFocusRange == r) return;
+        _directionFocusRange = r;
+        change(DirectionFocus, false);
+    }
+    const QDateTime& getDirectionFocusDate() const { return _directionFocusDate; }
+    void setDirectionFocusDate(const QDateTime& t)
+    {
+        if (_directionFocusDate == t) return;
+        _directionFocusDate = t;
+        change(DirectionFocus, false);
+    }
+    bool hasDirectionFocus() const
+    {
+        return _directionFocusRange.first.isValid()
+            && _directionFocusRange.second.isValid();
+    }
+
+    // Human-readable label for the clicked PD event itself (e.g. "Sun Con
+    // Uranus"), so the focused Directions table can render it as its own
+    // anchor row rather than just showing the other rows that happen to
+    // cluster near it. Silent setter -- always set in the same
+    // suspendUpdate()/resumeUpdate() batch as setDirectionFocusDate(), whose
+    // change(DirectionFocus) emission already covers the repaint.
+    const QString& getDirectionFocusLabel() const { return _directionFocusLabel; }
+    void setDirectionFocusLabel(const QString& l) { _directionFocusLabel = l; }
 
     bool getDrawFocalExpand() const { return _drawFocalExpand; }
     void setDrawFocalExpand(bool b) { _drawFocalExpand = b; }
@@ -491,6 +545,14 @@ class AstroFile : public QObject, public A::EventStore {
     // Transient; not saved.
     A::ADateTimeRange _aspectRange;
     QDateTime         _aspectExact;
+
+    // Primary Direction focal preview: the clicked PD event's own date + orb
+    // window (see getDirectionFocusRange()/getDirectionFocusDate() above for
+    // why this is kept separate from _aspectRange/_aspectExact). Transient;
+    // not saved.
+    A::ADateTimeRange _directionFocusRange;
+    QDateTime         _directionFocusDate;
+    QString           _directionFocusLabel;
 
     // Draw-context captured at event-click time so the navigator/animation can
     // reproduce the same chart-aspect rendering at any moment (focalExpand is a

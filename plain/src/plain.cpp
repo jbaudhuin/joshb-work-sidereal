@@ -1616,6 +1616,14 @@ Plain::refresh()
         html += "<a name=\"sec_Directions\"></a>";
         if (filesCount() == 1 && scope.planets.count()) {
             html += "<h2>" + QObject::tr("Directions") + "</h2>";
+            // Primary Direction focal preview: a click on a PD event's T/P/S
+            // or T/P/N cell sets this file's direction-focus range without
+            // touching its GMT or Type (see Transits::clickedCell()) —
+            // passed in explicitly here since this mode is orthogonal to
+            // paran-ness (isParanChart is derived from TypeParan inside
+            // describeParans() itself; this one isn't tied to any FileType).
+            const bool focusOnDirection0 =
+                file(0) && file(0)->hasDirectionFocus();
             html += A::describeParans(files(),
                                       bool(articles & A::Article_DiurnalEvents),
                                       bool(articles & A::Article_FixedStars),
@@ -1623,7 +1631,17 @@ Plain::refresh()
                                       displayMode,
                                       showParanNatalRows,
                                       includeOutOfOrbNatalRows,
-                                      nullptr);
+                                      nullptr,
+                                      focusOnDirection0,
+                                      focusOnDirection0
+                                          ? file(0)->getDirectionFocusRange()
+                                          : A::ADateTimeRange(),
+                                      focusOnDirection0
+                                          ? file(0)->getDirectionFocusDate()
+                                          : QDateTime(),
+                                      focusOnDirection0
+                                          ? file(0)->getDirectionFocusLabel()
+                                          : QString());
         } else if (filesCount() > 1) {
             // Chart #1 Parans
             if (sec1(togDirections) && file(0)
@@ -1635,6 +1653,7 @@ Plain::refresh()
                         + "</h2>";
                 AstroFileList file1List;
                 file1List.append(file(0));
+                const bool focusOnDirection1 = file(0)->hasDirectionFocus();
                 html +=
                     A::describeParans(file1List,
                                       bool(articles & A::Article_DiurnalEvents),
@@ -1643,7 +1662,17 @@ Plain::refresh()
                                       displayMode,
                                       showParanNatalRows,
                                       includeOutOfOrbNatalRows,
-                                      nullptr);
+                                      nullptr,
+                                      focusOnDirection1,
+                                      focusOnDirection1
+                                          ? file(0)->getDirectionFocusRange()
+                                          : A::ADateTimeRange(),
+                                      focusOnDirection1
+                                          ? file(0)->getDirectionFocusDate()
+                                          : QDateTime(),
+                                      focusOnDirection1
+                                          ? file(0)->getDirectionFocusLabel()
+                                          : QString());
             }
 
             // Chart #2 Parans — pass file(0) as natal context for Par=N filtering
@@ -1656,6 +1685,7 @@ Plain::refresh()
                         + "</h2>";
                 AstroFileList file2List;
                 file2List.append(file(1));
+                const bool focusOnDirection2 = file(1)->hasDirectionFocus();
                 html +=
                     A::describeParans(file2List,
                                       bool(articles & A::Article_DiurnalEvents),
@@ -1664,7 +1694,17 @@ Plain::refresh()
                                       displayMode,
                                       showParanNatalRows,
                                       includeOutOfOrbNatalRows,
-                                      file(0));
+                                      file(0),
+                                      focusOnDirection2,
+                                      focusOnDirection2
+                                          ? file(1)->getDirectionFocusRange()
+                                          : A::ADateTimeRange(),
+                                      focusOnDirection2
+                                          ? file(1)->getDirectionFocusDate()
+                                          : QDateTime(),
+                                      focusOnDirection2
+                                          ? file(1)->getDirectionFocusLabel()
+                                          : QString());
             }
         }
     }

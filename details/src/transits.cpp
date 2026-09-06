@@ -935,14 +935,14 @@ class EventsTableModel : public QAbstractItemModel {
 
     // Helper to get the correct house rulership string depending on input type
     QString getCorrectHouseRulershipWithNatalHouseString(
-        const A::PlanetLoc& ploc) const
+        const A::PlanetLoc& ploc, unsigned eventType) const
     {
         return getHouseRulershipWithNatalHouseString(
-            ploc); // Use the position-aware version
+            ploc, eventType); // Use the position-aware version
     }
 
     QString getCorrectHouseRulershipWithNatalHouseString(
-        const A::ChartPlanetId& cpid) const
+        const A::ChartPlanetId& cpid, unsigned /*eventType*/) const
     {
         return getHouseRulershipWithNatalHouseString(
             cpid); // Use the legacy version for aspect patterns
@@ -991,7 +991,7 @@ class EventsTableModel : public QAbstractItemModel {
                            == A::EventOptions::DisplayRulershipWithNatalHouse)
                 {
                     rulershipText =
-                        getCorrectHouseRulershipWithNatalHouseString(s);
+                        getCorrectHouseRulershipWithNatalHouseString(s, eventType);
                 }
 
                 if (!rulershipText.isEmpty()) {
@@ -1986,14 +1986,31 @@ class EventsTableModel : public QAbstractItemModel {
 
     // Calculate house rulership + natal house string using PlanetLoc position
     QString getHouseRulershipWithNatalHouseString(
-        const A::PlanetLoc& ploc) const
+        const A::PlanetLoc& ploc, unsigned eventType) const
     {
         const A::ChartPlanetId& cpid      = ploc.planet;
         QString                 rulership = getHouseRulershipString(cpid);
         if (rulership.isEmpty()) return "";
 
-        // Use the transiting planet's actual position to find its natal house
-        int natalHouse = getNatalHouseForLongitude(ploc.loc);
+        int natalHouse = 0;
+        if (eventType == A::etcPrimaryDirections) {
+            // Primary Direction rows deliberately store right ascension in
+            // ploc.loc (see findPrimaryDirections()'s PlanetLoc construction
+            // -- PD never leaves the radix, so there's no "current transit
+            // position", only the RA the arc is computed from). Feeding
+            // that RA through getHouse() (which expects ecliptic longitude)
+            // silently gave a wrong house -- close, since RA and longitude
+            // aren't wildly different, but often off by one. PD bodies never
+            // move from their natal place, so just read the natal Planet's
+            // own already-correct house instead of recomputing anything.
+            const A::Horoscope& natal        = getNatalHoroscope();
+            A::PlanetId         basePlanetId = cpid.planetId();
+            if (natal.planets.contains(basePlanetId))
+                natalHouse = natal.planets[basePlanetId].house;
+        } else {
+            // Use the transiting planet's actual position to find its natal house
+            natalHouse = getNatalHouseForLongitude(ploc.loc);
+        }
         if (natalHouse > 0) {
             return QString("%1H ").arg(natalHouse) + rulership;
         }
@@ -4934,12 +4951,75 @@ Transits::clickedCell(QModelIndex inx)
     auto    ev = _evm->rowData(srcInx.row());
     auto    et = ev.eventType();
     if (et == A::etcPrimaryDirections) {
-        // Deliberately a no-op for now: a primary direction's computed date
-        // has no real astronomical event at it (see findPrimaryDirections())
-        // — it's an age converted from an arc via a timing key, not a real
-        // transit/return moment — so building a chart there, ecliptic or
-        // equatorial, would misrepresent it. Revisit once a representation
-        // that actually reflects the direction is settled on.
+        // A primary direction's computed date has no real astronomical event
+        // at it (see findPrimaryDirections()) — it's an age converted from an
+        // arc via a timing key, not a real transit/return moment — so this
+        // never navigates the tab, opens a biwheel, or touches file()'s GMT
+        // *or Type* the way other event types below do (an earlier version
+        // of this used setType(TypeDirection) purely to piggyback on the
+        // Type-change redraw, but FileType turned out to be load-bearing in
+        // enough other places — classifyDirChart(), Transits::filesUpdated()'s
+        // isTransitLike check, etc. — that borrowing it here broke unrelated
+        // features, including PD generation itself going quiet). Clicking the
+        // T/P/S or T/P/N cell instead previews the legacy Directions table
+        // pruned to rows whose own directed date falls near this one, purely
+        // via the dedicated direction-focus fields (see
+        // AstroFile::setDirectionFocusRange(), whose setter emits the
+        // DirectionFocus member bit to drive the repaint). Any other column
+        // click on a PD row just clears that preview, if active.
+        const bool pdFocalClick =
+            srcInx.column() >= EventsTableModel::transitBodyCol;
+        if (!pdFocalClick) {
+            if (file()->hasDirectionFocus()) {
+                file()->setOriginEventType(A::etcUnknownEvent);
+                file()->setDirectionFocusRange(A::ADateTimeRange());
+                file()->setDirectionFocusDate(QDateTime());
+                file()->setDirectionFocusLabel(QString());
+            }
+            return;
+        }
+        // Use the *live* Primary Direction orb setting, the same one the
+        // Events table itself uses -- not ev.range(), which was baked in
+        // whenever findPrimaryDirections() last ran and goes stale the
+        // moment the user changes Events/pdOrbDegrees without triggering a
+        // recompute. Mirrors the exact formula findPrimaryDirections() uses
+        // (astro-calc.cpp, AspectFinder::findPrimaryDirections()) so the
+        // preview's window always matches "the same as the table".
+        const double pdOrb = A::EventOptions::current().pdOrbDegrees;
+        const qint64 orbSecs = pdOrb > 0.0
+            ? qint64(pdOrb * A::pdDaysPerDegree(A::pdTimingKey) * 86400.0)
+            : qint64(3 * 86400); // orb disabled: fall back to a small window
+        A::ADateTimeRange focusRange = { dt.addSecs(-orbSecs), dt.addSecs(orbSecs) };
+        // Label for the clicked PD event itself, e.g. "(Con) Neptune -> Uranus"
+        // or, when the significator carries a ray, "(Dir) Sun -> Uranus-Trine,
+        // Dexter" -- built from the same model columns rowDesc() reads,
+        // but reordered/parenthesized to read as a direction rather than a
+        // generic aspect row, so the focused Directions table can show the
+        // PD event itself as an anchor alongside the rows clustered near it.
+        const QString promissor =
+            _evm->index(srcInx.row(), EventsTableModel::transitBodyCol)
+                .data(EventsTableModel::SummaryRole)
+                .toString();
+        const QString connector =
+            _evm->index(srcInx.row(), EventsTableModel::harmonicCol)
+                .data(EventsTableModel::SummaryRole)
+                .toString(); // "Dir" or "Con"
+        const QString significator =
+            _evm->index(srcInx.row(), EventsTableModel::natalTransitBodyCol)
+                .data(EventsTableModel::SummaryRole)
+                .toString();
+        const QString focusLabel = QString("(%1) %2 → %3")
+                                        .arg(connector, promissor, significator);
+        file()->suspendUpdate();
+        file()->setParanGroupPlanets({});
+        file()->setParanOccurrences({});
+        file()->setAspectRange(A::ADateTimeRange());
+        file()->setAspectExact(QDateTime());
+        file()->setOriginEventType(A::etcPrimaryDirections);
+        file()->setDirectionFocusLabel(focusLabel);
+        file()->setDirectionFocusDate(dt);
+        file()->setDirectionFocusRange(focusRange);
+        file()->resumeUpdate();
         return;
     }
     // TA/TNA are harmonic aspect-PATTERN events: draw precisely the clicked
@@ -5030,6 +5110,11 @@ Transits::clickedCell(QModelIndex inx)
         file()->setParanOccurrences({});
         file()->setAspectRange(A::ADateTimeRange());
         file()->setAspectExact(QDateTime());
+        // A prior PD-focal click shouldn't leak into whatever this click is
+        // about to select either.
+        file()->setDirectionFocusRange(A::ADateTimeRange());
+        file()->setDirectionFocusDate(QDateTime());
+        file()->setDirectionFocusLabel(QString());
         // A heliacal APPARITION carries navigable occurrences (first-appearance,
         // anchor, last-appearance); the Moon's discrete crescent events do not.
         const bool isHeliacalApparition =
@@ -5121,6 +5206,21 @@ Transits::clickedCell(QModelIndex inx)
         taf->setParanOccurrences({});
         taf->setAspectRange(A::ADateTimeRange());
         taf->setAspectExact(QDateTime());
+        taf->setDirectionFocusRange(A::ADateTimeRange());
+        taf->setDirectionFocusDate(QDateTime());
+        taf->setDirectionFocusLabel(QString());
+        // The PD-focal click (see the etcPrimaryDirections branch above)
+        // always sets its focus state on file() -- Chart #1 -- even though
+        // this branch otherwise operates on taf. Clear it here too, or a
+        // lingering PD focus on file() keeps showing its filtered
+        // Directions table after clicking away to an unrelated event on
+        // this (taf) side.
+        if (file()) {
+            file()->setOriginEventType(A::etcUnknownEvent);
+            file()->setDirectionFocusRange(A::ADateTimeRange());
+            file()->setDirectionFocusDate(QDateTime());
+            file()->setDirectionFocusLabel(QString());
+        }
         if (et == A::etcSolarReturn || et == A::etcLunarReturn
             || et == A::etcReturn)
         {
@@ -6258,6 +6358,8 @@ Transits::applySettings(const AppSettings& s)
          || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
                 != curr.includeOnlyInnerProgressionsToNatal
          || s.value("Events/pdIncludeRays", true).toBool() != curr.pdIncludeRays
+         || s.value("Events/pdAnglesAsPromissors", true).toBool()
+                != curr.pdAnglesAsPromissors
          || A::EventOptions::PDDirectionScope(
                 s.value("Events/pdDirectionScope",
                         unsigned(A::EventOptions::PDBothDirections)).toUInt())
@@ -6331,6 +6433,8 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
                     tr("Show right ascension in Primary Directions rows"));
     ed->addCheckBox("Events/pdIncludeRays",
                     tr("Primary Directions: include aspect rays\n(sextile/square/trine/opposition, not just conjunction)"));
+    ed->addCheckBox("Events/pdAnglesAsPromissors",
+                    tr("Primary Directions: allow angles (Asc/Desc/MC/IC)\nas promissors, not just significators"));
     ed->addComboBox("Events/pdDirectionScope",
                     tr("Primary Directions: direct/converse"),
                     { { "Both", unsigned(A::EventOptions::PDBothDirections) },

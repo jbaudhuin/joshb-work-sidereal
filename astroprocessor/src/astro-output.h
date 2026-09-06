@@ -104,7 +104,19 @@ describeParans(const AstroFileList& scopes,
                SpeculumDisplayMode  displayMode    = DisplayLocalTime,
                bool                 showParanNatalRows = false,
                bool                 includeOutOfOrbNatalRows = false,
-               AstroFile*           natalContext   = nullptr);
+               AstroFile*           natalContext   = nullptr,
+               // Primary Direction focal preview: when
+               // focusOnDirection is set, skip the normal/paran rendering
+               // entirely and show only rows whose directed date falls
+               // inside directionFocusRange, sorted by directed date.
+               // directionFocusDate/Label describe the clicked PD event
+               // itself (its own directed date and a human-readable label,
+               // e.g. "Sun Con Uranus") so it can be rendered as its own
+               // bolded anchor row alongside the rows clustered near it.
+               bool                 focusOnDirection = false,
+               const ADateTimeRange& directionFocusRange = ADateTimeRange(),
+               const QDateTime&     directionFocusDate = QDateTime(),
+               const QString&       directionFocusLabel = QString());
 QString
 describeSpeculum(const Horoscope&    scope,
                  bool                showFixedStars,
