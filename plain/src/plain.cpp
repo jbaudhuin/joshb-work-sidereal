@@ -583,11 +583,41 @@ Plain::setPrimDirMode(A::PrimDirMode mode)
     A::primDirMode = mode;
     // Speculum type feeds primary-direction calc; every eligible chart needs
     // to recompute (mirrors the primDirModeChanged branch in applySettings()).
+    // calculate(), not notifyCalcSettingChanged()/change(): the latter's
+    // emit changed(GMT) fans out to every AstroFileHandler (Transits
+    // included) and was found to corrupt file(0)-dependent event search
+    // (natal-based passes broke entirely; transit-only ones kept working) —
+    // suspected re-entrant/concurrent access with an active finder reading
+    // file(0) while this recalculates it. calculate() has none of that: it
+    // recomputes scope in place with no signal emitted, exactly what this
+    // codebase used successfully before today. markEventsForRecalc() below
+    // is the safe way to flag the Events tab stale without that risk.
     for (int i = 0; i < filesCount(); i++) {
-        if (file(i)) file(i)->calculate();
+        if (file(i)) {
+            file(i)->calculate();
+            file(i)->markEventsForRecalc();
+        }
     }
     aspectsCached = false;
     refresh();
+}
+
+void
+Plain::setPrimDirSystem(A::PrimDirSystem system)
+{
+    if (A::primDirSystem == system) return;
+    A::primDirSystem = system;
+    // primDirSystem feeds only findPrimaryDirections() -- no calculate()
+    // needed at all. markEventsForRecalc() (pure bookkeeping: sets the
+    // stale flag, clears the search manifest, no chart recompute, no
+    // signal emitted) is enough to make the Events tab pick up the change
+    // next time it checks (tab focus, Refresh click, etc.) -- deliberately
+    // NOT notifyCalcSettingChanged()/change(GMT): that emits changed(GMT),
+    // which fans out to every AstroFileHandler and was found to corrupt
+    // file(0)-dependent event search (see setPrimDirMode's comment).
+    for (int i = 0; i < filesCount(); i++) {
+        if (file(i)) file(i)->markEventsForRecalc();
+    }
 }
 
 void
@@ -639,6 +669,27 @@ Plain::addSpeculumTypeSubmenu(QMenu* menu)
 }
 
 void
+Plain::addDirectionSystemSubmenu(QMenu* menu)
+{
+    QMenu* sub = menu->addMenu(tr("Direction system"));
+    QActionGroup* grp = new QActionGroup(sub);
+    grp->setExclusive(true);
+    const QList<QPair<QString, A::PrimDirSystem>> systems = {
+        { tr("Placidus"),      A::pdsPlacidus },
+        { tr("Campanus"),      A::pdsCampanus },
+        { tr("Regiomontanus"), A::pdsRegiomontanus },
+    };
+    for (const auto& sys : systems) {
+        QAction* a = sub->addAction(sys.first);
+        a->setCheckable(true);
+        a->setChecked(A::primDirSystem == sys.second);
+        grp->addAction(a);
+        A::PrimDirSystem system = sys.second;
+        connect(a, &QAction::triggered, this, [this, system]() { setPrimDirSystem(system); });
+    }
+}
+
+void
 Plain::addDisplayModeSubmenu(QMenu* menu)
 {
     QMenu* sub = menu->addMenu(tr("Display mode"));
@@ -676,6 +727,7 @@ Plain::showDirectionsContextMenu(const QPoint& globalPos)
                  includeOutOfOrbNatalRows);
     menu.addSeparator();
     addSpeculumTypeSubmenu(&menu);
+    addDirectionSystemSubmenu(&menu);
     addDisplayModeSubmenu(&menu);
     addMoreOptionsAction(&menu);
     menu.exec(globalPos);
@@ -1854,6 +1906,7 @@ Plain::defaultSettings()
     }
     s.setValue("Mundane/displayMode", unsigned(A::DisplayLocalTime));
     s.setValue("Mundane/primDirMode", unsigned(A::prdMundane));
+    s.setValue("Mundane/primDirSystem", unsigned(A::pdsPlacidus));
     s.setValue("Mundane/pdTimingKey", unsigned(A::PDPtolemy));
     s.setValue("Mundane/showAllDiurnalEvents", false);
     s.setValue("Mundane/paranOrb", 1.0);
@@ -1892,6 +1945,7 @@ Plain::currentSettings()
     }
     s.setValue("Mundane/displayMode", unsigned(_displayMode));
     s.setValue("Mundane/primDirMode", unsigned(A::primDirMode));
+    s.setValue("Mundane/primDirSystem", unsigned(A::primDirSystem));
     s.setValue("Mundane/pdTimingKey", unsigned(A::pdTimingKey));
     s.setValue("Mundane/showAllDiurnalEvents", showAllDiurnalEvents);
     s.setValue("Mundane/paranOrb", paranOrb);
@@ -1934,11 +1988,31 @@ Plain::applySettings(const AppSettings& s)
     setDisplayMode(
         A::SpeculumDisplayMode(s.value("Mundane/displayMode").toUInt()));
 
-    // Check if primDirMode changed - if so, need to recalculate charts
+    // Check if primDirMode/primDirSystem changed — compared against Plain's
+    // own shadow copies (_lastPrimDirMode/_lastPrimDirSystem), NOT the live
+    // A:: globals: AstroWidget::applySettings() calls handlers in
+    // construction order (mainwindow.cpp:777-783), and Transits runs BEFORE
+    // Plain — Transits::applySettings() also mutates these same globals (it
+    // needs the fresh value before its own PD recompute), so by the time
+    // this runs the live global may already equal the incoming value even
+    // though Plain itself hasn't reacted to the change yet. Comparing
+    // against Plain's own last-seen value stays correct regardless of
+    // handler order.
     A::PrimDirMode newPrimDirMode =
         A::PrimDirMode(s.value("Mundane/primDirMode").toUInt());
-    bool primDirModeChanged = (A::primDirMode != newPrimDirMode);
+    bool primDirModeChanged = (_lastPrimDirMode != newPrimDirMode);
+    _lastPrimDirMode        = newPrimDirMode;
     A::primDirMode          = newPrimDirMode;
+
+    // primDirSystem feeds only findPrimaryDirections(), not
+    // calculatePlanet() — unlike primDirMode, no recalculate() is needed
+    // here, just the same Events-tab nudge (see the primDirSystemChanged
+    // block below).
+    A::PrimDirSystem newPrimDirSystem = A::PrimDirSystem(
+        s.value("Mundane/primDirSystem", unsigned(A::pdsPlacidus)).toUInt());
+    bool primDirSystemChanged = (_lastPrimDirSystem != newPrimDirSystem);
+    _lastPrimDirSystem        = newPrimDirSystem;
+    A::primDirSystem          = newPrimDirSystem;
 
     // pdTimingKey only affects calculateAngularDate's date-conversion step,
     // read fresh on every Directions-table render — no recalculate() needed,
@@ -1997,14 +2071,32 @@ Plain::applySettings(const AppSettings& s)
         aspectsCached = false;
     }
 
-    // If primDirMode changed, recalculate all files to update transit times
+    // If primDirMode changed, recalculate all files to update transit
+    // times. calculate() (no signal emitted), not
+    // notifyCalcSettingChanged()/change(): the latter's emit changed(GMT)
+    // fans out to every AstroFileHandler and was found to corrupt
+    // file(0)-dependent event search (natal-based passes broke entirely
+    // while transit-only ones kept working — suspected re-entrant/
+    // concurrent access with an active finder reading file(0) while this
+    // recalculates it). markEventsForRecalc() (pure bookkeeping, no
+    // recompute, no signal) is enough to flag the Events tab stale safely.
     if (primDirModeChanged) {
         for (int i = 0; i < filesCount(); i++) {
             if (file(i)) {
                 file(i)->calculate();
+                file(i)->markEventsForRecalc();
             }
         }
         aspectsCached = false;
+    }
+
+    // primDirSystem doesn't feed calculatePlanet() (unlike primDirMode
+    // above), so no chart recompute is needed here — just the same safe
+    // stale-flag nudge.
+    if (primDirSystemChanged) {
+        for (int i = 0; i < filesCount(); i++) {
+            if (file(i)) file(i)->markEventsForRecalc();
+        }
     }
 
     // pdTimingKey doesn't feed the ephemeris (no calculate() needed) but the
@@ -2034,6 +2126,11 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                     { { "Mundane", A::prdMundane },
                       { "Zodiacal", A::prdZodiacal },
                       { "Active", A::prdActive } });
+    ed->addComboBox("Mundane/primDirSystem",
+                    tr("Primary Direction system\n(Events tab's Primary Directions only)"),
+                    { { "Placidus", A::pdsPlacidus },
+                      { "Campanus", A::pdsCampanus },
+                      { "Regiomontanus", A::pdsRegiomontanus } });
     ed->addComboBox("Mundane/pdTimingKey",
                     tr("Primary Direction timing key\n(Directions table, and the Events tab's Primary Directions)"),
                     { { "Ptolemy (1 deg/year)", unsigned(A::PDPtolemy) },

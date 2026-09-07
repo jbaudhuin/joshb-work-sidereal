@@ -715,6 +715,10 @@ class EventsTableModel : public QAbstractItemModel {
         // longitude (see glyph()'s matching branch) — show it as RA rather
         // than feeding it through zodiacPosition(), which would print a
         // meaningless sign/degree, and only when the user has opted in.
+        // This also covers Rapt Parallels rows -- a kind of primary
+        // direction, tagged etcPrimaryDirections too (X/Y midpoint
+        // promissor, storing rasiLoc() the same way -- see
+        // AspectFinder::findRaptParallels()).
         if (eventType == A::etcPrimaryDirections) {
             QString r = s.planet.name() + suff;
             if (A::EventOptions::current().showPDRightAscension)
@@ -805,7 +809,9 @@ class EventsTableModel : public QAbstractItemModel {
         // rather than a zodiac position, and only when the user has opted in
         // (off by default — the two values are each body's own fixed natal
         // RA and don't "match" at exact contact, which reads as confusing
-        // without the semi-arc explanation).
+        // without the semi-arc explanation). This also covers Rapt
+        // Parallels rows -- tagged etcPrimaryDirections too, storing
+        // rasiLoc() the same way (see AspectFinder::findRaptParallels()).
         if (eventType == A::etcPrimaryDirections) {
             QString out = g;
             if (A::EventOptions::current().showPDRightAscension)
@@ -1227,6 +1233,9 @@ class EventsTableModel : public QAbstractItemModel {
             // a PD row that isn't visible anywhere else, since
             // converse/direct is a property of the whole arc, not either
             // body individually.
+            // This also covers Rapt Parallels rows -- tagged
+            // etcPrimaryDirections too, using the same direct/converse-by-
+            // arc-sign convention (see AspectFinder::findRaptParallels()).
             if (et == A::etcPrimaryDirections) {
                 if (role == Qt::DecorationRole) return QVariant();
                 if (role == Qt::FontRole) return QFont(); // default, not Almagest
@@ -2003,6 +2012,12 @@ class EventsTableModel : public QAbstractItemModel {
             // aren't wildly different, but often off by one. PD bodies never
             // move from their natal place, so just read the natal Planet's
             // own already-correct house instead of recomputing anything.
+            // This also covers Rapt Parallels rows (same storage -- see
+            // AspectFinder::findRaptParallels()); for a rapt-parallel
+            // promissor (an X/Y midpoint), cpid.planetId() only returns one
+            // of the two paired bodies (ChartPlanetId's canonicalizing
+            // swap) -- a known imperfection (shows one body's house, not a
+            // genuine midpoint house), not a crash.
             const A::Horoscope& natal        = getNatalHoroscope();
             A::PlanetId         basePlanetId = cpid.planetId();
             if (natal.planets.contains(basePlanetId))
@@ -5008,8 +5023,15 @@ Transits::clickedCell(QModelIndex inx)
             _evm->index(srcInx.row(), EventsTableModel::natalTransitBodyCol)
                 .data(EventsTableModel::SummaryRole)
                 .toString();
-        const QString focusLabel = QString("(%1) %2 → %3")
-                                        .arg(connector, promissor, significator);
+        // Rapt Parallels are a kind of primary direction (same
+        // etcPrimaryDirections tag), but their promissor is an X/Y midpoint
+        // -- ChartPlanetId::name() always renders that as "X/Y", so a "/"
+        // in the promissor text is how a rapt-parallel row is told apart
+        // from an ordinary PD row here (no separate marker needed).
+        const bool isRapt = promissor.contains(QLatin1Char('/'));
+        QString focusLabel = QString("(%1) %2 → %3")
+                                  .arg(connector, promissor, significator);
+        if (isRapt) focusLabel += tr(" (Rapt)");
         file()->suspendUpdate();
         file()->setParanGroupPlanets({});
         file()->setParanOccurrences({});
@@ -5330,6 +5352,9 @@ Transits::doubleClickedCell(QModelIndex inx)
     auto              et   = ev.eventType();
     if (et == A::etcPrimaryDirections) {
         // See the matching guard in clickedCell() — deliberately a no-op.
+        // This also covers Rapt Parallels rows -- tagged
+        // etcPrimaryDirections too (a kind of primary direction; its date
+        // is likewise derived, not a real astronomical instant).
         return;
     }
     const QString desc = (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal)
@@ -5705,13 +5730,14 @@ EventsTableModel::planetToText(const A::PlanetLoc& ploc,
 
     const QString& desc = descOverride.isEmpty() ? ploc.desc : descOverride;
 
-    // Primary directions: rasiLoc() holds right ascension, not ecliptic
-    // longitude (see EventsTableModel::glyph()'s matching branch), shown
-    // only when the user has opted in. Significator's desc is the ray's
-    // Almagest glyph, optionally followed by a "D"/"S" dexter/sinister
-    // marker -> readable name here (plain text, not glyph font);
-    // promissor's desc ("Dir"/"Con") is shown via the Asp column instead,
-    // so suppressed here too.
+    // Primary directions (and Rapt Parallels, same storage -- see
+    // AspectFinder::findRaptParallels()): rasiLoc() holds right ascension,
+    // not ecliptic longitude (see EventsTableModel::glyph()'s matching
+    // branch), shown only when the user has opted in. Significator's desc
+    // is the ray's Almagest glyph, optionally followed by a "D"/"S"
+    // dexter/sinister marker -> readable name here (plain text, not glyph
+    // font); promissor's desc ("Dir"/"Con") is shown via the Asp column
+    // instead, so suppressed here too.
     if (eventType == A::etcPrimaryDirections) {
         QString rayText = pdRayGlyphToText(desc);
         if (!rayText.isEmpty()) {
@@ -6338,6 +6364,50 @@ Transits::applySettings(const AppSettings& s)
     // files (via the global singleton below).  It does NOT recompute the
     // current tab.
 
+    // Mundane/primDirSystem and Mundane/primDirMode aren't EventOptions
+    // fields -- they're plain A:: globals that Plain's own applySettings()
+    // owns and mutates -- but findPrimaryDirections() (triggered below)
+    // reads both, so they must be read from `s` and applied HERE, not left
+    // for Plain::applySettings() to set later. AstroWidget::applySettings()
+    // calls handlers in construction order (mainwindow.cpp:777-783:
+    // Details, Harmonics, Transits, Speculum, Chart, Planets, Plain) --
+    // Transits runs BEFORE Plain, so if this function compared against the
+    // live globals and left mutating them to Plain, the recompute below
+    // would run against the STILL-OLD system every time: one dialog-OK
+    // behind, indistinguishable from "nothing happened" until the NEXT
+    // change coincidentally shows the PREVIOUS one's correct result.
+    // Confirmed via debug trace + user report ("refreshing late").
+    //
+    // Guarded by s.contains(): unlike Events/* keys (which
+    // Transits::defaultSettings()/currentSettings() always declare, so `s`
+    // always carries them on every call path), Mundane/* keys are NOT
+    // Transits' own -- they're only present in `s` when it came from the
+    // combined multi-handler settings dialog. On other call paths (e.g.
+    // Customizable::loadSettings(), which seeds `s` from THIS handler's own
+    // defaultSettings()), these keys are simply absent. Reading them with a
+    // fallback default and unconditionally overwriting the live globals
+    // silently reset primDirSystem/primDirMode to their defaults on every
+    // such call -- and, since that looked like a "change" from whatever the
+    // user had actually selected, forced a spurious full recompute every
+    // time, drowning out real event searches. Found via user report ("T
+    // doesn't work at all, no progress bar") immediately after the ordering
+    // fix landed.
+    bool primDirSystemChanged = false;
+    if (s.contains("Mundane/primDirSystem")) {
+        A::PrimDirSystem newPrimDirSystem =
+            A::PrimDirSystem(s.value("Mundane/primDirSystem").toUInt());
+        primDirSystemChanged = (A::primDirSystem != newPrimDirSystem);
+        A::primDirSystem     = newPrimDirSystem;
+    }
+
+    bool primDirModeChangedHere = false;
+    if (s.contains("Mundane/primDirMode")) {
+        A::PrimDirMode newPrimDirMode =
+            A::PrimDirMode(s.value("Mundane/primDirMode").toUInt());
+        primDirModeChangedHere = (A::primDirMode != newPrimDirMode);
+        A::primDirMode         = newPrimDirMode;
+    }
+
     // Check if any settings changed that would require recalculation
     bool changed =
         (s.value("Events/patternsQuorum").toUInt() != curr.patternsQuorum
@@ -6364,7 +6434,12 @@ Transits::applySettings(const AppSettings& s)
                 s.value("Events/pdDirectionScope",
                         unsigned(A::EventOptions::PDBothDirections)).toUInt())
                 != curr.pdDirectionScope
-         || s.value("Events/pdOrbDegrees", 0.5).toDouble() != curr.pdOrbDegrees);
+         || s.value("Events/pdOrbDegrees", 0.5).toDouble() != curr.pdOrbDegrees
+         || s.value("Events/pdIncludeRaptParallels", false).toBool()
+                != curr.pdIncludeRaptParallels
+         || s.value("Events/raptParallelsAnyZ", false).toBool()
+                != curr.raptParallelsAnyZ
+         || primDirSystemChanged || primDirModeChangedHere);
 
     bool changedExpanded =
         (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
@@ -6443,6 +6518,10 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addDoubleSpinBox("Events/pdOrbDegrees",
                          tr("Primary Directions: orb of effect (RA degrees)"),
                          0.0, 5.0);
+    ed->addCheckBox("Events/pdIncludeRaptParallels",
+                    tr("Primary Directions: include rapt parallels\n(X/Y midpoint promissor to a significator Z, mundane-midpoint condition;\nCampanus/Regiomontanus only)"));
+    ed->addCheckBox("Events/raptParallelsAnyZ",
+                    tr("Rapt Parallels: allow any body as the significator Z\n(default: restricted to Asc/Desc/MC/IC, the classical form)"));
     //ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
     ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"), 2, 6);
     ed->addDoubleSpinBox("Events/patternsSpreadOrb",

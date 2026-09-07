@@ -725,6 +725,24 @@ struct EventOptions {
     // On by default, matching findPrimaryDirections()'s original behavior.
     bool pdAnglesAsPromissors = true;
 
+    // Primary Directions: include rapt parallels (Makransky Ch. IV, "RAPT
+    // PARALLELS") -- a mundane-midpoint condition between two promissors
+    // X, Y and a significator Z, rendered as an "X/Y" midpoint promissor
+    // directing to Z. A genuine kind of primary direction (same PD toggle
+    // shows/hides them, same focal-click preview applies), not an
+    // independent event type -- gated exactly like pdAnglesAsPromissors.
+    // Off by default: sparser/further-out than ordinary PD rows and
+    // Campanus/Regiomontanus-only (no valid mundane-midpoint notion under
+    // Placidus -- see findRaptParallelArcs()). See AspectFinder::
+    // findRaptParallels().
+    bool pdIncludeRaptParallels = false;
+
+    // Rapt Parallels: whether the significator Z is restricted to the four
+    // angles (Asc/Desc/MC/IC -- the classical form, and the default) or any
+    // body (the ~3x larger, Makransky-documented generalization). Only
+    // meaningful when pdIncludeRaptParallels is on.
+    bool raptParallelsAnyZ = false;
+
     // Primary Directions: which of a pair's two possible directions to
     // enumerate. Both is the classical default.
     enum PDDirectionScope { PDBothDirections, PDDirectOnly, PDConverseOnly };
@@ -998,6 +1016,7 @@ class AspectFinder : public QObject, public EventOptions {
     void findParans();
     void findHeliacalEvents();
     void findPrimaryDirections();
+    void findRaptParallels();
     void findAspectsAndPatterns();
 
     bool isActive() const { return _numTasks != 0; }
@@ -1461,10 +1480,115 @@ struct DirSpeculumEntry {
     double sda = 0.0, sna = 0.0; // semi-diurnal / semi-nocturnal arc (90 +/- ad)
     double md = 0.0;             // meridian distance from RAMC, folded (-180,180]
     bool   circumpolar = false;
+
+    // Campanus/Regiomontanus projection-system quantities (Makransky Ch. IV).
+    // Unused by Placidus; only populated when a C-R direction system is
+    // active (see buildProjectionFields()). Both systems share this same
+    // speculum — pole/Q/W are identical between them; only the mundane
+    // ASPECT POINT construction differs (zenith distance for Campanus,
+    // oblique ascension under own pole for Regiomontanus).
+    double zd   = 0.0; // zenith distance, arc along the prime vertical
+    double cmp  = 0.0; // Campanus Mundane Position (Asc=0/IC=90/Desc=180/MC=270)
+    double pole = 0.0; // polar elevation of the house circle through the body
+    double q    = 0.0; // ascensional difference under own pole (Formula IV-1)
+    double w    = 0.0; // oblique ascension/descension under own pole == Regiomontanus MP
+    int    quadrant = 0; // 1..4, same convention as placidusMundanePosition
 };
 
 DirSpeculumEntry
 buildDirSpeculumEntry(double ra, double dec, double ramc, double lat);
+
+/// Bracket a proportional mundane-position value (0-360, Asc=0/IC=90/
+/// Desc=180/MC=270) into Makransky's quadrant numbering: 1 = IC->Asc
+/// (nocturnal), 2 = IC->Desc (nocturnal), 3 = Desc->MC (diurnal), 4 = MC->Asc
+/// (diurnal). Shared by the Placidus PMP code and the Campanus/Regiomontanus
+/// CMP code — same bracket, same numbering, independent of house system.
+int
+quadrantFromMundaneValue(double value);
+
+/// Populates entry's Campanus/Regiomontanus fields (zd, cmp, pole, q, w,
+/// quadrant) from its already-set ra/dec. CMP is computed via
+/// swe_house_pos(ramc, lat, /*eps=*/0.0, 'C', {ra, dec}, ...) — passing
+/// eps=0 makes swe_house_pos's internal ecliptic->equatorial step an
+/// identity, so it accepts (RA, Dec) directly. This is exactly how
+/// Star::pvPos is computed for real bodies (astro-calc.cpp:1535), so
+/// entry.cmp and a real body's pvPos must agree bit-for-bit — a free,
+/// always-available cross-check. Works uniformly for real bodies and for
+/// synthetic (RA, Dec) aspect points; circumpolar bodies are not a special
+/// case here (unlike Placidus's semi-arc apparatus, CMP does not require a
+/// semi-arc to exist).
+void
+buildProjectionFields(DirSpeculumEntry& entry, double ramc, double lat);
+
+/// Shared Campanus/Regiomontanus mundane-conjunction arc (Makransky Formula
+/// IV-4/IV-5/IV-6): Qp = asin(tan Dp * tan pole_S); Wp = RAp -+ Qp (sign by
+/// significator's quadrant); Arc = Wp - Ws. Identical for both systems —
+/// only the mundane ASPECT POINT construction (ray.offset != 0) differs.
+double
+crMundaneConjunctionArc(const DirSpeculumEntry& promissor,
+                        const DirSpeculumEntry& significator);
+
+/// Campanus mundane aspectual direction (Makransky Ch. IV, "CAMPANUS
+/// MUNDANE ASPECTUAL DIRECTIONS"): builds the aspect point via the
+/// significator's CMP + the ray offset, then directs the promissor to it.
+double
+campanusAspectPointArc(const DirSpeculumEntry& promissor,
+                       const DirSpeculumEntry& significator,
+                       double                  rayOffset,
+                       double                  ramc,
+                       double                  lat);
+
+/// Regiomontanus mundane aspectual direction (Makransky Ch. IV,
+/// "REGIOMONTANUS MUNDANE ASPECTUAL DIRECTIONS"): builds the aspect point
+/// via the significator's W (Regiomontanus MP) + the ray offset directly on
+/// the equator, then directs the promissor to it.
+double
+regiomontanusAspectPointArc(const DirSpeculumEntry& promissor,
+                            const DirSpeculumEntry& significator,
+                            double                  rayOffset,
+                            double                  ramc,
+                            double                  lat);
+
+/// Which mundane primary-direction system to use. Orthogonal to PrimDirMode
+/// (Mundane/Zodiacal/Active — that governs ray construction and calc cost,
+/// not which projection system). Placidus is not a projection system (its
+/// proportional horizon isn't a great circle, hence PMP); Campanus and
+/// Regiomontanus are, and share one speculum (pole/Q/W) that differs only
+/// in aspect-point construction. Append-only: persisted as a raw index
+/// (Mundane/primDirSystem).
+enum PrimDirSystem { pdsPlacidus, pdsCampanus, pdsRegiomontanus };
+extern PrimDirSystem primDirSystem;
+
+/// Rapt parallels (Makransky Ch. IV, "RAPT PARALLELS"): a mundane-midpoint
+/// condition. Classically, two bodies X and Y are carried by diurnal
+/// rotation to equal mundane distances either side of an angle; Makransky
+/// generalizes "an angle" to the natal mundane position of any third body
+/// Z. Z is never directed — only X and Y move. In this system's terms:
+///   MP(X directed by arc) + MP(Y directed by arc) == 2 * MP_Z  (mod 360)
+/// where MP is CMP (Campanus) or W (Regiomontanus). Undefined for Placidus:
+/// PMP isn't a great-circle quantity, so a "mundane midpoint" of two PMP
+/// values has no valid geometric meaning the way it does for a projection
+/// system.
+///
+/// No closed form exists (MP(arc) is transcendental in arc — directing
+/// rotates the sphere about the celestial pole, a different axis than the
+/// one CMP/W are measured against), so this is a bounded bracket-and-bisect
+/// search over [minArc, maxArc] rather than Makransky's own open secant
+/// iteration (which converges to whichever root it drifts toward, possibly
+/// far outside any sensible date range, and stalls near quadrant
+/// boundaries — see docs/campanus-mundane-directions-plan.md). Returns
+/// every root found in range, sorted ascending; there can legitimately be
+/// more than one.
+QVector<double>
+findRaptParallelArcs(const DirSpeculumEntry& x,
+                     const DirSpeculumEntry& y,
+                     const DirSpeculumEntry& z,
+                     double                  ramc,
+                     double                  lat,
+                     PrimDirSystem           system,
+                     double                  minArc,
+                     double                  maxArc,
+                     double                  stepDeg = 1.0);
 
 /// The four angles, for significators that are angles rather than bodies —
 /// an angle has no semi-arc of its own, so it uses the exact classical

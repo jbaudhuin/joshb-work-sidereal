@@ -188,6 +188,7 @@ aspectModeType::current()
 }
 
 PrimDirMode primDirMode = prdMundane;
+PrimDirSystem primDirSystem = pdsPlacidus;
 DirMethod dirMethodSolarReturn = DirNeoPSSR; // matches legacy default (apparent sun PSSR)
 DirMethod dirMethodOther = DirNeoSQ;         // apparent-sun SQ for lunar/ingress
 // Ptolemy (flat 1 deg/year) by default: this is what calculateAngularDate's
@@ -4461,6 +4462,187 @@ buildDirSpeculumEntry(double ra, double dec, double ramc, double lat)
     return e;
 }
 
+int
+quadrantFromMundaneValue(double value)
+{
+    value = swe_degnorm(value);
+    if (value < 90.0)  return 1;
+    if (value < 180.0) return 2;
+    if (value < 270.0) return 3;
+    return 4;
+}
+
+void
+buildProjectionFields(DirSpeculumEntry& e, double ramc, double lat)
+{
+    // eps=0 makes swe_house_pos's internal ecliptic->equatorial conversion
+    // an identity, so xx={ra,dec} is read straight through as equatorial —
+    // this is exactly how Star::pvPos is computed for real bodies
+    // (astro-calc.cpp:1535), just fed (RA,Dec) instead of (ecl.lon,ecl.lat).
+    double xx[2] = { e.ra, e.dec };
+    char   err[256] = "";
+    double hp = swe_house_pos(ramc, lat, /*eps=*/0.0, 'C', xx, err);
+    e.cmp = swe_degnorm((hp - 1.0) / 12.0 * 360.0);
+    // Formula IV-2's derivation (Makransky Ch. IV): ZD = |CMP - 90|. Values
+    // beyond 180 are fine as-is (not folded) — sin(x) and sin(x-180) share
+    // magnitude, and pole below takes the absolute value regardless;
+    // verified against the book's own worked example (CMP_Ap=272.32 =>
+    // ZD_Ap=182.32 => pole_Ap=1.82, reproduced exactly).
+    e.zd = std::fabs(e.cmp - 90.0);
+    const double poleMag = std::fabs(asind(sind(lat) * sind(e.zd)));
+    e.pole     = std::copysign(poleMag, lat); // "takes the same algebraic sign as latitude"
+    e.q        = asind(tand(e.dec) * tand(e.pole)); // Formula IV-1
+    e.quadrant = quadrantFromMundaneValue(e.cmp);
+    // Formula IV-3: OA under own pole (quadrants 1/4) or OD (quadrants 2/3).
+    // This *is* Makransky's Regiomontanus Mundane Position (W) — an
+    // absolute-RA quantity, not a 0-360-from-Asc scale like CMP.
+    e.w = (e.quadrant == 1 || e.quadrant == 4) ? e.ra - e.q : e.ra + e.q;
+}
+
+// Shared Campanus/Regiomontanus mundane-conjunction arc (Formula IV-4/5/6).
+// Verified against the book's own worked examples: SU CONJ ME C-R mund
+// direct (12.17) and SA CONJ VE C-R mund converse (-37.09).
+double
+crMundaneConjunctionArc(const DirSpeculumEntry& promissor,
+                        const DirSpeculumEntry& significator)
+{
+    const double qp = asind(tand(promissor.dec) * tand(significator.pole));
+    const double wp = (significator.quadrant == 1 || significator.quadrant == 4)
+                           ? promissor.ra - qp
+                           : promissor.ra + qp;
+    return foldSigned180(wp - significator.w);
+}
+
+// Campanus mundane aspectual direction (Makransky Ch. IV, "CAMPANUS MUNDANE
+// ASPECTUAL DIRECTIONS", the 7-step algorithm). Verified end-to-end against
+// the book's own worked example (MO TRI SA Camp mund d, Arc=14.30) and its
+// intermediate values (CMP_Ap=272.32, ZD_Ap=182.32, pole_Ap=1.82, D_Ap=51.44).
+double
+campanusAspectPointArc(const DirSpeculumEntry& promissor,
+                       const DirSpeculumEntry& significator,
+                       double                  rayOffset,
+                       double                  ramc,
+                       double                  lat)
+{
+    const double cmpAp = swe_degnorm(significator.cmp + rayOffset);
+    const double zdAp  = std::fabs(cmpAp - 90.0);
+    const double poleApMag = std::fabs(asind(sind(lat) * sind(zdAp)));
+    const double poleAp    = std::copysign(poleApMag, lat);
+    const double decAp = -asind(sind(lat) * sind(cmpAp));
+    const double qAp   = asind(tand(decAp) * tand(poleAp));
+    const double x     = atand(cosd(lat) * tand(cmpAp));
+
+    const bool inQ1or4 = cmpAp < 90.0 || cmpAp > 270.0;
+    const double raAp = inQ1or4 ? ramc + 90.0 + x : ramc - 90.0 + x;
+    const double wAp  = inQ1or4 ? raAp - qAp : raAp + qAp;
+
+    const double qp = asind(tand(promissor.dec) * tand(poleAp));
+    const double wp = inQ1or4 ? promissor.ra - qp : promissor.ra + qp;
+
+    return foldSigned180(wp - wAp);
+}
+
+// Regiomontanus mundane aspectual direction (Makransky Ch. IV,
+// "REGIOMONTANUS MUNDANE ASPECTUAL DIRECTIONS"). Verified end-to-end
+// against the book's own worked example (MO TRI SA Regio mund c, Arc=-3.19)
+// and its intermediates (W_Ap=27.84, MD_Ap=15.47, pole_Ap=18.54, Qp=3.82).
+double
+regiomontanusAspectPointArc(const DirSpeculumEntry& promissor,
+                            const DirSpeculumEntry& significator,
+                            double                  rayOffset,
+                            double                  ramc,
+                            double                  lat)
+{
+    const double wAp = swe_degnorm(significator.w + rayOffset);
+    const double raic = swe_degnorm(ramc + 180.0);
+    // MD_Ap measured from whichever meridian (RAMC or RAIC) is nearer.
+    const double fromMC = foldSigned180(wAp - ramc);
+    const double fromIC = foldSigned180(wAp - raic);
+    const bool   nearMC = std::fabs(fromMC) <= std::fabs(fromIC);
+    const double signedMD = nearMC ? fromMC : fromIC;
+    const double mdAp = std::fabs(signedMD);
+
+    const double poleAp = atand(tand(lat) * sind(mdAp));
+    const double qp     = asind(tand(promissor.dec) * tand(poleAp));
+    // "Subtracting if WAp is east of the meridian, adding if west" — east
+    // of meridian means it has yet to culminate, i.e. its RA leads the
+    // nearest meridian's RA (signedMD > 0).
+    const double wp = signedMD > 0.0 ? promissor.ra - qp : promissor.ra + qp;
+
+    return foldSigned180(wp - wAp);
+}
+
+namespace {
+
+// Mundane position (CMP or W) of `body`, directed by `alpha` degrees.
+// Directing rotates the sphere about the celestial pole: equivalent to
+// holding RAMC fixed and shifting the body's effective RA by -alpha
+// (declination is unaffected by primary motion).
+double
+mundanePositionAtArc(const DirSpeculumEntry& body, double alpha, double ramc,
+                     double lat, PrimDirSystem system)
+{
+    DirSpeculumEntry e =
+        buildDirSpeculumEntry(swe_degnorm(body.ra - alpha), body.dec, ramc, lat);
+    buildProjectionFields(e, ramc, lat);
+    return system == pdsCampanus ? e.cmp : e.w;
+}
+
+// Shorter-arc midpoint of two mod-360 values (matches the existing
+// synthetic-midpoint convention, astro-gui.cpp's swe_difdeg2n interpolation).
+double
+shortArcMidpoint(double a, double b)
+{
+    return swe_degnorm(a + foldSigned180(b - a) / 2.0);
+}
+
+} // namespace
+
+QVector<double>
+findRaptParallelArcs(const DirSpeculumEntry& x, const DirSpeculumEntry& y,
+                     const DirSpeculumEntry& z, double ramc, double lat,
+                     PrimDirSystem system, double minArc, double maxArc,
+                     double stepDeg)
+{
+    QVector<double> hits;
+    if (system == pdsPlacidus) return hits;
+
+    // Z is never directed -- its mundane position is evaluated once, at its
+    // natal (undirected) place.
+    const double mpZ = mundanePositionAtArc(z, 0.0, ramc, lat, system);
+
+    auto residual = [&](double alpha) {
+        const double mpX = mundanePositionAtArc(x, alpha, ramc, lat, system);
+        const double mpY = mundanePositionAtArc(y, alpha, ramc, lat, system);
+        return foldSigned180(shortArcMidpoint(mpX, mpY) - mpZ);
+    };
+
+    double prevAlpha = minArc;
+    double prevF      = residual(prevAlpha);
+    for (double alpha = minArc + stepDeg; alpha <= maxArc + 1e-9;
+         alpha += stepDeg)
+    {
+        const double curF = residual(alpha);
+        // A genuine root crossing changes the residual by much less than a
+        // half-circle between adjacent (1-degree-ish) samples; a coarse-step
+        // wrap discontinuity looks like a huge jump -- reject those rather
+        // than bisecting a non-root.
+        if ((prevF > 0.0) != (curF > 0.0) && std::fabs(curF - prevF) < 90.0) {
+            double lo = prevAlpha, hi = alpha, flo = prevF;
+            for (int it = 0; it < 60 && hi - lo > 1e-7; ++it) {
+                const double mid = 0.5 * (lo + hi);
+                const double fm  = residual(mid);
+                if ((fm > 0.0) == (flo > 0.0)) { lo = mid; flo = fm; }
+                else                            { hi = mid; }
+            }
+            hits.append(0.5 * (lo + hi));
+        }
+        prevAlpha = alpha;
+        prevF     = curF;
+    }
+    return hits;
+}
+
 double
 primaryDirectionArc(const DirSpeculumEntry& promissor,
                     const DirSpeculumEntry& significator,
@@ -4903,6 +5085,9 @@ EventOptions::EventOptions(const QVariantMap& map)
         map.value("Events/pdAnglesAsPromissors", true).toBool();
     pdDirectionScope = PDDirectionScope(
         map.value("Events/pdDirectionScope", unsigned(PDBothDirections)).toUInt());
+    pdIncludeRaptParallels =
+        map.value("Events/pdIncludeRaptParallels", false).toBool();
+    raptParallelsAnyZ = map.value("Events/raptParallelsAnyZ", false).toBool();
     pdOrbDegrees = map.value("Events/pdOrbDegrees", 0.5).toDouble();
 
     s_transitBodyColMode =
@@ -5092,6 +5277,8 @@ EventOptions::toMap()
     ret.insert("Events/pdAnglesAsPromissors", pdAnglesAsPromissors);
     ret.insert("Events/pdDirectionScope", unsigned(pdDirectionScope));
     ret.insert("Events/pdOrbDegrees", pdOrbDegrees);
+    ret.insert("Events/pdIncludeRaptParallels", pdIncludeRaptParallels);
+    ret.insert("Events/raptParallelsAnyZ", raptParallelsAnyZ);
     ret.insert("Events/transitBodyColMode", s_transitBodyColMode);
     ret.insert("Events/natalTransitBodyColMode", s_natalTransitBodyColMode);
     return ret;
@@ -8114,6 +8301,11 @@ AspectFinder::findPrimaryDirections()
         if (A::primDirMode == A::prdZodiacal && b.angleKind == DirNotAngle)
             decForEntry = asind(sind(eps) * sind(b.eclLon));
         b.entry = buildDirSpeculumEntry(ra, decForEntry, ramc, lat);
+        // Campanus/Regiomontanus need the projection-system fields too
+        // (cmp/zd/pole/q/w/quadrant); Placidus never reads them, so skip
+        // the extra swe_house_pos call when it isn't the active system.
+        if (A::primDirSystem != A::pdsPlacidus)
+            buildProjectionFields(b.entry, ramc, lat);
         bodies.append(b);
     }
     if (bodies.size() < 2) return;
@@ -8301,7 +8493,48 @@ AspectFinder::findPrimaryDirections()
                 // one isn't an approximation of any of them.
                 double arc;
                 double sigDisplayRA; // RA shown in the T/P/N cell tooltip only
-                if (sig.angleKind != DirNotAngle) {
+                if (A::primDirSystem != A::pdsPlacidus) {
+                    // Campanus/Regiomontanus: one shared per-body speculum
+                    // (pole/Q/W identical between the two systems — only the
+                    // mundane aspect-point construction differs). Unlike the
+                    // Placidus branch below, angle significators need NO
+                    // dec=0 special case: Body::entry already carries an
+                    // angle's real declination (see the collection loop
+                    // above), and the general C-R formulas reproduce the
+                    // classical angle identities exactly from that (verified:
+                    // MC gives pole=0 => Arc=RAp-RAMC; Asc gives pole=lat,
+                    // Qp=ADp, W_Asc=RAMC+90, matching the book's own
+                    // speculum, W_ASC=102.37=RAMC(12.37)+90).
+                    //
+                    // Two book-documented C-R techniques are NOT covered by
+                    // this dispatch, deliberately (see
+                    // docs/campanus-mundane-directions-plan.md):
+                    // - Mundane parallels: a different construction (reflect
+                    //   across the meridian, not an aspect offset) with no
+                    //   ecliptic analog; not in kRays at all, Placidus
+                    //   doesn't have them either. Real added scope, deferred.
+                    // - primDirMode==prdZodiacal falls through to the same
+                    //   mundane construction below rather than the book's
+                    //   distinct C-R zodiacal technique (aspect offset on
+                    //   the PROMISSOR's longitude) -- that would mean
+                    //   resolving a ray-placement question that also
+                    //   affects the existing Placidus zodiacal branch below
+                    //   (its own comment already flags itself unverified).
+                    if (ray.offset == 0.0) {
+                        arc = crMundaneConjunctionArc(promEntryBare, sig.entry);
+                        sigDisplayRA = sig.entry.ra;
+                    } else if (A::primDirSystem == A::pdsCampanus) {
+                        arc = campanusAspectPointArc(promEntryBare, sig.entry,
+                                                     ray.offset, ramc, lat);
+                        sigDisplayRA =
+                            swe_degnorm(sig.entry.ra + ray.offset); // display only
+                    } else {
+                        arc = regiomontanusAspectPointArc(promEntryBare, sig.entry,
+                                                          ray.offset, ramc, lat);
+                        sigDisplayRA =
+                            swe_degnorm(sig.entry.ra + ray.offset); // display only
+                    }
+                } else if (sig.angleKind != DirNotAngle) {
                     const double rayRA =
                         swe_degnorm(angleBaseRA(sig.angleKind) + ray.offset);
                     DirSpeculumEntry sigEntry = buildDirSpeculumEntry(rayRA, 0.0, ramc, lat);
@@ -8411,6 +8644,166 @@ AspectFinder::findPrimaryDirections()
                 auto& ev = _evs.safe_emplace_back(dt, unsigned(etcPrimaryDirections),
                                                   ray.harmonic, std::move(locs), 0.0);
                 if (orbSecs > 0) ev.setRange({ rangeStart, rangeEnd });
+            }
+        }
+    }
+}
+
+// Rapt parallels (Makransky Ch. IV, "RAPT PARALLELS"): a mundane-midpoint
+// condition between two promissors X, Y and a natal significator Z (Z is
+// never itself directed — see findRaptParallelArcs()'s own doc comment for
+// the math). A genuine kind of primary direction, not a separate event
+// type: rows are tagged etcPrimaryDirections (same toggle shows/hides them,
+// same focal-click preview applies — see EventOptions::pdIncludeRaptParallels'
+// doc comment), gated exactly like pdAnglesAsPromissors. This is the
+// finder-pipeline wrapper: collects the natal body list (mirrors
+// findPrimaryDirections()'s own collection loop above, minus the fields
+// only PD's ray construction needs), scopes the enumeration (X,Y restricted
+// to planets, classical; Z restricted to the four angles unless
+// raptParallelsAnyZ), maps the search date range to a symmetric arc window,
+// and turns each root findRaptParallelArcs() returns into a HarmonicEvent —
+// the X/Y pair as a midpoint promissor (ChartPlanetId's built-in
+// second-planet slot; no synthetic Planet object needed, unlike the
+// unrelated chart-wheel-drawing _syntheticMidpointPlanets mechanism), Z as
+// the bare significator.
+void
+AspectFinder::findRaptParallels()
+{
+    if (_alist.empty()) return;
+    if (!showPrimaryDirections()) return;
+    if (!pdIncludeRaptParallels) return;
+    if (_ids.isEmpty()) return;
+    // Undefined under Placidus (PMP has no valid great-circle midpoint
+    // notion) — findRaptParallelArcs() already returns no hits for it, but
+    // bail early rather than paying for a search that can only be empty.
+    if (A::primDirSystem == A::pdsPlacidus) return;
+
+    const InputData& natalIda = _ids.first();
+    const Houses      houses  = calculateHouses(natalIda);
+    const double      lat     = natalIda.location().y();
+    const double      ramc    = houses.RAMC;
+
+    struct Body {
+        ChartPlanetId    cpid;
+        DirSpeculumEntry entry;
+        DirAngle         angleKind;
+    };
+    QVector<Body> bodies;
+
+    for (int i = 0; i < int(_alist.size()); ++i) {
+        auto* pl = dynamic_cast<PlanetLoc*>(_alist[i]);
+        if (!pl) continue;
+        if (pl->planet.fileId() != 0) continue; // natal side only
+        if (pl->planet.isMidpt()) continue;
+        const PlanetId pid = pl->planet.planetId();
+        if (pid == Planet_None) continue;
+        if (pid >= Houses_Start) continue; // skip house cusps/ingress markers
+
+        double ra, dec;
+        if (auto* nep = dynamic_cast<NatalExprecessedPosition*>(pl)) {
+            ra  = nep->natalRA();
+            dec = nep->natalDec();
+        } else if (dynamic_cast<NatalPosition*>(pl)) {
+            NatalExprecessedPosition sidecar(pl->planet, natalIda, "r");
+            ra  = sidecar.natalRA();
+            dec = sidecar.natalDec();
+        } else {
+            continue;
+        }
+
+        Body b;
+        b.cpid = pl->planet;
+        b.angleKind = (pid >= Angles_Start && pid < Angles_End)
+                        ? (pid == Planet_Asc  ? DirAsc
+                          : pid == Planet_Desc ? DirDesc
+                          : pid == Planet_MC   ? DirMC
+                          :                      DirIC)
+                        : DirNotAngle;
+        b.entry = buildDirSpeculumEntry(ra, dec, ramc, lat);
+        buildProjectionFields(b.entry, ramc, lat);
+        bodies.append(b);
+    }
+    if (bodies.size() < 3) return;
+
+    // Arc <-> date is monotonic in |arc| (primaryDirectionDate() always
+    // folds forward regardless of sign), so the search date range maps to
+    // a symmetric arc window; one bracket-search call spanning
+    // [-arcMax, arcMax] finds both direct and converse roots whose
+    // resulting date falls in range.
+    const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
+    if (daysPerDeg <= 0.0) return;
+    const qint64 daysToStart = natalIda.GMT().date().daysTo(_range.first);
+    const qint64 daysToEnd   = natalIda.GMT().date().daysTo(_range.second);
+    const double arcMax = std::max(std::fabs(double(daysToStart)),
+                                   std::fabs(double(daysToEnd)))
+                             / daysPerDeg
+                         + 1.0; // 1-degree margin
+    if (arcMax <= 0.0) return;
+
+    // Reuses pdOrbDegrees (same RA-degree -> date-window conversion PD
+    // already uses) rather than a separate setting.
+    const qint64 orbSecs = pdOrbDegrees > 0.0
+        ? qint64(pdOrbDegrees * daysPerDeg * 86400.0)
+        : 0;
+
+    for (int zi = 0; zi < bodies.size(); ++zi) {
+        if (_state == cancelRequestedState) return;
+        const Body& z = bodies[zi];
+        if (!raptParallelsAnyZ && z.angleKind == DirNotAngle) continue;
+        if (z.entry.circumpolar) continue;
+
+        for (int xi = 0; xi < bodies.size(); ++xi) {
+            const Body& x = bodies[xi];
+            if (xi == zi) continue;
+            if (x.angleKind != DirNotAngle) continue; // X,Y restricted to planets (classical)
+            if (x.entry.circumpolar) continue;
+
+            for (int yi = xi + 1; yi < bodies.size(); ++yi) {
+                if (_state == cancelRequestedState) return;
+                const Body& y = bodies[yi];
+                if (yi == zi) continue;
+                if (y.angleKind != DirNotAngle) continue;
+                if (y.entry.circumpolar) continue;
+
+                QVector<double> hits = findRaptParallelArcs(
+                    x.entry, y.entry, z.entry, ramc, lat, A::primDirSystem,
+                    -arcMax, arcMax, 1.0);
+                if (hits.isEmpty()) continue;
+
+                for (double arc : hits) {
+                    if (!std::isfinite(arc) || arc == 0.0) continue;
+                    const QDateTime dt =
+                        primaryDirectionDate(natalIda.GMT(), arc, A::pdTimingKey);
+                    const QDateTime rangeStart = dt.addSecs(-orbSecs);
+                    const QDateTime rangeEnd   = dt.addSecs(orbSecs);
+                    if (rangeEnd.date() < _range.first
+                        || rangeStart.date() > _range.second)
+                        continue;
+
+                    const bool converse = arc < 0.0;
+
+                    // X/Y midpoint as the promissor: ChartPlanetId's
+                    // built-in second-planet slot marks it a midpoint (see
+                    // ChartPlanetId::name(), which already renders it as
+                    // "Sun/Jup" with no further code needed) — no synthetic
+                    // Planet object required.
+                    ChartPlanetId midCpid(x.cpid.planetId(), y.cpid.planetId());
+                    const double midRa = swe_degnorm(
+                        x.entry.ra + foldSigned180(y.entry.ra - x.entry.ra) / 2.0);
+
+                    PlanetLoc promLoc(midCpid, converse ? "Con" : "Dir", midRa);
+                    promLoc.speed = 2e-9;
+                    PlanetLoc sigLoc(z.cpid, QString(), z.entry.ra);
+                    sigLoc.speed = 1e-9;
+
+                    PlanetRangeBySpeed locs;
+                    locs.insert(promLoc);
+                    locs.insert(sigLoc);
+
+                    auto& ev = _evs.safe_emplace_back(
+                        dt, unsigned(etcPrimaryDirections), 1, std::move(locs), 0.0);
+                    if (orbSecs > 0) ev.setRange({ rangeStart, rangeEnd });
+                }
             }
         }
     }
@@ -12362,8 +12755,15 @@ AspectFinder::findStuff()
         // mirror image of running heliacal last (below) because it costs
         // microseconds and can populate the table via progressive reveal
         // ahead of the slower passes.
-        if (_state != cancelRequestedState && showPrimaryDirections())
+        if (_state != cancelRequestedState && showPrimaryDirections()) {
             findPrimaryDirections();
+            // Rapt parallels: a kind of primary direction (same PD toggle,
+            // same tag), gated additionally by pdIncludeRaptParallels
+            // inside the function itself. Bounded bracket-search per
+            // triple (not closed-form like PD above), but still fast --
+            // runs right alongside it.
+            findRaptParallels();
+        }
         if (showStations()) findStations();
         if (_state != cancelRequestedState
             && (showParanatellonta() || showParanatellontaToNatal()))

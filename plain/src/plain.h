@@ -113,6 +113,19 @@ class Plain : public AstroFileHandler {
     QTimer*    searchDebounce; ///< restarts on each keystroke; fires applySearch()
     QString    _reportHtml;    ///< last full (unfiltered) report, set by refresh()
 
+    // Shadow copies of the two Mundane/* globals Plain owns, compared
+    // against on each applySettings() to detect a real change. NOT compared
+    // against the live A::primDirMode/primDirSystem globals directly:
+    // Transits::applySettings() also mutates those (it needs the fresh
+    // value before its own recompute, and AstroWidget::applySettings()
+    // calls handlers in construction order, Transits before Plain) — so by
+    // the time this runs, the live global may already match the incoming
+    // settings even though Plain itself hasn't reacted yet. Comparing
+    // against Plain's own last-seen value stays correct regardless of
+    // which handler runs first.
+    A::PrimDirMode     _lastPrimDirMode   = A::prdMundane;
+    A::PrimDirSystem   _lastPrimDirSystem = A::pdsPlacidus;
+
     bool               showAllDiurnalEvents;
     bool               includeFixedStars;
     bool               showParanNatalRows;
@@ -150,6 +163,11 @@ class Plain : public AstroFileHandler {
     /// Switch primary-direction mode (Mundane/Zodiacal/Active), recalculating
     /// every eligible chart when it actually changes.
     void setPrimDirMode(A::PrimDirMode mode);
+    /// Switch primary-direction mundane system (Placidus/Campanus/
+    /// Regiomontanus). Unlike setPrimDirMode, this affects only
+    /// findPrimaryDirections() (the Events tab's PD search) — it doesn't
+    /// feed calculatePlanet(), so no chart recalculation is needed here.
+    void setPrimDirSystem(A::PrimDirSystem system);
 
     /// HTML anchor name for a section (fileIndex -1) or its per-file subsection.
     QString sectionAnchor(SectionToggle* t, int fileIndex) const;
@@ -160,6 +178,7 @@ class Plain : public AstroFileHandler {
     // toolbar buttons, built fresh from live state each time they're opened.
     void addBoolAction(QMenu* menu, const QString& label, bool& member);
     void addSpeculumTypeSubmenu(QMenu* menu);
+    void addDirectionSystemSubmenu(QMenu* menu);
     void addDisplayModeSubmenu(QMenu* menu);
     void addMoreOptionsAction(QMenu* menu);
     void showDirectionsContextMenu(const QPoint& globalPos);
