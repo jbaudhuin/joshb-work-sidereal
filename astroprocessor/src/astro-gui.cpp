@@ -1330,15 +1330,18 @@ AstroFileHandler::preparePvRelocalization()
 
     int ref   = (_pvRefFileIndex == 1) ? 1 : 0;
     int other = 1 - ref;
-    const auto& refHouses = file(ref)->horoscope().houses;
-    qreal       refLat    = file(ref)->getLocation().y();
+    // Must use the SAME projection Chart::displayPvPos() draws with,
+    // precession included -- if the two diverge, cross-file aspect lines
+    // land off their markers by the elapsed precession.
+    const auto& refScope   = file(ref)->horoscope();
+    const auto& otherScope = file(other)->horoscope();
 
-    _pvRelocPlanets = file(other)->horoscope().planets;
+    _pvRelocPlanets = otherScope.planets;
     for (auto& p : _pvRelocPlanets)
-        p.pvPos = A::relocalizedPvPos(p, refHouses, refLat);
-    _pvRelocPlanetsOrig = file(other)->horoscope().planetsOrig;
+        p.pvPos = A::relocalizedMundanePos(p, otherScope, refScope);
+    _pvRelocPlanetsOrig = otherScope.planetsOrig;
     for (auto& p : _pvRelocPlanetsOrig)
-        p.pvPos = A::relocalizedPvPos(p, refHouses, refLat);
+        p.pvPos = A::relocalizedMundanePos(p, otherScope, refScope);
 
     _pvRelocFileIndex = other;
     return true;

@@ -98,6 +98,23 @@ private:
     int  _animDurationMs = 10000; // continuous playback: traverse a range in this
     int  _slideMs        = 600;   // discrete-step planet slide duration (0 = off)
 
+    // Shadow copy of Mundane/primDirSystem, compared in applySettings() --
+    // NOT against the live A::primDirSystem global. Handler construction
+    // order is Details, Harmonics, Transits, Speculum, Chart, Planets, Plain
+    // (mainwindow.cpp) -- Transits::applySettings() already mutates the live
+    // global (for its own PD recompute) before Chart's turn, so by the time
+    // Chart runs, comparing against the live global would always see it
+    // already equal to the incoming value and never detect a change. Plain
+    // is what actually recomputes pvPos (file(i)->calculate(), since
+    // mundaneHouseSystem() feeds calculatePlanet()) -- but Plain runs AFTER
+    // Chart, so refreshAll() below would otherwise paint with the PREVIOUS
+    // Apply's pvPos data, one click behind (same race class already fixed
+    // once for Transits vs. Plain -- see plain.h's own _lastPrimDirSystem
+    // and the docs file's "Handler-ordering race" writeup). Chart must do
+    // its own fresh-value recompute rather than rely on Plain's, exactly
+    // like Transits already does for its own purposes.
+    A::PrimDirSystem _lastPrimDirSystem = A::pdsPlacidus;
+
     QMap<int, graphicsItemDict> cuspides;
     QMap<int, graphicsItemDict> cuspideLabels;
     QMap<int, graphicsItemDict> planetMarkers;
@@ -105,6 +122,11 @@ private:
     //QList<QGraphicsSimpleTextItem*> aspectMarkers;
     QList<QGraphicsLineItem*>         aspects;
     QList<QGraphicsItem*>             signIcons;
+    /// Radial divider lines between zodiac sign sectors, one per sign,
+    /// index-parallel to signIcons. Tracked (like signIcons) because the ring
+    /// is re-laid-out whenever the mundane/equatorial projection changes --
+    /// see layoutZodiacRing().
+    QList<QGraphicsLineItem*>         signBorders;
 
     /// Midpoint visualization items: chord between B,C and line to A
     struct MidpointFigure {
@@ -121,6 +143,35 @@ private:
         QList<QGraphicsItem*>       spokeMarkers;   ///< marker each spoke tracks
     };
     QList<ParanFigure>               paranFigures;
+
+    /// Primary Direction event marker: for each directed promissor (2 for a
+    /// rapt parallel -- X and Y individually), a "travel" line from its natal
+    /// position to where the arc carries it, and a ghost "phantom" marker at
+    /// that arrival point. Driven by
+    /// AstroFile::getDirectionFocus{Promissors,Significator,Arc}() (see
+    /// astro-gui.h) -- only meaningful in Mundane/PV display mode, since a
+    /// directed mundane position has no ecliptic-mode analog.
+    ///
+    /// The travel line, not a phantom->significator spoke, is what carries
+    /// the information: for a CONJUNCTION direction the promissor by
+    /// definition arrives exactly ON the significator, so a spoke between
+    /// them is always zero-length (and the phantom alone is invisible inside
+    /// a crowded ring). `spoke` is therefore only drawn for aspectual rays,
+    /// where the arrival point sits a ray-offset away from the significator
+    /// -- it stays null when the two coincide.
+    ///
+    /// Positions are recomputed fresh each draw rather than tracking marker
+    /// items: the significator is never directed (only promissors move), and
+    /// Asc/IC/Desc have no QGraphicsItem of their own anyway (they're drawn
+    /// as cusp lines, not planet markers) -- nor do angles appear in
+    /// horoscope().planets for a normal chart, so their 0/90/180/270 pvPos
+    /// values are special-cased the same way astro-calc.cpp's getPos() does.
+    struct DirectionFigure {
+        QGraphicsEllipseItem* phantom = nullptr; ///< ghost marker, directed position
+        QGraphicsLineItem*    travel  = nullptr; ///< natal promissor -> directed position
+        QGraphicsLineItem*    spoke   = nullptr; ///< directed -> significator (null if coincident)
+    };
+    QList<DirectionFigure>           directionFigures;
 
     /// Declination strip (horizontal axis below the wheel).
     /// X = |declination|; southern bodies above the axis line, northern below.
@@ -164,6 +215,28 @@ private:
     QColor planetShapeColor(const A::Planet& p, int fileIndex);
     QGraphicsItem* getCircleMarker(const A::Planet* p);
 
+    /// Position the zodiac ring's sector dividers, sign glyphs and colored
+    /// band for the CURRENT draw frame. Sign spans are only equal 30 degree
+    /// sectors in the ecliptic frame; in equatorial/mundane they must be
+    /// projected (A::eclipticPointDisplayAngle). Called from createScene()
+    /// once the items exist, and again from updateScene() because the
+    /// projection depends on RAMC/latitude/obliquity, which change on time
+    /// and location edits that never rebuild the scene.
+    /// File whose horoscope anchors the wheel: rotation, zodiac-ring
+    /// projection, and the drawn angle/house grid. file(1) only for
+    /// "prefer outer" bi-wheels. Deliberately NOT the same as the
+    /// body-relocalization anchor passed to setPvFrameFile() in
+    /// updateAspects(), which returns -1 for Start_ZeroDegree to disable
+    /// relocalization entirely -- the ring still has to be laid out against
+    /// SOME file, and that is file 0.
+    int ringFileIndex() const
+    {
+        return (circleStart == Start_Outer_Ascendant && filesCount() > 1) ? 1
+                                                                         : 0;
+    }
+
+    void layoutZodiacRing();
+
     void drawPlanets(int fileIndex);
     void drawStars(int fileIndex);
     void drawCuspides(int fileIndex);
@@ -173,6 +246,8 @@ private:
     void clearMidpointFigures();
     void drawParanFigures();
     void clearParanFigures();
+    void drawDirectionFigure();
+    void clearDirectionFigure();
     void drawDeclinationAxis();
     void drawDeclinationBodies(int fileIndex);
     void layoutDeclinationGlyphs();

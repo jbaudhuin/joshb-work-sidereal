@@ -607,17 +607,28 @@ Plain::setPrimDirSystem(A::PrimDirSystem system)
 {
     if (A::primDirSystem == system) return;
     A::primDirSystem = system;
-    // primDirSystem feeds only findPrimaryDirections() -- no calculate()
-    // needed at all. markEventsForRecalc() (pure bookkeeping: sets the
-    // stale flag, clears the search manifest, no chart recompute, no
-    // signal emitted) is enough to make the Events tab pick up the change
-    // next time it checks (tab focus, Refresh click, etc.) -- deliberately
-    // NOT notifyCalcSettingChanged()/change(GMT): that emits changed(GMT),
-    // which fans out to every AstroFileHandler and was found to corrupt
-    // file(0)-dependent event search (see setPrimDirMode's comment).
+    // primDirSystem now ALSO feeds calculatePlanet() (mundaneHouseSystem()
+    // selects the house-system letter pvPos is computed against, so PV/
+    // mundane chart display and amcPrimeVertical aspects follow the active
+    // direction system too, not just findPrimaryDirections()) -- every
+    // eligible chart needs to recompute, mirroring setPrimDirMode() above.
+    // calculate(), not notifyCalcSettingChanged()/change(): the latter's
+    // emit changed(GMT) fans out to every AstroFileHandler (Transits
+    // included) and was found to corrupt file(0)-dependent event search
+    // (natal-based passes broke entirely; transit-only ones kept working) —
+    // suspected re-entrant/concurrent access with an active finder reading
+    // file(0) while this recalculates it. calculate() has none of that: it
+    // recomputes scope in place with no signal emitted, exactly what this
+    // codebase used successfully before today. markEventsForRecalc() below
+    // is the safe way to flag the Events tab stale without that risk.
     for (int i = 0; i < filesCount(); i++) {
-        if (file(i)) file(i)->markEventsForRecalc();
+        if (file(i)) {
+            file(i)->calculate();
+            file(i)->markEventsForRecalc();
+        }
     }
+    aspectsCached = false;
+    refresh();
 }
 
 void
@@ -2004,10 +2015,9 @@ Plain::applySettings(const AppSettings& s)
     _lastPrimDirMode        = newPrimDirMode;
     A::primDirMode          = newPrimDirMode;
 
-    // primDirSystem feeds only findPrimaryDirections(), not
-    // calculatePlanet() — unlike primDirMode, no recalculate() is needed
-    // here, just the same Events-tab nudge (see the primDirSystemChanged
-    // block below).
+    // primDirSystem now ALSO feeds calculatePlanet() (mundaneHouseSystem()
+    // selects pvPos's house-system letter), same as primDirMode — see the
+    // primDirSystemChanged block below.
     A::PrimDirSystem newPrimDirSystem = A::PrimDirSystem(
         s.value("Mundane/primDirSystem", unsigned(A::pdsPlacidus)).toUInt());
     bool primDirSystemChanged = (_lastPrimDirSystem != newPrimDirSystem);
@@ -2090,13 +2100,17 @@ Plain::applySettings(const AppSettings& s)
         aspectsCached = false;
     }
 
-    // primDirSystem doesn't feed calculatePlanet() (unlike primDirMode
-    // above), so no chart recompute is needed here — just the same safe
-    // stale-flag nudge.
+    // primDirSystem now feeds calculatePlanet() too (pvPos's house system),
+    // exactly like primDirMode above — same calculate() + markEventsForRecalc()
+    // pattern, same reasoning about why not notifyCalcSettingChanged().
     if (primDirSystemChanged) {
         for (int i = 0; i < filesCount(); i++) {
-            if (file(i)) file(i)->markEventsForRecalc();
+            if (file(i)) {
+                file(i)->calculate();
+                file(i)->markEventsForRecalc();
+            }
         }
+        aspectsCached = false;
     }
 
     // pdTimingKey doesn't feed the ephemeris (no calculate() needed) but the

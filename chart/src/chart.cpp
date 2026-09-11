@@ -251,29 +251,11 @@ Chart::createScene()
     QColor signFillColor  = Qt::black;          // Restored: original hardcoded value
     QColor signShapeColor = QColor(109, 109, 109); // Restored: original hardcoded value
 
-    if (coloredZodiac) {
-        QConicalGradient grad1(chartRect().center(), 180);
-        QColor           color;
-
-        for (const A::ZodiacSign& sign : file()->horoscope().zodiac.signs) {
-            color = QColor::fromString(sign.userData["bgcolor"].toString());
-            float a1 = sign.startAngle / 360;
-            float a2 = sign.endAngle / 360 - 0.0001;
-
-            if (clockwise) {
-                a1 = 0.5 - a1;
-                if (a1 < 0) a1 += 1;
-                a2 = 0.5 - a2;
-                if (a2 < 0) a2 += 1;
-            }
-
-            grad1.setColorAt(a1, color);
-            grad1.setColorAt(a2, color);
-        }
-
-        penZodiac.setBrush(QBrush(grad1));
-        penBorder.setColor(Qt::black);
-    }
+    // The colored band itself is built by layoutZodiacRing() (below), which
+    // knows the per-frame sector angles; only penBorder's colored-mode tweak
+    // is needed this early, since the border pen is used by the ring outlines
+    // and sector dividers created here.
+    if (coloredZodiac) penBorder.setColor(Qt::black);
 
     for (int f = 0; f < filesCount(); f++) { // inner circles
         s->addEllipse(-innerRadius(f),
@@ -309,24 +291,15 @@ Chart::createScene()
         circle->setGraphicsEffect(effect);
     }
 
-    for (const A::ZodiacSign& sign : file()->horoscope().zodiac.signs) {
-        float endAngle = sign.endAngle;
-        if (sign.startAngle > endAngle) endAngle += 360;
-        float rad     = -sign.startAngle * 3.1416 / 180;
-        float rad_mid = -(sign.startAngle + (endAngle - sign.startAngle) / 2)
-                        * 3.1416 / 180;
-
-        if (clockwise) {
-            rad     = 3.1416 - rad;
-            rad_mid = 3.1416 - rad_mid;
-        }
-
-        s->addLine(chartRect().x() * cos(rad), // zodiac sign borders
-                   chartRect().y() * sin(rad),
-                   (chartRect().x() + zodiacWidth()) * cos(rad),
-                   (chartRect().y() + zodiacWidth()) * sin(rad),
-                   penBorder)
-            ->setParentItem(circle);
+    // Create the sector dividers and sign glyphs; their ANGULAR PLACEMENT is
+    // layoutZodiacRing()'s job, since it depends on the draw frame and (in
+    // equatorial/mundane) on live RAMC/latitude/obliquity. Take the sign set
+    // from the same file that function will lay them out against -- the two
+    // files can in principle carry different zodiacs.
+    for (const A::ZodiacSign& sign :
+         file(ringFileIndex())->horoscope().zodiac.signs) {
+        signBorders << s->addLine(QLineF(), penBorder);
+        signBorders.last()->setParentItem(circle);
 
         QString                  ch = QChar(sign.userData["fontChar"].toInt());
         QGraphicsSimpleTextItem* text =
@@ -337,14 +310,12 @@ Chart::createScene()
         text->setPen(coloredZodiac ? signShapeColor
                                    : sign.userData["shapeColor"].toString());
         text->setOpacity(0.9);
-        text->moveBy((chartRect().x() + zodiacWidth() / 2) * cos(rad_mid)
-                         - text->boundingRect().width() / 2,
-                     (chartRect().y() + zodiacWidth() / 2) * sin(rad_mid)
-                         - text->boundingRect().height() / 2);
         text->setTransformOriginPoint(text->boundingRect().center());
         circle->setHelpTag(text, sign.name);
         signIcons << text;
     }
+
+    layoutZodiacRing();
 
     for (int i = 0; i < filesCount(); i++) {
         drawPlanets(i);
@@ -357,6 +328,125 @@ Chart::createScene()
 }
 
 void
+Chart::layoutZodiacRing()
+{
+    if (signIcons.isEmpty() || !circle) return;
+
+    // The ring belongs to the wheel's reference file, not blindly to file 0:
+    // in a "prefer outer" bi-wheel the rotation is anchored to file(1), and
+    // the projection below must use the same chart's RAMC/latitude/epoch or
+    // the ring and the wheel disagree.
+    const auto& refScope = file(ringFileIndex())->horoscope();
+    const auto& zodiac   = refScope.zodiac;
+    const int   n        = signIcons.size();
+    if (zodiac.signs.size() != n || signBorders.size() != n) return;
+
+    const auto mode = A::aspectModeForChartDraw();
+
+    // Where each sign STARTS, in the frame the wheel is currently drawn in.
+    // Equal 30 degree spacing is only correct for the ecliptic frame; the
+    // other two project the ecliptic onto a different great circle, which
+    // stretches some signs and compresses others.
+    QVector<qreal> startAt(n);
+    bool           projected = true;
+    for (int i = 0; i < n && projected; ++i) {
+        projected = A::eclipticPointDisplayAngle(zodiac.signs[i].startAngle,
+                                                 refScope, mode, startAt[i]);
+    }
+
+    // The projection has to wind once around the wheel to be drawable as 12
+    // consecutive sectors. Walking the forward gaps, a single clean wrap sums
+    // to exactly 360; a sequence that doubles back sums to 720 or more. It is
+    // well behaved at any ordinary latitude, but rather than render a
+    // scrambled ring if swe_house_pos degenerates (circumpolar, near the
+    // poles), fall back to the raw equal-30 layout wholesale.
+    if (projected) {
+        qreal total = 0.0;
+        for (int i = 0; i < n; ++i) {
+            const qreal gap = swe_degnorm(startAt[(i + 1) % n] - startAt[i]);
+            if (gap < 1e-6) { projected = false; break; }
+            total += gap;
+        }
+        if (projected && qAbs(total - 360.0) > 1e-3) projected = false;
+    }
+    if (!projected) {
+        for (int i = 0; i < n; ++i) startAt[i] = zodiac.signs[i].startAngle;
+    }
+
+    QPen penBorder(ThemeManager::instance().getChartBorderColor());
+    if (coloredZodiac) penBorder.setColor(Qt::black);
+
+    QConicalGradient grad(chartRect().center(), 180);
+
+    for (int i = 0; i < n; ++i) {
+        const A::ZodiacSign& sign = zodiac.signs[i];
+        const qreal begin = swe_degnorm(startAt[i]);
+        // Span to the NEXT sign's start, wrapped -- with unequal sectors the
+        // old `end - start` arithmetic breaks on the sector crossing 0.
+        const qreal span  = swe_degnorm(startAt[(i + 1) % n] - begin);
+        const qreal mid   = begin + span / 2.0;
+
+        qreal rad     = -begin * M_PI / 180.0;
+        qreal rad_mid = -mid * M_PI / 180.0;
+        if (clockwise) {
+            rad     = M_PI - rad;
+            rad_mid = M_PI - rad_mid;
+        }
+
+        signBorders[i]->setLine(
+            chartRect().x() * cos(rad),
+            chartRect().y() * sin(rad),
+            (chartRect().x() + zodiacWidth()) * cos(rad),
+            (chartRect().y() + zodiacWidth()) * sin(rad));
+        signBorders[i]->setPen(penBorder);
+
+        // setPos, not moveBy: this runs repeatedly, and moveBy is cumulative.
+        QGraphicsItem* text = signIcons[i];
+        text->setPos((chartRect().x() + zodiacWidth() / 2) * cos(rad_mid)
+                         - text->boundingRect().width() / 2,
+                     (chartRect().y() + zodiacWidth() / 2) * sin(rad_mid)
+                         - text->boundingRect().height() / 2);
+
+        if (coloredZodiac) {
+            QColor color =
+                QColor::fromString(sign.userData["bgcolor"].toString());
+            // Mirroring reverses which end of the sector comes first, so
+            // mirror the START and keep the span: [b, b+span] either way.
+            qreal gStart = clockwise ? (180.0 - begin - span) : begin;
+            gStart = swe_degnorm(gStart);
+            // Deliberately NOT normalized: a sector ending exactly at 360
+            // must stay 360, not fold to 0. Folding it made the last sign
+            // emit a stop at 0.0, overwriting the first sign's stop there and
+            // smearing a gradient across it.
+            const qreal gEnd = gStart + span;
+            const qreal eps  = 0.036; // ~0.0001 of a turn, as before
+
+            if (gEnd <= 360.0) {
+                grad.setColorAt(gStart / 360.0, color);
+                grad.setColorAt(qMax(gStart, gEnd - eps) / 360.0, color);
+            } else {
+                // Straddles the seam: gradient stops are sorted, so emit the
+                // two halves separately rather than an inverted pair.
+                grad.setColorAt(gStart / 360.0, color);
+                grad.setColorAt(1.0, color);
+                const qreal tail = gEnd - 360.0 - eps;
+                if (tail > 0.0) {
+                    grad.setColorAt(0.0, color);
+                    grad.setColorAt(tail / 360.0, color);
+                }
+            }
+        }
+    }
+
+    if (coloredZodiac) {
+        QPen penZodiac(ThemeManager::instance().getChartZodiacColor(),
+                       zodiacWidth());
+        penZodiac.setBrush(QBrush(grad));
+        circle->setPen(penZodiac);
+    }
+}
+
+void
 Chart::updateScene()
 {
     qDebug() << "Update scene";
@@ -364,16 +454,16 @@ Chart::updateScene()
     float rotate;
 
     // Use the outer chart's ascendant whenever two charts are present.
-    bool useReturnAsc = (circleStart == Start_Outer_Ascendant && files().size() > 1);
+    const int refIdx = ringFileIndex();
 
     // Bind the wheel drag to the SAME file whose Ascendant anchors the rotation
     // (file(1) in "prefer outer" biwheels, else file(0)).
-    circle->setFile(file(useReturnAsc ? 1 : 0));
+    circle->setFile(file(refIdx));
 
     switch (circleStart) {
     case Start_Outer_Ascendant:
     case Start_Ascendent:       {
-        const auto& houses = file(useReturnAsc ? 1 : 0)->horoscope().houses;
+        const auto& houses = file(refIdx)->horoscope().houses;
         switch (A::aspectModeForChartDraw()) {
         case A::amcEquatorial:    rotate = houses.RAAC; break;
         case A::amcPrimeVertical: rotate = 0; break;
@@ -408,6 +498,11 @@ Chart::updateScene()
     if (clockwise) {
         rotate = -rotate;
     }
+
+    // Re-project the sign ring: outside the ecliptic frame the sector spans
+    // depend on RAMC/latitude/obliquity, which change on any time or location
+    // edit -- paths that reach updateScene() but never rebuild the scene.
+    layoutZodiacRing();
 
     for (QGraphicsItem* i : std::as_const(signIcons)) i->setRotation(-rotate);
 
@@ -646,6 +741,7 @@ Chart::finishPlanetSlide()
     // re-running updateAspects() would drop the focal aspects entirely.
     for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
     drawParanFigures();
+    drawDirectionFigure();
     if (displayDeclination) rebuildDeclinationStrip();
     // Aspect + midpoint geometry is already final; just restore visibility and
     // undo the crossfade opacity ramp on the (reused) live aspect items.
@@ -667,8 +763,8 @@ Chart::displayPvPos(const A::Star& b, int fileIndex)
         else if (fileIndex == 1 && circleStart == Start_Ascendent)
             refIdx = 0;
         if (refIdx >= 0)
-            return A::relocalizedPvPos(b, file(refIdx)->horoscope().houses,
-                                       file(refIdx)->getLocation().y());
+            return A::relocalizedMundanePos(b, file(fileIndex)->horoscope(),
+                                            file(refIdx)->horoscope());
     }
     return b.pvPos;
 }
@@ -843,6 +939,10 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     }
 
     auto cuspate = [=](qreal cusp, int i) {
+        // Keep the true angle for labelling; only the geometry gets mirrored.
+        // (Labels previously read the post-flip value, naming the wrong sign
+        // on clockwise wheels.)
+        const qreal cuspTrue = cusp;
         if (clockwise) cusp = 180 - cusp;
 
         QGraphicsItem* c = cuspides[fileIndex][i];
@@ -853,17 +953,28 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         c->setRotation(-cusp + rotate);
         l->setRotation(cusp - rotate);
 
-        QString tag =
-            tr("%1+%2")
-                .arg(A::romanNum(i + 1))
-                .arg(A::getSign(cusp, file()->horoscope().zodiac).name);
+        // Only an ecliptic-frame cusp is a zodiac longitude; in equatorial /
+        // mundane frames cuspTrue is an RA or a mundane house position, and
+        // running it through getSign()/zodiacPosition() names a sign that has
+        // nothing to do with the cusp (mundane cusp 0 read "I+Aries" for every
+        // chart). Label those by degree in-frame instead.
+        const bool eclipticFrame =
+            A::aspectModeForChartDraw() == A::amcEcliptic;
+        QString tag = eclipticFrame
+            ? tr("%1+%2").arg(A::romanNum(i + 1),
+                              A::getSign(cuspTrue,
+                                         file()->horoscope().zodiac).name)
+            : A::romanNum(i + 1);
         circle->setHelpTag(c, tag);
         circle->setHelpTag(l, tag);
 
         c->setToolTip(
             tr("House %1<br>%2")
-                .arg(A::romanNum(i + 1))
-                .arg(A::zodiacPosition(cusp, file()->horoscope().zodiac)));
+                .arg(A::romanNum(i + 1),
+                     eclipticFrame
+                         ? A::zodiacPosition(cuspTrue,
+                                             file()->horoscope().zodiac)
+                         : QString::number(cuspTrue, 'f', 2) + "°"));
     };
 
     // Par=N inner wheel in PV/mundoscope draw mode: items exist (avoiding
@@ -908,15 +1019,27 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     } break;
 
     case A::amcPrimeVertical: {
-        for (int i = 0; i < 12; ++i) {
-            cuspides[fileIndex][i]->setVisible(!(i % 3));
+        // A mundane position is a LOCAL-frame quantity, so only the reference
+        // wheel's angle grid is meaningful here: the other file's own
+        // 0/90/180/270 describe ITS horizon, not the frame everything is
+        // being drawn in, and drawing both would put two unrelated angle sets
+        // on the same four points. Its bodies are still shown, relocalized
+        // into this frame by displayPvPos(). (Ecliptic longitude and right
+        // ascension are shared frames, so their branches correctly keep
+        // per-file cusps.)
+        if (filesCount() > 1 && fileIndex != ringFileIndex()) {
+            for (int i = 0; i < 12; ++i) {
+                cuspides[fileIndex][i]->setVisible(false);
+                cuspideLabels[fileIndex][i]->setVisible(false);
+            }
+            return;
         }
-        cuspate(0, 0);               // ASC = 0°
-        cuspate(180, 6);             // DESC = 180°
-        if (file(fileIndex)->getHarmonic() == 1) {
-            cuspate(270, 9);         // MC = 270°
-            cuspate(90, 3);          // IC = 90°
-        } else {
+        // Every house is exactly 30° wide in mundane space by construction
+        // (Asc=0, IC=90, Desc=180, MC=270), so all twelve cusps are placeable.
+        // Draw them all: the sign ring no longer doubles as the house grid
+        // now that its sectors are projected to their true (unequal) spans.
+        for (int i = 0; i < 12; ++i) cuspate(30.0 * i, i);
+        if (file(fileIndex)->getHarmonic() != 1) {
             cuspides[fileIndex][3]->setVisible(false);
             cuspides[fileIndex][9]->setVisible(false);
         }
@@ -1403,6 +1526,184 @@ Chart::drawParanFigures()
 }
 
 void
+Chart::clearDirectionFigure()
+{
+    for (auto& df : directionFigures) {
+        if (df.spoke)   view->scene()->removeItem(df.spoke);
+        delete df.spoke;
+        if (df.travel)  view->scene()->removeItem(df.travel);
+        delete df.travel;
+        if (df.phantom) view->scene()->removeItem(df.phantom);
+        delete df.phantom;
+    }
+    directionFigures.clear();
+}
+
+void
+Chart::drawDirectionFigure()
+{
+    clearDirectionFigure();
+
+    if (!chartsCount || !filesCount()) return;
+    // A directed mundane position has no ecliptic-mode analog -- a body's
+    // ecliptic longitude doesn't move under direction, only its position
+    // relative to the angles does -- so this marker is only meaningful in
+    // Mundane/PV display mode. Do not auto-switch the user's view; the
+    // Directions-table focal preview (Transits::clickedCell()) works
+    // regardless of chart display mode already.
+    if (A::aspectModeForChartDraw() != A::amcPrimeVertical) return;
+
+    QGraphicsScene* s       = view->scene();
+    QColor          neutral = ThemeManager::instance().getChartMidpointColor();
+    const qreal     rotate  = circle->rotation();
+    auto positive = [](qreal angle) {
+        if (angle < 0) angle += 360.0;
+        return angle;
+    };
+
+    // Scene point on the body ring for a bare mundane angle (0=Asc/90=IC/
+    // 180=Desc/270=MC scale, same as Star::pvPos). Derived by building a
+    // throwaway item with the exact transform real markers get
+    // (transformOriginPoint/setRotation off circle->rotation(), honoring
+    // clockwise) and reading back its scene position, rather than
+    // hand-rolling the trig -- so it stays correct across circleStart,
+    // clockwise, and any future change to the rotation math.
+    //
+    // Needed because marker lookup can't serve here: Asc/IC/Desc have no
+    // QGraphicsItem at all (updatePlanetsAndCusps() draws them as cusp
+    // lines; only MC gets a planet marker), which silently killed the most
+    // common PD significator case.
+    auto pointAtAngle = [&](qreal angle, int fid) -> QPointF {
+        if (clockwise) angle = 180 - angle;
+        const int radius = 2;
+        auto* tmp = s->addEllipse(-innerRadius(fid) - radius, -radius,
+                                  radius * 2, radius * 2, Qt::NoPen);
+        tmp->setTransformOriginPoint(circle->boundingRect().center());
+        tmp->setRotation(positive(rotate - angle));
+        QPointF pos = tmp->sceneBoundingRect().center();
+        s->removeItem(tmp);
+        delete tmp;
+        return pos;
+    };
+
+    for (int i = 0; i < filesCount(); ++i) {
+        AstroFile* af = file(i);
+        if (!af || !af->hasDirectionFocus()) continue;
+
+        const auto& promissors = af->getDirectionFocusPromissors();
+        if (promissors.isEmpty()) continue;
+
+        // The significator is never directed (only promissors move -- see
+        // findPrimaryDirections()), so its position is just its own natal
+        // pvPos: already mundane-system-aware since Phase 1
+        // (mundaneHouseSystem()), and already correct for angles too
+        // (calculateAll() hardcodes Asc=0/IC=90/Desc=180/MC=270 regardless
+        // of system).
+        const A::ChartPlanetId sigCpid = af->getDirectionFocusSignificator();
+        int sigFid = sigCpid.fileId();
+        if (sigFid < 0 || sigFid >= filesCount()) sigFid = 0;
+        AstroFile* sf = file(sigFid);
+        if (!sf) continue;
+        // Angles are NOT present in horoscope().planets for an ordinary
+        // chart -- that container only gets Asc/IC/Desc/MC entries inserted
+        // via calculateAll(), which (despite the name) is exclusively a
+        // calculateComposite() helper, never called for a normal file.
+        // Every other place in this codebase that needs an angle's position
+        // (e.g. the primaryFrame-dispatch getPos() lambda used for aspect/
+        // event math, astro-calc.cpp:1850-1863) special-cases the same
+        // hardcoded 0/90/180/270 constants rather than looking one up --
+        // do the same here instead of depending on a map entry that doesn't
+        // exist.
+        qreal sigPvPos = 0.0;
+        bool  sigResolved = true;
+        switch (sigCpid.planetId()) {
+        case A::Planet_Asc:  sigPvPos = 0.0;   break;
+        case A::Planet_IC:   sigPvPos = 90.0;  break;
+        case A::Planet_Desc: sigPvPos = 180.0; break;
+        case A::Planet_MC:   sigPvPos = 270.0; break;
+        default: {
+            const auto& sigPlanets = sf->horoscope().planets;
+            if (!sigPlanets.contains(sigCpid.planetId())) { sigResolved = false; break; }
+            sigPvPos = sigPlanets.value(sigCpid.planetId()).pvPos;
+            break;
+        }
+        }
+        if (!sigResolved) continue;
+        const QPointF sigPos = pointAtAngle(sigPvPos, sigFid);
+
+        const double arc = af->getDirectionFocusArc();
+
+        for (const A::ChartPlanetId& promCpid : promissors) {
+            int fid = promCpid.fileId();
+            if (fid < 0 || fid >= filesCount()) fid = 0;
+            AstroFile* pf = file(fid);
+            if (!pf) continue;
+            const auto& planetsMap = pf->horoscope().planets;
+            if (!planetsMap.contains(promCpid.planetId())) continue;
+            const A::Planet& promPlanet = planetsMap.value(promCpid.planetId());
+
+            // Angles/house cusps never carry a tropical ecliptic position
+            // (calculateAll() hardcodes their pvPos instead -- see
+            // astro-calc.cpp), so relocalizedPvPos() cannot direct them; it
+            // would silently fall back to the natal 0/90/180/270 value,
+            // which is wrong here. v1 skips this phantom rather than
+            // drawing a misleading marker -- pdAnglesAsPromissors is the
+            // only way an ordinary PD row's promissor is an angle; rapt
+            // parallels never put an angle in X/Y.
+            if (promPlanet.tropicalEclipticPos.x() < 0.0) continue;
+
+            A::Houses directed  = pf->horoscope().houses;
+            directed.RAMC       = swe_degnorm(directed.RAMC + arc);
+            const qreal lat     = pf->getLocation().y();
+            const qreal angle = A::relocalizedPvPos(promPlanet, directed, lat);
+
+            const QPointF natalPos    = pointAtAngle(promPlanet.pvPos, fid);
+            const QPointF directedPos = pointAtAngle(angle, fid);
+
+            DirectionFigure df;
+
+            // The travel line: where this body starts (its natal mundane
+            // position) and where the arc carries it. This is the figure
+            // that actually conveys the direction -- see DirectionFigure's
+            // doc comment in chart.h for why a phantom->significator spoke
+            // does not.
+            df.travel = s->addLine(QLineF(natalPos, directedPos),
+                                   QPen(neutral, 1.5, Qt::SolidLine));
+            df.travel->setZValue(2.0);
+            df.travel->setOpacity(0.85);
+            df.travel->setToolTip(pf->getName() + "  " + promCpid.name()
+                                  + "  →  " + af->getDirectionFocusLabel());
+
+            // Phantom marker at the arrival point, sized well above the 2px
+            // real-body markers so it stays legible when it lands inside a
+            // crowded stellium (the conjunction case puts it exactly on the
+            // significator by construction).
+            const qreal pr = 5.0 * zoom;
+            auto* phantom = s->addEllipse(-pr, -pr, pr * 2, pr * 2,
+                                          QPen(neutral, 1.5, Qt::DashLine));
+            phantom->setBrush(Qt::NoBrush);
+            phantom->setPos(directedPos);
+            phantom->setZValue(2.5);
+            phantom->setToolTip(pf->getName() + "  " + promCpid.name()
+                                + tr("  (directed)"));
+            df.phantom = phantom;
+
+            // Only meaningful for an aspectual ray, where the arrival point
+            // sits a ray-offset away from the significator; for a
+            // conjunction the two coincide and this would be zero-length.
+            if (QLineF(directedPos, sigPos).length() > 2.0) {
+                df.spoke = s->addLine(QLineF(directedPos, sigPos),
+                                      QPen(neutral, 1.0, Qt::DotLine));
+                df.spoke->setZValue(2.0);
+                df.spoke->setOpacity(0.6);
+            }
+
+            directionFigures.append(df);
+        }
+    }
+}
+
+void
 Chart::clearDeclinationStrip()
 {
     declView->scene()->clear();
@@ -1717,9 +2018,11 @@ Chart::clearScene()
     aspects.clear();
     // aspectMarkers.clear();
     signIcons.clear();
+    signBorders.clear();
     // scene()->clear() already deleted the items, just clear tracking lists
     midpointFigures.clear();
     paranFigures.clear();
+    directionFigures.clear();
     clearDeclinationStrip();
 }
 
@@ -2058,6 +2361,7 @@ Chart::refreshAll()
     updateAspects();
     drawMidpointFigures();
     drawParanFigures();
+    drawDirectionFigure();
 }
 
 void
@@ -2128,11 +2432,21 @@ Chart::filesUpdated(MembersList m)
         updateAspects();
         drawMidpointFigures();
         drawParanFigures();
+        drawDirectionFigure();
         // The declination graph reflects the (just-recomputed) body positions,
         // so refresh it on every moment change too — otherwise it stays frozen
         // while the wheel animates/steps. Cheap (a small strip); skipped when
         // the graph is hidden. clearScene() rebuilds it via createScene().
         if (displayDeclination) rebuildDeclinationStrip();
+    } else if (filesCount() && (m[0] & AstroFile::DirectionFocus)) {
+        // DirectionFocus (Transits::clickedCell()'s PD focal preview) is a
+        // pure rendering-filter toggle, not a data change — change() never
+        // recalculates for it (astro-gui.h) — so it doesn't set updAspects
+        // above and would otherwise reach here and be silently dropped, same
+        // as it already is everywhere else in this function. Only the
+        // direction marker needs to move; no clearScene(), no
+        // updatePlanetsAndCusps(), no full updateAspects() pass.
+        drawDirectionFigure();
     }
 
     // Hide ALL house demarcations during animation playback — Ascendant-anchored,
@@ -2200,6 +2514,11 @@ Chart::viewSettingsUpdated(MembersList m)
         updateAspects();
         drawMidpointFigures();
         drawParanFigures();
+        // Covers ChartDisplayMode (the [Mundane]/PV toggle, part of
+        // ViewSettings): switching into Mundane mode with a PD focal
+        // preview already active should show the marker immediately, not
+        // require another Events-table click.
+        drawDirectionFigure();
     }
 }
 
@@ -2294,6 +2613,25 @@ Chart::applySettings(const AppSettings& s)
     _animDurationMs =
         qMax(1, s.value("Circle/animationDurationSec", 10).toInt()) * 1000;
     _slideMs = qBound(0, s.value("Circle/slideMs", 600).toInt(), 3000);
+
+    // See _lastPrimDirSystem's doc comment (chart.h): Chart runs before
+    // Plain in handler order, so Plain's own recompute of pvPos (via
+    // file(i)->calculate(), since mundaneHouseSystem() now feeds
+    // calculatePlanet()) hasn't happened yet by the time refreshAll() below
+    // paints. Without this, Mundane/PV display lags the Direction System
+    // setting by one Apply click. Guarded by s.contains(): this key is only
+    // present when `s` came from the combined settings dialog (see the
+    // analogous guard in Transits::applySettings()).
+    if (s.contains("Mundane/primDirSystem")) {
+        A::PrimDirSystem newPrimDirSystem =
+            A::PrimDirSystem(s.value("Mundane/primDirSystem").toUInt());
+        if (_lastPrimDirSystem != newPrimDirSystem) {
+            _lastPrimDirSystem = newPrimDirSystem;
+            for (int i = 0; i < filesCount(); i++) {
+                if (file(i)) file(i)->calculate();
+            }
+        }
+    }
 
     refreshAll();
 }

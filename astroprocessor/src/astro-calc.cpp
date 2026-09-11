@@ -103,12 +103,68 @@ relocalizedPvPos(const Star& body, const Houses& refHouses, qreal refGeoLat)
                        body.tropicalEclipticPos.y() };
     char   pvErr[256] = "";
     double hp = swe_house_pos(refHouses.RAMC, refGeoLat, refHouses.eps,
-                              'C', xpin, pvErr);
+                              mundaneHouseSystem(), xpin, pvErr);
     if (hp < 1.0 || hp > 13.0) return body.pvPos;
     qreal pos = (hp - 1.0) / 12.0 * 360.0;
     // swe reports the North Node position for both nodes
     if (body.id == Planet_SouthNode) pos = swe_degnorm(pos + 180.);
     return pos;
+}
+
+bool
+eclipticPointDisplayAngle(double           zodiacLon,
+                          const Horoscope& scope,
+                          aspectModeEnum   mode,
+                          qreal&           out)
+{
+    // Ecliptic frame: a body is drawn at eclipticPos.x(), which is stored in
+    // the chart's own zodiac frame -- exactly the frame zodiacLon is already
+    // in. Nothing to convert; this must stay an exact identity so the
+    // ecliptic wheel renders bit-for-bit as it always has.
+    if (mode == amcEcliptic) {
+        out = swe_degnorm(zodiacLon);
+        return true;
+    }
+
+    // Everything below is tropical-only geometry (swe_house_pos and the
+    // obliquity rotation both assume tropical input), so a true sidereal
+    // zodiac's boundary longitude has to have the ayanamsa added back first.
+    // Zodiac ids 0/1 are never given SEFLG_SIDEREAL anywhere in this codebase
+    // (see the `zid > 1` gate in calculatePlanet), so they need no offset.
+    // Same pattern as horoscopeTropicalEquatorialPos() and calculateHouses().
+    double lonTrop = zodiacLon;
+    if (scope.inputData.zodiac() > 1) {
+        double jd = getJulianDate(scope.inputData.GMT(), false,
+                                  scope.inputData.calendarType());
+        swe_set_sid_mode(scope.inputData.zodiac() - 2, 0, 0);
+        lonTrop = swe_degnorm(zodiacLon + swe_get_ayanamsa(jd));
+    }
+
+    if (mode == amcEquatorial) {
+        // Bodies are drawn at equatorialPos.x() (right ascension) in this
+        // mode, so a boundary belongs at its own RA. eclLat = 0 by
+        // construction -- these points lie on the ecliptic.
+        double xx[3] = { lonTrop, 0.0, 1.0 };
+        swe_cotrans(xx, xx, -scope.houses.eps);
+        out = swe_degnorm(xx[0]);
+        return true;
+    }
+
+    if (mode == amcPrimeVertical) {
+        // Identical call to the one that produces Star::pvPos for a real body
+        // (calculatePlanet), just fed a synthetic on-ecliptic point instead.
+        double xx[2] = { lonTrop, 0.0 };
+        char   err[256] = "";
+        double hp = swe_house_pos(scope.houses.RAMC,
+                                  scope.inputData.location().y(),
+                                  scope.houses.eps,
+                                  mundaneHouseSystem(), xx, err);
+        if (hp < 1.0 || hp > 13.0) return false;
+        out = swe_degnorm((hp - 1.0) / 12.0 * 360.0);
+        return true;
+    }
+
+    return false;
 }
 
 /// Raw great-circle angular separation in degrees, [0, 180].  Uses the
@@ -544,6 +600,55 @@ exprecess_equatorial(double ra_t1_deg,
         ra_t1_deg, dec_t1_deg,
         eclLon_t1, eclLat_t1,
         jd_t1, jd_t2, dt_days);
+}
+
+qreal
+relocalizedMundanePos(const Star&      body,
+                      const Horoscope& bodyScope,
+                      const Horoscope& refScope)
+{
+    // Angles and house cusps never get a tropical ecliptic position
+    // (calculateAll hardcodes their pvPos instead), so there is nothing to
+    // re-project -- same guard the body-relocalization path has always used.
+    if (body.tropicalEclipticPos.x() < 0.0) return body.pvPos;
+
+    const double lon = body.tropicalEclipticPos.x();
+    const double lat = body.tropicalEclipticPos.y();
+
+    // Start from the stored TROPICAL ecliptic position rather than
+    // equatorialPos: for a sidereal chart the latter was computed with
+    // SEFLG_SIDEREAL and is not trustworthy tropical RA (see
+    // horoscopeTropicalEquatorialPos's own comment). tropicalEclipticPos is
+    // also present on fixed stars, so this works uniformly for Star and
+    // Planet.
+    double ra, dec;
+    eclipticToEquatorial(lon, lat, bodyScope.houses.eps, ra, dec);
+
+    // Carry the body forward to the reference chart's epoch. Ecliptic
+    // longitude is measured from the equinox, which precesses ~50.3"/yr, so
+    // handing swe_house_pos a natal-epoch longitude to interpret in the
+    // reference epoch's frame would rotate the whole wheel by the elapsed
+    // precession (~0.9 degrees for a 1963 chart read in 2026). Identity when
+    // the two epochs coincide.
+    const double jdBody = getJulianDate(bodyScope.inputData.GMT(), false,
+                                        bodyScope.inputData.calendarType());
+    const double jdRef  = getJulianDate(refScope.inputData.GMT(), false,
+                                        refScope.inputData.calendarType());
+    const auto ep = exprecess_equatorial(ra, dec, lon, lat, jdBody, jdRef);
+
+    // eps=0 makes swe_house_pos's internal ecliptic->equatorial step an
+    // identity, so (RA, Dec) is read straight through -- same trick
+    // buildProjectionFields() uses.
+    double xpin[2]    = { ep.ra, ep.dec };
+    char   pvErr[256] = "";
+    double hp = swe_house_pos(refScope.houses.RAMC,
+                              refScope.inputData.location().y(),
+                              /*eps=*/0.0, mundaneHouseSystem(), xpin, pvErr);
+    if (hp < 1.0 || hp > 13.0) return body.pvPos;
+    qreal pos = swe_degnorm((hp - 1.0) / 12.0 * 360.0);
+    // swe reports the North Node position for both nodes
+    if (body.id == Planet_SouthNode) pos = swe_degnorm(pos + 180.);
+    return pos;
 }
 
 // ------------------------------------------------------------
@@ -1533,9 +1638,13 @@ calculatePlanet(PlanetId         planet,
         // house position -- this API wants tropical longitude.
         // From there we fudge a prime vertical coordinate.
         ret.tropicalEclipticPos = QPointF(xx[0], xx[1]);
-        double housePos = swe_house_pos(RAMC, geopos[1], eps, 'C', xx, errStr);
-        ret.pvPos       = (housePos - 1) / 12 * 360;
-        if (ret.id == Planet_SouthNode) ret.pvPos = swe_degnorm(ret.pvPos + 180.);
+        double housePos = swe_house_pos(RAMC, geopos[1], eps,
+                                        mundaneHouseSystem(), xx, errStr);
+        if (housePos >= 1.0 && housePos <= 13.0) {
+            ret.pvPos = (housePos - 1) / 12 * 360;
+            if (ret.id == Planet_SouthNode)
+                ret.pvPos = swe_degnorm(ret.pvPos + 180.);
+        }
     }
 
     // calculate horizontal coordinates
@@ -2178,9 +2287,11 @@ calculateStar(const QString&   name,
                     != ERR
                 && strlen(errStr) == 0)
             {
-                double housePos =
-                    swe_house_pos(houses.RAMC, geopos[1], eps, 'C', pvxx, errStr);
-                ret.pvPos               = (housePos - 1) / 12 * 360;
+                double housePos = swe_house_pos(houses.RAMC, geopos[1], eps,
+                                                mundaneHouseSystem(), pvxx,
+                                                errStr);
+                if (housePos >= 1.0 && housePos <= 13.0)
+                    ret.pvPos = (housePos - 1) / 12 * 360;
                 ret.tropicalEclipticPos = QPointF(pvxx[0], pvxx[1]);
             }
         }
@@ -4948,7 +5059,7 @@ calculateComposite(const InputData& a, const InputData& b, const InputData& ref)
                 double hp = swe_house_pos(scope.houses.RAMC,
                                           ref.location().y(),
                                           scope.houses.eps,
-                                          'C', xpin, pvErr);
+                                          mundaneHouseSystem(), xpin, pvErr);
                 if (hp >= 1.0 && hp <= 13.0) {
                     p.pvPos = (hp - 1.0) / 12.0 * 360.0;
                     // swe reports the North Node position for both nodes

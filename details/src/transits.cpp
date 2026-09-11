@@ -4990,6 +4990,9 @@ Transits::clickedCell(QModelIndex inx)
                 file()->setDirectionFocusRange(A::ADateTimeRange());
                 file()->setDirectionFocusDate(QDateTime());
                 file()->setDirectionFocusLabel(QString());
+                file()->setDirectionFocusPromissors({});
+                file()->setDirectionFocusSignificator(A::ChartPlanetId());
+                file()->setDirectionFocusArc(0.0);
             }
             return;
         }
@@ -5032,6 +5035,42 @@ Transits::clickedCell(QModelIndex inx)
         QString focusLabel = QString("(%1) %2 → %3")
                                   .arg(connector, promissor, significator);
         if (isRapt) focusLabel += tr(" (Rapt)");
+
+        // Structured identities + signed arc for the chart-wheel marker
+        // (Chart::drawDirectionFigure()). The arc isn't stored on the event
+        // itself -- findPrimaryDirections() converts it to `dt` and drops it
+        // -- but primaryDirectionDate() is just |arc| * pdDaysPerDegree()
+        // from the radix, so it inverts; sign comes from `connector`
+        // ("Dir"/"Con"), mirroring event::makeFocusAnchor()'s existing
+        // inversion (astro-output.cpp). A rapt-parallel promissor is an X/Y
+        // midpoint ChartPlanetId -- decompose it into its two constituents
+        // (chartPlanetId1()/2()) so each can be directed individually; there
+        // is no single "Star" for a midpoint the way there is for a solo
+        // body.
+        const auto& locs = ev.locations();
+        QVector<A::ChartPlanetId> promissorCpids;
+        A::ChartPlanetId          significatorCpid;
+        if (locs.size() >= 2) {
+            auto it = locs.begin();
+            const A::ChartPlanetId promissorCpid = it->planet;
+            ++it;
+            significatorCpid = it->planet;
+            if (promissorCpid.isMidpt()) {
+                promissorCpids << promissorCpid.chartPlanetId1()
+                               << promissorCpid.chartPlanetId2();
+            } else {
+                promissorCpids << promissorCpid;
+            }
+        }
+        double arc = 0.0;
+        const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
+        if (daysPerDeg > 0.0) {
+            const double elapsedDays =
+                file()->getGMT().msecsTo(dt) / 86400000.0;
+            const double arcMag = elapsedDays / daysPerDeg;
+            arc = (connector == "Con") ? -arcMag : arcMag;
+        }
+
         file()->suspendUpdate();
         file()->setParanGroupPlanets({});
         file()->setParanOccurrences({});
@@ -5041,6 +5080,9 @@ Transits::clickedCell(QModelIndex inx)
         file()->setDirectionFocusLabel(focusLabel);
         file()->setDirectionFocusDate(dt);
         file()->setDirectionFocusRange(focusRange);
+        file()->setDirectionFocusPromissors(promissorCpids);
+        file()->setDirectionFocusSignificator(significatorCpid);
+        file()->setDirectionFocusArc(arc);
         file()->resumeUpdate();
         return;
     }

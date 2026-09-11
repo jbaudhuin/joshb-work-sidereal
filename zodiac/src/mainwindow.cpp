@@ -1396,10 +1396,18 @@ AstroWidget::addHoroscopeControls()
 
     pvToggle = new QToolButton();
     pvToggle->setObjectName("pvToggle");
-    pvToggle->setText(tr("PV"));
+    // Label only -- "Mundane" rather than "PV": pvPos now follows the active
+    // Primary Direction system (mundaneHouseSystem()), so this display mode
+    // is Placidus/Campanus/Regiomontanus mundane positions, only literally
+    // "prime vertical" under Campanus. Variable/objectName/settings key
+    // (pvToggle / "Scope/usePrimeVertical") deliberately left unchanged --
+    // this is a display-label rename only, not a rename of the mechanism.
+    pvToggle->setText(tr("Mundane"));
     pvToggle->setCheckable(true);
     pvToggle->setAutoRaise(false);
-    pvToggle->setToolTip(tr("Prime Vertical chart display (does not affect events)"));
+    pvToggle->setToolTip(
+        tr("Mundane chart display, in the active Primary Direction system "
+           "(does not affect events)"));
 
     for (int i = 1; i <= 16; ++i) {
         harmonicSelector->addItem(QString::number(i));

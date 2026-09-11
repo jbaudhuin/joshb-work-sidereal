@@ -229,8 +229,12 @@ class AstroFile : public QObject, public A::EventStore {
     void setOriginEventType(A::EventType et) { _originEventType = et; }
 
     // For paran charts: the bodies that form the paran event. fileId 0 =
-    // transit, 1 = natal ex-precessed. A midpoint participant (e.g.
-    // Ven-r/Mar-r) carries both planetId() and planetId2() via isMidpt().
+    // natal (radix), 1 = transit -- matching the finder's own construction
+    // (initializeFromFiles assigns the natal-role file to `natus` first),
+    // paranAngleString(), Chart::drawParanFigures(), and the chart's actual
+    // file(0)/file(1) ordering. (This comment previously claimed the
+    // reverse.) A midpoint participant (e.g. Ven-r/Mar-r) carries both
+    // planetId() and planetId2() via isMidpt().
     using ParanGroupEntry = A::ChartPlanetId;
     const QVector<ParanGroupEntry>& getParanGroupPlanets() const { return _paranGroupPlanets; }
     void setParanGroupPlanets(const QVector<ParanGroupEntry>& g) { _paranGroupPlanets = g; }
@@ -309,6 +313,39 @@ class AstroFile : public QObject, public A::EventStore {
     // change(DirectionFocus) emission already covers the repaint.
     const QString& getDirectionFocusLabel() const { return _directionFocusLabel; }
     void setDirectionFocusLabel(const QString& l) { _directionFocusLabel = l; }
+
+    // Structured identities for the chart-wheel PD marker (Chart::
+    // drawDirectionFigure()), alongside the rendered-string focus label
+    // above. Promissors: 1 entry normally, 2 for a rapt parallel -- the X
+    // and Y constituents individually (ChartPlanetId::chartPlanetId1()/2()),
+    // not the midpoint id itself, since each needs its own real Star data
+    // (tropicalEclipticPos) to compute a directed position; there is no
+    // single combined "Star" for a midpoint the way there is a
+    // ChartPlanetId. Arc is signed (positive = direct), recovered once at
+    // click time by inverting primaryDirectionDate() -- see
+    // Transits::clickedCell(), which mirrors event::makeFocusAnchor()'s
+    // existing inversion (astro-output.cpp). Silent setters: always set in
+    // the same suspendUpdate()/resumeUpdate() batch as
+    // setDirectionFocusDate(), riding that call's single DirectionFocus
+    // emission, same as setDirectionFocusLabel() above.
+    const QVector<A::ChartPlanetId>& getDirectionFocusPromissors() const
+    {
+        return _directionFocusPromissors;
+    }
+    void setDirectionFocusPromissors(const QVector<A::ChartPlanetId>& p)
+    {
+        _directionFocusPromissors = p;
+    }
+    A::ChartPlanetId getDirectionFocusSignificator() const
+    {
+        return _directionFocusSignificator;
+    }
+    void setDirectionFocusSignificator(A::ChartPlanetId c)
+    {
+        _directionFocusSignificator = c;
+    }
+    double getDirectionFocusArc() const { return _directionFocusArc; }
+    void   setDirectionFocusArc(double a) { _directionFocusArc = a; }
 
     bool getDrawFocalExpand() const { return _drawFocalExpand; }
     void setDrawFocalExpand(bool b) { _drawFocalExpand = b; }
@@ -553,6 +590,9 @@ class AstroFile : public QObject, public A::EventStore {
     A::ADateTimeRange _directionFocusRange;
     QDateTime         _directionFocusDate;
     QString           _directionFocusLabel;
+    QVector<A::ChartPlanetId> _directionFocusPromissors;
+    A::ChartPlanetId          _directionFocusSignificator;
+    double                    _directionFocusArc = 0.0;
 
     // Draw-context captured at event-click time so the navigator/animation can
     // reproduce the same chart-aspect rendering at any moment (focalExpand is a

@@ -247,16 +247,66 @@ aspectModeEnum aspectModeForChartDraw();
 /// mode while the chart is drawing.
 aspectModeEnum aspectModeForChartAspects();
 
-/// Project a body into another chart's prime-vertical (Campanus) frame.
-/// pvPos is a local-frame quantity (house position against a chart's own
-/// RAMC/latitude); comparing or drawing pvPos across two files requires
-/// re-evaluating the body's tropical ecliptic position in the reference
-/// chart's frame.  Falls back to the body's own-frame pvPos when no
-/// tropical position is available (x < 0, e.g. angles/cusps) or the
-/// house-position call fails — matching the chart wheel's behavior so
-/// drawn positions and aspect math always agree.
+/// Project a body into an ARBITRARY mundane frame, at its own epoch.
+///
+/// The low-level primitive: evaluates the body's stored tropical ecliptic
+/// position against whatever `refHouses`/`refGeoLat` it is handed, with no
+/// precession correction. Use this when the target frame is a synthetic or
+/// modified one belonging to the SAME chart and epoch -- e.g. the Primary
+/// Direction marker, which rotates a chart's own RAMC by the arc of
+/// direction. For projecting one file's bodies into ANOTHER file's frame,
+/// use relocalizedMundanePos() below instead: it also carries the body
+/// across the epoch gap, which this deliberately does not.
+///
+/// Falls back to the body's own pvPos when no tropical position is available
+/// (x < 0, e.g. angles/cusps) or the house-position call fails.
 qreal relocalizedPvPos(const Star& body, const Houses& refHouses,
                        qreal refGeoLat);
+
+/// Project a body into another chart's mundane frame, precession-corrected.
+///
+/// pvPos is a LOCAL-frame quantity (a house position against a chart's own
+/// RAMC/latitude/epoch), so comparing or drawing pvPos across two files
+/// requires re-evaluating the body in the reference chart's frame. `body`
+/// belongs to `bodyScope`; the result is its mundane position (0=Asc/90=IC/
+/// 180=Desc/270=MC) as seen in `refScope`.
+///
+/// The body is also carried forward from its own epoch to refScope's by
+/// precession. Ecliptic longitude is measured from the equinox, which
+/// precesses ~50.3"/yr, so reading a natal-epoch longitude in a later
+/// chart's frame would rotate the entire relocalized wheel by the elapsed
+/// precession. This is the same reasoning parans already rely on; it is an
+/// identity when the two epochs coincide.
+///
+/// Falls back to the body's own-frame pvPos when no tropical position is
+/// available (x < 0, e.g. angles/cusps) or the house-position call fails —
+/// matching the chart wheel's behavior so drawn positions and aspect math
+/// always agree.
+qreal relocalizedMundanePos(const Star&      body,
+                            const Horoscope& bodyScope,
+                            const Horoscope& refScope);
+
+/// Where a point lying ON the ecliptic at `zodiacLon` should be drawn on the
+/// chart wheel in the given frame. `zodiacLon` is in the chart's OWN zodiac
+/// frame -- the same frame ZodiacSign::startAngle/endAngle are stored in --
+/// so this is what places zodiac sign boundaries consistently with how a real
+/// body's drawn angle is picked (eclipticPos.x / equatorialPos.x / pvPos).
+///
+/// Sign boundaries are NOT equally spaced outside the ecliptic frame: the
+/// ecliptic projected onto the equator (equatorial) or onto a house frame
+/// whose poles are the N/S horizon points (mundane) stretches some spans and
+/// compresses others, which is exactly what makes drawing 12 equal 30 degree
+/// sectors wrong in those modes.
+///
+/// Returns false when the conversion is undefined -- swe_house_pos can fail
+/// or go out of range for circumpolar points. Boundaries sit on the ecliptic
+/// (eclLat = 0) so |dec| <= eps ~= 23.4 and that is only reachable above
+/// ~66.5 degrees latitude; callers should fall back to an equal-sector layout
+/// rather than drawing a partially converted ring.
+bool eclipticPointDisplayAngle(double            zodiacLon,
+                               const Horoscope&  scope,
+                               aspectModeEnum    mode,
+                               qreal&            out);
 
 /// Recompute the legacy A::aspectMode global from (primaryFrame, useGreatCircle).
 /// Called whenever any of the three sub-settings changes.  PV does NOT affect
@@ -1510,10 +1560,16 @@ quadrantFromMundaneValue(double value);
 /// quadrant) from its already-set ra/dec. CMP is computed via
 /// swe_house_pos(ramc, lat, /*eps=*/0.0, 'C', {ra, dec}, ...) — passing
 /// eps=0 makes swe_house_pos's internal ecliptic->equatorial step an
-/// identity, so it accepts (RA, Dec) directly. This is exactly how
-/// Star::pvPos is computed for real bodies (astro-calc.cpp:1535), so
-/// entry.cmp and a real body's pvPos must agree bit-for-bit — a free,
-/// always-available cross-check. Works uniformly for real bodies and for
+/// identity, so it accepts (RA, Dec) directly. Always hardcoded to Campanus
+/// ('C') regardless of primDirSystem/mundaneHouseSystem() — this is
+/// Makransky's Campanus Mundane Position specifically, feeding the C-R arc
+/// solvers (crMundaneConjunctionArc, campanusAspectPointArc,
+/// regiomontanusAspectPointArc all read pole/q/w derived from it), not a
+/// display quantity. This is exactly how Star::pvPos is computed for real
+/// bodies (astro-calc.cpp:1536), so entry.cmp and a real body's pvPos must
+/// agree bit-for-bit *only when primDirSystem == pdsCampanus* — a free
+/// cross-check in that case, but not otherwise (pvPos then follows a
+/// different house system than 'C'). Works uniformly for real bodies and for
 /// synthetic (RA, Dec) aspect points; circumpolar bodies are not a special
 /// case here (unlike Placidus's semi-arc apparatus, CMP does not require a
 /// semi-arc to exist).
@@ -1558,6 +1614,24 @@ regiomontanusAspectPointArc(const DirSpeculumEntry& promissor,
 /// (Mundane/primDirSystem).
 enum PrimDirSystem { pdsPlacidus, pdsCampanus, pdsRegiomontanus };
 extern PrimDirSystem primDirSystem;
+
+/// House-system letter for swe_house_pos() matching the active mundane
+/// direction system. pvPos is a mundane house position (0=Asc/90=IC/
+/// 180=Desc/270=MC); which system defines the interpolation between the
+/// angles follows primDirSystem so drawn positions, PV aspect math and the
+/// Events table all agree. Verified: SE's own Placidus branch
+/// (swehouse.c's swe_house_pos, case 'P') is algebraically identical to
+/// this codebase's own placidusMundanePosition() -- swapping the letter is
+/// not a change of meaning, and additionally handles circumpolar bodies via
+/// the Otto Ludwig procedure instead of returning NaN.
+inline char mundaneHouseSystem()
+{
+    switch (primDirSystem) {
+    case pdsCampanus:      return 'C';
+    case pdsRegiomontanus: return 'R';
+    default:               return 'P'; // pdsPlacidus
+    }
+}
 
 /// Rapt parallels (Makransky Ch. IV, "RAPT PARALLELS"): a mundane-midpoint
 /// condition. Classically, two bodies X and Y are carried by diurnal
