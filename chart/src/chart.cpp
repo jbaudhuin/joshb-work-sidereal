@@ -741,7 +741,6 @@ Chart::finishPlanetSlide()
     // re-running updateAspects() would drop the focal aspects entirely.
     for (int i = 0; i < filesCount(); ++i) updatePlanetsAndCusps(i);
     drawParanFigures();
-    drawDirectionFigure();
     if (displayDeclination) rebuildDeclinationStrip();
     // Aspect + midpoint geometry is already final; just restore visibility and
     // undo the crossfade opacity ramp on the (reused) live aspect items.
@@ -757,6 +756,16 @@ qreal
 Chart::displayPvPos(const A::Star& b, int fileIndex)
 {
     if (filesCount() > 1) {
+        // A Primary Direction chart's pvPos is ALREADY the final, correct
+        // directed value -- calculateAll() built it against the shifted
+        // RAMC directly (see astro-calc.cpp's isPrimaryDirected() branch).
+        // Relocalizing it again here would evaluate that already-shifted
+        // position back against the OTHER file's (unshifted, natal) RAMC,
+        // silently erasing the direction. Both files in the pair draw raw.
+        if ((file(0) && file(0)->getType() == TypeDerivedPD)
+            || (file(1) && file(1)->getType() == TypeDerivedPD))
+            return b.pvPos;
+
         int refIdx = -1;
         if (fileIndex == 0 && circleStart == Start_Outer_Ascendant)
             refIdx = 1;
@@ -994,6 +1003,56 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         return;
     }
 
+    // A primary-directed chart's own house grid is the NATAL one -- see
+    // calculateAll()'s framing note: the frame holds still and the bodies
+    // move -- so houses.cusp[] here would merely duplicate the inner wheel.
+    // What direction actually moves is each natal angle treated as a body,
+    // published in Horoscope::anglePv/angleEcl/angleEqu. Draw exactly those
+    // four, in whichever frame is active, so they sweep WITH the directed
+    // planets rather than against them. The eight intermediate cusps stay
+    // hidden: nothing directs them, and no PD event can name them
+    // (promissors are planets and the four angles).
+    if (file(fileIndex)->getType() == TypeDerivedPD) {
+        const auto& pdScope = file(fileIndex)->horoscope();
+        const auto  mode    = A::aspectModeForChartDraw();
+        for (int i = 0; i < 12; ++i) {
+            cuspides[fileIndex][i]->setVisible(false);
+            cuspideLabels[fileIndex][i]->setVisible(false);
+        }
+        const struct { int cusp; A::PlanetId pid; const char* name; }
+        dirAngles[] = {
+            { 0, A::Planet_Asc,  "Asc"  },
+            { 3, A::Planet_IC,   "IC"   },
+            { 6, A::Planet_Desc, "Desc" },
+            { 9, A::Planet_MC,   "MC"   },
+        };
+        for (const auto& da : dirAngles) {
+            const int idx = da.pid - A::Angles_Start;
+            qreal     pos = 0.0;
+            switch (mode) {
+            case A::amcEcliptic:      pos = pdScope.angleEcl[idx].x(); break;
+            case A::amcEquatorial:    pos = pdScope.angleEqu[idx].x(); break;
+            case A::amcPrimeVertical: pos = pdScope.anglePv[idx];      break;
+            default:                  continue;
+            }
+            cuspate(pos, da.cusp);
+            // Name it for what it is. cuspate()'s generic "House I" would read
+            // as a house division of a grid that isn't being drawn.
+            const QString nm  = QString::fromLatin1(da.name);
+            const QString tag = tr("d%1").arg(nm);
+            const QString tip =
+                mode == A::amcEcliptic
+                    ? tr("Directed %1<br>%2")
+                          .arg(nm, A::zodiacPosition(pos, pdScope.zodiac))
+                    : tr("Directed %1<br>%2°")
+                          .arg(nm, QString::number(pos, 'f', 2));
+            cuspides[fileIndex][da.cusp]->setToolTip(tip);
+            circle->setHelpTag(cuspides[fileIndex][da.cusp], tag);
+            circle->setHelpTag(cuspideLabels[fileIndex][da.cusp], tag);
+        }
+        return;
+    }
+
     switch (A::aspectModeForChartDraw()) {
     case A::amcEquatorial: {
         const auto& houses = file(fileIndex)->horoscope().houses;
@@ -1032,6 +1091,9 @@ Chart::updatePlanetsAndCusps(int fileIndex)
                 cuspides[fileIndex][i]->setVisible(false);
                 cuspideLabels[fileIndex][i]->setVisible(false);
             }
+            // A TypeDerivedPD file never reaches here -- the block before
+            // this switch handles all three frames for it, drawing its four
+            // directed angles from Horoscope::angleEcl/angleEqu/anglePv.
             return;
         }
         // Every house is exactly 30° wide in mundane space by construction
@@ -1070,9 +1132,15 @@ Chart::updateAspects()
     // (relocalization anchor per circleStart, matching displayPvPos), or
     // cross-file "aspects" compare pvPos values from two different local
     // frames.  Start_ZeroDegree draws both files raw, so no relocalization.
-    setPvFrameFile(circleStart == Start_Outer_Ascendant ? 1
-                   : circleStart == Start_Ascendent     ? 0
-                                                        : -1);
+    // A Primary Direction chart's pvPos is likewise already final and
+    // comparable directly (see displayPvPos()'s matching bypass) -- disable
+    // relocalization the same way Start_ZeroDegree does.
+    bool pdPair = (file(0) && file(0)->getType() == TypeDerivedPD)
+               || (file(1) && file(1)->getType() == TypeDerivedPD);
+    setPvFrameFile(pdPair ? -1
+                   : circleStart == Start_Outer_Ascendant ? 1
+                   : circleStart == Start_Ascendent       ? 0
+                                                          : -1);
     auto list =
         (filesCount() == 1 ? calculateAspects() : calculateSynastryAspects());
     for (const A::Aspect& asp : std::as_const(list)) {
@@ -1141,10 +1209,136 @@ Chart::clearMidpointFigures()
     midpointFigures.clear();
 }
 
+// A rapt parallel is a primary direction whose promissor is an X/Y mundane
+// midpoint, so it earns the same chord-and-stem drawing an ordinary midpoint
+// gets -- but built across the two wheels: X and Y read off the DIRECTED ring
+// (where the arc has carried them), the stem landing on the natal
+// significator Z, which direction never moves (see findRaptParallelArcs()).
+// The event's entire claim is that the short-arc mundane midpoint of the
+// directed X and Y coincides with natal Z, which on the wheel means those
+// three points are collinear through the centre -- exactly what the figure
+// draws, so an exact hit reads as a straight stem and a loose one visibly
+// bends.
+bool
+Chart::drawRaptParallelFigure()
+{
+    // Mundane frame only. A rapt parallel asserts a MUNDANE midpoint
+    // relation; in ecliptic or equatorial display these same three markers
+    // would draw a figure asserting an ECLIPTIC one, which the finder never
+    // checked and which is generally false. Draw nothing rather than
+    // something plausible-looking and wrong.
+    //
+    // (This used to be justified by the directed ring overlaying its natal
+    // exactly in those modes. That is no longer so -- calculateAll()'s
+    // directBodyForDisplay() now gives directed bodies real ecliptic and
+    // equatorial coordinates -- but the conclusion is unchanged, and for the
+    // more fundamental reason above.)
+    if (A::aspectModeForChartDraw() != A::amcPrimeVertical) return false;
+
+    // Needs both rings: X and Y are read off the directed wheel, Z off the
+    // natal one. A directed chart opened alone (double-click without Shift)
+    // has no natal ring to land the stem on -- and its own angles sit at
+    // their DIRECTED mundane places, not the defining 0/90/180/270 -- so
+    // there is nothing truthful to draw.
+    if (filesCount() < 2) return false;
+
+    for (int fi = 0; fi < filesCount(); ++fi) {
+        if (!file(fi)->hasRaptParallelFigure()) continue;
+
+        const A::ChartPlanetId prom = file(fi)->getRaptPromissor();
+        const A::ChartPlanetId sig  = file(fi)->getRaptSignificator();
+        // Z lives on the other wheel by construction; the stored fileId is
+        // bookkeeping, the ring it is NOT on is what actually locates it.
+        const int sigFid = (fi == 0) ? 1 : 0;
+
+        // Same inner-circle proxy aspect lines and paran spokes terminate on,
+        // so all three points sit on one common ring and the bisector
+        // geometry below is meaningful.
+        auto innerMarker = [&](int f, A::PlanetId pid) -> QGraphicsItem* {
+            auto* m = planetMarkers.value(f).value(pid);
+            if (!m || !m->isVisible()) return nullptr;
+            if (f > 0 && !m->childItems().isEmpty())
+                return m->childItems().first();
+            return m;
+        };
+
+        // Scene point of a body at `angle` in the current draw frame, mirroring
+        // updatePlanetsAndCusps()'s own placement: a marker's local centre is
+        // (-innerRadius, 0) and it is rotated by (circle->rotation() - angle)
+        // about the wheel centre. Needed because the four angles have no
+        // planetMarkers entry of their own, yet the classical rapt parallel
+        // (raptParallelsAnyZ off) restricts Z to exactly those.
+        auto ringPoint = [&](qreal angle) -> QPointF {
+            if (clockwise) angle = 180.0 - angle;
+            const qreal th = qDegreesToRadians(circle->rotation() - angle);
+            const qreal r  = innerRadius(0);
+            return QPointF(-r * std::cos(th), -r * std::sin(th));
+        };
+
+        // Z's point + label. A planet resolves through its marker; an angle
+        // is drawn from its mundane position, which for the undirected natal
+        // wheel is the defining 0/90/180/270.
+        QPointF posZ;
+        QString nameZ;
+        const A::PlanetId zPid = sig.planetId();
+        if (zPid >= A::Angles_Start && zPid < A::Angles_End) {
+            const qreal anglePv = zPid == A::Planet_Asc  ?   0.0
+                                : zPid == A::Planet_IC   ?  90.0
+                                : zPid == A::Planet_Desc ? 180.0
+                                :                          270.0;
+            posZ  = ringPoint(anglePv);
+            nameZ = zPid == A::Planet_Asc  ? tr("Asc")
+                  : zPid == A::Planet_IC   ? tr("IC")
+                  : zPid == A::Planet_Desc ? tr("Desc")
+                  :                          tr("MC");
+        } else {
+            QGraphicsItem* mZ = innerMarker(sigFid, zPid);
+            if (!mZ) continue;
+            posZ  = mZ->sceneBoundingRect().center();
+            nameZ = file(sigFid)->horoscope().planets.value(zPid).name;
+        }
+
+        QGraphicsItem* mX = innerMarker(fi, prom.planetId());
+        QGraphicsItem* mY = innerMarker(fi, prom.planetId2());
+        if (!mX || !mY) continue;
+
+        const QPointF posX        = mX->sceneBoundingRect().center();
+        const QPointF posY        = mY->sceneBoundingRect().center();
+        const QPointF chordCenter = (posX + posY) / 2.0;
+
+        QGraphicsScene* s     = view->scene();
+        const QColor    color = ThemeManager::instance().getChartMidpointColor();
+
+        MidpointFigure mf;
+        mf.chordLine = s->addLine(QLineF(posX, posY),
+                                  QPen(color, 1.5, Qt::DashLine));
+        mf.chordLine->setZValue(0.5);
+        mf.toALine = s->addLine(QLineF(chordCenter, posZ),
+                                QPen(color, 2.5, Qt::SolidLine));
+        mf.toALine->setZValue(0.5);
+
+        const QString tip =
+            tr("Rapt parallel: %1 = %2/%3")
+                .arg(nameZ,
+                     file(fi)->horoscope().planets.value(prom.planetId()).name,
+                     file(fi)->horoscope().planets.value(prom.planetId2()).name);
+        mf.chordLine->setToolTip(tip);
+        mf.toALine->setToolTip(tip);
+        midpointFigures.append(mf);
+        return true;
+    }
+    return false;
+}
+
 void
 Chart::drawMidpointFigures()
 {
     clearMidpointFigures();
+
+    // A rapt-parallel chart carries its figure explicitly rather than through
+    // the focal-aspect pipeline (its promissor midpoint is mundane, and never
+    // reaches _focalMidpoints); when one is present it IS the figure.
+    if (drawRaptParallelFigure()) return;
 
     // Build the working set of focal midpoints. For non-paran charts this is
     // simply _focalMidpoints (populated by calculateAspects[Synastry]).  For
@@ -1526,184 +1720,6 @@ Chart::drawParanFigures()
 }
 
 void
-Chart::clearDirectionFigure()
-{
-    for (auto& df : directionFigures) {
-        if (df.spoke)   view->scene()->removeItem(df.spoke);
-        delete df.spoke;
-        if (df.travel)  view->scene()->removeItem(df.travel);
-        delete df.travel;
-        if (df.phantom) view->scene()->removeItem(df.phantom);
-        delete df.phantom;
-    }
-    directionFigures.clear();
-}
-
-void
-Chart::drawDirectionFigure()
-{
-    clearDirectionFigure();
-
-    if (!chartsCount || !filesCount()) return;
-    // A directed mundane position has no ecliptic-mode analog -- a body's
-    // ecliptic longitude doesn't move under direction, only its position
-    // relative to the angles does -- so this marker is only meaningful in
-    // Mundane/PV display mode. Do not auto-switch the user's view; the
-    // Directions-table focal preview (Transits::clickedCell()) works
-    // regardless of chart display mode already.
-    if (A::aspectModeForChartDraw() != A::amcPrimeVertical) return;
-
-    QGraphicsScene* s       = view->scene();
-    QColor          neutral = ThemeManager::instance().getChartMidpointColor();
-    const qreal     rotate  = circle->rotation();
-    auto positive = [](qreal angle) {
-        if (angle < 0) angle += 360.0;
-        return angle;
-    };
-
-    // Scene point on the body ring for a bare mundane angle (0=Asc/90=IC/
-    // 180=Desc/270=MC scale, same as Star::pvPos). Derived by building a
-    // throwaway item with the exact transform real markers get
-    // (transformOriginPoint/setRotation off circle->rotation(), honoring
-    // clockwise) and reading back its scene position, rather than
-    // hand-rolling the trig -- so it stays correct across circleStart,
-    // clockwise, and any future change to the rotation math.
-    //
-    // Needed because marker lookup can't serve here: Asc/IC/Desc have no
-    // QGraphicsItem at all (updatePlanetsAndCusps() draws them as cusp
-    // lines; only MC gets a planet marker), which silently killed the most
-    // common PD significator case.
-    auto pointAtAngle = [&](qreal angle, int fid) -> QPointF {
-        if (clockwise) angle = 180 - angle;
-        const int radius = 2;
-        auto* tmp = s->addEllipse(-innerRadius(fid) - radius, -radius,
-                                  radius * 2, radius * 2, Qt::NoPen);
-        tmp->setTransformOriginPoint(circle->boundingRect().center());
-        tmp->setRotation(positive(rotate - angle));
-        QPointF pos = tmp->sceneBoundingRect().center();
-        s->removeItem(tmp);
-        delete tmp;
-        return pos;
-    };
-
-    for (int i = 0; i < filesCount(); ++i) {
-        AstroFile* af = file(i);
-        if (!af || !af->hasDirectionFocus()) continue;
-
-        const auto& promissors = af->getDirectionFocusPromissors();
-        if (promissors.isEmpty()) continue;
-
-        // The significator is never directed (only promissors move -- see
-        // findPrimaryDirections()), so its position is just its own natal
-        // pvPos: already mundane-system-aware since Phase 1
-        // (mundaneHouseSystem()), and already correct for angles too
-        // (calculateAll() hardcodes Asc=0/IC=90/Desc=180/MC=270 regardless
-        // of system).
-        const A::ChartPlanetId sigCpid = af->getDirectionFocusSignificator();
-        int sigFid = sigCpid.fileId();
-        if (sigFid < 0 || sigFid >= filesCount()) sigFid = 0;
-        AstroFile* sf = file(sigFid);
-        if (!sf) continue;
-        // Angles are NOT present in horoscope().planets for an ordinary
-        // chart -- that container only gets Asc/IC/Desc/MC entries inserted
-        // via calculateAll(), which (despite the name) is exclusively a
-        // calculateComposite() helper, never called for a normal file.
-        // Every other place in this codebase that needs an angle's position
-        // (e.g. the primaryFrame-dispatch getPos() lambda used for aspect/
-        // event math, astro-calc.cpp:1850-1863) special-cases the same
-        // hardcoded 0/90/180/270 constants rather than looking one up --
-        // do the same here instead of depending on a map entry that doesn't
-        // exist.
-        qreal sigPvPos = 0.0;
-        bool  sigResolved = true;
-        switch (sigCpid.planetId()) {
-        case A::Planet_Asc:  sigPvPos = 0.0;   break;
-        case A::Planet_IC:   sigPvPos = 90.0;  break;
-        case A::Planet_Desc: sigPvPos = 180.0; break;
-        case A::Planet_MC:   sigPvPos = 270.0; break;
-        default: {
-            const auto& sigPlanets = sf->horoscope().planets;
-            if (!sigPlanets.contains(sigCpid.planetId())) { sigResolved = false; break; }
-            sigPvPos = sigPlanets.value(sigCpid.planetId()).pvPos;
-            break;
-        }
-        }
-        if (!sigResolved) continue;
-        const QPointF sigPos = pointAtAngle(sigPvPos, sigFid);
-
-        const double arc = af->getDirectionFocusArc();
-
-        for (const A::ChartPlanetId& promCpid : promissors) {
-            int fid = promCpid.fileId();
-            if (fid < 0 || fid >= filesCount()) fid = 0;
-            AstroFile* pf = file(fid);
-            if (!pf) continue;
-            const auto& planetsMap = pf->horoscope().planets;
-            if (!planetsMap.contains(promCpid.planetId())) continue;
-            const A::Planet& promPlanet = planetsMap.value(promCpid.planetId());
-
-            // Angles/house cusps never carry a tropical ecliptic position
-            // (calculateAll() hardcodes their pvPos instead -- see
-            // astro-calc.cpp), so relocalizedPvPos() cannot direct them; it
-            // would silently fall back to the natal 0/90/180/270 value,
-            // which is wrong here. v1 skips this phantom rather than
-            // drawing a misleading marker -- pdAnglesAsPromissors is the
-            // only way an ordinary PD row's promissor is an angle; rapt
-            // parallels never put an angle in X/Y.
-            if (promPlanet.tropicalEclipticPos.x() < 0.0) continue;
-
-            A::Houses directed  = pf->horoscope().houses;
-            directed.RAMC       = swe_degnorm(directed.RAMC + arc);
-            const qreal lat     = pf->getLocation().y();
-            const qreal angle = A::relocalizedPvPos(promPlanet, directed, lat);
-
-            const QPointF natalPos    = pointAtAngle(promPlanet.pvPos, fid);
-            const QPointF directedPos = pointAtAngle(angle, fid);
-
-            DirectionFigure df;
-
-            // The travel line: where this body starts (its natal mundane
-            // position) and where the arc carries it. This is the figure
-            // that actually conveys the direction -- see DirectionFigure's
-            // doc comment in chart.h for why a phantom->significator spoke
-            // does not.
-            df.travel = s->addLine(QLineF(natalPos, directedPos),
-                                   QPen(neutral, 1.5, Qt::SolidLine));
-            df.travel->setZValue(2.0);
-            df.travel->setOpacity(0.85);
-            df.travel->setToolTip(pf->getName() + "  " + promCpid.name()
-                                  + "  →  " + af->getDirectionFocusLabel());
-
-            // Phantom marker at the arrival point, sized well above the 2px
-            // real-body markers so it stays legible when it lands inside a
-            // crowded stellium (the conjunction case puts it exactly on the
-            // significator by construction).
-            const qreal pr = 5.0 * zoom;
-            auto* phantom = s->addEllipse(-pr, -pr, pr * 2, pr * 2,
-                                          QPen(neutral, 1.5, Qt::DashLine));
-            phantom->setBrush(Qt::NoBrush);
-            phantom->setPos(directedPos);
-            phantom->setZValue(2.5);
-            phantom->setToolTip(pf->getName() + "  " + promCpid.name()
-                                + tr("  (directed)"));
-            df.phantom = phantom;
-
-            // Only meaningful for an aspectual ray, where the arrival point
-            // sits a ray-offset away from the significator; for a
-            // conjunction the two coincide and this would be zero-length.
-            if (QLineF(directedPos, sigPos).length() > 2.0) {
-                df.spoke = s->addLine(QLineF(directedPos, sigPos),
-                                      QPen(neutral, 1.0, Qt::DotLine));
-                df.spoke->setZValue(2.0);
-                df.spoke->setOpacity(0.6);
-            }
-
-            directionFigures.append(df);
-        }
-    }
-}
-
-void
 Chart::clearDeclinationStrip()
 {
     declView->scene()->clear();
@@ -1793,6 +1809,13 @@ Chart::drawDeclinationAxis()
 void
 Chart::drawDeclinationBodies(int fileIndex)
 {
+    // A Primary Direction chart's declinations are identical to natal's --
+    // direction rotates the mundane frame (RAMC) only, never the bodies
+    // themselves, so declination (which doesn't depend on RAMC at all) is
+    // unchanged. Drawing this file's row would just duplicate file 0's
+    // markers at the same x-position, not show new information.
+    if (file(fileIndex) && file(fileIndex)->getType() == TypeDerivedPD) return;
+
     QFont planetFont     ("Almagest", 13, QFont::Bold);
     QFont planetFontSmall("Almagest", 11, QFont::Bold);
 
@@ -2022,7 +2045,6 @@ Chart::clearScene()
     // scene()->clear() already deleted the items, just clear tracking lists
     midpointFigures.clear();
     paranFigures.clear();
-    directionFigures.clear();
     clearDeclinationStrip();
 }
 
@@ -2336,14 +2358,32 @@ Chart::planetShapeColor(const A::Planet& p, int fileIndex)
 QGraphicsItem*
 Chart::getCircleMarker(const A::Planet* p)
 {
+    auto markerFor = [&](int i) -> QGraphicsItem* {
+        auto* m = planetMarkers.value(i).value(p->id, nullptr);
+        if (!m) return nullptr;
+        // Bi-wheel: the outer file's spoke-relevant point is its inner-circle
+        // child, matching where aspect lines terminate.
+        if (i == 0) return m;
+        return m->childItems().isEmpty() ? m : m->childItems().first();
+    };
+
+    // Resolve by POINTER IDENTITY first. Star::operator== compares only name
+    // and eclipticPos, which cannot tell two files apart when their bodies
+    // share an ecliptic position -- exactly the case for a Primary Direction
+    // chart, whose bodies keep their natal ecliptic longitude and differ only
+    // in pvPos. Value comparison there always matched file 0, so every aspect
+    // line involving a directed body was drawn from its NATAL position
+    // instead of its directed one. Aspect planets come from
+    // AstroFileHandler::aspectPlanet(), which returns a pointer into the
+    // file's own horoscope map whenever PV relocalization is inactive.
     for (int i = 0; i < filesCount(); i++)
-        if (*p == file(i)->horoscope().planets.value(p->id)) {
-            if (i == 0) return planetMarkers[i][p->id]; // return marker itself
-            else
-                return planetMarkers[i][p->id]
-                    ->childItems()[0]; // return child of marker (duplicate on
-                                       // circle)
-        }
+        if (p == file(i)->horoscope().getPlanet(p->id)) return markerFor(i);
+
+    // Fall back to value comparison: with PV relocalization active the
+    // pointer belongs to the handler's relocalized copy, not to any
+    // horoscope, so identity cannot match.
+    for (int i = 0; i < filesCount(); i++)
+        if (*p == file(i)->horoscope().planets.value(p->id)) return markerFor(i);
 
     return 0;
 }
@@ -2361,7 +2401,6 @@ Chart::refreshAll()
     updateAspects();
     drawMidpointFigures();
     drawParanFigures();
-    drawDirectionFigure();
 }
 
 void
@@ -2432,42 +2471,41 @@ Chart::filesUpdated(MembersList m)
         updateAspects();
         drawMidpointFigures();
         drawParanFigures();
-        drawDirectionFigure();
         // The declination graph reflects the (just-recomputed) body positions,
         // so refresh it on every moment change too — otherwise it stays frozen
         // while the wheel animates/steps. Cheap (a small strip); skipped when
         // the graph is hidden. clearScene() rebuilds it via createScene().
         if (displayDeclination) rebuildDeclinationStrip();
-    } else if (filesCount() && (m[0] & AstroFile::DirectionFocus)) {
-        // DirectionFocus (Transits::clickedCell()'s PD focal preview) is a
-        // pure rendering-filter toggle, not a data change — change() never
-        // recalculates for it (astro-gui.h) — so it doesn't set updAspects
-        // above and would otherwise reach here and be silently dropped, same
-        // as it already is everywhere else in this function. Only the
-        // direction marker needs to move; no clearScene(), no
-        // updatePlanetsAndCusps(), no full updateAspects() pass.
-        drawDirectionFigure();
     }
 
     // Hide ALL house demarcations during animation playback — Ascendant-anchored,
     // they sweep distractingly as time advances. Keyed on animation ticks
-    // (animating && scrubbing) so wheel drags keep their cusps visible. The
-    // catch-up redraw (scrubbing already false) restores them; restoring honors
-    // the Par=N inner-cusp suppression that drawCuspides applies.
+    // (animating && scrubbing) so wheel drags keep their cusps visible.
+    //
+    // Strictly a TRANSITION override: outside playback this must not touch
+    // cusp visibility at all. updatePlanetsAndCusps() is the sole authority on
+    // which cusps are shown, and it hides plenty of them — the non-reference
+    // wheel's entire grid in the mundane frame, all but the four angles in the
+    // equatorial one, the Par=N inner wheel — none of which a blanket "restore"
+    // here can know about. Re-showing them also showed them UNPOSITIONED:
+    // suppressed cusps never reach cuspate(), so they sit at the rotation
+    // drawCuspides() created them with, i.e. all twelve stacked at 0°. That
+    // fired on any file change carrying no positional flag (a Primary
+    // Direction focus click, for one), long after playback had ended.
     {
         const bool hideCusps = A::isAnimating() && A::isScrubbing();
-        for (int fi = 0; fi < filesCount(); ++fi) {
-            const bool parANInner =
-                (filesCount() > 1 && fi == 0
-                 && (file(0)->getOriginEventType()
-                         == A::etcParanatellontaToNatal
-                     || file(1)->getOriginEventType()
-                            == A::etcParanatellontaToNatal));
-            const bool             vis    = !hideCusps && !parANInner;
-            const graphicsItemDict cusps  = cuspides.value(fi);
-            const graphicsItemDict labels = cuspideLabels.value(fi);
-            for (auto* it : cusps)  if (it) it->setVisible(vis);
-            for (auto* it : labels) if (it) it->setVisible(vis);
+        if (hideCusps) {
+            for (int fi = 0; fi < filesCount(); ++fi) {
+                for (auto* it : cuspides.value(fi))      if (it) it->setVisible(false);
+                for (auto* it : cuspideLabels.value(fi)) if (it) it->setVisible(false);
+            }
+            _cuspsHiddenForAnimation = true;
+        } else if (_cuspsHiddenForAnimation) {
+            // Hand visibility back to the authority rather than guessing at
+            // its rules, which also re-runs cuspate() so nothing comes back
+            // at a stale rotation.
+            _cuspsHiddenForAnimation = false;
+            for (int fi = 0; fi < filesCount(); ++fi) updatePlanetsAndCusps(fi);
         }
     }
 
@@ -2514,11 +2552,6 @@ Chart::viewSettingsUpdated(MembersList m)
         updateAspects();
         drawMidpointFigures();
         drawParanFigures();
-        // Covers ChartDisplayMode (the [Mundane]/PV toggle, part of
-        // ViewSettings): switching into Mundane mode with a PD focal
-        // preview already active should show the marker immediately, not
-        // require another Events-table click.
-        drawDirectionFigure();
     }
 }
 

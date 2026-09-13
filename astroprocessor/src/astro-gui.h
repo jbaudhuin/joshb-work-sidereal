@@ -15,6 +15,7 @@
 
 class QStandardItemModel;
 class QAbstractItemModel;
+class QSettings;
 
 using A::ADateRange;
 
@@ -195,7 +196,61 @@ class AstroFile : public QObject, public A::EventStore {
     Members stampDisplaySettings();
     void setHarmonic(double harmonic);
     void setBaseChart(const QDateTime& baseGmt);
+    /// Set the base chart from a live source file: its GMT *and* its
+    /// identity. Prefer this over the bare setBaseChart() wherever the
+    /// source AstroFile is in hand -- a GMT alone cannot identify the
+    /// chart it came from, because relocated charts share a birth moment.
+    /// See _baseChartFile.
+    void setBaseChartFrom(const AstroFile* src);
+    void setBaseChart(const QDateTime& baseGmt, const AFileInfo& srcFile);
     void clearBaseChart();
+
+    /// The fields that define a DERIVED chart's derivation and cannot be
+    /// recomputed from its GMT and location -- currently the frozen
+    /// primary-direction arc and the system it was solved under.
+    ///
+    /// One owner, because FOUR serializers persist charts: save()/load()
+    /// here, plus three hand-rolled inline field lists in the session
+    /// (MainWindow::saveSessionWithTimestamp, FilesBar::saveFilesToSession,
+    /// and the restore paths' "hasCurrentData" branches). A field added to
+    /// only some of them half-works in a way that reads as a calculation
+    /// bug rather than a persistence one -- which is exactly how a saved
+    /// TypeDerivedPD chart came to reopen as an undirected copy of the
+    /// radix, its arc silently zero.
+    ///
+    /// Keys are flat and prefix-free; each call site applies its own group
+    /// or prefix. Only keys meaningful for this chart's type are emitted,
+    /// so a natal chart's file gains nothing.
+    ///
+    /// TWO EXCEPTIONS keep their existing homes for on-disk compatibility:
+    /// baseChartGMT and baseChartFile are still written directly by save()
+    /// and by each session path. They already work in all four places;
+    /// moving them would churn the file format for no gain.
+    QVariantMap derivationState() const;
+    void        setDerivationState(const QVariantMap& m);
+
+    /// The canonical key list -- the single source of truth for what
+    /// derivationState() can contain, so a reader can pull the keys back
+    /// without QSettings group enumeration (the .dat and the session use
+    /// different prefixing conventions).
+    static const QStringList& derivationKeys();
+
+    /// Write/read a derivation map under a caller-supplied key prefix
+    /// (empty for the .dat, "Tab0.File1/" and friends for the session).
+    /// The writer REMOVES keys the map omits, so changing a chart's type
+    /// cannot leave a phantom arc behind. The reader includes only keys
+    /// actually present, so absent ones stay absent rather than becoming
+    /// zeros.
+    static void        writeDerivation(QSettings&         s,
+                                       const QString&     prefix,
+                                       const QVariantMap& m);
+    static QVariantMap readDerivation(const QSettings& s,
+                                      const QString&   prefix);
+    /// Freeze this Primary Direction chart's (TypeDerivedPD) arc and the
+    /// direction system it was solved under -- see InputData's own doc
+    /// comment for why this must be frozen rather than read live from
+    /// A::primDirSystem at calculate time.
+    void setDirectedArc(double arc, int system);
     void setTimezoneLocked(bool locked);
 
     void setFocalPlanets(const A::PlanetSet& fp = {}) { _focalPlanets = fp; }
@@ -240,8 +295,11 @@ class AstroFile : public QObject, public A::EventStore {
     void setParanGroupPlanets(const QVector<ParanGroupEntry>& g) { _paranGroupPlanets = g; }
 
     // Paran cycling: per-day in-orb moments of the focal cluster + that day's
-    // orb°, copied from the clicked paran event. Transient (not persisted) —
-    // regenerated whenever a paran event is clicked.
+    // orb°, copied from the clicked paran event. Regenerated whenever a paran
+    // event is clicked — but NOW PERSISTED for TypeParan/TypeApparition via
+    // derivationState(), because a chart reopened on its own never receives
+    // that click and so could never cycle. (Still transient on file(0),
+    // where the same field holds focal display state for the radix.)
     const QVector<QPair<QDateTime, qreal>>& getParanOccurrences() const
     {
         return _paranOccurrences;
@@ -252,7 +310,8 @@ class AstroFile : public QObject, public A::EventStore {
     }
 
     // Optional per-occurrence phase labels (apparition stops: MF/Acr/Cul/Cs/EL),
-    // 1:1 with getParanOccurrences(). Empty for parans. Transient like the above.
+    // 1:1 with getParanOccurrences(). Empty for parans. Persisted alongside
+    // the occurrences, and on the same terms -- see above.
     const QStringList& paranOccurrenceLabels() const
     {
         return _paranOccurrenceLabels;
@@ -314,38 +373,30 @@ class AstroFile : public QObject, public A::EventStore {
     const QString& getDirectionFocusLabel() const { return _directionFocusLabel; }
     void setDirectionFocusLabel(const QString& l) { _directionFocusLabel = l; }
 
-    // Structured identities for the chart-wheel PD marker (Chart::
-    // drawDirectionFigure()), alongside the rendered-string focus label
-    // above. Promissors: 1 entry normally, 2 for a rapt parallel -- the X
-    // and Y constituents individually (ChartPlanetId::chartPlanetId1()/2()),
-    // not the midpoint id itself, since each needs its own real Star data
-    // (tropicalEclipticPos) to compute a directed position; there is no
-    // single combined "Star" for a midpoint the way there is a
-    // ChartPlanetId. Arc is signed (positive = direct), recovered once at
-    // click time by inverting primaryDirectionDate() -- see
-    // Transits::clickedCell(), which mirrors event::makeFocusAnchor()'s
-    // existing inversion (astro-output.cpp). Silent setters: always set in
-    // the same suspendUpdate()/resumeUpdate() batch as
-    // setDirectionFocusDate(), riding that call's single DirectionFocus
-    // emission, same as setDirectionFocusLabel() above.
-    const QVector<A::ChartPlanetId>& getDirectionFocusPromissors() const
+    // Rapt Parallel figure: the clicked rapt-parallel row's X/Y promissor
+    // midpoint and the Z significator it parallels. Set on the DIRECTED
+    // chart (TypeDerivedPD), whose ring carries X and Y at their directed
+    // mundane places; the significator keeps its own fileId (0 = the natal
+    // ring), since Z is never itself directed -- see findRaptParallelArcs().
+    // Empty for every other kind of PD row. Set silently, like the
+    // paran-focal fields above: always inside the same suspendUpdate()
+    // batch as setType()/setDirectedArc(), whose change emission already
+    // covers the repaint. Persisted for TypeDerivedPD via
+    // derivationState(), so a saved rapt-parallel chart redraws its figure.
+    const A::ChartPlanetId& getRaptPromissor() const { return _raptPromissor; }
+    const A::ChartPlanetId& getRaptSignificator() const { return _raptSignificator; }
+    bool hasRaptParallelFigure() const { return _raptPromissor.isMidpt(); }
+    void setRaptParallelFigure(const A::ChartPlanetId& promissor,
+                               const A::ChartPlanetId& significator)
     {
-        return _directionFocusPromissors;
+        _raptPromissor    = promissor;
+        _raptSignificator = significator;
     }
-    void setDirectionFocusPromissors(const QVector<A::ChartPlanetId>& p)
+    void clearRaptParallelFigure()
     {
-        _directionFocusPromissors = p;
+        _raptPromissor    = A::ChartPlanetId();
+        _raptSignificator = A::ChartPlanetId();
     }
-    A::ChartPlanetId getDirectionFocusSignificator() const
-    {
-        return _directionFocusSignificator;
-    }
-    void setDirectionFocusSignificator(A::ChartPlanetId c)
-    {
-        _directionFocusSignificator = c;
-    }
-    double getDirectionFocusArc() const { return _directionFocusArc; }
-    void   setDirectionFocusArc(double a) { _directionFocusArc = a; }
 
     bool getDrawFocalExpand() const { return _drawFocalExpand; }
     void setDrawFocalExpand(bool b) { _drawFocalExpand = b; }
@@ -398,6 +449,14 @@ class AstroFile : public QObject, public A::EventStore {
     {
         return scope.inputData.baseGMT();
     }
+    /// Whether the base chart's SOURCE FILE is known, as opposed to just
+    /// its moment. Absent on charts saved before the identity was
+    /// recorded, and on charts whose basis was set from a bare GMT.
+    bool hasBaseChartFile() const
+    {
+        return !_baseChartFile.filePath().isEmpty();
+    }
+    const AFileInfo& baseChartFile() const { return _baseChartFile; }
 
     QDateTime getLocalTime() const
     {
@@ -524,6 +583,15 @@ class AstroFile : public QObject, public A::EventStore {
     bool         _timezoneLocked;
     A::Horoscope scope;
 
+    // Which chart the base moment came from (derived/return charts). A bare
+    // baseChartGMT cannot identify it: a relocated chart is the SAME birth
+    // moment somewhere else, so every relocation of one nativity matches a
+    // GMT test equally well. Informational only -- nothing in
+    // calculateAll() reads this -- but it is what the file editor's
+    // "Based on:" combo needs in order to name the basis instead of
+    // guessing at the first same-moment file it finds on disk.
+    AFileInfo    _baseChartFile;
+
     // Midpoint-composite sources (TypeComposite only)
     bool         _hasCompositeSources = false;
     AFileInfo    _compositeFiles[2];
@@ -590,9 +658,13 @@ class AstroFile : public QObject, public A::EventStore {
     A::ADateTimeRange _directionFocusRange;
     QDateTime         _directionFocusDate;
     QString           _directionFocusLabel;
-    QVector<A::ChartPlanetId> _directionFocusPromissors;
-    A::ChartPlanetId          _directionFocusSignificator;
-    double                    _directionFocusArc = 0.0;
+
+    // Rapt Parallel figure (see setRaptParallelFigure() above): the X/Y
+    // promissor midpoint and the Z significator of the clicked rapt-parallel
+    // row. Solo/default-constructed when the chart isn't one. Transient;
+    // not saved.
+    A::ChartPlanetId _raptPromissor;
+    A::ChartPlanetId _raptSignificator;
 
     // Draw-context captured at event-click time so the navigator/animation can
     // reproduce the same chart-aspect rendering at any moment (focalExpand is a

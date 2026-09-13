@@ -361,7 +361,11 @@ class FilesBar : public QTabBar {
     void addFile(AstroFile* file);
     void addNewFile() { addFile(new AstroFile); }
     void editNewChart();
-    void saveAsCurrentFile();
+    void saveAsCurrentFile() { saveAsFile(0); }
+    /// Save-as the Nth chart of the current tab and refresh its tab label.
+    /// Indexed so the second chart can reach the same path -- see
+    /// MainWindow::saveSecondFile().
+    void saveAsFile(int idx);
     void swapCurrentFiles(int, int);
     void openFile(const AFileInfo& name);
     void openFile(AstroFile* af);
@@ -509,6 +513,10 @@ class MainWindow : public QMainWindow, public Customizable {
     QToolBar *     toolBar, *toolBar2, *helpToolBar;
     QMenu*         panelsMenu;
 
+    // The Save Chart tool button, kept only so eventFilter() can recognize
+    // it for Ctrl+Click (see saveSecondFile()).
+    QWidget*       _saveChartButton = nullptr;
+
     // Paran cycling transport — a draggable/floatable toolbar that steps the
     // current paran chart's moving file through its in-orb occurrences. Always
     // present; disabled when the current tab is not a paran chart.
@@ -598,9 +606,20 @@ class MainWindow : public QMainWindow, public Customizable {
   private slots:
     void saveFile()
     {
-        filesBar->currentFiles()[0]->save();
+        // Guarded: currentFiles() is empty for a tab with no chart, and this
+        // indexed [0] unconditionally.
+        const auto& files = filesBar->currentFiles();
+        if (files.isEmpty() || !files[0]) return;
+        files[0]->save();
         astroDatabase->updateList();
     }
+    /// Ctrl+Click on Save Chart: save the SECOND chart of the current tab.
+    /// There is otherwise no route to saving it -- chart #2 deliberately
+    /// carries no needs-save bit (it is persisted with the session), so the
+    /// only way to write one to a .dat was to swap or discard chart #1
+    /// first. Save As when it has no file yet (the usual case for a chart
+    /// derived from an events-table click), a silent save when it does.
+    void saveSecondFile();
     void handleSaveToDirectory(const QString& directory);
     void handleChartDroppedOnSlides(const QString& filePath);
     void handleChartDroppedOnInputWidget(const QString& filePath, int targetIndex);
@@ -614,6 +633,13 @@ class MainWindow : public QMainWindow, public Customizable {
     void contextMenu(QPoint);
 
   protected:
+    /// Installed on the Save Chart tool button only, to pick up Ctrl+Click.
+    /// It has to be caught on the WIDGET rather than by testing
+    /// keyboardModifiers() inside saveFile(): that action's shortcut is
+    /// Ctrl+S, so a modifier test there would redirect every keyboard save
+    /// to the second chart.
+    bool eventFilter(QObject* obj, QEvent* ev) override;
+
     AppSettings defaultSettings() override; // 'Customizable' class implementations
     AppSettings currentSettings() override;
     void        applySettings(const AppSettings&) override;

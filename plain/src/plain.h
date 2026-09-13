@@ -44,9 +44,18 @@ class SectionToggle : public QWidget {
 
     bool sectionOn() const { return _sectionOn; }
     bool fileOn(int i) const { return i == 0 ? _f1On : _f2On; }
+    /// Whether this file's subsection can be rendered at all for the loaded
+    /// chart -- distinct from fileOn(), which is the user's own preference.
+    /// A Primary Direction chart (TypeDerivedPD) has real positions but no
+    /// real moment, so every section except Aspects is unavailable for it.
+    bool fileAvailable(int i) const { return i == 0 ? _f1Avail : _f2Avail; }
 
     void setSectionOn(bool on);        ///< no signal
     void setFileOn(int i, bool on);    ///< no signal
+    /// Mark a file's subsection unavailable: its mini paints greyed and stops
+    /// responding to clicks, and the owner skips rendering it. The user's
+    /// fileOn() preference is preserved so it returns when available again.
+    void setFileAvailable(int i, bool avail); ///< no signal
     void setFileCount(int n);          ///< show "1"/"2" only when n > 1
 
     QSize sizeHint() const override;
@@ -76,6 +85,8 @@ class SectionToggle : public QWidget {
     bool    _sectionOn = false;
     bool    _f1On      = true;
     bool    _f2On      = true;
+    bool    _f1Avail   = true;
+    bool    _f2Avail   = true;
     int     _fileCount = 1;
 
     bool minisVisible() const { return _fileCount > 1 && _sectionOn; }
@@ -176,7 +187,8 @@ class Plain : public AstroFileHandler {
 
     // Right-click quick-options menus for the Directions/Speculum/Parans
     // toolbar buttons, built fresh from live state each time they're opened.
-    void addBoolAction(QMenu* menu, const QString& label, bool& member);
+    void addBoolAction(QMenu* menu, const QString& label, bool& member,
+                       const QString& tip = QString());
     void addSpeculumTypeSubmenu(QMenu* menu);
     void addDirectionSystemSubmenu(QMenu* menu);
     void addDisplayModeSubmenu(QMenu* menu);

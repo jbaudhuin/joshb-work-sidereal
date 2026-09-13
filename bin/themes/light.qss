@@ -436,6 +436,21 @@ QToolButton#pvToggle:checked {
    The default QToolButton:checked tint reads too close to the unchecked
    background to tell "on" from "off" at this size — use the system
    highlight color instead, same convention as gcToggle/pvToggle above. */
+/* ============ Main window toolbars: one uniform button box ================ */
+/* See the matching block in dark.qss: these three bars use
+   ToolButtonTextUnderIcon, so button width follows the LABEL, not the icon,
+   and the global QToolButton min-width is narrower than "Restore Session...".
+   Height is kept modest so the bars still fit a 1080px column vertically.
+   Icon size and artwork are both normalized in code (kToolIconPx,
+   normalizedToolIcon) -- neither is reliably expressible in qss. */
+
+QToolBar#toolBar QToolButton,
+QToolBar#toolBar2 QToolButton,
+QToolBar#slides QToolButton {
+	min-width: 84px;
+	min-height: 56px;
+}
+
 QToolBar#dynAspectControls,
 QToolBar#namedAspectControls {
 	padding: 0px;

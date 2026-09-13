@@ -89,6 +89,9 @@ private:
     AppSettings settings;
     AppSettings defaultSettings;  // нужен для восстановления значений, а также проверки типов
     QMap <QString, QWidget*> boundControls;
+    // The QLabel QFormLayout::addRow(QString, QWidget*) builds for each row,
+    // recovered at add time so setRowToolTip() can reach it later.
+    QMap <QString, QWidget*> boundLabels;
     QList<QWidget*> customWidgets;  // widgets added by addCustomWidget() method
     bool changed;
 
@@ -103,6 +106,10 @@ private:
 
     void updateControls();
     QFormLayout* lastLayout();
+    // Record a freshly added row's control and its form label. Must be
+    // called AFTER the row's addRow(), while lastLayout() is still the
+    // layout that owns it.
+    void bindRow(const QString& valueName, QWidget* control);
 
     private slots:
     void change();         // помечает текущие настройки как несохранённые
@@ -133,6 +140,12 @@ public:
     QDoubleSpinBox* addDoubleSpinBox(const QString& valueName, const QString& label, double minValue, double maxValue, double step = 0.1);
     QComboBox* addComboBox(const QString& valueName, const QString& label, QKeyValueList values);
     void addLabel(const QString& label);
+    /// Attach a tooltip to an already-added row -- both the control and its
+    /// form label, so the hint shows wherever the user hovers. Call right
+    /// after the matching add*(); keyed by settings name. Named
+    /// setRowToolTip rather than setToolTip so it doesn't hide
+    /// QWidget::setToolTip(). No-op for an unknown name.
+    void setRowToolTip(const QString& valueName, const QString& tip);
 
     void setObject(Customizable* obj);
 

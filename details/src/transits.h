@@ -115,6 +115,15 @@ class Transits : public AstroFileHandler {
 
     AstroFile* transitsAF();
 
+    /// True when transitsAF() is a Primary Direction chart (TypeDerivedPD).
+    /// Such a chart is NOT a relocatable transit chart: it is the natal chart
+    /// seen through a mundane frame rotated by the directed arc, and
+    /// calculateAll() rebuilds its natal basis from its own location. Pushing
+    /// the tab's observer location onto it silently moves that basis and
+    /// changes every directed position, so the observer-location plumbing
+    /// must leave it alone.
+    bool transitFileIsDirected();
+
   signals:
     // void updateTransits(double);
     void planetSelected(A::PlanetId, int);
@@ -185,6 +194,19 @@ class Transits : public AstroFileHandler {
     int         _fileIndex;
     bool        _expandedAspects;
     bool        _inhibitUpdate;
+    // Which Primary Direction CELL is currently focalized, if any
+    // (source-model index, so it survives sorting and filtering).
+    // Re-clicking that same cell drops the focalization while leaving the
+    // directed bi-wheel standing -- a PD click otherwise has no "off",
+    // unlike Harmonics::clearFocal()'s toggle.
+    //
+    // Cell, not row, and the column matters: every cell in a PD row
+    // focalizes the same direction (the whole row IS one direction), so a
+    // row-keyed toggle made moving between two columns of one row read as a
+    // re-click and silently UN-focalize. That looked like an off-by-one race
+    // in the aspect display. See Transits::clickedCell()'s
+    // etcPrimaryDirections branch.
+    QPersistentModelIndex _pdFocalCell;
     bool        _pendingLocationChange = false;
     bool        _fileJustSwitched = false;  // Set in filesUpdated when file(0) changes, cleared in viewSettingsUpdated
     AstroFile*  _previousFile = nullptr;    // Tracks file(0) across tab switches

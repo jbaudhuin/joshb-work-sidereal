@@ -211,6 +211,23 @@ QFormLayout* AppSettingsEditor::lastLayout()
     return currentForm;
 }
 
+void AppSettingsEditor::bindRow(const QString& valueName, QWidget* control)
+{
+    boundControls[valueName] = control;
+    // addRow(QString, QWidget*) builds the label itself, so the only handle
+    // on it is labelForField() -- and only while currentForm is still the
+    // layout the row went into (group boxes each get their own).
+    if (QWidget* lbl = lastLayout()->labelForField(control))
+        boundLabels[valueName] = lbl;
+}
+
+void AppSettingsEditor::setRowToolTip(const QString& valueName,
+                                      const QString& tip)
+{
+    if (QWidget* w = boundControls.value(valueName)) w->setToolTip(tip);
+    if (QWidget* l = boundLabels.value(valueName))   l->setToolTip(tip);
+}
+
 QWidget* 
 AppSettingsEditor::addControl(const QString& valueName,
                               const QString& label)
@@ -260,7 +277,7 @@ AppSettingsEditor::addLineEdit(const QString& valueName,
     QLineEdit* edit = new QLineEdit(s.toString());
     lastLayout()->addRow(label, edit);
 
-    boundControls[valueName] = edit;
+    bindRow(valueName, edit);
     connect(edit, SIGNAL(textChanged(QString)), this, SLOT(change()));
 
     return edit;
@@ -277,7 +294,7 @@ AppSettingsEditor::addCheckBox(const QString& valueName, const QString&
     edit->setChecked(s.toBool());
     lastLayout()->addRow(label, edit);
 
-    boundControls[valueName] = edit;
+    bindRow(valueName, edit);
     connect(edit, SIGNAL(toggled(bool)), this, SLOT(change()));
 
     return edit;
@@ -300,7 +317,10 @@ AppSettingsEditor::addCheckBoxRow(const QString& label,
         cb->setChecked(settings.value(pair.first).toBool());
         grid->addWidget(cb, i / perRow, i % perRow);
 
-        boundControls[pair.first] = cb;
+        // Several boxes share one form label here, so bindRow() finds no
+        // label of its own for each (the label belongs to `holder`) --
+        // setRowToolTip() will reach the checkbox but not the shared label.
+        bindRow(pair.first, cb);
         connect(cb, SIGNAL(toggled(bool)), this, SLOT(change()));
         ++i;
     }
@@ -325,7 +345,7 @@ AppSettingsEditor::addSpinBox(const QString& valueName,
 
     lastLayout()->addRow(label, edit);
 
-    boundControls[valueName] = edit;
+    bindRow(valueName, edit);
     connect(edit, SIGNAL(valueChanged(int)), this, SLOT(change()));
 
     return edit;
@@ -351,7 +371,7 @@ AppSettingsEditor::addDoubleSpinBox(const QString& valueName,
 
     lastLayout()->addRow(label, edit);
 
-    boundControls[valueName] = edit;
+    bindRow(valueName, edit);
     connect(edit, SIGNAL(valueChanged(double)), this, SLOT(change()));
 
     return edit;
@@ -380,7 +400,7 @@ AppSettingsEditor::addComboBox(const QString&  valueName,
 
     lastLayout()->addRow(label, edit);
 
-    boundControls[valueName] = edit;
+    bindRow(valueName, edit);
     connect(edit, SIGNAL(currentIndexChanged(int)), this, SLOT(change()));
 
     return edit;

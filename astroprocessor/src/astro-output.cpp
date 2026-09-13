@@ -1533,14 +1533,19 @@ describeParans(const AstroFileList& scopes,
     }
 
     // Natal ex-precessed rows: shown in focused Par=N panels AND in the full
-    // listing when showParanNatalRows is set and a natal context is available.
+    // listing when a natal context is available and either natal-row option is
+    // set.  showParanNatalRows shows them subject to the paran-orb proximity
+    // filter; includeOutOfOrbNatalRows ("Always include…") shows them
+    // unconditionally, so it implies the former rather than merely relaxing it
+    // — otherwise the "Always" option is silently inert whenever the Parans
+    // group's checkbox happens to be off.
     // Focused mode filters by the specific paran event time; full-listing mode
     // filters each natal angle transit by proximity to any return-planet transit.
     //
     // For a transit-only Par chart presented as the second wheel of a biwheel
     // whose first wheel is a natal/Event chart, also include the radix bodies
     // that happen to be in the focal paran — even though they aren't part of the
-    // (transit-only) event — when showParanNatalRows is set. The focused-cluster
+    // (transit-only) event — when either natal-row option is set. The focused-cluster
     // filter below then keeps only those actually in the radix cluster.
     const bool natalCtxIsRadix =
         natalContext
@@ -1549,13 +1554,14 @@ describeParans(const AstroFileList& scopes,
             || natalContext->getType() == TypeEvent
             || natalContext->getType() == TypeComposite);
     QVector<Star> natalStarStorage;
+    const bool wantNatalRows = showParanNatalRows || includeOutOfOrbNatalRows;
     const bool runNatalRows =
         natalContext
         && (isParanChart
                 ? (file->getOriginEventType() == etcParanatellontaToNatal
                    || (file->getOriginEventType() == etcParanatellonta
-                       && showParanNatalRows && natalCtxIsRadix))
-                : showParanNatalRows);
+                       && wantNatalRows && natalCtxIsRadix))
+                : wantNatalRows);
     if (runNatalRows) {
         // Full listing: collect return-planet event times for orb-filtering.
         QVector<QDateTime> returnTimes;

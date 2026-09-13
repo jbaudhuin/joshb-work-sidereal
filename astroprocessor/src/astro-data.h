@@ -370,6 +370,17 @@ class InputData {
     QDateTime     _baseGMT; // natal chart GMT for progressed charts
     bool          _hasBaseChart; // true if this is a progressed/derived chart
     bool          _isProgressed; // true if planet positions should be progressed
+    // Primary Direction chart (TypeDerivedPD): the natal chart's own bodies,
+    // re-evaluated against a mundane frame whose RAMC has been rotated by a
+    // fixed, frozen arc -- not a real second moment in time (contrast
+    // _isProgressed, which reconstructs a genuinely later instant). Frozen
+    // at click time so the chart stays internally consistent even if the
+    // user later changes A::primDirSystem, which would solve a different
+    // arc for the same promissor/significator pair.
+    bool   _isPrimaryDirected; // true if houses.RAMC should be rotated by _directedArc
+    double _directedArc;       // signed RA degrees
+    int    _directedSystem;    // an A::PrimDirSystem value (int here: astro-data.h
+                                // predates astro-calc.h, no circular include)
     QVector3D     _location; // x & y - long & lat (deg), z - height (meters)
     HouseSystemId _houseSystem;
     ZodiacId      _zodiac;
@@ -389,6 +400,9 @@ class InputData {
         _baseGMT.setSecsSinceEpoch(0);
         _hasBaseChart  = false;
         _isProgressed  = false;
+        _isPrimaryDirected = false;
+        _directedArc       = 0.0;
+        _directedSystem    = 0; // pdsPlacidus
         _location      = QVector3D(0, 0, 0);
         _houseSystem   = Housesystem_Placidus;
         _zodiac        = Zodiac_Tropical;
@@ -408,6 +422,9 @@ class InputData {
         _GMT(gmt),
         _hasBaseChart(false),
         _isProgressed(false),
+        _isPrimaryDirected(false),
+        _directedArc(0.0),
+        _directedSystem(0), // pdsPlacidus
         _location(loc),
         _houseSystem(hsys),
         _zodiac(zid),
@@ -455,7 +472,21 @@ class InputData {
         if (_isProgressed != prog) {
             qDebug() << "[PERF] setProgressed changing from" << _isProgressed << "to" << prog;
         }
-        _isProgressed = prog; 
+        _isProgressed = prog;
+    }
+
+    // Primary Direction chart (TypeDerivedPD) -- see the field comments above.
+    // isPrimaryDirected mirrors isProgressed()'s role (toggled from
+    // AstroFile::setType()); the arc/system are separate since they're set
+    // once, from the originating click, not re-derived from the type.
+    bool isPrimaryDirected() const { return _isPrimaryDirected; }
+    void setPrimaryDirected(bool directed) { _isPrimaryDirected = directed; }
+    double directedArc() const { return _directedArc; }
+    int    directedSystem() const { return _directedSystem; }
+    void   setDirectedArc(double arc, int system)
+    {
+        _directedArc    = arc;
+        _directedSystem = system;
     }
 
     QDateTime getEffectiveDateTime() const
@@ -2689,6 +2720,37 @@ struct Horoscope {
         pluto, northNode;
     StarMap stars;
     double  harmonic = 1.0;
+
+    /// Mundane (pvPos-scale) positions of the four angles, indexed
+    /// Planet_Asc/IC/Desc/MC - Angles_Start, i.e. { Asc, IC, Desc, MC }.
+    ///
+    /// For an ordinary chart these are the defining 0/90/180/270 -- an angle
+    /// sits where it does by construction. They differ only for a
+    /// primary-directed chart (TypeDerivedPD), whose mundane frame has been
+    /// rotated by the directed arc while the angles keep their natal RA/Dec:
+    /// there, each entry is where that natal angle has ARRIVED, which is the
+    /// entire content of a direction whose promissor is an angle.
+    ///
+    /// This exists because the four angles are NOT in planets[]:
+    /// calculateAll() loops over getPlanets(), which yields Sun..Pluto only,
+    /// so its Planet_Asc/IC/Desc/MC branches never run. Consumers that want
+    /// an angle's mundane position must read it here.
+    double anglePv[4] = { 0.0, 90.0, 180.0, 270.0 };
+
+    /// The same four directed angles in the other two display frames --
+    /// ecliptic (in this chart's own zodiac) and equatorial (RA, Dec) --
+    /// indexed identically. Populated ONLY for TypeDerivedPD; left
+    /// default-constructed otherwise, since an ordinary chart's angles are
+    /// already in houses.Asc/MC/RAAC/RADC and nothing directs them.
+    ///
+    /// These exist because a primary-directed chart's own house grid is the
+    /// NATAL one (see calculateAll()'s framing note: the frame holds still
+    /// and the bodies move), so houses.cusp[] cannot supply a directed angle
+    /// in any frame. Drawing the directed ring's angles from houses.cusp[]
+    /// instead sweeps them the wrong way -- opposite to the planets, at
+    /// double the true separation -- which is exactly the bug these replaced.
+    QPointF angleEcl[4];
+    QPointF angleEqu[4];
 
     ChartPlanetMap getOrigChartPlanets(int fileId) const
     {

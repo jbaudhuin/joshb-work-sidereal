@@ -50,6 +50,10 @@ protected:
     FileType    _lastBasisType    = TypeCount; // sentinel: no prior populate
     bool        _lastBasisHasBase = false;
     QDateTime   _lastBasisGmt;
+    // The basis file identity, which can change while the GMT does not (a
+    // chart switching between two relocations of one nativity), so it has
+    // to be part of the memo or the combo would keep the stale selection.
+    QString     _lastBasisFile;
 
     void update(AstroFile::Members);
     void updateTabs();

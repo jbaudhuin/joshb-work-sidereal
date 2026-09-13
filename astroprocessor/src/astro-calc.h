@@ -772,8 +772,27 @@ struct EventOptions {
     // Angles as significators are always allowed (that's the classical
     // baseline — a planet directing to an angle); this only gates the
     // reverse, an angle directing to another point (e.g. "Asc -> Pluto").
-    // On by default, matching findPrimaryDirections()'s original behavior.
-    bool pdAnglesAsPromissors = true;
+    // Off by default: with pdPlanetsAsSignificators likewise off, the two
+    // together give exactly the classical baseline. (Was on by default,
+    // matching findPrimaryDirections()' original behavior; the default
+    // changed when the significator half became controllable too.)
+    bool pdAnglesAsPromissors = false;
+
+    // Primary Directions: whether a planet can act as a SIGNIFICATOR (the
+    // fixed natal point directed TO) as well as a promissor. The mirror of
+    // pdAnglesAsPromissors above: angles as significators are always allowed
+    // (the classical baseline -- a planet directing to an angle), and this
+    // gates the other half. Turning it on adds planet -> planet directions
+    // and, with pdIncludeRays, a planet directed to one of its OWN rays
+    // (that self-direction exemption is in findPrimaryDirections()'s ray
+    // loop, and its significator is a planet by construction, so it lives
+    // or dies with this flag). Off by default.
+    //
+    // Deliberately does NOT govern the rapt parallel's significator Z --
+    // that has its own raptParallelsAnyZ control below, which already
+    // restricts Z to the angles by default. Rapt conjunctions have no
+    // significator at all, so they are unaffected either way.
+    bool pdPlanetsAsSignificators = false;
 
     // Primary Directions: include rapt parallels (Makransky Ch. IV, "RAPT
     // PARALLELS") -- a mundane-midpoint condition between two promissors
@@ -792,6 +811,19 @@ struct EventOptions {
     // body (the ~3x larger, Makransky-documented generalization). Only
     // meaningful when pdIncludeRaptParallels is on.
     bool raptParallelsAnyZ = false;
+
+    // Primary Directions: include rapt CONJUNCTIONS -- the arc at which two
+    // bodies, both carried by the same directing motion, arrive at the same
+    // mundane position (one "overtakes" the other in the mundane frame).
+    // Same rapt-motion category as pdIncludeRaptParallels above, but the
+    // same-side case rather than the equidistant-either-side-of-an-angle
+    // one; likewise a genuine kind of primary direction rather than an
+    // independent event type. Unlike the parallel it is defined under all
+    // three direction systems, Placidus included. Off by default, and
+    // legitimately SPARSE: bodies of equal declination share a semi-arc and
+    // so never overtake at all. See findRaptConjunctionArcs() for the math
+    // and AspectFinder::findRaptConjunctions() for the enumeration.
+    bool pdIncludeRaptConjunctions = false;
 
     // Primary Directions: which of a pair's two possible directions to
     // enumerate. Both is the classical default.
@@ -1067,6 +1099,7 @@ class AspectFinder : public QObject, public EventOptions {
     void findHeliacalEvents();
     void findPrimaryDirections();
     void findRaptParallels();
+    void findRaptConjunctions();
     void findAspectsAndPatterns();
 
     bool isActive() const { return _numTasks != 0; }
@@ -1384,6 +1417,12 @@ Houses
 calculateHouses(const InputData& input);
 Houses
 calculateHouses(const InputData& input, double progressedMC);
+/// Houses built directly from a supplied (tropical) RAMC, rather than
+/// back-solving RAMC from a supplied MC as the progressedMC overload does.
+/// For a Primary Direction chart the target RAMC (natal RAMC + directed arc)
+/// is already known directly -- no MC intermediate to round-trip through.
+Houses
+calculateHousesFromRAMC(const InputData& input, double ramc);
 Aspect
 calculateAspect(const AspectsSet& aspectSet,
                 const Planet&     planet1,
@@ -1663,6 +1702,57 @@ findRaptParallelArcs(const DirSpeculumEntry& x,
                      double                  minArc,
                      double                  maxArc,
                      double                  stepDeg = 1.0);
+
+/// Rapt conjunctions: the arc at which two bodies A and B, BOTH carried by
+/// the same directing motion, arrive at the same mundane position -- one
+/// "overtakes" the other in the mundane frame:
+///   MP(A directed by arc) == MP(B directed by arc)  (mod 360)
+///
+/// The same rapt-motion category as findRaptParallelArcs() above (rapt
+/// motion being Placidus's own third class of direction, alongside direct
+/// and converse, in which both bodies move rather than one being carried
+/// onto a fixed natal place), but the SAME-side case rather than the
+/// classical equidistant-either-side-of-an-angle one. Under Placidus, where
+/// mundane position is a function of the proportional meridian distance
+/// MD/SA, the two conditions differ by exactly one sign:
+///
+///   rapt parallel:    arc = -(SA_A*MD_B + SA_B*MD_A) / (SA_A + SA_B)
+///   rapt conjunction: arc =  (SA_A*MD_B - SA_B*MD_A) / (SA_B - SA_A)
+///
+/// Three things follow from that difference-in-the-denominator, and the
+/// middle one matters most to anyone reading results:
+///
+///  - Bodies of EQUAL DECLINATION never overtake: equal declination means
+///    equal semi-arc, which zeroes the denominator. Overtaking is caused
+///    entirely by the two bodies traversing the mundane frame at different
+///    rates, and near-equal declinations push the arc far past any lifetime.
+///  - So most pairs legitimately yield nothing in range. A sparse result
+///    set is correct here, NOT a bug to be "fixed".
+///  - The parallel's denominator is a sum and so can never vanish, which is
+///    presumably why that one became the classical technique and this did
+///    not. No classical author appears to treat the same-side case as a
+///    named technique; "rapt conjunction" is this codebase's own coinage.
+///
+/// Unlike the parallel this is defined under ALL THREE systems, including
+/// Placidus: a mundane MIDPOINT needs a great circle, but mundane EQUALITY
+/// does not. The closed form above is only piecewise valid (a body crossing
+/// the horizon swaps SDA for SNA) and has no Campanus/Regiomontanus
+/// analogue, so this shares the parallel's bounded bracket-and-bisect. It
+/// is the better conditioned of the two searches: foldSigned180(MP_A - MP_B)
+/// is continuous everywhere, individual 360-degree wraps at the Ascendant
+/// cancelling in the folded difference, whereas shortArcMidpoint() has a
+/// genuine branch flip when its two bodies approach opposition.
+///
+/// Returns every root in [minArc, maxArc], sorted ascending.
+QVector<double>
+findRaptConjunctionArcs(const DirSpeculumEntry& a,
+                        const DirSpeculumEntry& b,
+                        double                  ramc,
+                        double                  lat,
+                        PrimDirSystem           system,
+                        double                  minArc,
+                        double                  maxArc,
+                        double                  stepDeg = 1.0);
 
 /// The four angles, for significators that are angles rather than bodies —
 /// an angle has no semi-arc of its own, so it uses the exact classical

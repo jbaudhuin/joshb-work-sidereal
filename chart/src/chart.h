@@ -66,6 +66,11 @@ private:
     // Captured once on the first locked updateScene() and held for every frame.
     bool  _rotationLocked     = false;
     bool  _haveLockedRotation = false;
+
+    /// True while filesUpdated() is force-hiding every cusp for animation
+    /// playback. Gates the restore so it only fires on the way back out —
+    /// outside playback, updatePlanetsAndCusps() owns cusp visibility.
+    bool  _cuspsHiddenForAnimation = false;
     float _lockedRotation     = 0.0f;  // frozen ascendant-derived angle, pre-clockwise
     float _lastRotate         = 0.0f;  // last LIVE (un-frozen) angle, for capture
 
@@ -144,35 +149,6 @@ private:
     };
     QList<ParanFigure>               paranFigures;
 
-    /// Primary Direction event marker: for each directed promissor (2 for a
-    /// rapt parallel -- X and Y individually), a "travel" line from its natal
-    /// position to where the arc carries it, and a ghost "phantom" marker at
-    /// that arrival point. Driven by
-    /// AstroFile::getDirectionFocus{Promissors,Significator,Arc}() (see
-    /// astro-gui.h) -- only meaningful in Mundane/PV display mode, since a
-    /// directed mundane position has no ecliptic-mode analog.
-    ///
-    /// The travel line, not a phantom->significator spoke, is what carries
-    /// the information: for a CONJUNCTION direction the promissor by
-    /// definition arrives exactly ON the significator, so a spoke between
-    /// them is always zero-length (and the phantom alone is invisible inside
-    /// a crowded ring). `spoke` is therefore only drawn for aspectual rays,
-    /// where the arrival point sits a ray-offset away from the significator
-    /// -- it stays null when the two coincide.
-    ///
-    /// Positions are recomputed fresh each draw rather than tracking marker
-    /// items: the significator is never directed (only promissors move), and
-    /// Asc/IC/Desc have no QGraphicsItem of their own anyway (they're drawn
-    /// as cusp lines, not planet markers) -- nor do angles appear in
-    /// horoscope().planets for a normal chart, so their 0/90/180/270 pvPos
-    /// values are special-cased the same way astro-calc.cpp's getPos() does.
-    struct DirectionFigure {
-        QGraphicsEllipseItem* phantom = nullptr; ///< ghost marker, directed position
-        QGraphicsLineItem*    travel  = nullptr; ///< natal promissor -> directed position
-        QGraphicsLineItem*    spoke   = nullptr; ///< directed -> significator (null if coincident)
-    };
-    QList<DirectionFigure>           directionFigures;
-
     /// Declination strip (horizontal axis below the wheel).
     /// X = |declination|; southern bodies above the axis line, northern below.
     static constexpr float declMaxDeg          = 28.0f;
@@ -215,13 +191,6 @@ private:
     QColor planetShapeColor(const A::Planet& p, int fileIndex);
     QGraphicsItem* getCircleMarker(const A::Planet* p);
 
-    /// Position the zodiac ring's sector dividers, sign glyphs and colored
-    /// band for the CURRENT draw frame. Sign spans are only equal 30 degree
-    /// sectors in the ecliptic frame; in equatorial/mundane they must be
-    /// projected (A::eclipticPointDisplayAngle). Called from createScene()
-    /// once the items exist, and again from updateScene() because the
-    /// projection depends on RAMC/latitude/obliquity, which change on time
-    /// and location edits that never rebuild the scene.
     /// File whose horoscope anchors the wheel: rotation, zodiac-ring
     /// projection, and the drawn angle/house grid. file(1) only for
     /// "prefer outer" bi-wheels. Deliberately NOT the same as the
@@ -229,12 +198,29 @@ private:
     /// updateAspects(), which returns -1 for Start_ZeroDegree to disable
     /// relocalization entirely -- the ring still has to be laid out against
     /// SOME file, and that is file 0.
+    ///
+    /// A Primary Direction chart (TypeDerivedPD) overrides circleStart
+    /// entirely: it isn't a second independently-timed chart to prefer, it's
+    /// the SAME natal bodies viewed through a rotated mundane frame, so the
+    /// anchor is always the OTHER file (normally the natal one) regardless
+    /// of the app's general Circle-start setting.
     int ringFileIndex() const
     {
+        if (filesCount() > 1) {
+            if (file(0) && file(0)->getType() == TypeDerivedPD) return 1;
+            if (file(1) && file(1)->getType() == TypeDerivedPD) return 0;
+        }
         return (circleStart == Start_Outer_Ascendant && filesCount() > 1) ? 1
                                                                          : 0;
     }
 
+    /// Position the zodiac ring's sector dividers, sign glyphs and colored
+    /// band for the CURRENT draw frame. Sign spans are only equal 30 degree
+    /// sectors in the ecliptic frame; in equatorial/mundane they must be
+    /// projected (A::eclipticPointDisplayAngle). Called from createScene()
+    /// once the items exist, and again from updateScene() because the
+    /// projection depends on RAMC/latitude/obliquity, which change on time
+    /// and location edits that never rebuild the scene.
     void layoutZodiacRing();
 
     void drawPlanets(int fileIndex);
@@ -243,11 +229,13 @@ private:
     void updatePlanetsAndCusps(int fileIndex);
     void updateAspects();
     void drawMidpointFigures();
+    /// Rapt-parallel variant of the midpoint figure (chord between the two
+    /// directed promissors, stem to the natal significator). Returns true if
+    /// it drew one, in which case the ordinary midpoint pass is skipped.
+    bool drawRaptParallelFigure();
     void clearMidpointFigures();
     void drawParanFigures();
     void clearParanFigures();
-    void drawDirectionFigure();
-    void clearDirectionFigure();
     void drawDeclinationAxis();
     void drawDeclinationBodies(int fileIndex);
     void layoutDeclinationGlyphs();

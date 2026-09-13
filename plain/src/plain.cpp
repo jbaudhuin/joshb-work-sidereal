@@ -285,6 +285,14 @@ void SectionToggle::setFileOn(int i, bool on)
     update();
 }
 
+void SectionToggle::setFileAvailable(int i, bool avail)
+{
+    bool& ref = (i == 0 ? _f1Avail : _f2Avail);
+    if (ref == avail) return;
+    ref = avail;
+    update();
+}
+
 void SectionToggle::setFileCount(int n)
 {
     if (_fileCount == n) return;
@@ -338,7 +346,8 @@ void SectionToggle::paintEvent(QPaintEvent*)
     if (minisVisible()) {
         p.setFont(_miniFont);
         for (int i = 0; i < 2; ++i) {
-            const bool on = (i == 0 ? _f1On : _f2On);
+            const bool avail = (i == 0 ? _f1Avail : _f2Avail);
+            const bool on = avail && (i == 0 ? _f1On : _f2On);
             const QRectF mr = QRectF(miniRect(i)).adjusted(0.5, 0.5, -0.5, -0.5);
             QColor bg, fg, edge;
             if (on) {                   // included ⇒ highlighted
@@ -349,6 +358,13 @@ void SectionToggle::paintEvent(QPaintEvent*)
                 bg   = _miniOffColor;
                 fg   = _miniOffTextColor;
                 edge = _borderColor;
+            }
+            // Unavailable for this chart (not merely switched off): dim the
+            // whole box further so it reads as "can't", not "won't".
+            if (!avail) {
+                bg.setAlpha(90);
+                fg.setAlpha(110);
+                edge.setAlpha(90);
             }
             p.setPen(QPen(edge, 1));
             p.setBrush(bg);
@@ -377,6 +393,9 @@ void SectionToggle::mousePressEvent(QMouseEvent* e)
     if (minisVisible()) {
         for (int i = 0; i < 2; ++i) {
             if (!miniRect(i).contains(pos)) continue;
+            // Unavailable for this chart: swallow the click rather than
+            // toggling a preference the render path will ignore anyway.
+            if (!fileAvailable(i)) { e->accept(); return; }
             bool& ref   = (i == 0 ? _f1On : _f2On);
             const bool other = (i == 0 ? _f2On : _f1On);
             if (ctrl) {
@@ -641,17 +660,46 @@ Plain::setParanOrb(double orb)
 /* ============================ QUICK OPTIONS MENUS
  * ======================================== */
 
+namespace {
+
+/// The two natal ex-precessed switches appear both in the settings dialog and
+/// in the Directions/Parans context menus; their descriptions live here so the
+/// two copies can't drift apart.
+QString showNatalRowsTip()
+{
+    return Plain::tr("Applies to the Parans and Directions tables. Lists only "
+                     "the natal bodies falling within the paran orb; see "
+                     "\"Always include natal ex-precessed positions\" to list "
+                     "them all.");
+}
+
+QString alwaysNatalRowsTip()
+{
+    return Plain::tr("Lists every natal body, ignoring the paran orb filter. "
+                     "Turns the rows on by itself — \"Show natal ex-precessed "
+                     "positions\" need not also be set.");
+}
+
+} // anonymous namespace
+
 /// One line in a quick-options menu: a checkable action bound directly to a
 /// bool member (no round-trip through AppSettings — the member is the state,
 /// and it's picked up automatically next time settings are persisted). The
 /// action (and its connection) only lives as long as the transient menu, so
 /// binding straight to the member reference is safe.
 void
-Plain::addBoolAction(QMenu* menu, const QString& label, bool& member)
+Plain::addBoolAction(QMenu* menu,
+                     const QString& label,
+                     bool& member,
+                     const QString& tip /*=QString()*/)
 {
     QAction* a = menu->addAction(label);
     a->setCheckable(true);
     a->setChecked(member);
+    // Only set the tooltip when there's one to give: QMenu reads the raw
+    // stored tooltip (not QAction::toolTip()'s text-derived fallback), so
+    // untouched actions stay tooltip-free even with toolTipsVisible set.
+    if (!tip.isEmpty()) a->setToolTip(tip);
     connect(a, &QAction::toggled, this, [this, &member](bool on) {
         member = on;
         refresh();
@@ -733,9 +781,16 @@ void
 Plain::showDirectionsContextMenu(const QPoint& globalPos)
 {
     QMenu menu(this);
+    menu.setToolTipsVisible(true);
     addBoolAction(&menu, tr("Include fixed stars"), includeFixedStars);
+    // Both natal-row switches belong here: "Show" alone lists the natal
+    // ex-precessed bodies that paran with a transiting planet, "out-of-orb"
+    // lists them all.  Either one on its own turns the rows on — see
+    // describeParans()'s wantNatalRows.
+    addBoolAction(&menu, tr("Show natal ex-precessed positions"),
+                 showParanNatalRows, showNatalRowsTip());
     addBoolAction(&menu, tr("Include out-of-orb natal ex-precessed rows"),
-                 includeOutOfOrbNatalRows);
+                 includeOutOfOrbNatalRows, alwaysNatalRowsTip());
     menu.addSeparator();
     addSpeculumTypeSubmenu(&menu);
     addDirectionSystemSubmenu(&menu);
@@ -762,9 +817,10 @@ void
 Plain::showParansContextMenu(const QPoint& globalPos)
 {
     QMenu menu(this);
+    menu.setToolTipsVisible(true);
     addBoolAction(&menu, tr("Include fixed stars"), includeFixedStars);
     addBoolAction(&menu, tr("Show natal ex-precessed positions"),
-                 showParanNatalRows);
+                 showParanNatalRows, showNatalRowsTip());
     addBoolAction(&menu, tr("Include all latitudes"), paranShowAbsent);
     menu.addSeparator();
     addDisplayModeSubmenu(&menu);
@@ -798,6 +854,23 @@ Plain::updateAspectsCache()
         // Get chart 2 aspects from its horoscope
         auto scope2         = file(1)->horoscope();
         cachedChart2Aspects = scope2.aspects;
+
+        // A Primary Direction chart keeps its NATAL ecliptic/equatorial
+        // positions -- direction rotates the mundane frame, not the sky --
+        // so ecliptic interaspects against the natal chart are degenerate by
+        // construction: every body sits exactly 0 degrees from its own twin
+        // (Sun-Sun, Moon-Moon, ...). The meaningful comparison is the
+        // mundane one: natal pvPos vs DIRECTED pvPos, which is the whole
+        // point of the directed chart. Force prime-vertical for this pair
+        // the same way Chart::updateAspects() modalizes for its own draw,
+        // and disable relocalization (pvPos on both sides is already final
+        // and directly comparable -- see Chart::displayPvPos()'s bypass).
+        const bool pdPair = file(1)->getType() == TypeDerivedPD
+                            || file(0)->getType() == TypeDerivedPD;
+        A::modalize<A::aspectModeType> pdMode(
+            A::aspectMode,
+            pdPair ? A::aspectModeType(A::amcPrimeVertical) : A::aspectMode);
+        if (pdPair) setPvFrameFile(-1);
 
         // Calculate synastry aspects
         cachedSynastryAspects = calculateSynastryAspects();
@@ -869,6 +942,18 @@ Plain::filesUpdated(MembersList m)
 
     // Show/hide each section's [1]/[2] file toggles based on the file count.
     for (SectionToggle* t : sectionToggles()) t->setFileCount(filesCount());
+
+    // A Primary Direction chart is the natal sky seen through a rotated
+    // mundane frame -- it has real positions but NO real moment. Every
+    // section that needs a clock anchor (Input's date, Directions, Speculum,
+    // Parans) is therefore meaningless for it, and the position-derived ones
+    // (Planets/Houses/Dignities) just restate the natal chart. Aspects is the
+    // exception worth keeping: natal-vs-directed IS the primary direction.
+    // Grey those minis rather than silently rendering nothing.
+    const bool pdSecond = filesCount() > 1 && file(1)
+                          && file(1)->getType() == TypeDerivedPD;
+    for (const auto& sk : sectionKeys())
+        sk.t->setFileAvailable(1, !pdSecond || sk.t == togAspects);
 
     // Refresh on a change to ANY file, not just file(0). The Directions/Parans
     // tables for Chart #2 are rendered from file(1) (e.g. the moving chart of a
@@ -1314,7 +1399,8 @@ Plain::refresh()
         return t->sectionOn() && (!twoCharts || t->fileOn(0));
     };
     auto sec2 = [twoCharts](SectionToggle* t) {
-        return t->sectionOn() && twoCharts && t->fileOn(1);
+        return t->sectionOn() && twoCharts && t->fileOn(1)
+            && t->fileAvailable(1);
     };
 
     const A::SpeculumDisplayMode displayMode = _displayMode;
@@ -2009,20 +2095,32 @@ Plain::applySettings(const AppSettings& s)
     // though Plain itself hasn't reacted to the change yet. Comparing
     // against Plain's own last-seen value stays correct regardless of
     // handler order.
-    A::PrimDirMode newPrimDirMode =
-        A::PrimDirMode(s.value("Mundane/primDirMode").toUInt());
-    bool primDirModeChanged = (_lastPrimDirMode != newPrimDirMode);
-    _lastPrimDirMode        = newPrimDirMode;
-    A::primDirMode          = newPrimDirMode;
+    // Both reads are guarded by s.contains(), matching the analogous guards in
+    // Chart::applySettings() and Transits::applySettings(): these keys are only
+    // present when `s` came from the combined settings dialog. Without the
+    // guard an `s` that omits them reads the fallback (0 / pdsPlacidus) as
+    // though the user had chosen it -- clobbering both the live A:: global and
+    // this handler's shadow, which then disagrees with Chart's and Transits'.
+    bool primDirModeChanged = false;
+    if (s.contains("Mundane/primDirMode")) {
+        A::PrimDirMode newPrimDirMode =
+            A::PrimDirMode(s.value("Mundane/primDirMode").toUInt());
+        primDirModeChanged = (_lastPrimDirMode != newPrimDirMode);
+        _lastPrimDirMode   = newPrimDirMode;
+        A::primDirMode     = newPrimDirMode;
+    }
 
     // primDirSystem now ALSO feeds calculatePlanet() (mundaneHouseSystem()
     // selects pvPos's house-system letter), same as primDirMode — see the
     // primDirSystemChanged block below.
-    A::PrimDirSystem newPrimDirSystem = A::PrimDirSystem(
-        s.value("Mundane/primDirSystem", unsigned(A::pdsPlacidus)).toUInt());
-    bool primDirSystemChanged = (_lastPrimDirSystem != newPrimDirSystem);
-    _lastPrimDirSystem        = newPrimDirSystem;
-    A::primDirSystem          = newPrimDirSystem;
+    bool primDirSystemChanged = false;
+    if (s.contains("Mundane/primDirSystem")) {
+        A::PrimDirSystem newPrimDirSystem =
+            A::PrimDirSystem(s.value("Mundane/primDirSystem").toUInt());
+        primDirSystemChanged = (_lastPrimDirSystem != newPrimDirSystem);
+        _lastPrimDirSystem   = newPrimDirSystem;
+        A::primDirSystem     = newPrimDirSystem;
+    }
 
     // pdTimingKey only affects calculateAngularDate's date-conversion step,
     // read fresh on every Directions-table render — no recalculate() needed,
@@ -2119,6 +2217,20 @@ Plain::applySettings(const AppSettings& s)
         aspectsCached = false;
     }
 
+    // ...and invalidate unconditionally before rendering, not only for the
+    // settings this handler happens to recognize above. The cached AspectLists
+    // hold Planet* into the files' horoscopes (see the same note in
+    // filesUpdated()), and OTHER handlers recalculate these shared AstroFiles
+    // from their own applySettings() -- Chart::applySettings() calls
+    // file(i)->calculate() on a Direction-System change, and it runs BEFORE
+    // Plain in handler order (mainwindow.cpp), so by the time this refresh()
+    // renders, every pointer in the cache can already be dangling with no
+    // signal having been emitted (calculate() deliberately emits nothing).
+    // That was a hard crash in describeAspectsTable, reading a freed QString.
+    // An Apply click is not a hot path; recomputing costs far less than
+    // rendering the report we are about to build anyway.
+    aspectsCached = false;
+
     refresh();
 }
 
@@ -2153,7 +2265,9 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                     tr("Show all planetary diurnal events"));
     ed->addCheckBox("Mundane/includeFixedStars", tr("Include fixed stars"));
     ed->addCheckBox("Mundane/includeOutOfOrbNatalRows",
-                    tr("Always include natal ex-precessed positions\n(when shown, ignores the Parans orb filter)"));
+                    tr("Always include natal ex-precessed positions"));
+    ed->setRowToolTip("Mundane/includeOutOfOrbNatalRows",
+                      alwaysNatalRowsTip());
     ed->addComboBox("Mundane/dirMethodSolarReturn",
                     tr("Derived directions for Solar Returns"),
                     { { "None (Primary Directions)", unsigned(A::DirNone) },
@@ -2175,6 +2289,7 @@ Plain::setupSettingsEditor(AppSettingsEditor* ed)
                          5.0 /*5 degrees*/);
     ed->addCheckBox("Mundane/showParanNatalRows",
                     tr("Show natal ex-precessed positions"));
+    ed->setRowToolTip("Mundane/showParanNatalRows", showNatalRowsTip());
     ed->addCheckBox("Mundane/paranShowAbsent",
                     tr("Include all latitudes"));
     ed->addDoubleSpinBox("Mundane/paranCityLatTol",

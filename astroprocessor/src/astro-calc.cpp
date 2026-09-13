@@ -2625,6 +2625,86 @@ calculateHouses(const InputData& input, double progressedMC)
     return ret;
 }
 
+Houses
+calculateHousesFromRAMC(const InputData& input, double ramc)
+{
+    // Same body as calculateHouses(input, progressedMC) from swe_houses_armc
+    // onward, but starting from an already-known TROPICAL RAMC directly --
+    // no MC-to-RAMC round trip, since a Primary Direction chart already has
+    // its target RAMC (natal RAMC + directed arc) in hand.
+
+    Houses ret;
+    ret.system         = &getHouseSystem(input.houseSystem());
+    unsigned int flags = SEFLG_SWIEPH;
+    if (input.zodiac() > 1) {
+        flags |= SEFLG_SIDEREAL;
+        swe_set_sid_mode(input.zodiac() - 2, 0, 0);
+    }
+
+    double julianDay   = getJulianDate(input.GMT(), false /*i.e., UT*/, input.calendarType());
+    double jd          = getJulianDate(input.GMT(), true /*i.e., ET*/, input.calendarType());
+    char   errStr[256] = "";
+    double xx[6];
+
+    swe_calc_ut(jd, SE_ECL_NUT, 0, xx, errStr);
+    double eps = xx[0];
+    ret.eps    = eps;
+
+    double ay = 0;
+    if (input.zodiac() > 1) {
+        swe_set_sid_mode(input.zodiac() - 2, 0, 0);
+        ay = swe_get_ayanamsa(jd);
+    }
+
+    ret.RAMC = ramc;
+
+    double geopos[3] = { input.location().x(),
+                         input.location().y(),
+                         input.location().z() };
+
+    double hcusps[14], ascmc[11];
+    swe_houses_armc(ret.RAMC, geopos[1], eps, ret.system->sweCode, hcusps,
+                    ascmc);
+
+    for (int i = 0; i < 12; i++) ret.cusp[i] = swe_degnorm(hcusps[i + 1] - ay);
+
+    double ascTrop = ascmc[0];
+    ret.Asc = swe_degnorm(ascTrop - ay);
+    ret.MC  = swe_degnorm(ascmc[1] - ay);
+    ret.Vx  = swe_degnorm(ascmc[3] - ay);
+    ret.EA  = swe_degnorm(ascmc[4] - ay);
+
+    xx[0] = ascTrop;
+    xx[1] = 0.0;
+    xx[2] = 1.0;
+    swe_cotrans(xx, xx, -eps);
+    ret.RAAC = xx[0];
+
+    xx[0] = swe_degnorm(ascTrop + 180);
+    xx[1] = 0.0;
+    xx[2] = 1.0;
+    swe_cotrans(xx, xx, -eps);
+    ret.RADC = xx[0];
+
+    double DD = asind(sind(eps) * sind(ascTrop));
+    double AD = asind(tand(DD) * tand(input.location().y()));
+    ret.OAAC  = input.location().y() >= 0 ? (ret.RAAC - AD) : (ret.RAAC + AD);
+    DD        = asind(sind(eps) * sind(swe_degnorm(ascTrop + 180)));
+    AD        = asind(tand(DD) * tand(input.location().y()));
+    ret.ODDC  = input.location().y() >= 0 ? (ret.RADC + AD) : (ret.RADC - AD);
+
+    ret.halfMedium = swe_difdegn(ret.RAAC, ret.RAMC);
+    ret.halfImum   = 180 - ret.halfMedium;
+
+    swe_calc_ut(julianDay, SE_SUN, flags & ~SEFLG_SIDEREAL, xx, errStr);
+    double housePos = swe_house_pos(ret.RAMC, geopos[1], eps, 'C', xx, errStr);
+    int which = (housePos >= 4 && housePos < 10) ? SE_CALC_RISE : SE_CALC_SET;
+    swe_rise_trans(julianDay - 1, SE_SUN, NULL, SEFLG_SWIEPH, which, geopos,
+                   1013.25, 10, &ret.startSpeculum, errStr);
+
+    return ret;
+}
+
 PlanetPower
 calculatePlanetPower(const Planet& planet, const Horoscope& scope)
 {
@@ -4693,10 +4773,53 @@ double
 mundanePositionAtArc(const DirSpeculumEntry& body, double alpha, double ramc,
                      double lat, PrimDirSystem system)
 {
-    DirSpeculumEntry e =
-        buildDirSpeculumEntry(swe_degnorm(body.ra - alpha), body.dec, ramc, lat);
+    const double ra = swe_degnorm(body.ra - alpha);
+
+    // Placidus has no great-circle projection apparatus (no pole/Q/W), so it
+    // reads PMP straight off swe_house_pos with the 'P' letter, using the
+    // same eps=0 identity trick buildProjectionFields() uses to feed it
+    // (RA, Dec) instead of (ecl.lon, ecl.lat). Per mundaneHouseSystem()'s
+    // note, SE's 'P' branch is algebraically identical to this codebase's
+    // own placidusMundanePosition().
+    //
+    // Only reachable from findRaptConjunctionArcs(): the rapt-PARALLEL
+    // search bails on Placidus before it ever calls in here, because a
+    // mundane MIDPOINT needs a great circle whereas mundane EQUALITY does
+    // not. Before that caller existed this branch didn't exist either, and
+    // Placidus fell through to `e.w` -- the Regiomontanus quantity, and
+    // wrong, but unreachable.
+    if (system == pdsPlacidus) {
+        double xx[2] = { ra, body.dec };
+        char   err[256] = "";
+        const double hp = swe_house_pos(ramc, lat, /*eps=*/0.0, 'P', xx, err);
+        return swe_degnorm((hp - 1.0) / 12.0 * 360.0);
+    }
+
+    DirSpeculumEntry e = buildDirSpeculumEntry(ra, body.dec, ramc, lat);
     buildProjectionFields(e, ramc, lat);
     return system == pdsCampanus ? e.cmp : e.w;
+}
+
+// Rate of change of mundane position with respect to the directing arc,
+// by central difference. Used only to decide which of two bodies arriving
+// at the same mundane place is the one doing the overtaking.
+//
+// Bodies traverse the mundane frame at different rates precisely because
+// their semi-arcs differ -- under Placidus d(MP)/d(arc) is exactly
+// proportional to 1/SA -- and that difference is the entire reason a rapt
+// conjunction can occur at all. Both bodies move the same way round under
+// direction, so the two results always share a sign and only their
+// magnitudes need comparing.
+double
+mundaneSpeedAtArc(const DirSpeculumEntry& body, double alpha, double ramc,
+                  double lat, PrimDirSystem system)
+{
+    constexpr double eps = 0.01;
+    const double ahead  =
+        mundanePositionAtArc(body, alpha + eps, ramc, lat, system);
+    const double behind =
+        mundanePositionAtArc(body, alpha - eps, ramc, lat, system);
+    return std::fabs(foldSigned180(ahead - behind)) / (2.0 * eps);
 }
 
 // Shorter-arc midpoint of two mod-360 values (matches the existing
@@ -4738,6 +4861,44 @@ findRaptParallelArcs(const DirSpeculumEntry& x, const DirSpeculumEntry& y,
         // half-circle between adjacent (1-degree-ish) samples; a coarse-step
         // wrap discontinuity looks like a huge jump -- reject those rather
         // than bisecting a non-root.
+        if ((prevF > 0.0) != (curF > 0.0) && std::fabs(curF - prevF) < 90.0) {
+            double lo = prevAlpha, hi = alpha, flo = prevF;
+            for (int it = 0; it < 60 && hi - lo > 1e-7; ++it) {
+                const double mid = 0.5 * (lo + hi);
+                const double fm  = residual(mid);
+                if ((fm > 0.0) == (flo > 0.0)) { lo = mid; flo = fm; }
+                else                            { hi = mid; }
+            }
+            hits.append(0.5 * (lo + hi));
+        }
+        prevAlpha = alpha;
+        prevF     = curF;
+    }
+    return hits;
+}
+
+QVector<double>
+findRaptConjunctionArcs(const DirSpeculumEntry& a, const DirSpeculumEntry& b,
+                        double ramc, double lat, PrimDirSystem system,
+                        double minArc, double maxArc, double stepDeg)
+{
+    QVector<double> hits;
+
+    auto residual = [&](double alpha) {
+        return foldSigned180(mundanePositionAtArc(a, alpha, ramc, lat, system)
+                           - mundanePositionAtArc(b, alpha, ramc, lat, system));
+    };
+
+    double prevAlpha = minArc;
+    double prevF     = residual(prevAlpha);
+    for (double alpha = minArc + stepDeg; alpha <= maxArc + 1e-9;
+         alpha += stepDeg)
+    {
+        const double curF = residual(alpha);
+        // Same guard findRaptParallelArcs() uses above: a genuine crossing
+        // barely moves the residual between adjacent samples, whereas the
+        // +-180 wrap (the two bodies separating through opposition rather
+        // than closing to conjunction) looks like a half-circle jump.
         if ((prevF > 0.0) != (curF > 0.0) && std::fabs(curF - prevF) < 90.0) {
             double lo = prevAlpha, hi = alpha, flo = prevF;
             for (int it = 0; it < 60 && hi - lo > 1e-7; ++it) {
@@ -4829,7 +4990,99 @@ calculateAll(const InputData& input)
     // Determine which InputData to use for planet/star calculations
     const InputData* calcInput = &input;
     InputData        progInput; // Will be used if this is a progressed chart
+    InputData        pdNatalInput; // Will be used if this is a directed chart
 
+    // Primary Direction chart (TypeDerivedPD): the SAME natal bodies (RA/Dec
+    // unchanged -- direction moves nothing in the sky), viewed through a
+    // mundane frame whose RAMC has been rotated by a fixed, frozen arc. This
+    // is deliberately checked BEFORE isProgressed() below: TypeDerivedPD used
+    // to have no branch of its own and silently fell into the secondary-
+    // progression math instead (see AstroFile::setType()'s comment).
+    //
+    // Angles are handled specially further down (see angleRaDec below):
+    // unlike a normal chart, where Asc/Desc/MC/IC are hardcoded to mundane
+    // 0/180/270/90 (a display convention for whatever RAMC built the chart),
+    // here they are each treated as a body with its own fixed NATAL RA/Dec
+    // and pushed through the same shift-and-reevaluate math as any other
+    // promissor -- otherwise an event where an angle IS the promissor (e.g.
+    // "Ascendant directed to Jupiter") would silently show that angle's
+    // trivial, undirected position instead of where it was actually directed
+    // to.
+    // hasBaseChart() guard mirrors the isProgressed() branch below: without
+    // it, selecting "Primary Directions" directly in the file-type combo
+    // (rather than via a PD-row double-click, which always sets a baseChart)
+    // would reconstruct "natal" from the epoch-0 default baseGMT. Falls
+    // through to the normal chart branch instead.
+    bool    isPD = input.isPrimaryDirected() && input.hasBaseChart();
+    QPointF ascRaDec, descRaDec, mcRaDec, icRaDec; // pvPos source, filled below when isPD
+    // Natal (unshifted) houses for the same four angles -- ecliptic/
+    // equatorial display should show the UNDIRECTED position (direction
+    // doesn't move anything in the sky, only the mundane frame rotates), so
+    // these feed eclipticPos/equatorialPos below while ascRaDec/etc. feed
+    // pvPos. Same values a normal, non-directed natal chart would show.
+    Houses pdNatalHouses;
+    // Natal-epoch ayanamsa, for converting a directed TROPICAL longitude back
+    // into the chart's own zodiac (see directBodyForDisplay below). Zero for a
+    // tropical chart. Hoisted to function scope because the planet loop needs
+    // it long after the isPD block that computes it.
+    double pdAyanamsa = 0.0;
+    if (isPD) {
+        pdNatalInput = input;
+        pdNatalInput.setGMT(input.baseGMT());
+        pdNatalInput.clearBaseChart();
+        pdNatalInput.setPrimaryDirected(false); // standalone natal chart
+
+        pdNatalHouses = calculateHouses(pdNatalInput);
+
+        // ONE framing for the whole chart: the FRAME HOLDS STILL (natal
+        // houses, natal RAMC) and the BODIES MOVE (RA -= arc, declination
+        // untouched). This is the framing mundanePositionAtArc() already
+        // uses for the direction solvers.
+        //
+        // The equivalent other framing -- rotate the frame by RAMC += arc and
+        // leave the bodies alone -- gives identical MUNDANE positions, since
+        // mundane position depends only on (RA - RAMC) and declination. It is
+        // what shipped first, and it does not survive contact with the
+        // ecliptic and equatorial display modes: those draw absolute
+        // longitudes, in which a rotated frame moves the CUSPS forward while
+        // the bodies sit still. Directing the bodies as well while the houses
+        // were still frame-rotated mixed the two, so the angle grid swept one
+        // way and the planets the other, at double the true separation.
+        //
+        // Consequence to expect: a directed chart's house/angle grid is the
+        // NATAL one, identical to the inner wheel's. What moves under
+        // direction is each natal angle treated as a body -- published
+        // separately in Horoscope::anglePv/angleEcl/angleEqu below, which is
+        // what the wheel actually draws for the directed ring.
+        scope.houses = pdNatalHouses;
+        scope.zodiac = getZodiac(pdNatalInput.zodiac());
+
+        // Each angle's own fixed natal RA/Dec, mirroring exactly how
+        // Horoscope::applyExprecession() already recovers Asc/Desc/MC's
+        // tropical longitude for precession (ayanamsa-add for a true
+        // sidereal zodiac, since swe_house_pos below is tropical-only).
+        double natalJd = getJulianDate(pdNatalInput.GMT(), false,
+                                       pdNatalInput.calendarType());
+        if (pdNatalInput.zodiac() > 1) {
+            swe_set_sid_mode(pdNatalInput.zodiac() - 2, 0, 0);
+            pdAyanamsa = swe_get_ayanamsa(natalJd);
+        }
+        double ascTrop  = swe_degnorm(pdNatalHouses.Asc + pdAyanamsa);
+        double mcTrop   = swe_degnorm(pdNatalHouses.MC + pdAyanamsa);
+        double descTrop = swe_degnorm(ascTrop + 180.0);
+        double icTrop   = swe_degnorm(mcTrop + 180.0);
+        double ra, dec;
+        eclipticToEquatorial(ascTrop, 0.0, pdNatalHouses.eps, ra, dec);
+        ascRaDec = { ra, dec };
+        eclipticToEquatorial(descTrop, 0.0, pdNatalHouses.eps, ra, dec);
+        descRaDec = { ra, dec };
+        eclipticToEquatorial(mcTrop, 0.0, pdNatalHouses.eps, ra, dec);
+        mcRaDec = { ra, dec };
+        eclipticToEquatorial(icTrop, 0.0, pdNatalHouses.eps, ra, dec);
+        icRaDec = { ra, dec };
+
+        calcInput = &pdNatalInput;
+    } else
     // Check if this should be calculated as a progressed chart
     // Note: base chart is also used for returns and transits, so we check the progression flag
     if (input.hasBaseChart() && input.isProgressed()) {
@@ -4913,33 +5166,138 @@ calculateAll(const InputData& input)
         scope.zodiac = getZodiac(input.zodiac());
     }
 
+    // Mundane position of a fixed (ra, dec) point against scope.houses
+    // (already the directed, RAMC-shifted houses when isPD) -- the eps=0
+    // identity trick buildProjectionFields()/relocalizedPvPos() already use,
+    // so swe_house_pos reads (ra, dec) straight through as equatorial.
+    // Carry a fixed natal (RA, Dec) through the direction -- RA -= arc,
+    // declination untouched -- and report where it lands in all three
+    // frames: mundane (pvPos scale), ecliptic (this chart's zodiac), and
+    // equatorial. scope.houses.RAMC is the NATAL one, per the framing note
+    // in the isPD block above.
+    struct DirectedPoint { qreal pv; QPointF ecl, equ; };
+    auto directPoint = [&](const QPointF& raDec) -> DirectedPoint {
+        DirectedPoint out;
+        const double ra  = swe_degnorm(raDec.x() - input.directedArc());
+        const double dec = raDec.y();
+        out.equ = QPointF(ra, dec);
+
+        // The eps=0 identity trick buildProjectionFields()/relocalizedPvPos()
+        // already use, so swe_house_pos reads (ra, dec) straight through as
+        // equatorial instead of converting from the ecliptic.
+        double xx[2]    = { ra, dec };
+        char   err[256] = "";
+        const double hp = swe_house_pos(scope.houses.RAMC, input.location().y(),
+                                        /*eps=*/0.0, mundaneHouseSystem(),
+                                        xx, err);
+        out.pv = (hp < 1.0 || hp > 13.0)
+                     ? 0.0 : swe_degnorm((hp - 1.0) / 12.0 * 360.0);
+
+        // +eps is the equatorial->ecliptic direction; ecliptic->equatorial
+        // passes -eps (see eclipticPointDisplayAngle()'s own swe_cotrans).
+        double cc[3] = { ra, dec, 1.0 };
+        swe_cotrans(cc, cc, pdNatalHouses.eps);
+        out.ecl = QPointF(swe_degnorm(cc[0] - pdAyanamsa), cc[1]);
+        return out;
+    };
+
+    // Direct a body's SKY position, for the ecliptic and equatorial display
+    // modes. pvPos is built the equivalent OTHER way round -- the frame
+    // rotates (RAMC += arc, see the isPD block above) and the body holds
+    // still -- and the two agree exactly, because mundane position depends
+    // only on (RA - RAMC) and declination. Here the same rotation is
+    // expressed as the body moving and the frame holding still: RA -= arc,
+    // declination untouched. That is the framing mundanePositionAtArc()
+    // already uses for the direction solvers, and the only one that yields a
+    // meaningful ecliptic/equatorial coordinate at all.
+    //
+    // Leaving these two fields at their natal values -- which is what
+    // shipped first, on the reasoning that direction moves nothing in the
+    // sky -- renders a directed chart as a pixel-exact copy of its natal
+    // chart in both of those modes. That is technically true and practically
+    // useless: it reads as a broken wheel, and it cost a long debugging
+    // session precisely because the house cusps DO move in those modes
+    // (calculateHousesFromRAMC below rebuilds them from the shifted RAMC),
+    // so the wheel showed rotating angles around static planets.
+    //
+    // The defining coincidence of a primary direction stays MUNDANE: at the
+    // solved arc the promissor's mundane position equals the significator's
+    // natal one, but their RAs and ecliptic longitudes do NOT coincide (bar
+    // an MC significator, where mundane conjunction reduces to RA equality).
+    // So these modes show a faithful rotated sphere in which the event's
+    // conjunction is not visible AS a conjunction -- a property of the
+    // technique, not of the drawing.
+    //
+    // tropicalEclipticPos is deliberately left NATAL: relocalizedPvPos() and
+    // relocalizedMundanePos() recompute a mundane position from it against a
+    // supplied RAMC, so a directed value there would double-count the arc
+    // for any caller not going through displayPvPos()'s TypeDerivedPD bypass.
+    auto directBodyForDisplay = [&](Star& s) {
+        // equatorialPos is already the body's true natal (RA, Dec) -- and for
+        // the South Node it is the only field that IS: SWE reports the North
+        // Node's coordinates for both, and calculatePlanet() mirrors them
+        // into equatorialPos (astro-calc.cpp:1668-1675) and, separately, into
+        // pvPos (:1645), but never into tropicalEclipticPos. Reading the
+        // ecliptic field here is what drew the South Node conjunct the North;
+        // starting from equatorialPos avoids the trap entirely and skips a
+        // redundant round trip through the ecliptic.
+        if (s.equatorialPos.x() == 0.0 && s.equatorialPos.y() == 0.0) return;
+        const DirectedPoint d = directPoint(s.equatorialPos);
+        s.equatorialPos = d.equ;
+        s.eclipticPos   = d.ecl;
+        s.pvPos         = d.pv;
+        // tropicalEclipticPos is left NATAL deliberately: relocalizedPvPos()
+        // and relocalizedMundanePos() recompute a mundane position from it,
+        // and they are handed the natal RAMC here, so a directed value would
+        // double-count the arc. pvPos above is already final.
+    };
+
+    // Publish the directed angles where a consumer can actually reach them.
+    // The Planet_Asc/IC/Desc/MC branches in the loop below look like they do
+    // this, but they are dead code: getPlanets() yields Sun..Pluto only, so
+    // planets[] has never contained an angle. See Horoscope::anglePv.
+    if (isPD) {
+        const struct { PlanetId pid; const QPointF* raDec; } pdAngles[] = {
+            { Planet_Asc,  &ascRaDec  },
+            { Planet_IC,   &icRaDec   },
+            { Planet_Desc, &descRaDec },
+            { Planet_MC,   &mcRaDec   },
+        };
+        for (const auto& a : pdAngles) {
+            const DirectedPoint d = directPoint(*a.raDec);
+            const int i = a.pid - Angles_Start;
+            scope.anglePv[i]  = d.pv;
+            scope.angleEcl[i] = d.ecl;
+            scope.angleEqu[i] = d.equ;
+        }
+    }
+
     // Calculate planets and stars (common code for both progressed and
     // non-progressed)
     for (PlanetId id : getPlanets(true, true)) {
-        if (id == Planet_Asc) {
-            Planet asc = Data::getPlanet(id);
-            asc.eclipticPos.setX(scope.houses.Asc);
-            asc.equatorialPos.setX(scope.houses.RAAC);
-            asc.pvPos         = 0;
-            scope.planets[id] = asc;
-        } else if (id == Planet_Desc) {
-            Planet desc = Data::getPlanet(id);
-            desc.eclipticPos.setX(swe_degnorm(180. + scope.houses.Asc));
-            desc.equatorialPos.setX(swe_degnorm(180. + scope.houses.RAAC));
-            desc.pvPos        = 180;
-            scope.planets[id] = desc;
-        } else if (id == Planet_MC) {
-            Planet mc = Data::getPlanet(id);
-            mc.eclipticPos.setX(scope.houses.MC);
-            mc.equatorialPos.setX(scope.houses.RAMC);
-            mc.pvPos          = 270;
-            scope.planets[id] = mc;
-        } else if (id == Planet_IC) {
-            Planet ic = Data::getPlanet(id);
-            ic.eclipticPos.setX(swe_degnorm(180. + scope.houses.MC));
-            ic.equatorialPos.setX(swe_degnorm(180. + scope.houses.RAMC));
-            ic.pvPos          = 90;
-            scope.planets[id] = ic;
+        if (id >= Angles_Start && id < Angles_End) {
+            // DEAD CODE: getPlanets() yields Sun..Pluto plus the nodes only,
+            // so an angle never reaches this loop and planets[] never holds
+            // one -- see Horoscope::anglePv's comment. Kept in the shape it
+            // has always had, but sourced from the published angle arrays
+            // rather than recomputing, so if getPlanets() ever does start
+            // yielding angles there is one authority and not two.
+            const int i = id - Angles_Start;
+            Planet an = Data::getPlanet(id);
+            if (isPD) {
+                an.eclipticPos   = scope.angleEcl[i];
+                an.equatorialPos = scope.angleEqu[i];
+                an.pvPos         = scope.anglePv[i];
+            } else {
+                const bool onAsc = (id == Planet_Asc || id == Planet_Desc);
+                const double lon = onAsc ? scope.houses.Asc : scope.houses.MC;
+                const double ra  = onAsc ? scope.houses.RAAC : scope.houses.RAMC;
+                const bool flip  = (id == Planet_Desc || id == Planet_IC);
+                an.eclipticPos.setX(swe_degnorm(lon + (flip ? 180. : 0.)));
+                an.equatorialPos.setX(swe_degnorm(ra + (flip ? 180. : 0.)));
+                an.pvPos = scope.anglePv[i];
+            }
+            scope.planets[id] = an;
         } else if (id > Planet_Asc && id <= House_12) {
             Planet hc = Data::getPlanet(id);
             hc.eclipticPos.setX(scope.houses.cusp[id - Planet_Asc]);
@@ -4948,14 +5306,29 @@ calculateAll(const InputData& input)
             hc.house          = id - Planet_Asc;
             scope.planets[id] = hc;
         } else {
-            scope.planets[id] =
+            Planet pl =
                 calculatePlanet(id, *calcInput, scope.houses, scope.zodiac);
+            if (isPD) {
+                directBodyForDisplay(pl);
+                // calculatePlanet() derived sign/house/position from the
+                // body's NATAL longitude; directBodyForDisplay() has just
+                // moved that longitude, so re-derive all three or the
+                // rendered degree disagrees with its own labels. Against the
+                // natal cusps, which is the directed house placement in this
+                // framing (the frame holds still; the body arrives in a
+                // different house).
+                pl.sign     = &getSign(pl.eclipticPos.x(), scope.zodiac);
+                pl.house    = getHouse(scope.houses, pl.eclipticPos.x());
+                pl.position = getPosition(pl, pl.sign->id);
+            }
+            scope.planets[id] = pl;
         }
     }
 
     for (const QString& name : std::as_const(getStars())) {
-        scope.stars[name.toStdString()] =
-            calculateStar(name, *calcInput, scope.houses, scope.zodiac);
+        Star st = calculateStar(name, *calcInput, scope.houses, scope.zodiac);
+        if (isPD) directBodyForDisplay(st);
+        scope.stars[name.toStdString()] = st;
     }
 
     if (scope.planets.contains(-1)) {
@@ -5193,12 +5566,16 @@ EventOptions::EventOptions(const QVariantMap& map)
     showPDRightAscension = map.value("Events/showPDRightAscension").toBool();
     pdIncludeRays = map.value("Events/pdIncludeRays", true).toBool();
     pdAnglesAsPromissors =
-        map.value("Events/pdAnglesAsPromissors", true).toBool();
+        map.value("Events/pdAnglesAsPromissors", false).toBool();
+    pdPlanetsAsSignificators =
+        map.value("Events/pdPlanetsAsSignificators", false).toBool();
     pdDirectionScope = PDDirectionScope(
         map.value("Events/pdDirectionScope", unsigned(PDBothDirections)).toUInt());
     pdIncludeRaptParallels =
         map.value("Events/pdIncludeRaptParallels", false).toBool();
     raptParallelsAnyZ = map.value("Events/raptParallelsAnyZ", false).toBool();
+    pdIncludeRaptConjunctions =
+        map.value("Events/pdIncludeRaptConjunctions", false).toBool();
     pdOrbDegrees = map.value("Events/pdOrbDegrees", 0.5).toDouble();
 
     s_transitBodyColMode =
@@ -5386,10 +5763,12 @@ EventOptions::toMap()
     ret.insert("Events/showPDRightAscension", showPDRightAscension);
     ret.insert("Events/pdIncludeRays", pdIncludeRays);
     ret.insert("Events/pdAnglesAsPromissors", pdAnglesAsPromissors);
+    ret.insert("Events/pdPlanetsAsSignificators", pdPlanetsAsSignificators);
     ret.insert("Events/pdDirectionScope", unsigned(pdDirectionScope));
     ret.insert("Events/pdOrbDegrees", pdOrbDegrees);
     ret.insert("Events/pdIncludeRaptParallels", pdIncludeRaptParallels);
     ret.insert("Events/raptParallelsAnyZ", raptParallelsAnyZ);
+    ret.insert("Events/pdIncludeRaptConjunctions", pdIncludeRaptConjunctions);
     ret.insert("Events/transitBodyColMode", s_transitBodyColMode);
     ret.insert("Events/natalTransitBodyColMode", s_natalTransitBodyColMode);
     return ret;
@@ -8558,6 +8937,15 @@ AspectFinder::findPrimaryDirections()
         if (prom.angleKind != DirNotAngle && !pdAnglesAsPromissors) continue;
 
         for (const Body& sig : std::as_const(bodies)) {
+            // The mirror of the promissor gate just above: angles as
+            // significators are the always-allowed classical baseline, and
+            // planets as significators are the optional half. Off also
+            // removes the own-ray self-direction case handled below (its
+            // significator is a planet by construction), and, together with
+            // pdAnglesAsPromissors off, leaves exactly planet -> angle.
+            if (sig.angleKind == DirNotAngle && !pdPlanetsAsSignificators)
+                continue;
+
             // Angle-to-angle direction WAS excluded here on the assumption
             // that directing one house angle to another isn't a meaningful
             // classical technique — that assumption turned out to be wrong:
@@ -8883,6 +9271,14 @@ AspectFinder::findRaptParallels()
 
                 for (double arc : hits) {
                     if (!std::isfinite(arc) || arc == 0.0) continue;
+
+                    // Same direct/converse gate findPrimaryDirections()
+                    // applies — a rapt parallel is a primary direction, so
+                    // the one scope setting governs both finders.
+                    const bool converse = arc < 0.0;
+                    if (pdDirectionScope == PDDirectOnly && converse) continue;
+                    if (pdDirectionScope == PDConverseOnly && !converse) continue;
+
                     const QDateTime dt =
                         primaryDirectionDate(natalIda.GMT(), arc, A::pdTimingKey);
                     const QDateTime rangeStart = dt.addSecs(-orbSecs);
@@ -8890,8 +9286,6 @@ AspectFinder::findRaptParallels()
                     if (rangeEnd.date() < _range.first
                         || rangeStart.date() > _range.second)
                         continue;
-
-                    const bool converse = arc < 0.0;
 
                     // X/Y midpoint as the promissor: ChartPlanetId's
                     // built-in second-planet slot marks it a midpoint (see
@@ -8915,6 +9309,184 @@ AspectFinder::findRaptParallels()
                         dt, unsigned(etcPrimaryDirections), 1, std::move(locs), 0.0);
                     if (orbSecs > 0) ev.setRange({ rangeStart, rangeEnd });
                 }
+            }
+        }
+    }
+}
+
+// Rapt conjunctions: the arc at which two bodies, both carried by the same
+// directing motion, arrive at the same mundane position -- one overtakes
+// the other in the mundane frame. Like rapt parallels this is a kind of
+// primary direction rather than a separate event type (rows tagged
+// etcPrimaryDirections, same toggle, same focal-click preview), gated
+// additionally on EventOptions::pdIncludeRaptConjunctions. See
+// findRaptConjunctionArcs() for the math, the equal-declination degeneracy,
+// and why Placidus is supported here but not for rapt parallels.
+//
+// Structurally this is findRaptParallels() above minus the significator
+// loop: there is no Z, because neither body is fixed. That is also the
+// technique's one real weakness -- every classical direction anchors to
+// something natal (an ordinary direction to its significator, a rapt
+// parallel to a natal angle or Makransky's Z), whereas this anchors to
+// nothing. The Events table says so visibly: transits.cpp leaves the
+// right-hand column uncoloured for these rows precisely because there is no
+// body sitting at its radix position to colour.
+void
+AspectFinder::findRaptConjunctions()
+{
+    if (_alist.empty()) return;
+    if (!showPrimaryDirections()) return;
+    if (!pdIncludeRaptConjunctions) return;
+    if (_ids.isEmpty()) return;
+    // No Placidus bail-out here, unlike findRaptParallels() -- mundane
+    // equality is well defined in PMP even though a mundane midpoint is not.
+
+    const InputData& natalIda = _ids.first();
+    const Houses      houses  = calculateHouses(natalIda);
+    const double      lat     = natalIda.location().y();
+    const double      ramc    = houses.RAMC;
+
+    struct Body {
+        ChartPlanetId    cpid;
+        DirSpeculumEntry entry;
+        DirAngle         angleKind;
+    };
+    QVector<Body> bodies;
+
+    // Body collection mirrors findRaptParallels()' own loop above.
+    for (int i = 0; i < int(_alist.size()); ++i) {
+        auto* pl = dynamic_cast<PlanetLoc*>(_alist[i]);
+        if (!pl) continue;
+        if (pl->planet.fileId() != 0) continue; // natal side only
+        if (pl->planet.isMidpt()) continue;
+        const PlanetId pid = pl->planet.planetId();
+        if (pid == Planet_None) continue;
+        if (pid >= Houses_Start) continue; // skip house cusps/ingress markers
+
+        double ra, dec;
+        if (auto* nep = dynamic_cast<NatalExprecessedPosition*>(pl)) {
+            ra  = nep->natalRA();
+            dec = nep->natalDec();
+        } else if (dynamic_cast<NatalPosition*>(pl)) {
+            NatalExprecessedPosition sidecar(pl->planet, natalIda, "r");
+            ra  = sidecar.natalRA();
+            dec = sidecar.natalDec();
+        } else {
+            continue;
+        }
+
+        Body b;
+        b.cpid = pl->planet;
+        b.angleKind = (pid >= Angles_Start && pid < Angles_End)
+                        ? (pid == Planet_Asc  ? DirAsc
+                          : pid == Planet_Desc ? DirDesc
+                          : pid == Planet_MC   ? DirMC
+                          :                      DirIC)
+                        : DirNotAngle;
+        b.entry = buildDirSpeculumEntry(ra, dec, ramc, lat);
+        buildProjectionFields(b.entry, ramc, lat);
+        bodies.append(b);
+    }
+    if (bodies.size() < 2) return;
+
+    // Same symmetric arc window findRaptParallels() derives -- see its
+    // comment for why one [-arcMax, arcMax] pass covers direct and converse.
+    const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
+    if (daysPerDeg <= 0.0) return;
+    const qint64 daysToStart = natalIda.GMT().date().daysTo(_range.first);
+    const qint64 daysToEnd   = natalIda.GMT().date().daysTo(_range.second);
+    const double arcMax = std::max(std::fabs(double(daysToStart)),
+                                   std::fabs(double(daysToEnd)))
+                             / daysPerDeg
+                         + 1.0; // 1-degree margin
+    if (arcMax <= 0.0) return;
+
+    const qint64 orbSecs = pdOrbDegrees > 0.0
+        ? qint64(pdOrbDegrees * daysPerDeg * 86400.0)
+        : 0;
+
+    for (int ai = 0; ai < bodies.size(); ++ai) {
+        if (_state == cancelRequestedState) return;
+        const Body& a = bodies[ai];
+        // Both participants are bodies, never angles: an angle's mundane
+        // position is pinned at 0/90/180/270 by definition, so pairing one
+        // here would just restate the ordinary mundane conjunction that
+        // findPrimaryDirections() already reports.
+        if (a.angleKind != DirNotAngle) continue;
+        // Inherited from findRaptParallels() for consistency rather than
+        // required by the math -- neither mundanePositionAtArc() branch
+        // reads the semi-arc fields that go NaN for a circumpolar body.
+        if (a.entry.circumpolar) continue;
+
+        for (int bi = ai + 1; bi < bodies.size(); ++bi) {
+            if (_state == cancelRequestedState) return;
+            const Body& b = bodies[bi];
+            if (b.angleKind != DirNotAngle) continue;
+            if (b.entry.circumpolar) continue;
+
+            QVector<double> hits = findRaptConjunctionArcs(
+                a.entry, b.entry, ramc, lat, A::primDirSystem,
+                -arcMax, arcMax, 1.0);
+
+            for (double arc : hits) {
+                if (!std::isfinite(arc) || arc == 0.0) continue;
+
+                // Same direct/converse gate findPrimaryDirections() and
+                // findRaptParallels() apply -- one scope setting governs
+                // every primary direction.
+                const bool converse = arc < 0.0;
+                if (pdDirectionScope == PDDirectOnly && converse) continue;
+                if (pdDirectionScope == PDConverseOnly && !converse) continue;
+
+                const QDateTime dt =
+                    primaryDirectionDate(natalIda.GMT(), arc, A::pdTimingKey);
+                const QDateTime rangeStart = dt.addSecs(-orbSecs);
+                const QDateTime rangeEnd   = dt.addSecs(orbSecs);
+                if (rangeEnd.date() < _range.first
+                    || rangeStart.date() > _range.second)
+                    continue;
+
+                // Column order: the faster mundane mover is the one doing
+                // the overtaking, so it takes the promissor's usual
+                // left-hand column. PlanetRangeBySpeed is speed-sorted and
+                // the Events table splits a same-file pair as
+                // faster-left/slower-right (transits.cpp's getTColIters()/
+                // getNTColIters()), so reusing the same near-zero 2e-9/1e-9
+                // sentinels ordinary PD uses is all that is needed: nothing
+                // reading `speed` as a real rate is misled, and only their
+                // ORDER carries meaning.
+                const double spA = mundaneSpeedAtArc(a.entry, arc, ramc, lat,
+                                                     A::primDirSystem);
+                const double spB = mundaneSpeedAtArc(b.entry, arc, ramc, lat,
+                                                     A::primDirSystem);
+                const bool aFaster = spA >= spB;
+                const Body& fast = aFaster ? a : b;
+                const Body& slow = aFaster ? b : a;
+
+                // BOTH locs are marked "Dir"/"Con". In an ordinary
+                // direction only the promissor is -- the significator's
+                // desc is empty for a conjunction, or the ray's aspect
+                // glyph for a ray -- and that asymmetry is exactly what
+                // transits.cpp's isRaptConjunction() keys off to tell a
+                // rapt conjunction (neither body fixed) from an ordinary
+                // mundane conjunction of the very same two bodies
+                // (significator fixed at its radix place). The arc-sign
+                // parser reads only the first loc's desc, so it is
+                // unaffected.
+                const QString desc = converse ? QStringLiteral("Con")
+                                              : QStringLiteral("Dir");
+                PlanetLoc fastLoc(fast.cpid, desc, fast.entry.ra);
+                fastLoc.speed = 2e-9;
+                PlanetLoc slowLoc(slow.cpid, desc, slow.entry.ra);
+                slowLoc.speed = 1e-9;
+
+                PlanetRangeBySpeed locs;
+                locs.insert(fastLoc);
+                locs.insert(slowLoc);
+
+                auto& ev = _evs.safe_emplace_back(
+                    dt, unsigned(etcPrimaryDirections), 1, std::move(locs), 0.0);
+                if (orbSecs > 0) ev.setRange({ rangeStart, rangeEnd });
             }
         }
     }
@@ -12874,6 +13446,10 @@ AspectFinder::findStuff()
             // triple (not closed-form like PD above), but still fast --
             // runs right alongside it.
             findRaptParallels();
+            // Rapt conjunctions: same rapt-motion family, same tag, gated
+            // inside the function on pdIncludeRaptConjunctions. Cheaper
+            // than the parallels above -- pairs rather than triples.
+            findRaptConjunctions();
         }
         if (showStations()) findStations();
         if (_state != cancelRequestedState

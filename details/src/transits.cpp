@@ -894,6 +894,34 @@ class EventsTableModel : public QAbstractItemModel {
         return locs.size() >= 2 && fid(*locs.begin()) != fid(*locs.rbegin());
     }
 
+    // Tell a rapt conjunction -- both bodies carried by the directing
+    // motion, so neither sits at its radix place -- from an ordinary
+    // primary direction or a rapt parallel, where the significator is fixed
+    // at radix. Callers establish the row is etcPrimaryDirections first.
+    //
+    // Discriminator: an ordinary direction moves only the promissor, so
+    // only its loc is marked "Dir"/"Con".
+    // AspectFinder::findRaptConjunctions() marks BOTH, because both
+    // genuinely move. That needs no new token, and leaves the arc-sign
+    // parser (which reads only the first loc's desc) alone.
+    //
+    // Test the exact tokens rather than mere non-emptiness: a ray direction
+    // (findPrimaryDirections(), ray.offset != 0) puts the Almagest
+    // aspect-glyph codepoint plus an optional dexter/sinister "D"/"S" in
+    // the SIGNIFICATOR's desc, so "both non-empty" would misclassify every
+    // square/trine/sextile/opposition direction as a rapt conjunction. A
+    // glyph codepoint can never equal "Dir" or "Con".
+    bool isRaptConjunction(const A::HarmonicAspect& asp) const
+    {
+        const auto& locs = asp.locations();
+        if (locs.size() != 2) return false;
+        auto directed = [](const A::PlanetLoc& l) {
+            return l.desc == QLatin1String("Dir")
+                || l.desc == QLatin1String("Con");
+        };
+        return directed(*locs.begin()) && directed(*locs.rbegin());
+    }
+
     template <typename Iter>
     QVariant glyphic(int role, Iter its, unsigned eventType = 0) const
     {
@@ -1468,6 +1496,26 @@ class EventsTableModel : public QAbstractItemModel {
         case natalTransitBodyCol:
             if (role == Qt::ForegroundRole) {
                 if (mixedMode(asp.planets())) return ThemeManager::instance().getGoldColor();
+                // A primary direction's significator sits at its NATAL
+                // place -- the direction never moves it -- but both its
+                // locs are fileId 0, so mixedMode() above misses it. Same
+                // gold, so the right-hand column reads uniformly as "the
+                // body fixed at its radix position" whether the row is a
+                // transit-to-natal hit or a direction. ("Natal" here means
+                // fixed at radix, not merely belonging to the radix: the
+                // promissor is a natal body too, but it moves, so the left
+                // column stays plain.)
+                //
+                // Rapt parallels qualify -- their Z is natal by
+                // construction. Rapt conjunctions do NOT: both bodies are
+                // directed and neither anchors the event. Leaving their
+                // right column uncoloured is also what distinguishes them
+                // from an ordinary mundane conjunction of the very same two
+                // bodies, which would otherwise render identically (the
+                // "(Rapt)" suffix keys off the promissor's midpoint slash,
+                // which a rapt conjunction has no reason to carry).
+                if (et == A::etcPrimaryDirections && !isRaptConjunction(asp))
+                    return ThemeManager::instance().getGoldColor();
                 // else falls through to default return
                 break;
             }
@@ -3432,11 +3480,14 @@ Transits::refreshLocationUI()
     _pendingLocationChange = false;
 
     // Also sync transitsAF() so future calculations use correct location
-    transitsAF()->suspendUpdate();
-    transitsAF()->setLocation(file(0)->getTransitLocation());
-    transitsAF()->setLocationName(file(0)->getTransitLocationName());
-    transitsAF()->setTimezone(file(0)->getTransitTimezone());
-    transitsAF()->resumeUpdate();
+    // (never a directed chart -- see transitFileIsDirected()).
+    if (!transitFileIsDirected()) {
+        transitsAF()->suspendUpdate();
+        transitsAF()->setLocation(file(0)->getTransitLocation());
+        transitsAF()->setLocationName(file(0)->getTransitLocationName());
+        transitsAF()->setTimezone(file(0)->getTransitTimezone());
+        transitsAF()->resumeUpdate();
+    }
 }
 
 bool
@@ -3531,6 +3582,13 @@ Transits::transitsAF()
     return _trans;
 }
 
+bool
+Transits::transitFileIsDirected()
+{
+    AstroFile* taf = transitsAF();
+    return taf && taf->getType() == TypeDerivedPD;
+}
+
 void
 Transits::updateTimezone()
 {
@@ -3572,7 +3630,7 @@ Transits::updateTimezone()
             // Update transitsAF() (== file(0) here) with new location/tz.
             // Block filesUpdated so the change() → recalculate chain
             // doesn't trigger a redundant event search.
-            {
+            if (!transitFileIsDirected()) {
                 A::modalize<bool> noup(_inhibitUpdate);
                 transitsAF()->suspendUpdate();
                 transitsAF()->setLocation(_location->location());
@@ -3601,7 +3659,7 @@ Transits::updateTimezone()
             // when the file type is natal, which the transit file is not, so
             // without _inhibitUpdate the cache check in updateTransits() would
             // return the stale (old-location) events.
-            {
+            if (!transitFileIsDirected()) {
                 A::modalize<bool> noup(_inhibitUpdate);
                 transitsAF()->suspendUpdate();
                 transitsAF()->setLocation(_location->location());
@@ -3733,7 +3791,8 @@ Transits::updateTransits()
         _pendingLocationChange = false;
         
         // Update transitsAF if it's a different object than locFile
-        if (transitsAF() != locFile) {
+        // (never a directed chart -- see transitFileIsDirected()).
+        if (transitsAF() != locFile && !transitFileIsDirected()) {
             transitsAF()->suspendUpdate();
             transitsAF()->setLocation(locFile->getLocation());
             transitsAF()->setLocationName(locFile->getLocationName());
@@ -3753,7 +3812,9 @@ Transits::updateTransits()
         // push it to transitsAF() so the finder (and location-dependent events
         // like heliacal/parans) observe from it. Respect a manual timezone lock
         // only for the clock.
-        if (transitsAF()->getLocation() != file(0)->getTransitLocation()) {
+        if (transitsAF()->getLocation() != file(0)->getTransitLocation()
+            && !transitFileIsDirected())
+        {
             transitsAF()->suspendUpdate();
             transitsAF()->setLocation(file(0)->getTransitLocation());
             transitsAF()->setLocationName(file(0)->getTransitLocationName());
@@ -4863,6 +4924,23 @@ static QString buildParanChartName(const A::HarmonicEvent& ev, bool biwheel) {
     return QStringLiteral("Paran ") + parts.join(QStringLiteral(" + "));
 }
 
+// The arc isn't stored on a Primary Direction event -- findPrimaryDirections()
+// converts it to a date and drops it -- but primaryDirectionDate() is just
+// |arc| * pdDaysPerDegree() from the radix, so it inverts; sign comes from
+// `connector` ("Dir"/"Con"), mirroring event::makeFocusAnchor()'s existing
+// inversion (astro-output.cpp). Used to freeze the arc when opening a PD row
+// as a real derived chart (TypeDerivedPD) -- see doubleClickedCell().
+static double
+recoverPrimaryDirectionArc(const QDateTime& radixGMT, const QDateTime& eventDate,
+                          const QString& connector)
+{
+    const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
+    if (daysPerDeg <= 0.0) return 0.0;
+    const double elapsedDays = radixGMT.msecsTo(eventDate) / 86400000.0;
+    const double arcMag      = elapsedDays / daysPerDeg;
+    return (connector == "Con") ? -arcMag : arcMag;
+}
+
 void
 Transits::clickedCell(QModelIndex inx)
 {
@@ -4975,27 +5053,20 @@ Transits::clickedCell(QModelIndex inx)
         // Type-change redraw, but FileType turned out to be load-bearing in
         // enough other places — classifyDirChart(), Transits::filesUpdated()'s
         // isTransitLike check, etc. — that borrowing it here broke unrelated
-        // features, including PD generation itself going quiet). Clicking the
-        // T/P/S or T/P/N cell instead previews the legacy Directions table
-        // pruned to rows whose own directed date falls near this one, purely
-        // via the dedicated direction-focus fields (see
-        // AstroFile::setDirectionFocusRange(), whose setter emits the
-        // DirectionFocus member bit to drive the repaint). Any other column
-        // click on a PD row just clears that preview, if active.
-        const bool pdFocalClick =
-            srcInx.column() >= EventsTableModel::transitBodyCol;
-        if (!pdFocalClick) {
-            if (file()->hasDirectionFocus()) {
-                file()->setOriginEventType(A::etcUnknownEvent);
-                file()->setDirectionFocusRange(A::ADateTimeRange());
-                file()->setDirectionFocusDate(QDateTime());
-                file()->setDirectionFocusLabel(QString());
-                file()->setDirectionFocusPromissors({});
-                file()->setDirectionFocusSignificator(A::ChartPlanetId());
-                file()->setDirectionFocusArc(0.0);
-            }
-            return;
-        }
+        // features, including PD generation itself going quiet). What it does
+        // instead is preview the legacy Directions table pruned to rows whose
+        // own directed date falls near this one, purely via the dedicated
+        // direction-focus fields (see AstroFile::setDirectionFocusRange(),
+        // whose setter emits the DirectionFocus member bit to drive the
+        // repaint), and build the directed chart as file(1).
+        //
+        // Unlike parans (paranFocalClick below), this is NOT gated on the
+        // T/P/S or T/P/N column: every cell in a PD row selects the row's
+        // direction. There is no meaningful "less focal" reading of a PD row
+        // -- the whole row IS one direction, and the alternative the gate
+        // used to give (clear the preview, leave the previous row's directed
+        // chart standing in file(1)) was strictly worse than either
+        // selecting or deselecting.
         // Use the *live* Primary Direction orb setting, the same one the
         // Events table itself uses -- not ev.range(), which was baked in
         // whenever findPrimaryDirections() last ran and goes stale the
@@ -5035,41 +5106,70 @@ Transits::clickedCell(QModelIndex inx)
         QString focusLabel = QString("(%1) %2 → %3")
                                   .arg(connector, promissor, significator);
         if (isRapt) focusLabel += tr(" (Rapt)");
+        // A rapt conjunction has no midpoint promissor, so the "/" test
+        // above can't see it, and it would otherwise read exactly like an
+        // ordinary mundane conjunction of the same two bodies. The Events
+        // table tells them apart by colour (an uncoloured right-hand column
+        // meaning nothing is fixed at radix -- see natalTransitBodyCol's
+        // ForegroundRole branch), but this label goes into the chart name
+        // and the focused Directions table, where there is no colour to
+        // lean on. Mark it in text.
+        else if (_evm->isRaptConjunction(ev)) focusLabel += tr(" (Rapt conj)");
 
-        // Structured identities + signed arc for the chart-wheel marker
-        // (Chart::drawDirectionFigure()). The arc isn't stored on the event
-        // itself -- findPrimaryDirections() converts it to `dt` and drops it
-        // -- but primaryDirectionDate() is just |arc| * pdDaysPerDegree()
-        // from the radix, so it inverts; sign comes from `connector`
-        // ("Dir"/"Con"), mirroring event::makeFocusAnchor()'s existing
-        // inversion (astro-output.cpp). A rapt-parallel promissor is an X/Y
-        // midpoint ChartPlanetId -- decompose it into its two constituents
-        // (chartPlanetId1()/2()) so each can be directed individually; there
-        // is no single "Star" for a midpoint the way there is for a solo
-        // body.
-        const auto& locs = ev.locations();
-        QVector<A::ChartPlanetId> promissorCpids;
-        A::ChartPlanetId          significatorCpid;
-        if (locs.size() >= 2) {
-            auto it = locs.begin();
-            const A::ChartPlanetId promissorCpid = it->planet;
-            ++it;
-            significatorCpid = it->planet;
-            if (promissorCpid.isMidpt()) {
-                promissorCpids << promissorCpid.chartPlanetId1()
-                               << promissorCpid.chartPlanetId2();
-            } else {
-                promissorCpids << promissorCpid;
+        // ...and pull the actual participants out of the event so the wheel
+        // can draw the figure: findRaptParallels() stores the X/Y promissor
+        // as the one midpoint location and Z as the lone solo one.
+        A::ChartPlanetId raptProm, raptSig;
+        if (isRapt) {
+            for (const auto& loc : ev.locations()) {
+                if (loc.planet.isMidpt()) raptProm = loc.planet;
+                else                      raptSig  = loc.planet;
             }
+            raptSig.setFileId(0); // Z is natal; direction never moves it
         }
-        double arc = 0.0;
-        const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
-        if (daysPerDeg > 0.0) {
-            const double elapsedDays =
-                file()->getGMT().msecsTo(dt) / 86400000.0;
-            const double arcMag = elapsedDays / daysPerDeg;
-            arc = (connector == "Con") ? -arcMag : arcMag;
-        }
+
+        // Re-clicking the row that is already PD-focal drops the
+        // focalization but leaves the directed bi-wheel standing. Without
+        // it a PD click has no "off" at all: every other cell in the table
+        // replaces the focus, and nothing clears it. Mirrors
+        // Harmonics::clearFocal()'s same-row toggle.
+        //
+        // Focalized and unfocalized show the SAME wheel. What differs is
+        // that focalized constrains the aspect tables -- file(0)'s via
+        // AstroFileHandler::calculateAspects(), the bi-wheel's via
+        // calculateSynastryAspects(), both of which switch to their focal
+        // path on a non-empty focalPlanets() -- and prunes the Directions
+        // table to this event's date.
+        // Matched on row AND column: every cell in a PD row focalizes the
+        // same direction, so keying this on the row alone made a move
+        // between two columns of one row count as a re-click and
+        // un-focalize -- which read as an off-by-one race in the aspect
+        // display. Only re-clicking the very same cell clears.
+        const bool wasFocal = _pdFocalCell.isValid()
+                              && _pdFocalCell.row() == srcInx.row()
+                              && _pdFocalCell.column() == srcInx.column();
+        const bool focalize = !wasFocal;
+        _pdFocalCell = focalize ? QPersistentModelIndex(srcInx)
+                                : QPersistentModelIndex();
+
+        // Deliberately does NOT set focalPlanets, in either state.
+        // Constraining the aspect tables to the promissor/significator pair
+        // was tried and removed: a non-empty focal set puts
+        // AstroFileHandler::calculateSynastryAspects() on its "exactly this"
+        // direct path, which suppressed every OTHER directed-to-natal
+        // mundane interaspect -- including the ones involving neither of the
+        // event's two bodies. Those near-hits clustered around the event are
+        // a large part of what makes the directed bi-wheel worth looking at,
+        // so the full-chart path is the right default here.
+        //
+        // Both files are therefore cleared explicitly rather than left
+        // alone: a preceding non-PD click (transits.cpp's generic branch
+        // below) may have installed its own focal set, which would otherwise
+        // survive into this PD view and prune it.
+        //
+        // What focalize/unfocalize governs is the Directions-table preview
+        // and the chart label -- still the distinction that makes a PD click
+        // clearable, which is why _pdFocalRow exists.
 
         file()->suspendUpdate();
         file()->setParanGroupPlanets({});
@@ -5077,13 +5177,61 @@ Transits::clickedCell(QModelIndex inx)
         file()->setAspectRange(A::ADateTimeRange());
         file()->setAspectExact(QDateTime());
         file()->setOriginEventType(A::etcPrimaryDirections);
-        file()->setDirectionFocusLabel(focusLabel);
-        file()->setDirectionFocusDate(dt);
-        file()->setDirectionFocusRange(focusRange);
-        file()->setDirectionFocusPromissors(promissorCpids);
-        file()->setDirectionFocusSignificator(significatorCpid);
-        file()->setDirectionFocusArc(arc);
+        file()->setFocalPlanets({});
+        file()->setDirectionFocusLabel(focalize ? focusLabel : QString());
+        file()->setDirectionFocusDate(focalize ? dt : QDateTime());
+        file()->setDirectionFocusRange(focalize ? focusRange
+                                                : A::ADateTimeRange());
         file()->resumeUpdate();
+
+        // ...and build the directed chart itself as file(1), so the wheel
+        // shows a real bi-wheel (natal inner / directed outer) rather than
+        // leaving whatever unrelated transit chart was there before. Same
+        // in-place taf pipeline every other event type uses below; the
+        // Directions-table focal preview above is independent of it.
+        if (!transitsOnly()) {
+            if (auto* taf = transitsAF()) {
+                const double arc =
+                    recoverPrimaryDirectionArc(file()->getGMT(), dt, connector);
+                taf->suspendUpdate();
+                taf->setTimezoneLocked(false);
+                // Always empty -- calculateSynastryAspects() reads file(1)'s
+                // focal set, and an empty one is what keeps the bi-wheel on
+                // its full-chart path so every directed-to-natal interaspect
+                // is drawn, not just the clicked event's. See the note above.
+                taf->setFocalPlanets({});
+                taf->setName(focusLabel);
+                taf->setGMT(dt);
+                // A directed chart is the NATAL chart seen through a rotated
+                // mundane frame -- it must carry the natal location, not the
+                // tab's transit location (which the other event types below
+                // deliberately apply). calculateAll()'s isPrimaryDirected()
+                // branch rebuilds "natal" from this file's own location.
+                taf->setLocation(file()->getLocation());
+                taf->setLocationName(file()->getLocationName());
+                taf->setTimezone(file()->getTimezone());
+                taf->setOriginEventType(A::etcPrimaryDirections);
+                taf->setParanGroupPlanets({});
+                taf->setParanOccurrences({});
+                taf->setAspectRange(A::ADateTimeRange());
+                taf->setAspectExact(QDateTime());
+                taf->setDirectionFocusRange(A::ADateTimeRange());
+                taf->setDirectionFocusDate(QDateTime());
+                taf->setDirectionFocusLabel(QString());
+                // Rapt-parallel chord/stem figure -- or cleared, so the
+                // previous rapt row's figure doesn't linger over an ordinary
+                // direction clicked next.
+                if (isRapt) taf->setRaptParallelFigure(raptProm, raptSig);
+                else        taf->clearRaptParallelFigure();
+                taf->setType(TypeDerivedPD);
+                taf->setBaseChartFrom(file());
+                taf->setDirectedArc(arc, int(A::primDirSystem));
+                taf->setDrawFocalExpand(aw->focalExpand());
+                taf->setDrawOverrideAspectSet(aw->overrideAspectSet());
+                taf->resumeUpdate();
+                emit updateSecond(taf);
+            }
+        }
         return;
     }
     // TA/TNA are harmonic aspect-PATTERN events: draw precisely the clicked
@@ -5179,6 +5327,10 @@ Transits::clickedCell(QModelIndex inx)
         file()->setDirectionFocusRange(A::ADateTimeRange());
         file()->setDirectionFocusDate(QDateTime());
         file()->setDirectionFocusLabel(QString());
+        // ...and forget which PD cell was focal, so returning to the
+        // Directions rows later starts from focalized rather than matching
+        // a stale cell and toggling straight back off.
+        _pdFocalCell = QPersistentModelIndex();
         // A heliacal APPARITION carries navigable occurrences (first-appearance,
         // anchor, last-appearance); the Moon's discrete crescent events do not.
         const bool isHeliacalApparition =
@@ -5273,6 +5425,7 @@ Transits::clickedCell(QModelIndex inx)
         taf->setDirectionFocusRange(A::ADateTimeRange());
         taf->setDirectionFocusDate(QDateTime());
         taf->setDirectionFocusLabel(QString());
+        taf->clearRaptParallelFigure();
         // The PD-focal click (see the etcPrimaryDirections branch above)
         // always sets its focus state on file() -- Chart #1 -- even though
         // this branch otherwise operates on taf. Clear it here too, or a
@@ -5289,7 +5442,7 @@ Transits::clickedCell(QModelIndex inx)
             || et == A::etcReturn)
         {
             taf->setType(TypeReturn);
-            taf->setBaseChart(file()->getGMT());
+            taf->setBaseChartFrom(file());
         } else if (et == A::etcProgressedToProgressed
                    || et == A::etcProgressedToNatal
                    || et == A::etcInnerProgressedToNatal
@@ -5306,14 +5459,14 @@ Transits::clickedCell(QModelIndex inx)
             } else {
                 taf->setType(TypeDerivedProg);
             }
-            taf->setBaseChart(file()->getGMT());
+            taf->setBaseChartFrom(file());
         } else if (et == A::etcParanatellonta
                    || et == A::etcParanatellontaToNatal)
         {
             if (paranFocalClick) {
                 taf->setType(TypeParan);
                 taf->setOriginEventType(et);
-                taf->setBaseChart(file()->getGMT());
+                taf->setBaseChartFrom(file());
                 QVector<AstroFile::ParanGroupEntry> group;
                 for (const auto& loc : ev.locations()) {
                     qDebug() << "paranGroup fileId=" << loc.planet.fileId()
@@ -5324,7 +5477,7 @@ Transits::clickedCell(QModelIndex inx)
                 taf->setParanOccurrences(ev.occurrences());
             } else {
                 taf->setType(TypeOther);
-                taf->setBaseChart(file()->getGMT());
+                taf->setBaseChartFrom(file());
             }
         } else if ((et == A::etcHeliacalEvents || et == A::etcHeliacalStars)
                    && !ev.occurrences().isEmpty()) {
@@ -5332,14 +5485,14 @@ Transits::clickedCell(QModelIndex inx)
             // transitsOnly branch above).
             taf->setType(TypeApparition);
             taf->setOriginEventType(et);
-            taf->setBaseChart(file()->getGMT());
+            taf->setBaseChartFrom(file());
             taf->setParanOccurrences(ev.occurrences());
             taf->setParanOccurrenceLabels(ev.occurrenceLabels());
         } else {
             // For transit events (T=T, T=N, patterns, ingresses, etc.)
             // Set base chart to track natal relationship, but use TypeOther
             taf->setType(TypeOther);
-            taf->setBaseChart(file()->getGMT());
+            taf->setBaseChartFrom(file());
         }
         // Aspect Range Navigator: record the event's in-orb range so the
         // navigator can offer continuous Play across it (non-paran events).
@@ -5392,16 +5545,40 @@ Transits::doubleClickedCell(QModelIndex inx)
     if (!dt.isValid()) return;
     auto              ev   = _evm->rowData(row);
     auto              et   = ev.eventType();
-    if (et == A::etcPrimaryDirections) {
-        // See the matching guard in clickedCell() — deliberately a no-op.
-        // This also covers Rapt Parallels rows -- tagged
-        // etcPrimaryDirections too (a kind of primary direction; its date
-        // is likewise derived, not a real astronomical instant).
-        return;
+
+    // A Primary Direction row's own date has no real astronomical event at
+    // it (see findPrimaryDirections()) -- it's an age converted from an arc
+    // via a timing key -- but double-clicking it now opens the actual
+    // derived chart (TypeDerivedPD), the same "open a focused view" gesture
+    // every other event type already gets here -- and, like those, on any
+    // column, matching clickedCell()'s own ungated PD branch. This also
+    // covers Rapt Parallels rows (tagged etcPrimaryDirections too).
+    QString pdConnector;
+    QString desc;
+    if (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal) {
+        desc = buildParanChartName(ev, !transitsOnly());
+    } else if (et == A::etcPrimaryDirections) {
+        const QString promissor =
+            _evm->index(row, EventsTableModel::transitBodyCol)
+                .data(EventsTableModel::SummaryRole)
+                .toString();
+        pdConnector = _evm->index(row, EventsTableModel::harmonicCol)
+                          .data(EventsTableModel::SummaryRole)
+                          .toString(); // "Dir" or "Con"
+        const QString significator =
+            _evm->index(row, EventsTableModel::natalTransitBodyCol)
+                .data(EventsTableModel::SummaryRole)
+                .toString();
+        desc = QString("(%1) %2 → %3").arg(pdConnector, promissor, significator);
+        if (promissor.contains(QLatin1Char('/'))) desc += tr(" (Rapt)");
+        // Same reasoning as clickedCell()'s focusLabel: a rapt conjunction
+        // carries no midpoint promissor for the "/" test to find, and this
+        // desc becomes the derived chart's name where no colour is
+        // available to distinguish it.
+        else if (_evm->isRaptConjunction(ev)) desc += tr(" (Rapt conj)");
+    } else {
+        desc = _evm->rowDesc(row);
     }
-    const QString desc = (et == A::etcParanatellonta || et == A::etcParanatellontaToNatal)
-                         ? buildParanChartName(ev, !transitsOnly())
-                         : _evm->rowDesc(row);
     A::modalize<bool> noup(_inhibitUpdate);
     auto* aw = MainWindow::theAstroWidget();
     if (!aw) return;
@@ -5422,7 +5599,7 @@ Transits::doubleClickedCell(QModelIndex inx)
         af->setType(TypeReturn);
         // Set the natal chart as the base for return calculations
         if (!transitsOnly() && file()) {
-            af->setBaseChart(file()->getGMT());
+            af->setBaseChartFrom(file());
         } else {
             af->clearBaseChart();
         }
@@ -5436,12 +5613,12 @@ Transits::doubleClickedCell(QModelIndex inx)
             // Progressed composite (see the transit-chart path above)
             af->setCompositeSources(file()->compositeFile(0),
                                     file()->compositeFile(1));
-            af->setBaseChart(file()->getGMT());
+            af->setBaseChartFrom(file());
         } else {
             af->setType(TypeDerivedProg);
             // Set the natal chart as the base for progressions
             if (!transitsOnly() && file()) {
-                af->setBaseChart(file()->getGMT());
+                af->setBaseChartFrom(file());
             } else {
                 af->clearBaseChart();
             }
@@ -5454,6 +5631,39 @@ Transits::doubleClickedCell(QModelIndex inx)
             group.append(loc.planet);
         af->setParanGroupPlanets(group);
         af->setParanOccurrences(ev.occurrences());
+    } else if (et == A::etcPrimaryDirections) {
+        // Not a real second moment in time (contrast Return/Progressed
+        // above): the SAME natal bodies, viewed through a mundane frame
+        // whose RAMC has been rotated by a fixed, frozen arc -- see
+        // calculateAll()'s isPrimaryDirected() branch (astro-calc.cpp).
+        af->setType(TypeDerivedPD);
+        QDateTime natalGMT;
+        if (!transitsOnly() && file()) {
+            natalGMT = file()->getGMT();
+            // Must carry the NATAL location, not the tab's transit location
+            // set above -- calculateAll() rebuilds "natal" from this file's
+            // own location, so a relocated one would corrupt the direction.
+            af->setLocation(file()->getLocation());
+            af->setLocationName(file()->getLocationName());
+            af->setTimezone(file()->getTimezone());
+            af->setBaseChartFrom(file());
+        } else {
+            af->clearBaseChart();
+        }
+        af->setDirectedArc(recoverPrimaryDirectionArc(natalGMT, dt, pdConnector),
+                           int(A::primDirSystem));
+        // Rapt parallel: carry the X/Y promissor midpoint and the natal Z it
+        // parallels, so the new tab's wheel draws the same chord/stem figure
+        // the in-place single-click view does.
+        A::ChartPlanetId raptProm, raptSig;
+        for (const auto& loc : ev.locations()) {
+            if (loc.planet.isMidpt()) raptProm = loc.planet;
+            else                      raptSig  = loc.planet;
+        }
+        if (raptProm.isMidpt()) {
+            raptSig.setFileId(0);
+            af->setRaptParallelFigure(raptProm, raptSig);
+        }
     }
 
     // Aspect Range Navigator: record the event's in-orb range (non-paran ranged
@@ -6470,8 +6680,10 @@ Transits::applySettings(const AppSettings& s)
          || s.value("Events/includeOnlyInnerProgressionsToNatal").toBool()
                 != curr.includeOnlyInnerProgressionsToNatal
          || s.value("Events/pdIncludeRays", true).toBool() != curr.pdIncludeRays
-         || s.value("Events/pdAnglesAsPromissors", true).toBool()
+         || s.value("Events/pdAnglesAsPromissors", false).toBool()
                 != curr.pdAnglesAsPromissors
+         || s.value("Events/pdPlanetsAsSignificators", false).toBool()
+                != curr.pdPlanetsAsSignificators
          || A::EventOptions::PDDirectionScope(
                 s.value("Events/pdDirectionScope",
                         unsigned(A::EventOptions::PDBothDirections)).toUInt())
@@ -6481,6 +6693,8 @@ Transits::applySettings(const AppSettings& s)
                 != curr.pdIncludeRaptParallels
          || s.value("Events/raptParallelsAnyZ", false).toBool()
                 != curr.raptParallelsAnyZ
+         || s.value("Events/pdIncludeRaptConjunctions", false).toBool()
+                != curr.pdIncludeRaptConjunctions
          || primDirSystemChanged || primDirModeChangedHere);
 
     bool changedExpanded =
@@ -6526,14 +6740,12 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
 {
     ed->addTab(tr("Events"));
 
-    // Note: Event type visibility (which events to show) is controlled per-chart via toolbar
-    // This dialog only contains global settings that apply to event calculation
-    ed->addLabel(tr("<b>Event visibility</b> (which event types to display)<br/>"
-                    "is controlled by the toolbar in each chart tab and saved per-chart."));
+    // This dialog holds only the global settings that affect event
+    // CALCULATION; which event types are shown is per-chart, via the toolbar.
+    ed->addLabel(tr("<i>Which event types to display is set per chart tab, "
+                    "from its toolbar.</i>"));
 
     ed->addLineEdit("Events/defaultTimespan", tr("Default timespan"));
-    ed->addCheckBox("Events/includeShadowTransits",
-                    tr("Include retro shadow IN/EX"));
     ed->addCheckBox("Events/limitLunarTransits", tr("Limit Lunar Transits"));
 
     QKeyValueList vals {
@@ -6544,40 +6756,109 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
     };
     ed->addComboBox("Events/skipByDuration", "Skip by duration", vals);
 
-    ed->addCheckBox("Events/includeAsteroids", tr("Include asteroids"));
-    ed->addCheckBox("Events/includeCentaurs", tr("Include centaurs"));
-    ed->addCheckBox("Events/showPDRightAscension",
-                    tr("Show right ascension in Primary Directions rows"));
-    ed->addCheckBox("Events/pdIncludeRays",
-                    tr("Primary Directions: include aspect rays\n(sextile/square/trine/opposition, not just conjunction)"));
-    ed->addCheckBox("Events/pdAnglesAsPromissors",
-                    tr("Primary Directions: allow angles (Asc/Desc/MC/IC)\nas promissors, not just significators"));
-    ed->addComboBox("Events/pdDirectionScope",
-                    tr("Primary Directions: direct/converse"),
-                    { { "Both", unsigned(A::EventOptions::PDBothDirections) },
-                      { "Direct only", unsigned(A::EventOptions::PDDirectOnly) },
-                      { "Converse only", unsigned(A::EventOptions::PDConverseOnly) } });
-    ed->addDoubleSpinBox("Events/pdOrbDegrees",
-                         tr("Primary Directions: orb of effect (RA degrees)"),
-                         0.0, 5.0);
-    ed->addCheckBox("Events/pdIncludeRaptParallels",
-                    tr("Primary Directions: include rapt parallels\n(X/Y midpoint promissor to a significator Z, mundane-midpoint condition;\nCampanus/Regiomontanus only)"));
-    ed->addCheckBox("Events/raptParallelsAnyZ",
-                    tr("Rapt Parallels: allow any body as the significator Z\n(default: restricted to Asc/Desc/MC/IC, the classical form)"));
+    // Same one-row treatment as the Primary Directions group below.
+    ed->addCheckBoxRow(tr("Include"),
+                       { { "Events/includeAsteroids", tr("Asteroids") },
+                         { "Events/includeCentaurs", tr("Centaurs") },
+                         { "Events/includeShadowTransits",
+                           tr("Retro shadow IN/EX") } },
+                       3);
     //ed->addCheckBox("Events/includeMidpoints", tr("Include Midpoints"));
-    ed->addSpinBox("Events/patternsQuorum", tr("Patterns Quorum"), 2, 6);
-    ed->addDoubleSpinBox("Events/patternsSpreadOrb",
-                         tr("Patterns Spread Orb"),
-                         .1,
-                         16.);
+    // Not a Patterns setting despite having sat among them: this is the
+    // general in-orb threshold for aspect event search, and it also scales
+    // the search step rate.
     ed->addDoubleSpinBox("Events/planetPairOrb",
                          tr("Planet pair orb"),
                          0.1,
                          16.);
-    ed->addCheckBox("Events/patternsRestrictMoon",
-                    tr("Patterns Restrict Moon"));
     ed->addCheckBox("Events/backgroundFinders",
-                    tr("Continue event search in background on tab switch"));
+                    tr("Allow background event search\nfor inactive tabs"));
+
+    // Group labels are kept terse -- the box title supplies the "Primary
+    // Directions:" prefix each of these used to repeat -- with the
+    // explanations moved to row tooltips.
+    ed->beginGroup(tr("Primary Directions"));
+    ed->addComboBox("Events/pdDirectionScope",
+                    tr("Direct / converse"),
+                    { { tr("Both"), unsigned(A::EventOptions::PDBothDirections) },
+                      { tr("Direct only"), unsigned(A::EventOptions::PDDirectOnly) },
+                      { tr("Converse only"), unsigned(A::EventOptions::PDConverseOnly) } });
+    ed->setRowToolTip("Events/pdDirectionScope",
+                      tr("Which of a pair's two possible directions to "
+                         "enumerate. Both is the classical default."));
+    ed->addDoubleSpinBox("Events/pdOrbDegrees",
+                         tr("Orb of effect"),
+                         0.0, 5.0);
+    ed->setRowToolTip("Events/pdOrbDegrees",
+                      tr("Half-width of each event's date range, in degrees "
+                         "of right ascension, converted to dates by the "
+                         "timing key on the Tables tab.\nOne degree is "
+                         "roughly one year under either key."));
+    // The six inclusion switches share one wrapped row rather than taking a
+    // form row each -- nine rows made this the tallest thing on the tab.
+    // Reading order across then down is the intended order. Each box carries
+    // its own text, so setRowToolTip() reaching only the control (there is
+    // no per-box form label here) still covers the words the user hovers.
+    ed->addCheckBoxRow(tr("Include"),
+                       { { "Events/pdAnglesAsPromissors",
+                           tr("Angles as promissors") },
+                         { "Events/pdPlanetsAsSignificators",
+                           tr("Planets as significators") },
+                         { "Events/pdIncludeRays", tr("Aspect rays") },
+                         { "Events/pdIncludeRaptParallels",
+                           tr("Rapt parallels") },
+                         { "Events/raptParallelsAnyZ",
+                           tr("Any significator Z") },
+                         { "Events/pdIncludeRaptConjunctions",
+                           tr("Rapt conjunctions") } },
+                       3);
+    ed->setRowToolTip("Events/pdAnglesAsPromissors",
+                      tr("Let Asc/Desc/MC/IC be the moving body, e.g. "
+                         "\"Asc to Pluto\".\nAngles as significators are "
+                         "always allowed — that direction is the "
+                         "classical baseline."));
+    ed->setRowToolTip("Events/pdPlanetsAsSignificators",
+                      tr("Let a planet be the fixed point directed to, e.g. "
+                         "\"Mars to Uranus\", and let a planet be directed "
+                         "to one of its own rays.\nOff restricts "
+                         "significators to the four angles."));
+    ed->setRowToolTip("Events/pdIncludeRays",
+                      tr("Also direct the promissor's sextile, square, trine "
+                         "and opposition points, not just its own body "
+                         "(conjunction)."));
+    ed->setRowToolTip("Events/pdIncludeRaptParallels",
+                      tr("Two promissors X and Y directed together until "
+                         "they are equidistant either side of a significator "
+                         "Z, shown as an \"X/Y\" midpoint promissor.\n"
+                         "Campanus and Regiomontanus only — "
+                         "Placidus has no mundane midpoint."));
+    ed->setRowToolTip("Events/raptParallelsAnyZ",
+                      tr("Rapt parallels only: allow any body as the "
+                         "significator Z.\nOff restricts Z to Asc/Desc/MC/IC, "
+                         "the classical form."));
+    ed->setRowToolTip("Events/pdIncludeRaptConjunctions",
+                      tr("Both bodies directed together until one overtakes "
+                         "the other in mundo. Works under all three "
+                         "systems.\nLegitimately sparse: bodies of equal "
+                         "declination share a semi-arc and so never overtake "
+                         "at all."));
+    ed->addCheckBox("Events/showPDRightAscension", tr("Show right ascension"));
+    ed->setRowToolTip("Events/showPDRightAscension",
+                      tr("Show each body's natal right ascension in the "
+                         "promissor and significator cells, for checking the "
+                         "arc by hand.\nThe two values are each body's own "
+                         "fixed natal RA and do not visually match at exact "
+                         "contact."));
+    ed->endGroup();
+
+    ed->beginGroup(tr("Patterns"));
+    ed->addSpinBox("Events/patternsQuorum", tr("Quorum"), 2, 6);
+    ed->addDoubleSpinBox("Events/patternsSpreadOrb",
+                         tr("Spread orb"),
+                         .1,
+                         16.);
+    ed->addCheckBox("Events/patternsRestrictMoon", tr("Restrict Moon"));
+    ed->endGroup();
 #if 0
     ed->addCheckBox("Events/showLunations", tr("Show Lunations"));
     ed->addCheckBox("Events/showHeliacalEvents", tr("Show Heliacal Events"));

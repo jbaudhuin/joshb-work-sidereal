@@ -430,6 +430,29 @@ QToolButton#pvToggle:checked {
    to the unchecked background to tell "on" from "off" at this size — use
    the system highlight color instead, same convention as gcToggle/pvToggle
    above. */
+/* ============ Main window toolbars: one uniform button box ================ */
+/* These three bars use ToolButtonTextUnderIcon, so each button is as wide as
+   max(icon, label) -- and the labels run from "New" to "Restore Session...",
+   which is what made the row ragged rather than anything about the icons.
+   The global QToolButton min-width of 54px above is narrower than the widest
+   label, so widen it here for these bars only.
+
+   Height is deliberately modest: eleven buttons plus three toolbar handles
+   have to fit a 1080px column when these bars are docked vertically.
+
+   Icon SIZE is set in code (kToolIconPx), not here -- a stylesheet
+   qproperty-iconSize loses to QToolBar re-applying its own icon size to its
+   buttons, which left one bar's icons smaller than the rest. Icon ARTWORK is
+   normalized in code too (normalizedToolIcon); neither is expressible in
+   qss. */
+
+QToolBar#toolBar QToolButton,
+QToolBar#toolBar2 QToolButton,
+QToolBar#slides QToolButton {
+	min-width: 84px;
+	min-height: 56px;
+}
+
 QToolBar#dynAspectControls,
 QToolBar#namedAspectControls {
 	padding: 0px;

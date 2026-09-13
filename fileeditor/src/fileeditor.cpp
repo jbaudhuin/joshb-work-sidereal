@@ -402,9 +402,13 @@ void AstroFileEditor::update(AstroFile::Members m)
     bool showBasis = (curType == TypeDerivedProg || curType == TypeDerivedSA ||
                      curType == TypeDerivedPD || curType == TypeReturn);
 
+    const QString curBasisFile = source->hasBaseChartFile()
+                                     ? source->baseChartFile().absoluteFilePath()
+                                     : QString();
     const bool basisIdentityUnchanged =
         source == _lastBasisSource && curType == _lastBasisType &&
         source->hasBaseChart() == _lastBasisHasBase &&
+        curBasisFile == _lastBasisFile &&
         (!source->hasBaseChart() || source->getBaseChartGMT() == _lastBasisGmt);
 
     // Always populate basis combo for types that need it, even during _inUpdate
@@ -431,43 +435,95 @@ void AstroFileEditor::update(AstroFile::Members m)
             files.append(it.fileInfo());
         }
 
+        // Which file the basis actually IS, resolved without guessing where
+        // possible. Three tiers, best first:
+        //   1. The identity stored on the file (AstroFile::_baseChartFile).
+        //   2. A sibling open in this very editor -- normally file(0), the
+        //      chart this derived one was built from. The editor is an
+        //      AstroFileHandler holding both files (they are its own tabs),
+        //      so the answer is usually right here.
+        //   3. Failing both, match by moment, below.
+        // Tiers 1-2 are exact; tier 3 is a guess, because a relocated chart
+        // is the SAME instant elsewhere and so matches a GMT test just as
+        // well as the original does. One nativity with four relocations
+        // gives five equally good "matches" and the directory order picks
+        // the winner -- which is how a PD chart came to claim it was based
+        // on "Josh in Geneva".
+        QString wantPath;
+        if (source->hasBaseChartFile()) {
+            wantPath = source->baseChartFile().absoluteFilePath();
+        } else if (source->hasBaseChart()) {
+            for (int i = 0; i < filesCount() && wantPath.isEmpty(); ++i) {
+                if (i == currentFile) continue;
+                AstroFile* sib = file(i);
+                if (!sib || sib->getGMT() != source->getBaseChartGMT()) continue;
+                const QString p = sib->fileInfo().absoluteFilePath();
+                if (!sib->fileInfo().filePath().isEmpty()) wantPath = p;
+            }
+        }
+
         int selectedIndex = 0;
-        bool haveBase = !source->hasBaseChart(); // nothing to find if there's no base
+        // Nothing left to look for if there's no base, or if we already know
+        // exactly which path we want (the loop below matches it by data).
+        bool haveBase = !source->hasBaseChart() || !wantPath.isEmpty();
         for (int i = 0; i < files.size(); ++i) {
             QFileInfo fi = files.at(i);
+            const QString absPath = fi.absoluteFilePath();
             // Show relative path from chart directory for files in subdirectories
-            QString displayName = dir.relativeFilePath(fi.absoluteFilePath());
+            QString displayName = dir.relativeFilePath(absPath);
             if (displayName.contains('/') || displayName.contains('\\')) {
                 // File is in a subdirectory, show the path
-                basis->addItem(displayName.replace('\\', '/'), fi.absoluteFilePath());
+                basis->addItem(displayName.replace('\\', '/'), absPath);
             } else {
                 // File is in root directory, just show basename
-                basis->addItem(fi.baseName(), fi.absoluteFilePath());
+                basis->addItem(fi.baseName(), absPath);
             }
 
-            // Check if this is the current base chart (stop once found; the
-            // item-list build above still has to visit every file, but the
-            // GMT re-parse doesn't).
+            if (!wantPath.isEmpty()) {
+                if (absPath == wantPath)
+                    selectedIndex = i + 1; // +1 because "(None)" is at index 0
+                continue;
+            }
+
+            // Tier 3: match by moment (stop once found; the item-list build
+            // above still has to visit every file, but the GMT re-parse
+            // doesn't). Only reached when neither exact tier answered, i.e.
+            // for charts saved before the identity was recorded.
             if (!haveBase) {
-                QSettings testFile(fi.absoluteFilePath(), QSettings::IniFormat);
+                QSettings testFile(absPath, QSettings::IniFormat);
                 auto testDT = AstroFile::parseStoredGMT(testFile.value("GMT").toString());
 
                 if (testDT == source->getBaseChartGMT()) {
-                    selectedIndex = i + 1; // +1 because "(None)" is at index 0
+                    selectedIndex = i + 1;
                     haveBase = true;
                 }
             }
+        }
+
+        // The basis can sit outside the scanned directory -- fixedChartDir()
+        // is the user chart dir only, so a basis under sampleCharts/ (or
+        // anywhere else) is never in the list. Add it rather than leaving
+        // the combo on "(None)" or, worse, on some unrelated chart.
+        if (!wantPath.isEmpty() && selectedIndex == 0) {
+            QString outside = dir.relativeFilePath(wantPath).replace('\\', '/');
+            // A "../.." relative path is noise; show the real location.
+            if (outside.startsWith(QLatin1String("..")))
+                outside = QDir::toNativeSeparators(wantPath);
+            basis->addItem(outside, wantPath);
+            selectedIndex = basis->count() - 1;
         }
         basis->setCurrentIndex(selectedIndex);
 
         _lastBasisSource  = source;
         _lastBasisType    = curType;
         _lastBasisHasBase = source->hasBaseChart();
+        _lastBasisFile    = curBasisFile;
         _lastBasisGmt     = source->hasBaseChart() ? source->getBaseChartGMT() : QDateTime();
     } else if (!showBasis) {
         basis->clear();
         basis->addItem(tr("(None)"), QVariant());
         _lastBasisSource = nullptr; // force a rebuild if this type becomes basis-bearing again
+        _lastBasisFile.clear();
     }
 
     basis->setVisible(showBasis);
@@ -582,7 +638,13 @@ void AstroFileEditor::applyToFile(bool setNeedsSaveFlag /*=true*/,
             // Load the base chart file to get its GMT
             QSettings baseFile(baseFilePath, QSettings::IniFormat);
             auto baseGmt = AstroFile::parseStoredGMT(baseFile.value("GMT").toString());
-            dst->setBaseChart(baseGmt);
+            // Record WHICH chart, not just its moment: this is the user's
+            // explicit choice, so it is authoritative over anything the
+            // file already carried. Before this was stored, picking a
+            // different relocation of the same nativity was a silent no-op
+            // -- same GMT, so nothing changed and the combo reverted to
+            // whichever same-moment file the directory scan hit first.
+            dst->setBaseChart(baseGmt, AFileInfo(baseFilePath));
         } else {
             dst->clearBaseChart();
         }

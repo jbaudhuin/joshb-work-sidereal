@@ -1,5 +1,7 @@
 ﻿#include <QChildEvent>
 #include <QActionGroup>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QContextMenuEvent>
 #include <QInputDialog>
 #include <QMessageBox>
@@ -746,6 +748,109 @@ AstroFileInfo::dropEvent(QDropEvent* event)
     }
 }
 
+namespace {
+
+/// The one icon size for every main-window toolbar. 48 was too tall once
+/// the buttons were given a uniform box: eleven buttons plus three toolbar
+/// handles overflowed a 1080px column when the bars are docked vertically.
+constexpr int kToolIconPx = 32;
+
+/// Fraction of the icon box the artwork fills. Slightly inset so adjacent
+/// buttons' glyphs don't touch.
+constexpr qreal kToolInkFrac = 0.86;
+
+/// Rebuild a toolbar icon so its artwork fills a consistent box.
+///
+/// Two separate problems, both of which have to be solved in the pixmap
+/// because neither can be solved by asking for an icon size:
+///
+/// 1. The PNGs share a 48x48 canvas but their INK varies -- measured, from
+///    32x35 (planets, 49% of the canvas) to 43x42 (edit, 78%). Trimming to
+///    the alpha bounding box and rescaling that is the only way to make
+///    them read as the same size.
+/// 2. Every PNG supplies exactly ONE pixmap, and QIcon will not upscale a
+///    pixmap engine past the largest size it has. So on a scaled display,
+///    or any time the requested size exceeds what the icon holds, the icon
+///    is drawn SMALLER than the box it was given -- which is why the slide
+///    bar's icons came out visibly smaller than their neighbours', and why
+///    the text under them floated upward: with TextUnderIcon, Qt centres
+///    the icon+text block, so a short icon drags the label with it.
+///    Building at device-pixel-ratio and stamping the ratio on the pixmap
+///    means the icon can always fill its box exactly.
+///
+/// The lone QStyle standardIcon (Restore Session) is multi-resolution and
+/// so behaves differently again; routing it through here puts it on the
+/// same footing as the PNGs.
+QIcon normalizedToolIcon(const QIcon& src,
+                         int          box = kToolIconPx,
+                         qreal        inkFrac = kToolInkFrac)
+{
+    if (src.isNull()) return src;
+
+    const qreal dpr = QGuiApplication::primaryScreen()
+                          ? QGuiApplication::primaryScreen()->devicePixelRatio()
+                          : 1.0;
+    const int canvas = qRound(box * dpr);
+    const int ink    = qRound(box * inkFrac * dpr);
+
+    // Ask for the source at its own native scale rather than at `canvas`:
+    // the PNGs hold a single 48px pixmap, and requesting less would make
+    // QIcon hand back a pre-shrunk copy, throwing away detail before the
+    // trim even runs.
+    QImage img = src.pixmap(QSize(qMax(canvas, 48), qMax(canvas, 48))).toImage();
+    if (img.isNull()) return src;
+    img = img.convertToFormat(QImage::Format_ARGB32);
+
+    // Threshold above 0 so a soft drop shadow doesn't count as ink (this is
+    // the same threshold the measurements above were taken with).
+    constexpr int kAlphaFloor = 16;
+    int minX = img.width(), minY = img.height(), maxX = -1, maxY = -1;
+    for (int y = 0; y < img.height(); ++y) {
+        const QRgb* row = reinterpret_cast<const QRgb*>(img.constScanLine(y));
+        for (int x = 0; x < img.width(); ++x) {
+            if (qAlpha(row[x]) <= kAlphaFloor) continue;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+    }
+    // Fully transparent, or the file never loaded (the paths are relative to
+    // the working directory). Hand back what we were given rather than a
+    // blank square, so a missing icon degrades exactly as it does today.
+    if (maxX < minX || maxY < minY) return src;
+
+    const QImage trimmed =
+        img.copy(QRect(QPoint(minX, minY), QPoint(maxX, maxY)));
+    const QImage scaled = trimmed.scaled(ink, ink, Qt::KeepAspectRatio,
+                                         Qt::SmoothTransformation);
+
+    QImage out(canvas, canvas, QImage::Format_ARGB32);
+    out.fill(Qt::transparent);
+    QPainter p(&out);
+    p.drawImage((canvas - scaled.width()) / 2,
+                (canvas - scaled.height()) / 2,
+                scaled);
+    p.end();
+
+    QPixmap pm = QPixmap::fromImage(out);
+    // Without this the pixmap counts as `canvas` LOGICAL pixels, and on a
+    // scaled display that is more than the box asks for -- or, worse, the
+    // icon silently renders small. With it, the pixmap is exactly `box`
+    // logical pixels at full device resolution.
+    pm.setDevicePixelRatio(dpr);
+    return QIcon(pm);
+}
+
+QIcon normalizedToolIcon(const QString& path,
+                         int            box = kToolIconPx,
+                         qreal          inkFrac = kToolInkFrac)
+{
+    return normalizedToolIcon(QIcon(path), box, inkFrac);
+}
+
+} // namespace
+
 /* =========================== ASTRO WIDGET
  * ========================================= */
 
@@ -778,9 +883,9 @@ AstroWidget::AstroWidget(QWidget* parent) : QWidget(parent)
     addDockWidget(new Harmonics, tr("Harmonics"), false /*not scrollable*/);
     addDockWidget(new Transits, tr("Events"), false /*notScroll*/);
     addDockWidget(new Speculum, tr("Speculum"), false /*not scrollable*/);
-    addSlide(new Chart, QIcon("style/natal.png"), tr("Chart"));
-    addSlide(new Planets, QIcon("style/planets.png"), tr("Planets"));
-    addSlide(new Plain, QIcon("style/plain.png"), tr("Tables"));
+    addSlide(new Chart, normalizedToolIcon("style/natal.png"), tr("Chart"));
+    addSlide(new Planets, normalizedToolIcon("style/planets.png"), tr("Planets"));
+    addSlide(new Plain, normalizedToolIcon("style/plain.png"), tr("Tables"));
     addHoroscopeControls();
 
     // Connect Speculum orb changes to Plain widget refresh
@@ -4566,7 +4671,7 @@ FilesBar::openFileInNewTabWithProgressions(const AFileInfo& fi)
     file2->setTimezone(file1->getTimezone());
     file2->setLocation(file1->getLocation());
     file2->setLocationName(file1->getLocationName());
-    file2->setBaseChart(file1->getGMT());
+    file2->setBaseChartFrom(file1);
     file2->setParent(this);
     
     // Calculate the progressed chart so it has data before displaying
@@ -4603,15 +4708,15 @@ FilesBar::openFileAsSecond(const AFileInfo& fi)
 }
 
 void
-FilesBar::saveAsCurrentFile()
+FilesBar::saveAsFile(int fileIdx)
 {
-    if (currentFiles().isEmpty()) return;
-    
-    AstroFile* file = currentFiles().first();
+    if (fileIdx < 0 || fileIdx >= currentFiles().count()) return;
+
+    AstroFile* file = currentFiles().at(fileIdx);
     if (!file) return;
-    
+
     file->saveAs();
-    
+
     // Update the tab with the new name
     int idx = currentIndex();
     if (idx >= 0) {
@@ -4761,7 +4866,9 @@ FilesBar::openFileReturn(const AFileInfo& fi, const QString& body)
     delete native;
 
     planetReturn->setGMT(dt);
-    planetReturn->setBaseChart(natalGMT);
+    // `native` is already deleted above, but `fi` is its AFileInfo -- pass
+    // it so the basis is identifiable and not just a moment.
+    planetReturn->setBaseChart(natalGMT, fi);
 
     planetReturn->setName(QString("%1 %2 Return %3")
                               .arg(fi.baseName())
@@ -4796,7 +4903,7 @@ FilesBar::openFileInNewTabWithReturn(const AFileInfo& fi, const QString& body)
     planetReturn->setGMT(dt);
     
     // Set base chart to the natal chart for return calculations
-    planetReturn->setBaseChart(native->getGMT());
+    planetReturn->setBaseChartFrom(native);
 
     planetReturn->setName(QString("%1 %2 Return %3")
                               .arg(fi.baseName())
@@ -4865,7 +4972,7 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, bool autoRestore
     databaseDockWidget->setWindowTitle(tr("Database"));
     databaseDockWidget->hide();
     help->setFixedHeight(70);
-    this->setIconSize(QSize(48, 48));
+    this->setIconSize(QSize(kToolIconPx, kToolIconPx));
     this->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     this->setWindowTitle(QApplication::applicationName());
     this->setMinimumHeight(480);
@@ -4889,6 +4996,15 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, bool autoRestore
     addToolBar(Qt::TopToolBarArea, astroWidget->getToolBar());
     addToolBar(Qt::TopToolBarArea, toolBar2);
     addToolBar(Qt::TopToolBarArea, helpToolBar);
+
+    // Set the icon size on each bar EXPLICITLY, after they are added.
+    // Relying on the main window's size to propagate, or on a stylesheet
+    // qproperty-iconSize, both lost to QToolBar re-applying its own size to
+    // its buttons -- which is how the slide bar (Chart/Planets/Tables) ended
+    // up drawing smaller icons than its neighbours even though every icon
+    // had been normalized to the same artwork size.
+    for (QToolBar* tb : { toolBar, astroWidget->getToolBar(), toolBar2 })
+        tb->setIconSize(QSize(kToolIconPx, kToolIconPx));
     buildParanToolBar();
     addToolBar(Qt::TopToolBarArea, paranToolBar);
     addDockWidget(Qt::LeftDockWidgetArea, databaseDockWidget);
@@ -5233,38 +5349,42 @@ MainWindow::addToolBarActions()
     tbNew->setPopupMode(QToolButton::MenuButtonPopup);
     tbNew->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
 
-    auto newAct = new QAction(QIcon("style/file.png"), tr("New"));
+    auto newAct = new QAction(normalizedToolIcon("style/file.png"), tr("New"));
     tbNew->addAction(newAct);
     tbNew->setDefaultAction(newAct);
     connect(newAct, SIGNAL(triggered()), filesBar, SLOT(addNewFile()));
 
-    auto newEditAct = new QAction(QIcon("style/file.png"), tr("New chart..."));
+    auto newEditAct =
+        new QAction(normalizedToolIcon("style/file.png"), tr("New chart..."));
     tbNew->addAction(newEditAct);
     connect(newEditAct, SIGNAL(triggered()), filesBar, SLOT(editNewChart()));
 
     toolBar->addWidget(tbNew);
 
-    auto editAct = toolBar->addAction(QIcon("style/edit.png"),
+    auto editAct = toolBar->addAction(normalizedToolIcon("style/edit.png"),
                                        tr("Edit..."),
                                        astroWidget,
                                        SLOT(openEditor()));
 
-    auto saveAct = toolBar->addAction(QIcon("style/save.png"),
+    auto saveAct = toolBar->addAction(normalizedToolIcon("style/save.png"),
                                        tr("Save Chart"),
                                        this,
                                        SLOT(saveFile()));
 
-    auto saveSessionAct = toolBar->addAction(QIcon("style/file.png"),
+    auto saveSessionAct = toolBar->addAction(normalizedToolIcon("style/file.png"),
                                               tr("Save Session..."),
                                               this,
                                               SLOT(saveSessionAs()));
 
     // Use standard icon for Restore Session - SP_DialogOpenButton shows
-    // folder/open icon
-    auto restoreSessionAct = toolBar->addAction(style()->standardIcon(QStyle::SP_DialogOpenButton),
-                                                 tr("Restore Session..."),
-                                                 this,
-                                                 SLOT(showRestoreSessionDialog()));
+    // folder/open icon. Normalized like the PNGs: on its own it follows
+    // neither the 48 canvas nor their padding, and renders visibly larger
+    // and wider than every neighbour.
+    auto restoreSessionAct = toolBar->addAction(
+        normalizedToolIcon(style()->standardIcon(QStyle::SP_DialogOpenButton)),
+        tr("Restore Session..."),
+        this,
+        SLOT(showRestoreSessionDialog()));
 
     // toolBar  -> addAction(QIcon("style/print.png"), tr("Экспорт"));
 
@@ -5277,7 +5397,15 @@ MainWindow::addToolBarActions()
     newAct->setStatusTip(tr("New data") + "\n Ctrl+N");
     newEditAct->setStatusTip(tr("Edit new data") + "\n Ctrl+Shift+N");
     editAct->setStatusTip(tr("Edit data...") + "\n F2");
-    saveAct->setStatusTip(tr("Save data") + "\n Ctrl+S");
+    saveAct->setStatusTip(tr("Save data") + "\n Ctrl+S"
+                          + tr("\n Ctrl+Click: save the second chart"));
+    saveAct->setToolTip(tr("Save Chart") + "\n"
+                        + tr("Ctrl+Click saves the second chart"));
+
+    // Ctrl+Click detection lives on the button widget -- see eventFilter().
+    // widgetForAction() is valid only after the action has been added.
+    _saveChartButton = toolBar->widgetForAction(saveAct);
+    if (_saveChartButton) _saveChartButton->installEventFilter(this);
     saveSessionAct->setStatusTip(tr("Save session with name"));
     restoreSessionAct->setStatusTip(tr("Restore session"));
     // toolBar  -> actions()[3]->setStatusTip(tr("Печать или экспорт \n
@@ -5285,17 +5413,17 @@ MainWindow::addToolBarActions()
 
     QToolButton* b = new QToolButton; // panels toggle button
     b->setText(tr("Panels"));
-    b->setIcon(QIcon("style/panels.png"));
+    b->setIcon(normalizedToolIcon("style/panels.png"));
     b->setToolButtonStyle(toolButtonStyle());
     b->setMenu(panelsMenu);
     b->setPopupMode(QToolButton::InstantPopup);
 
     toolBar2->addWidget(b);
-    toolBar2->addAction(QIcon("style/tools.png"),
+    toolBar2->addAction(normalizedToolIcon("style/tools.png"),
                         tr("Settings"),
                         this,
                         SLOT(showSettingsEditor()));
-    toolBar2->addAction(QIcon("style/info.png"),
+    toolBar2->addAction(normalizedToolIcon("style/info.png"),
                         tr("About"),
                         this,
                         SLOT(showAbout()));
@@ -5307,6 +5435,45 @@ MainWindow::addToolBarActions()
     dbToggle->setStatusTip(tr("Toggle database") + "\n Ctrl+O");
 
     createActionForPanel(helpToolBar /*, QIcon("style/help.png")*/);
+}
+
+void
+MainWindow::saveSecondFile()
+{
+    const auto& files = filesBar->currentFiles();
+    if (files.count() < 2 || !files[1]) return;
+
+    AstroFile* af = files[1];
+    // "." is the never-saved marker AstroFile::save()/saveAs() themselves
+    // test for (astro-gui.cpp) before substituting the user chart dir. A
+    // chart derived from an events-table click has never been near a file,
+    // so let the user place it; a chart that already has one just saves.
+    if (af->fileInfo().path() == ".") {
+        filesBar->saveAsFile(1);
+    } else {
+        af->save();
+        filesBar->updateTab(filesBar->currentIndex());
+    }
+    astroDatabase->updateList();
+}
+
+bool
+MainWindow::eventFilter(QObject* obj, QEvent* ev)
+{
+    // Ctrl+Click on Save Chart saves the second chart. Caught here rather
+    // than by testing keyboardModifiers() inside saveFile(), because that
+    // action's shortcut IS Ctrl+S -- a modifier test there would send every
+    // keyboard save to chart #2.
+    if (obj == _saveChartButton && ev->type() == QEvent::MouseButtonRelease) {
+        auto* me = static_cast<QMouseEvent*>(ev);
+        if (me->button() == Qt::LeftButton
+            && (me->modifiers() & Qt::ControlModifier))
+        {
+            saveSecondFile();
+            return true; // swallow, so the plain save doesn't also fire
+        }
+    }
+    return QMainWindow::eventFilter(obj, ev);
 }
 
 QAction*
@@ -6590,8 +6757,23 @@ MainWindow::restoreSession()
                     af->setComment(settings.value(fileGroup + "comment").toString());
                     
                     if (settings.value(fileGroup + "hasBaseChart", false).toBool()) {
-                        af->setBaseChart(settings.value(fileGroup + "baseChart").toDateTime());
+                        // Restore the basis identity too, not just its
+                        // moment -- see AstroFile::_baseChartFile. Absent
+                        // in sessions written before it was recorded.
+                        const QString bf =
+                            settings.value(fileGroup + "baseChartFile").toString();
+                        af->setBaseChart(
+                            settings.value(fileGroup + "baseChart").toDateTime(),
+                            (!bf.isEmpty() && QFileInfo::exists(bf))
+                                ? AFileInfo(bf) : AFileInfo());
                     }
+
+                    // Derivation parameters, AFTER setType() above (which
+                    // derives isPrimaryDirected from the type). This branch
+                    // is the one a click-born PD chart always takes, since
+                    // it was never saved to a .dat.
+                    af->setDerivationState(
+                        AstroFile::readDerivation(settings, fileGroup));
 
                     if (af->getType() == TypeComposite) {
                         QString cf1 = settings.value(fileGroup + "compositeFile1").toString();
@@ -6818,9 +7000,27 @@ MainWindow::saveSessionWithTimestamp(const QString& sessionKey)
                     if (af->hasBaseChart()) {
                         settings.setValue("hasBaseChart", true);
                         settings.setValue("baseChart", af->getBaseChartGMT());
+                        // Identity, not just the moment -- a GMT alone
+                        // cannot tell a nativity from its relocations.
+                        if (af->hasBaseChartFile()) {
+                            settings.setValue(
+                                "baseChartFile",
+                                af->baseChartFile().absoluteFilePath());
+                        } else {
+                            settings.remove("baseChartFile");
+                        }
                     } else {
                         settings.setValue("hasBaseChart", false);
+                        settings.remove("baseChartFile");
                     }
+
+                    // Derivation parameters (the frozen PD arc) -- see
+                    // AstroFile::derivationState(). A chart created by an
+                    // events-table click and never saved is restored from
+                    // these inline fields, not from a .dat, so omitting
+                    // this loses the arc on every session restore.
+                    AstroFile::writeDerivation(settings, QString(),
+                                               af->derivationState());
                 }
                 
                 if (!af->getTransitStartDate().isNull()) {
@@ -6919,8 +7119,19 @@ MainWindow::restoreSessionByKey(const QString& sessionKey)
                     af->setComment(settings.value("comment").toString());
                     
                     if (settings.value("hasBaseChart", false).toBool()) {
-                        af->setBaseChart(settings.value("baseChart").toDateTime());
+                        // Basis identity as well as its moment -- see the
+                        // per-file restore path above.
+                        const QString bf =
+                            settings.value("baseChartFile").toString();
+                        af->setBaseChart(
+                            settings.value("baseChart").toDateTime(),
+                            (!bf.isEmpty() && QFileInfo::exists(bf))
+                                ? AFileInfo(bf) : AFileInfo());
                     }
+
+                    // See the other inline restore path above.
+                    af->setDerivationState(
+                        AstroFile::readDerivation(settings, QString()));
 
                     if (af->getType() == TypeComposite) {
                         QString cf1 = settings.value("compositeFile1").toString();
@@ -7095,9 +7306,21 @@ FilesBar::saveFilesToSession()
                 if (af->hasBaseChart()) {
                     settings.setValue("hasBaseChart", true);
                     settings.setValue("baseChart", af->getBaseChartGMT());
+                    // See the other session-save path above.
+                    if (af->hasBaseChartFile()) {
+                        settings.setValue("baseChartFile",
+                                          af->baseChartFile().absoluteFilePath());
+                    } else {
+                        settings.remove("baseChartFile");
+                    }
                 } else {
                     settings.setValue("hasBaseChart", false);
+                    settings.remove("baseChartFile");
                 }
+
+                // See the other session-save path above.
+                AstroFile::writeDerivation(settings, QString(),
+                                           af->derivationState());
 
                 if (af->hasCompositeSources()) {
                     settings.setValue("compositeFile1",

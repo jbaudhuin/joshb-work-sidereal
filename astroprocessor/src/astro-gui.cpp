@@ -417,9 +417,21 @@ AstroFile::save()
     // Base chart support for progressed charts
     if (hasBaseChart()) {
         file.setValue("baseChartGMT", serializeUtcDateTime(getBaseChartGMT()));
+        // Which chart that moment came from -- see _baseChartFile. Absolute
+        // path, like compositeFile1/2 below.
+        if (hasBaseChartFile())
+            file.setValue("baseChartFile", _baseChartFile.absoluteFilePath());
+        else
+            file.remove("baseChartFile");
     } else {
         file.remove("baseChartGMT");
+        file.remove("baseChartFile");
     }
+
+    // Derivation parameters that can't be recomputed from GMT/location --
+    // see derivationState(). Writes nothing for a chart type that has none,
+    // and removes any left over from a previous type.
+    writeDerivation(file, QString(), derivationState());
 
     // Midpoint-composite sources: store references, recompute on load
     if (getType() == TypeComposite && _hasCompositeSources) {
@@ -475,12 +487,28 @@ AstroFile::saveAs()
         return; // User cancelled
     }
 
-    // Remove the suffix if user added it (AFileInfo will add it)
-    if (newPath.endsWith(AFileInfo::suff())) {
-        newPath.chop(AFileInfo::suff().length());
-    }
+    // The dialog hands back a full PATH, which must NOT be fed to
+    // AFileInfo(QString): that constructor treats any string not already
+    // ending in the suffix as a NAME, and percent-escapes "/ \ : % = @ $"
+    // (AFileInfo::encodeName). Chopping ".dat" off the path first put it in
+    // exactly that case, so the whole path was escaped into a single
+    // filename in the working directory -- and since getName() IS
+    // _fileInfo.baseName(), the chart then took that entire path as its
+    // displayed name. Split it as a path instead, and rebuild with the
+    // dir+name constructor, which encodes only the name.
+    const QFileInfo picked(newPath);
+    QString base = picked.fileName();
+    // Strip only OUR suffix, not whatever follows the last dot: a chart
+    // legitimately named "Josh 2.0" must not become "Josh 2".
+    if (base.endsWith(AFileInfo::suff(), Qt::CaseInsensitive))
+        base.chop(AFileInfo::suff().length());
 
-    AFileInfo newFileInfo(newPath);
+    // Decode before handing it back to the encoding constructor. Picking an
+    // EXISTING chart whose on-disk name is already escaped would otherwise
+    // double-encode it ("Ven%2fMar" -> "Ven%252fMar"); a name the user typed
+    // by hand decodes to itself.
+    AFileInfo newFileInfo(QDir(picked.absolutePath()),
+                          AFileInfo::decodeName(base));
     QString newName = newFileInfo.baseName();
 
     qDebug() << "Saving as:" << newName << "to" << newFileInfo.filePath();
@@ -555,10 +583,28 @@ AstroFile::load(const AFileInfo& fi /*, bool recalculate*/)
 
     // Load base chart if present (for progressed charts)
     if (file.contains("baseChartGMT")) {
-        setBaseChart(parseStoredGMT(file.value("baseChartGMT").toString()));
+        const QDateTime baseGmt =
+            parseStoredGMT(file.value("baseChartGMT").toString());
+        // The identity is optional: absent on charts saved before it was
+        // recorded, and only accepted if the file is still there (same
+        // existence guard the composite loader below uses). Without it the
+        // editor falls back to matching by moment, which cannot tell a
+        // nativity from its relocations.
+        const QString baseFile = file.value("baseChartFile").toString();
+        const bool haveFile = !baseFile.isEmpty() && QFileInfo::exists(baseFile);
+        // Pass an empty AFileInfo rather than calling the one-arg overload:
+        // load() can reuse an AstroFile, and the one-arg form would leave
+        // the previous chart's identity in place.
+        setBaseChart(baseGmt, haveFile ? AFileInfo(baseFile) : AFileInfo());
     } else {
         clearBaseChart();
     }
+
+    // Derivation parameters. AFTER the setType() above, which is what
+    // derives isPrimaryDirected from the persisted type. Absent on charts
+    // saved before these were recorded -- those keep the old behaviour
+    // (arc 0) rather than failing to load.
+    setDerivationState(readDerivation(file, QString()));
 
     // Midpoint-composite sources: recompute from the two source charts.
     // If a source is missing, fall back to a normal chart of the stored
@@ -779,10 +825,15 @@ AstroFile::setType(const FileType type)
         this->type = type;
         
         // Set progression flag based on type
-        // This must be done here so InputData state is stable for caching
-        bool shouldProgress = (type == TypeDerivedProg || type == TypeDerivedSA || type == TypeDerivedPD);
+        // This must be done here so InputData state is stable for caching.
+        // TypeDerivedPD is NOT a progressed chart -- it used to fall into
+        // this same secondary-progression math by accident (isProgressed()
+        // was the only branch calculateAll() had), silently producing a
+        // progressed chart instead of a directed one. It gets its own flag.
+        bool shouldProgress = (type == TypeDerivedProg || type == TypeDerivedSA);
         scope.inputData.setProgressed(shouldProgress);
-        
+        scope.inputData.setPrimaryDirected(type == TypeDerivedPD);
+
         change(Type);
     }
 }
@@ -871,7 +922,7 @@ AstroFile::setZodiac(A::ZodiacId zod)
 void
 AstroFile::setBaseChart(const QDateTime& baseGmt)
 {
-    if (!scope.inputData.hasBaseChart() || 
+    if (!scope.inputData.hasBaseChart() ||
         scope.inputData.baseGMT() != baseGmt) {
         scope.inputData.setBaseChart(baseGmt);
         recalculate();
@@ -880,8 +931,224 @@ AstroFile::setBaseChart(const QDateTime& baseGmt)
 }
 
 void
+AstroFile::setBaseChart(const QDateTime& baseGmt, const AFileInfo& srcFile)
+{
+    // The identity is recorded OUTSIDE setBaseChart()'s recalc/change guard
+    // on purpose: it alters nothing that calculateAll() reads, so it must
+    // neither trigger a recalculation nor mark the file unsaved. Dirtying
+    // here would put a "*" on the tab every time an event row is clicked.
+    // The trade-off is that a chart saved before this existed only gains
+    // the key when it is next saved for some other reason; until then the
+    // editor falls back to matching by moment.
+    _baseChartFile = srcFile;
+    setBaseChart(baseGmt);
+}
+
+void
+AstroFile::setBaseChartFrom(const AstroFile* src)
+{
+    if (!src) { clearBaseChart(); return; }
+    setBaseChart(src->getGMT(), src->fileInfo());
+}
+
+namespace {
+
+/// Encode a ChartPlanetId as "fid:pid:pid2:opp".
+///
+/// All FOUR fields, including the opposition-midpoint flag, because that
+/// flag cannot be assigned: the three-argument constructor DERIVES it,
+/// swapping the pair and setting _oppMidpt when pid > pid2 (astro-data.h
+/// ~955-965). Decoding a normalized (already-sorted) pair would therefore
+/// produce a CONJUNCT midpoint where an opposition one was saved.
+QString encodeCpid(const A::ChartPlanetId& c)
+{
+    return QStringLiteral("%1:%2:%3:%4")
+        .arg(c.fileId())
+        .arg(int(c.planetId()))
+        .arg(int(c.planetId2()))
+        .arg(c.isOppMidpt() ? 1 : 0);
+}
+
+/// Inverse of encodeCpid(). Reproduces _oppMidpt by handing the pair to the
+/// constructor in REVERSED order when the flag was set, letting the same
+/// normalization that created it recreate it -- rather than adding a
+/// four-argument constructor that could drift from that invariant. The
+/// trick is confined to this one function and its partner above.
+A::ChartPlanetId decodeCpid(const QString& s)
+{
+    const QStringList p = s.split(QLatin1Char(':'));
+    if (p.size() < 3) return A::ChartPlanetId();
+    const int            fid  = p.at(0).toInt();
+    const A::PlanetId    pid  = p.at(1).toInt();
+    const A::PlanetId    pid2 = p.at(2).toInt();
+    const bool           opp  = p.size() > 3 && p.at(3).toInt() != 0;
+    if (opp && pid2 != A::Planet_None)
+        return A::ChartPlanetId(fid, pid2, pid);
+    return A::ChartPlanetId(fid, pid, pid2);
+}
+
+constexpr auto kOccSep = QLatin1Char('|');
+
+} // namespace
+
+/*static*/
+const QStringList&
+AstroFile::derivationKeys()
+{
+    static const QStringList s_keys {
+        QStringLiteral("directedArc"),
+        QStringLiteral("directedSystem"),
+        QStringLiteral("raptPromissor"),
+        QStringLiteral("raptSignificator"),
+        QStringLiteral("paranGroup"),
+        QStringLiteral("paranOccurrences"),
+        QStringLiteral("paranOccurrenceLabels"),
+    };
+    return s_keys;
+}
+
+QVariantMap
+AstroFile::derivationState() const
+{
+    QVariantMap m;
+    if (type == TypeDerivedPD) {
+        // Frozen at click time on purpose -- re-solving the same
+        // promissor/significator pair under a different A::primDirSystem
+        // gives a different arc, so this is input data, not a cached
+        // result, and it cannot be recomputed on load.
+        m.insert(QStringLiteral("directedArc"), scope.inputData.directedArc());
+        m.insert(QStringLiteral("directedSystem"),
+                 scope.inputData.directedSystem());
+        // Rapt parallel chord/stem figure: the X/Y midpoint promissor and
+        // the natal Z it parallels. hasRaptParallelFigure() keys off the
+        // promissor being a midpoint, so both go or neither does.
+        if (hasRaptParallelFigure()) {
+            m.insert(QStringLiteral("raptPromissor"),
+                     encodeCpid(_raptPromissor));
+            m.insert(QStringLiteral("raptSignificator"),
+                     encodeCpid(_raptSignificator));
+        }
+    }
+
+    // Paran / heliacal-apparition charts: which bodies form the event, and
+    // the occurrence list the wheel steps through. Only for the derived
+    // chart types -- file(0) also carries a paran group while a paran row
+    // is focal, but that is transient display state on the radix and has
+    // no business in a natal chart's file.
+    if (type == TypeParan || type == TypeApparition) {
+        if (!_paranGroupPlanets.isEmpty()) {
+            QStringList sl;
+            for (const auto& c : _paranGroupPlanets) sl << encodeCpid(c);
+            m.insert(QStringLiteral("paranGroup"), sl);
+        }
+        if (!_paranOccurrences.isEmpty()) {
+            QStringList sl;
+            for (const auto& o : _paranOccurrences) {
+                sl << o.first.toUTC().toString(Qt::ISODate) + kOccSep
+                        + QString::number(o.second, 'g', 10);
+            }
+            m.insert(QStringLiteral("paranOccurrences"), sl);
+        }
+        if (!_paranOccurrenceLabels.isEmpty()) {
+            m.insert(QStringLiteral("paranOccurrenceLabels"),
+                     _paranOccurrenceLabels);
+        }
+    }
+    return m;
+}
+
+void
+AstroFile::setDerivationState(const QVariantMap& m)
+{
+    // Applied through setDirectedArc() rather than poked into InputData:
+    // unlike the base-chart FILE (informational), the arc genuinely changes
+    // what calculateAll() produces, so that setter's recalculate()/change()
+    // guard is the correct path.
+    if (m.contains(QStringLiteral("directedArc"))) {
+        setDirectedArc(m.value(QStringLiteral("directedArc")).toDouble(),
+                       m.value(QStringLiteral("directedSystem")).toInt());
+    }
+
+    // The remaining fields are display state, so they are assigned
+    // directly rather than through setters that would recalculate. They
+    // are normally set inside the same suspendUpdate() batch as the arc
+    // (see setRaptParallelFigure()'s comment), and the arc above has
+    // already emitted the change that covers the repaint.
+    if (m.contains(QStringLiteral("raptPromissor"))) {
+        setRaptParallelFigure(
+            decodeCpid(m.value(QStringLiteral("raptPromissor")).toString()),
+            decodeCpid(m.value(QStringLiteral("raptSignificator")).toString()));
+    }
+
+    if (m.contains(QStringLiteral("paranGroup"))) {
+        QVector<ParanGroupEntry> g;
+        const QStringList sl = m.value(QStringLiteral("paranGroup")).toStringList();
+        for (const QString& s : sl) g.append(decodeCpid(s));
+        setParanGroupPlanets(g);
+    }
+
+    if (m.contains(QStringLiteral("paranOccurrences"))) {
+        QVector<QPair<QDateTime, qreal>> occ;
+        const QStringList sl =
+            m.value(QStringLiteral("paranOccurrences")).toStringList();
+        for (const QString& s : sl) {
+            const int sep = s.indexOf(kOccSep);
+            if (sep < 0) continue;
+            const QDateTime dt = QDateTime::fromString(s.left(sep), Qt::ISODate);
+            if (!dt.isValid()) continue;
+            // toUTC() rather than setTimeZone(): the stored form carries a
+            // trailing Z so it parses as UTC already, and toUTC() is a
+            // no-op there while setTimeZone() would reinterpret the wall
+            // clock if that ever stopped being true.
+            occ.append({ dt.toUTC(), s.mid(sep + 1).toDouble() });
+        }
+        setParanOccurrences(occ);
+    }
+
+    if (m.contains(QStringLiteral("paranOccurrenceLabels"))) {
+        setParanOccurrenceLabels(
+            m.value(QStringLiteral("paranOccurrenceLabels")).toStringList());
+    }
+}
+
+/*static*/
+void
+AstroFile::writeDerivation(QSettings&         s,
+                           const QString&     prefix,
+                           const QVariantMap& m)
+{
+    for (const QString& k : derivationKeys()) {
+        if (m.contains(k)) s.setValue(prefix + k, m.value(k));
+        else               s.remove(prefix + k);
+    }
+}
+
+/*static*/
+QVariantMap
+AstroFile::readDerivation(const QSettings& s, const QString& prefix)
+{
+    QVariantMap m;
+    for (const QString& k : derivationKeys()) {
+        if (s.contains(prefix + k)) m.insert(k, s.value(prefix + k));
+    }
+    return m;
+}
+
+void
+AstroFile::setDirectedArc(double arc, int system)
+{
+    if (scope.inputData.directedArc() != arc
+        || scope.inputData.directedSystem() != system) {
+        scope.inputData.setDirectedArc(arc, system);
+        recalculate();
+        change(ChangedState);
+    }
+}
+
+void
 AstroFile::clearBaseChart()
 {
+    _baseChartFile = AFileInfo();
     if (scope.inputData.hasBaseChart()) {
         scope.inputData.clearBaseChart();
         recalculate();
@@ -1372,7 +1639,53 @@ AstroFileHandler::calculateSynastryAspects()
     if (!useFocal) {
         _syntheticMidpointPlanets.clear();
         _focalMidpoints.clear();
-        A::setOrbFactor(0.25);
+        // A FOCALIZED primary direction narrows the orb the same way the
+        // focal paths below do (expandShowOrb / harmonicsMaxQOrb) instead of
+        // pruning the body set. Those two levers are normally pulled
+        // together, via a non-empty focalPlanets(), but that is wrong here:
+        // the point of a directed bi-wheel is to see the OTHER close
+        // directed-to-natal interaspects sitting around the event, and
+        // pruning to the event's own pair hides exactly those. So the set
+        // stays whole and only the orb tightens; re-clicking the same cell
+        // unfocalizes and restores the standard synastry orb.
+        //
+        // Keyed on the direction-focus date, which Transits::clickedCell()
+        // stamps on file(0) when focalizing and clears when unfocalizing --
+        // the same state that drives the Directions-table preview. Gated on
+        // one of the pair actually being a directed chart so no other
+        // bi-wheel is affected.
+        const bool pdFocalized =
+            ((file(0) && file(0)->getType() == TypeDerivedPD)
+             || (file(1) && file(1)->getType() == TypeDerivedPD))
+            && file(0) && file(0)->getDirectionFocusDate().isValid();
+        // 0.25 is the standard unfocalized synastry factor. The focal factor
+        // is derived the same way the ecliptic focal paths derive theirs, but
+        // clamped to AT MOST the baseline: harmonicsMaxQOrb() is a
+        // user-editable Harmonics setting, so expandShowOrb/maxQOrb is not
+        // guaranteed to land below 0.25 (a 3-degree secondary orb against a
+        // 4-degree max-Q orb gives 0.75), and focalizing must never LOOSEN
+        // the orb. Worst case it is a no-op rather than backwards.
+        //
+        // PARKED, 2026-09-12: in practice this is usually a no-op, because
+        // expandShowOrb/maxQOrb tends to land at or above the 0.25 baseline
+        // and the clamp then pins it there. Kept because it cannot make
+        // things worse (it can only tighten), and because the remembered
+        // "focalizing tightens the orb" effect in ecliptic mode turns out to
+        // be mostly the PRUNING that accompanies a non-empty focalPlanets(),
+        // not the orb factor. To make this actually bite, give PD its own
+        // factor here instead of borrowing expandShowOrb.
+        //
+        // expandShowOrb must be > 0: unset (Events/secondaryOrb absent) it
+        // reads 0, which would set an orb factor of 0 and silently drop
+        // EVERY aspect on a focal click.
+        constexpr qreal kSynastryOrbFactor = 0.25;
+        const qreal maxQ   = A::harmonicsMaxQOrb();
+        const qreal expOrb = A::EventOptions::current().expandShowOrb;
+        qreal orbF = kSynastryOrbFactor;
+        if (pdFocalized && maxQ > 0.0 && expOrb > 0.0) {
+            orbF = std::min(expOrb / maxQ, kSynastryOrbFactor);
+        }
+        A::setOrbFactor(orbF);
         return A::calculateAspects(file(0)->getAspectSet(),
                                    _pvRelocFileIndex == 0
                                        ? _pvRelocPlanets
