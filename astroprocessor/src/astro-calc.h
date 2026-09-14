@@ -1129,6 +1129,18 @@ class AspectFinder : public QObject, public EventOptions {
         int                                 nsecs;
 
         std::map<HarmonicPlanetSet, JDateRangeTasks> inOrb;
+
+        // Pairs that left orb during this timestep, awaiting flush.  The
+        // entry stays in `inOrb` until findAspects() has had its look at
+        // the same [pjd, jd] interval -- the perfection can fall inside
+        // the very step that took the pair out of orb, and closing the
+        // range before that would strand the exact hit (it would enqueue
+        // untracked) while the range itself got logged as never having
+        // perfected, yielding two events for one aspect.  Value is the
+        // task count at close time, so the flush can tell whether the
+        // perfection was found in that final step.
+        std::map<HarmonicPlanetSet, size_t>          closing;
+
         std::map<HarmonicPlanetSet, JDateRangeHits>  proximityLog;
         std::map<unsigned, PlanetClusterMap>         starts;
         std::map<unsigned, PlanetClusterMap>         work;
@@ -1227,6 +1239,7 @@ class AspectFinder : public QObject, public EventOptions {
                        std::unique_ptr<PlanetProfile>& useProf);
     void findExactPatterns(AspectSearchState& state);
     void findTransitPairs(AspectSearchState& state);
+    void flushClosedRanges(AspectSearchState& state);
     void findAspects(AspectSearchState& state, modalize<bool>& mum);
     void findRemainingAspects(AspectSearchState& state);
 

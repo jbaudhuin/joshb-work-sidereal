@@ -11926,20 +11926,16 @@ AspectFinder::findTransitPairs(AspectSearchState& state)
                         hasit->second.addTask(r);
                     }
 
-                    if (hasit->second.tasks.empty()) {
-                        state.proximityLog[hasit->first].emplace(hasit->second,
-                                                                  0);
-                    } else if (!skippable(hasit->second.range, it->et)) {
-                        for (auto r : hasit->second.tasks) {
-                            r->setInOrbRange(hasit->second.range);
-                            _tp->start(r);
-                        }
-                    } else {
-                        for (auto r : hasit->second.tasks) {
-                            delete r;
-                        }
-                        hasit->second.tasks.clear();
-                    }
+                    // Don't dispose of the range yet: findAspects() runs
+                    // after us on this same [pjd, jd] interval, and the
+                    // perfection may well sit inside it (the delta can go
+                    // from just inside the orb to well outside it in one
+                    // step, especially at higher harmonics, where it moves
+                    // h times as fast).  Mark it closing and let
+                    // flushClosedRanges() settle it once findAspects() has
+                    // had its chance to attach the exact-hit task.
+                    state.closing[hasit->first] = hasit->second.tasks.size();
+
                     // if (!st_quiet)
                     qDebug() << QString("Found H%1 range of %2 "
                                         "at "
@@ -11953,7 +11949,6 @@ AspectFinder::findTransitPairs(AspectSearchState& state)
                                     .arg(dtToString(state.d))
                                     .toStdString()
                                     .c_str();
-                    state.inOrb.erase(hasit);
                 }
             }
             if (isInOrb) {
@@ -11974,6 +11969,41 @@ AspectFinder::findTransitPairs(AspectSearchState& state)
                  << "yield=" << (totalPairsChecked > 0 ? (100.0 * totalInOrbFound / totalPairsChecked) : 0) << "%";
         totalPairsChecked = totalInOrbFound = 0;
     }
+}
+
+/// Settle the in-orb ranges that findTransitPairs() marked as closing this
+/// timestep, now that findAspects() has had its look at the same interval
+/// and attached any exact-hit task it found there.
+void
+AspectFinder::flushClosedRanges(AspectSearchState& state)
+{
+    for (const auto& [hps, tasksAtClose] : state.closing) {
+        auto hit = state.inOrb.find(hps);
+        if (hit == state.inOrb.end()) continue;
+
+        auto& jrt = hit->second;
+        if (jrt.tasks.size() > tasksAtClose) {
+            // The perfection landed in the step that took the pair out of
+            // orb.  Carry the range end forward to the first out-of-orb
+            // sample so the event it is about to produce falls inside its
+            // own range.
+            jrt.range.second = state.jd;
+        }
+
+        if (jrt.tasks.empty()) {
+            state.proximityLog[hps].emplace(jrt, 0);
+        } else if (!skippable(jrt.range, hps.eventType)) {
+            for (auto r : jrt.tasks) {
+                r->setInOrbRange(jrt.range);
+                _tp->start(r);
+            }
+        } else {
+            for (auto r : jrt.tasks) delete r;
+        }
+        jrt.tasks.clear();
+        state.inOrb.erase(hit);
+    }
+    state.closing.clear();
 }
 
 void
@@ -12419,8 +12449,6 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
                 constexpr int digits = std::numeric_limits<double>::digits;
 
                 double minJD, minSep;
-                bool   usedNewtonRaphson =
-                    false; // Track if N-R was used for perfect aspect marking
 
                 // If we never found a sign change (Case 1), skip Newton-Raphson
                 // and go straight to Brent minimization
@@ -12448,8 +12476,8 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
                         // Compute positions at the found minimum, then get
                         // separation
                         profile->computePos(minJD, h);
-                        minSep = PlanetProfile::computeDelta(profile[0],
-                                                             profile[1],
+                        minSep = PlanetProfile::computeDelta((*profile)[0],
+                                                             (*profile)[1],
                                                              h)
                                      .first;
 
@@ -12488,7 +12516,6 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
                             minSep = -1; // Force fallback to Brent
                         } else if (goodSeparation) {
                             // Found perfection (separation close to zero)
-                            usedNewtonRaphson = true;
                             if (!st_quiet) {
                                 qDebug()
                                     << "Newton-Raphson found perfection"
@@ -12505,8 +12532,6 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
                             // Not at boundary - Newton-Raphson found valid
                             // minimum (just not perfect) Keep this result as an
                             // imperfect aspect
-                            usedNewtonRaphson =
-                                true; // Mark as used for event creation
                             if (!st_quiet) {
                                 qDebug()
                                     << "Newton-Raphson found imperfect minimum"
@@ -12673,8 +12698,13 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
 
                 QMutexLocker ml(_evs.mutex());
 
-                bool perfect = usedNewtonRaphson
-                               || (std::abs(minSep) < goodSeparationThreshold);
+                // minSep was just recomputed at minJD, so judge the event on
+                // that alone.  Having reached here via Newton-Raphson says
+                // nothing about whether the aspect actually perfected -- the
+                // "imperfect minimum" branch gets here too -- and claiming
+                // perfection zeroes the orb, which is how the table tells an
+                // exact hit from a closest approach.
+                bool perfect = std::abs(minSep) < goodSeparationThreshold;
                 auto& ev = _evs.emplace_back(dateTimeFromJulian(minJD),
                                              hps.eventType,
                                              h,
@@ -13241,6 +13271,12 @@ AspectFinder::findAspectsAndPatterns()
             aspectFindingMs = aspectTimer.elapsed();
         } // if includeTransits
 
+        // Settle any range findTransitPairs() closed this step; findAspects()
+        // has now had its look at the same interval.  Unconditional: the
+        // block above can be skipped (empty _staff), and a marked range must
+        // never survive into the next timestep.
+        if (!state.closing.empty()) flushClosedRanges(state);
+
         qint64 totalLoopMs = loopTimer.elapsed();
 
         static int iterCount = 0;
@@ -13305,7 +13341,11 @@ AspectFinder::findAspectsAndPatterns()
         if (e.planets().size() != 2) return;
         if (e.range().first != QDateTime()) return;
 
-        HarmonicPlanetSet hps { e.harmonic(), e.planets() };
+        // The eventType is part of HarmonicPlanetSet's ordering, so it has
+        // to be supplied here -- defaulting it to etcUnknownEvent misses
+        // every logged range, which both left events unframed and let
+        // findRemainingAspects() re-report a range that already perfected.
+        HarmonicPlanetSet hps { e.harmonic(), e.planets(), e.eventType() };
         auto              lit = state.proximityLog.find(hps);
         if (lit == state.proximityLog.end()) return;
 
@@ -13316,11 +13356,15 @@ AspectFinder::findAspectsAndPatterns()
         auto  rit    = std::make_reverse_iterator(it);
         while (rit != ranges.rend() && rit->first.first <= jd) {
             if (rit->first.second >= jd) {
-                if (e.range() != ADateTimeRange()) {
+                if (e.range() == ADateTimeRange()) {
                     e.setRange({ dateTimeFromJulian(rit->first.first),
                                  dateTimeFromJulian(rit->first.second) });
                 }
-                rit->second++;
+                // Only the sequential pre-pass (prep == false) bumps the hit
+                // count: it's read by findRemainingAspects(), which runs
+                // between the two passes, and the second pass is a concurrent
+                // map over _evs, where this would be a data race.
+                if (!prep) rit->second++;
                 break;
             }
             ++rit;
