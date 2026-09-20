@@ -5229,6 +5229,11 @@ Transits::clickedCell(QModelIndex inx)
                 taf->setDrawFocalExpand(aw->focalExpand());
                 taf->setDrawOverrideAspectSet(aw->overrideAspectSet());
                 taf->resumeUpdate();
+
+                // Clear unsaved state since this is a generated chart from an
+                // event (same as the generic branch below)
+                taf->clearUnsavedState();
+
                 emit updateSecond(taf);
             }
         }
