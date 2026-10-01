@@ -286,6 +286,23 @@ qreal relocalizedMundanePos(const Star&      body,
                             const Horoscope& bodyScope,
                             const Horoscope& refScope);
 
+struct AngularStarHit {
+    int   angle       = -1; ///< Star::angleTransitMode matched, or -1
+    qreal gap         = 0;  ///< signed RA-time gap; > 0 = angle already passed
+    int   circumpolar = 0;  ///< +1 never sets, -1 never rises, 0 rises & sets
+};
+
+/// Whether `star` (from `starScope`) is on an angle of `refScope`: the
+/// Star::angleTransitMode (atAsc/atDesc/atMC/atIC) it is closest to within
+/// `orbDeg`. The orb is a time gap in RA degrees (1° = 4 min), the same unit
+/// as paranOrb, so it is independent of the mundane house system. Asc/Desc
+/// are skipped for a star that never crosses the horizon at refScope's
+/// latitude; `circumpolar` says which way it fails to.
+AngularStarHit angularStarAngle(const Star&      star,
+                                const Horoscope& starScope,
+                                const Horoscope& refScope,
+                                double           orbDeg);
+
 /// Where a point lying ON the ecliptic at `zodiacLon` should be drawn on the
 /// chart wheel in the given frame. `zodiacLon` is in the chart's OWN zodiac
 /// frame -- the same frame ZodiacSign::startAngle/endAngle are stored in --

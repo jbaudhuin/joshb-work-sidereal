@@ -98,6 +98,8 @@ private:
     bool includeAsteroids;
     bool includeCentaurs;
     bool displayDeclination;
+    bool showAngularStars = false;    // mundane mode: show stars on the anchor's angles
+    double _angularStarOrb = 1.0;     // mirrors Mundane/paranOrb (RA-time degrees)
 
     // Aspect Range Navigator animation tuning (lives in the Chart settings tab).
     int  _animDurationMs = 10000; // continuous playback: traverse a range in this
@@ -185,6 +187,9 @@ private:
     /// Wheel angle for a body in PV display mode: relocalized into the
     /// reference file's frame for biwheels (per circleStart), else raw pvPos.
     qreal displayPvPos(const A::Star& b, int fileIndex);
+    /// File whose angles define "angular" for the angular-stars overlay, or
+    /// -1 when the overlay doesn't apply (off, non-mundane, 0 Aries, PD).
+    int angularStarAnchor();
     const QPen& aspectPen(const A::Aspect& asp);
     const QPen& planetMarkerPen(const A::Planet& p, int fileIndex);
     QColor planetColor(const A::Planet& p, int fileIndex);

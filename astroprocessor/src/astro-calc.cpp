@@ -602,16 +602,14 @@ exprecess_equatorial(double ra_t1_deg,
         jd_t1, jd_t2, dt_days);
 }
 
-qreal
-relocalizedMundanePos(const Star&      body,
-                      const Horoscope& bodyScope,
-                      const Horoscope& refScope)
+// A body's (RA, Dec) carried to refScope's epoch, in refScope's equatorial
+// frame. Shared by relocalizedMundanePos() and angularStarAngle(); the caller
+// must already have checked tropicalEclipticPos.x() >= 0.
+static ExprecessedEquatorial
+equatorialAtRefEpoch(const Star&      body,
+                     const Horoscope& bodyScope,
+                     const Horoscope& refScope)
 {
-    // Angles and house cusps never get a tropical ecliptic position
-    // (calculateAll hardcodes their pvPos instead), so there is nothing to
-    // re-project -- same guard the body-relocalization path has always used.
-    if (body.tropicalEclipticPos.x() < 0.0) return body.pvPos;
-
     const double lon = body.tropicalEclipticPos.x();
     const double lat = body.tropicalEclipticPos.y();
 
@@ -634,7 +632,20 @@ relocalizedMundanePos(const Star&      body,
                                         bodyScope.inputData.calendarType());
     const double jdRef  = getJulianDate(refScope.inputData.GMT(), false,
                                         refScope.inputData.calendarType());
-    const auto ep = exprecess_equatorial(ra, dec, lon, lat, jdBody, jdRef);
+    return exprecess_equatorial(ra, dec, lon, lat, jdBody, jdRef);
+}
+
+qreal
+relocalizedMundanePos(const Star&      body,
+                      const Horoscope& bodyScope,
+                      const Horoscope& refScope)
+{
+    // Angles and house cusps never get a tropical ecliptic position
+    // (calculateAll hardcodes their pvPos instead), so there is nothing to
+    // re-project -- same guard the body-relocalization path has always used.
+    if (body.tropicalEclipticPos.x() < 0.0) return body.pvPos;
+
+    const auto ep = equatorialAtRefEpoch(body, bodyScope, refScope);
 
     // eps=0 makes swe_house_pos's internal ecliptic->equatorial step an
     // identity, so (RA, Dec) is read straight through -- same trick
@@ -649,6 +660,55 @@ relocalizedMundanePos(const Star&      body,
     // swe reports the North Node position for both nodes
     if (body.id == Planet_SouthNode) pos = swe_degnorm(pos + 180.);
     return pos;
+}
+
+AngularStarHit
+angularStarAngle(const Star&      star,
+                 const Horoscope& starScope,
+                 const Horoscope& refScope,
+                 double           orbDeg)
+{
+    AngularStarHit hit;
+    if (star.tropicalEclipticPos.x() < 0.0) return hit;
+
+    const auto   ep   = equatorialAtRefEpoch(star, starScope, refScope);
+    const double ramc = refScope.houses.RAMC;
+    const double phi  = refScope.inputData.location().y();
+
+    // Each angle is expressed as the RAMC at which the star sits on it, so
+    // the gap to the actual RAMC is a time gap in RA degrees (1 deg = 4 min),
+    // the unit paranOrb is measured in.
+    double ramcAt[Star::numAngles];
+    bool   valid[Star::numAngles] = { false, false, true, true };
+    ramcAt[Star::atMC] = ep.ra;
+    ramcAt[Star::atIC] = ep.ra + 180.0;
+
+    // Ascensional difference. |tan(phi)*tan(dec)| >= 1 means the star never
+    // crosses the horizon at this latitude (circumpolar or never rises), so
+    // it can only be angular on the meridian. Guarding here also keeps asind
+    // from producing NaN (see calculateStar's circumpolar handling).
+    const double tt = std::tan(phi * M_PI / 180.0) * std::tan(ep.dec * M_PI / 180.0);
+    if (std::isfinite(tt) && std::abs(tt) < 1.0) {
+        const double ad = std::asin(tt) * 180.0 / M_PI;
+        ramcAt[Star::atAsc]  = ep.ra - ad - 90.0;
+        ramcAt[Star::atDesc] = ep.ra + ad + 90.0;
+        valid[Star::atAsc] = valid[Star::atDesc] = true;
+    } else if (std::isfinite(tt)) {
+        // Same hemisphere as the observer: always up. Opposite: never up.
+        hit.circumpolar = (ep.dec * phi > 0) ? 1 : -1;
+    }
+
+    qreal bestOrb = orbDeg;
+    for (int m = 0; m < Star::numAngles; ++m) {
+        if (!valid[m]) continue;
+        const qreal gap = swe_difdeg2n(ramc, swe_degnorm(ramcAt[m]));
+        if (std::abs(gap) <= bestOrb) {
+            bestOrb   = std::abs(gap);
+            hit.angle = m;
+            hit.gap   = gap;
+        }
+    }
+    return hit;
 }
 
 // ------------------------------------------------------------

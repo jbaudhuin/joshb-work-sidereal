@@ -209,6 +209,12 @@ public:
     QColor getChartMidpointColor() const;
 
     /**
+     * @brief Get the tint for fixed-star glyphs shown because they are angular
+     *        (rising/culminating/setting/anticulminating) in mundane mode
+     */
+    QColor getChartAngularStarColor() const;
+
+    /**
      * @brief Get the HTML export CSS file path for a specific theme
      * @param theme Theme to get export CSS for (defaults to current theme)
      * @return Path to the CSS file for HTML export

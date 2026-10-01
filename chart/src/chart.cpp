@@ -778,6 +778,21 @@ Chart::displayPvPos(const A::Star& b, int fileIndex)
     return b.pvPos;
 }
 
+int
+Chart::angularStarAnchor()
+{
+    if (!showAngularStars) return -1;
+    if (A::aspectModeForChartDraw() != A::amcPrimeVertical) return -1;
+    // 0 Aries has no anchoring chart, so there are no axes to be angular to.
+    if (circleStart == Start_ZeroDegree) return -1;
+    // A PD chart moves its bodies against a held-still frame, while the
+    // angularity test reads natal tropicalEclipticPos against houses.RAMC;
+    // the two framings don't combine meaningfully, so leave PD out for now.
+    for (int i = 0; i < filesCount(); ++i)
+        if (file(i) && file(i)->getType() == TypeDerivedPD) return -1;
+    return (circleStart == Start_Outer_Ascendant && filesCount() > 1) ? 1 : 0;
+}
+
 void
 Chart::updatePlanetsAndCusps(int fileIndex)
 {
@@ -836,14 +851,18 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     };
 
     auto rotate = circle->rotation();
-    auto repose = [&](auto b,
-                      bool hide) -> std::pair<QGraphicsItem*, QGraphicsItem*> {
+    // pvOverride (PV mode only, when finite) replaces the computed mundane
+    // position -- see the circumpolar angular-star case below.
+    auto repose = [&](auto b, bool hide,
+                      qreal pvOverride = qQNaN())
+        -> std::pair<QGraphicsItem*, QGraphicsItem*> {
         qreal angle = 0.0;
         switch (A::aspectModeForChartDraw()) {
         case A::amcEcliptic:      angle = b.eclipticPos.x(); break;
         case A::amcEquatorial:    angle = b.equatorialPos.x(); break;
         case A::amcPrimeVertical:
-            angle = displayPvPos(b, fileIndex);
+            angle = qIsFinite(pvOverride) ? pvOverride
+                                          : displayPvPos(b, fileIndex);
             break;
         default:                  hide = true; break;
         }
@@ -920,6 +939,15 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         }
     }
 
+    // Angular-stars overlay (mundane mode): stars on the anchor chart's
+    // Asc/MC/Desc/IC, drawn on the anchor ring only -- the other ring's stars
+    // differ just by precession and would duplicate them.
+    const int anchorIdx = angularStarAnchor();
+    static const char* const angleVerb[A::Star::numAngles] = {
+        QT_TR_NOOP("rising"), QT_TR_NOOP("setting"),
+        QT_TR_NOOP("culminating"), QT_TR_NOOP("anticulminating")
+    };
+
     for (const A::Star& s : file(fileIndex)->horoscope().stars) {
         // Show a star when it's configured with a natal planet OR it's the focal
         // body of the current event — e.g. a clicked heliacal-star event, whose
@@ -929,9 +957,38 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         bool focal = false;
         for (const auto& cpid : file(fileIndex)->focalPlanets())
             if (cpid.planetId() == s.id) { focal = true; break; }
-        bool hide              = !s.isConfiguredWithPlanet() && !focal;
-        std::tie(body, marker) = repose(s, hide);
+        A::AngularStarHit hit;
+        if (fileIndex == anchorIdx)
+            hit = A::angularStarAngle(s, file(fileIndex)->horoscope(),
+                                      file(anchorIdx)->horoscope(),
+                                      _angularStarOrb);
+        const int angle = hit.angle;
+
+        // A star that never crosses the horizon has no Placidean semi-arc, so
+        // SWE falls back to the Otto Ludwig procedure, which squeezes its
+        // whole daily circle into one hemisphere of the wheel: a never-setting
+        // star's lower culmination lands on the horizon (and a never-rising
+        // star's upper culmination likewise). When such a star is matched on
+        // the meridian, draw it on that meridian line, offset by its time gap.
+        // pvPos runs 0=Asc, 90=IC, 180=Desc, 270=MC and decreases with time.
+        qreal pvOverride = qQNaN();
+        if (angle >= 0 && hit.circumpolar != 0
+            && (angle == A::Star::atMC || angle == A::Star::atIC))
+            pvOverride = swe_degnorm(
+                (angle == A::Star::atMC ? 270.0 : 90.0) - hit.gap);
+
+        bool hide = !s.isConfiguredWithPlanet() && !focal && angle < 0;
+        std::tie(body, marker) = repose(s, hide, pvOverride);
         if (hide || !body || !marker) continue;
+
+        // Tint angular stars; reset the others (items persist across updates).
+        // Only the fill changes: the dark outline pen from drawStars() is what
+        // gives the glyph a crisp edge, and a same-colour pen smears it.
+        if (auto* glyph = dynamic_cast<QAbstractGraphicsShapeItem*>(body)) {
+            glyph->setBrush(angle >= 0
+                ? ThemeManager::instance().getChartAngularStarColor()
+                : planetColor(A::Planet(), fileIndex));
+        }
 
         // Emphasize the focal star's "*" glyph: enlarge it and lift it above the
         // other markers so a clicked heliacal star stands out from the ambient
@@ -941,6 +998,14 @@ Chart::updatePlanetsAndCusps(int fileIndex)
 
         QString toolTip = QString("%1 %2").arg(s.name).arg(
             A::zodiacPosition(s, file()->horoscope().zodiac, A::HighPrecision));
+        if (angle >= 0) {
+            toolTip += QString(" — %1 (%2°)")
+                           .arg(tr(angleVerb[angle]))
+                           .arg(std::abs(hit.gap), 0, 'f', 2);
+            // NS = never sets (circumpolar), NR = never rises, at this latitude
+            if (hit.circumpolar > 0)      toolTip += tr(" (NS)");
+            else if (hit.circumpolar < 0) toolTip += tr(" (NR)");
+        }
         body->setToolTip(toolTip);
         marker->setToolTip(toolTip);
         circle->setHelpTag(body, s.name);
@@ -2605,6 +2670,7 @@ Chart::defaultSettings()
     s.setValue("Circle/includeAsteroids", true);
     s.setValue("Circle/includeCentaurs", true);
     s.setValue("Circle/displayDeclination", true);
+    s.setValue("Circle/showAngularStars", false);
     s.setValue("Circle/animationDurationSec", 10);
     s.setValue("Circle/slideMs", 600);
     return s;
@@ -2624,6 +2690,7 @@ Chart::currentSettings()
     s.setValue("Circle/includeAsteroids", includeAsteroids);
     s.setValue("Circle/includeCentaurs", includeCentaurs);
     s.setValue("Circle/displayDeclination", displayDeclination);
+    s.setValue("Circle/showAngularStars", showAngularStars);
     s.setValue("Circle/animationDurationSec", _animDurationMs / 1000);
     s.setValue("Circle/slideMs", _slideMs);
     return s;
@@ -2643,6 +2710,11 @@ Chart::applySettings(const AppSettings& s)
     includeCentaurs  = s.value("Circle/includeCentaurs").toBool();
     displayDeclination = s.value("Circle/displayDeclination").toBool();
     declView->setVisible(displayDeclination);
+    showAngularStars = s.value("Circle/showAngularStars", false).toBool();
+    // Angular-star orb reuses the paran orb. Guarded like primDirSystem
+    // below: a partial settings map must not reset it to the default.
+    if (s.contains("Mundane/paranOrb"))
+        _angularStarOrb = s.value("Mundane/paranOrb", 1.0).toDouble();
     _animDurationMs =
         qMax(1, s.value("Circle/animationDurationSec", 10).toInt()) * 1000;
     _slideMs = qBound(0, s.value("Circle/slideMs", 600).toInt(), 3000);
@@ -2693,6 +2765,8 @@ Chart::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addControl("Circle/includeCentaurs", tr("Display Chiron:"));
     ed->addSpacing(10);
     ed->addControl("Circle/displayDeclination", tr("Display declination graph:"));
+    ed->addControl("Circle/showAngularStars",
+                   tr("Show angular fixed stars (mundane, paran orb):"));
     ed->addSpacing(10);
     ed->addSpinBox("Circle/animationDurationSec",
                    tr("Range animation duration (seconds)"), 1, 120);

@@ -443,6 +443,21 @@ QColor ThemeManager::getChartMidpointColor() const
     }
 }
 
+QColor ThemeManager::getChartAngularStarColor() const
+{
+    switch (m_currentTheme) {
+    case Theme::Light:
+        return QColor(0, 120, 170);   // Deep teal-blue
+
+    case Theme::Printable:
+        return QColor(40, 40, 40);    // Near-black for printing
+
+    case Theme::Dark:
+    default:
+        return QColor(110, 200, 255); // Light sky blue
+    }
+}
+
 QString ThemeManager::getHtmlExportCssPath(Theme theme) const
 {
     QString filename;
