@@ -209,8 +209,14 @@ QToolTip {
 /* =========================== Remove Background Images ====================== */
 
 /* Remove decorative images that waste ink */
-AstroDatabase QLineEdit {
+AstroDatabase QLineEdit#astroDatabaseSearch {
 	background-image: none;
+}
+
+FileTreeView QLineEdit {
+	background-image: none;
+	margin: 0px;
+	padding: 0px 3px;
 }
 
 HelpWidget QPushButton {

@@ -48,17 +48,37 @@ void SpeculumDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
             textColor = ThemeManager::instance().getTableHighlightTextColor();
         }
         
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hovered = option.state & QStyle::State_MouseOver;
+
         // Paint the background
         painter->fillRect(option.rect, bgColor);
-        
+
         // Set up text options
         QStyleOptionViewItem opt = option;
+
+        // The theme stylesheet's QTableWidget::item:selected / ::item:hover rules
+        // repaint the cell with the blue selection wash and light text, which both
+        // muddies the highlight colour and overrides the palette set below. Drop
+        // those states and draw our own selection/hover marker instead.
+        opt.state &= ~(QStyle::State_Selected | QStyle::State_MouseOver);
         opt.palette.setColor(QPalette::Text, textColor);
         opt.palette.setColor(QPalette::HighlightedText, textColor);
-        
+        opt.backgroundBrush = Qt::NoBrush;
+
         // Paint the text/content on top
         QStyledItemDelegate::paint(painter, opt, index);
-        
+
+        if (selected || hovered) {
+            QColor marker = textColor;
+            marker.setAlpha(selected ? 200 : 110);
+            painter->setPen(QPen(marker, selected ? 2.0 : 1.0));
+            painter->setBrush(Qt::NoBrush);
+            const qreal inset = selected ? 1.0 : 0.5;
+            painter->drawRect(QRectF(option.rect).adjusted(inset, inset,
+                                                           -inset, -inset));
+        }
+
         painter->restore();
     } else {
         // Normal cell - use default painting

@@ -402,33 +402,52 @@ QToolButton[objectName="transitBtnWide"] {
 	font-size: 10px;
 }
 
-/* Status-bar aspect-mode modifiers (GC, PV).  Coexist visually with the
-   nearby QComboBox controls: flat 4px-radius border, compact padding, and
-   the system highlight color when checked. */
+/* Status-bar aspect-mode modifiers (GC, PV).  These are QToolButtons sitting
+   among the status-bar QComboBoxes, so they take the same flat treatment as
+   "QStatusBar QComboBox" below -- no frame, no fill, transparent background --
+   rather than the chunky framed chrome of the global QToolButton rule. Checked
+   is the only state that fills, in the system highlight color. */
 QToolButton#gcToggle,
 QToolButton#pvToggle {
-	background: #FFFFFF;
-	border: 1px solid #A0A0A0;
-	border-radius: 4px;
-	padding: 3px 6px;
-	margin-bottom: 3px;
-	min-width: 0;
-	color: #000000;
+	border: 0;
+	border-radius: 3px;
+	background: transparent;
+	color: #404040;
 	font: bold 9pt;
+	padding: 0 6px;
+	margin: 0 2px 2px 0;
+	min-width: 0;
 }
 
 QToolButton#gcToggle:hover,
 QToolButton#pvToggle:hover {
-	background: #E8E8E8;
-	border-color: #808080;
+	color: #1A1A1A;
+	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+								stop: 0.0 transparent,
+								stop: 0.9 #C0C0C0,
+								stop: 1.0 transparent);
+}
+
+/* The global QToolButton:pressed / :checked rules nudge padding, which would
+   make these jump by a pixel; restate the geometry so they stay put. */
+QToolButton#gcToggle:pressed,
+QToolButton#pvToggle:pressed {
+	padding: 0 6px;
+	background: #C0C0C0;
+	color: #1A1A1A;
 }
 
 QToolButton#gcToggle:checked,
 QToolButton#pvToggle:checked {
+	padding: 0 6px;
 	background: palette(highlight);
-	border-color: palette(highlight);
 	color: palette(highlighted-text);
-	padding: 3px 6px;
+}
+
+QToolButton#gcToggle:checked:hover,
+QToolButton#pvToggle:checked:hover {
+	background: palette(highlight);
+	color: palette(highlighted-text);
 }
 
 /* Named aspect-set toggle row (status bar): one icon button per aspect in
@@ -551,7 +570,7 @@ AstroDatabase {
 	background: #F5F5F5;
 }
 
-AstroDatabase QLineEdit {
+AstroDatabase QLineEdit#astroDatabaseSearch {
 	color: #222;
 	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
 								stop: 0.0 #FFFFFF,
@@ -565,7 +584,7 @@ AstroDatabase QLineEdit {
 	padding-left: 16px;
 }
 
-AstroDatabase QLineEdit:focus {
+AstroDatabase QLineEdit#astroDatabaseSearch:focus {
 	color: #000;
 	background-color: #FFFACD;
 	border-color: #DAA520;
@@ -579,6 +598,22 @@ AstroDatabase QPushButton {
 AstroDatabase QPushButton:pressed {
 	padding-top: 3px;
 	padding-left: 3px;
+}
+
+/* Inline rename editor in the chart tree. It lives inside the view's tiny item
+   rect, so it must stay compact: no search-box decoration, no bottom margin
+   from the global QLineEdit rule, and only enough padding to breathe. */
+FileTreeView QLineEdit {
+	background: #FFFFFF;
+	background-image: none;
+	color: #000000;
+	border: 1px solid #2E7AB8;
+	border-radius: 2px;
+	padding: 0px 3px;
+	margin: 0px;
+	min-height: 18px;
+	selection-background-color: #2E7AB8;
+	selection-color: #FFFFFF;
 }
 
 /* =========================== Transits (Events) ============================= */

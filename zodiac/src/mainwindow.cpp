@@ -12,6 +12,7 @@
 #include <QRadialGradient>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QFontMetrics>
 #include <QToolButton>
 
 #include <QFileSystemWatcher>
@@ -1514,6 +1515,20 @@ AstroWidget::addHoroscopeControls()
         tr("Mundane chart display, in the active Primary Direction system "
            "(does not affect events)"));
 
+    // Both toggles are text-only: without saying so, QToolButton sizes itself
+    // for an (absent) icon and the label ends up clipped by the border. Say
+    // so, and reserve the width of the bold label the theme applies, so the
+    // stylesheet padding stays decoration rather than the thing squeezing the
+    // text. Sized like the neighbouring combos -- see QToolButton#gcToggle /
+    // #pvToggle in themes/{dark,light}.qss.
+    for (QToolButton* b : { gcToggle, pvToggle }) {
+        b->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        b->ensurePolished();
+        QFont f = b->font();
+        f.setBold(true);
+        b->setMinimumWidth(QFontMetrics(f).horizontalAdvance(b->text()) + 14);
+    }
+
     for (int i = 1; i <= 16; ++i) {
         harmonicSelector->addItem(QString::number(i));
     }
@@ -2125,6 +2140,9 @@ AstroDatabase::AstroDatabase(QWidget* parent /*=nullptr*/) : QFrame(parent)
     fileList->setModel(searchProxy);
 
     search = new QLineEdit;
+    // Named so the themes can style the search box without also hitting the
+    // inline rename editor that the file tree creates as a child of this frame.
+    search->setObjectName("astroDatabaseSearch");
 
     refresh->setIcon(QIcon("style/update.png"));
     refresh->setToolTip(tr("Refresh"));
