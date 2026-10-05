@@ -215,6 +215,11 @@ public:
     QColor getChartAngularStarColor() const;
 
     /**
+     * @brief Get the tint for heliacal (dawn method) rising/setting star glyphs
+     */
+    QColor getChartHeliacalStarColor() const;
+
+    /**
      * @brief Get the HTML export CSS file path for a specific theme
      * @param theme Theme to get export CSS for (defaults to current theme)
      * @return Path to the CSS file for HTML export

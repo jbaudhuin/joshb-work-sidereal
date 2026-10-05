@@ -6525,8 +6525,23 @@ MainWindow::showAbout()
     l2->setWordWrap(true);
     l2->setTextInteractionFlags(Qt::LinksAccessibleByMouse
                                 | Qt::TextSelectableByMouse);
-    s->addSlide(l);
-    s->addSlide(l2);
+    // Each page scrolls: the credits outgrew the dialog. The scroll areas are
+    // transparent (theme .qss, QScrollArea#aboutScroll) so the about.jpg
+    // background still shows through.
+    auto scrollPage = [](QLabel* page) {
+        QScrollArea* sa = new QScrollArea;
+        sa->setObjectName("aboutScroll");
+        sa->setWidgetResizable(true);
+        sa->setFrameShape(QFrame::NoFrame);
+        sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        sa->setWidget(page);
+        sa->viewport()->setAutoFillBackground(false);
+        page->setAutoFillBackground(false);
+        page->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+        return sa;
+    };
+    s->addSlide(scrollPage(l));
+    s->addSlide(scrollPage(l2));
     s->setTransitionEffect(SlideWidget::Transition_Overlay);
 
     QHBoxLayout* h = new QHBoxLayout;
@@ -6599,7 +6614,14 @@ MainWindow::showAbout()
         "<a style='color:yellow' href='https://www.iconfinder.com/iconsets/Primo_Icons'>www.iconfinder.com/iconsets/Primo_Icons</a></p>"
         "<p><b>Additional Thanks:</b><br>"
         "SymSolon project contributors<br>"
-        "<a style='color:yellow' href='http://sf.net/projects/symsolon'>sf.net/projects/symsolon</a></p>");
+        "<a style='color:yellow' href='http://sf.net/projects/symsolon'>sf.net/projects/symsolon</a></p>"
+        "<p><b>" + tr("Methods &amp; References") + "</b><br>"
+        + tr("The heliacal rising/setting star overlay (dawn method) follows the "
+             "approach described by Bernadette Brady in <i>Brady's Book of Fixed "
+             "Stars</i> (Weiser, 1998). Zodiac Sidereal is an independent "
+             "implementation and is not affiliated with or endorsed by the author; "
+             "its curated star list is the app's own and can be edited.")
+        + "</p>");
 
     connect(l, SIGNAL(linkActivated(QString)), this, SLOT(gotoUrl(QString)));
     connect(l2, SIGNAL(linkActivated(QString)), this, SLOT(gotoUrl(QString)));

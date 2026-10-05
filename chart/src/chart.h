@@ -100,6 +100,12 @@ private:
     bool displayDeclination;
     bool showAngularStars = false;    // mundane mode: show stars on the anchor's angles
     double _angularStarOrb = 1.0;     // mirrors Mundane/paranOrb (RA-time degrees)
+    bool showHeliacalStars = false;   // mundane mode: heliacal (dawn method) rising/setting stars
+    int  _heliacalPool = A::HeliacalPoolCurated; // A::HeliacalStarPool candidates
+    // heliacalDawnStars() result for the anchor chart, keyed on its local
+    // date + location so scrubbing/animation doesn't recompute it per frame.
+    QString          _heliacalKey;
+    A::HeliacalDawnStars _heliacal;
 
     // Aspect Range Navigator animation tuning (lives in the Chart settings tab).
     int  _animDurationMs = 10000; // continuous playback: traverse a range in this
@@ -190,6 +196,11 @@ private:
     /// File whose angles define "angular" for the angular-stars overlay, or
     /// -1 when the overlay doesn't apply (off, non-mundane, 0 Aries, PD).
     int angularStarAnchor();
+    /// Anchor file for the mundane star overlays regardless of which one is
+    /// enabled: -1 outside PV mode, for 0 Aries, or with a PD chart.
+    int starOverlayAnchor();
+    /// Heliacal dawn stars for file(anchorIdx), cached (see _heliacalKey).
+    const A::HeliacalDawnStars& heliacalDawn(int anchorIdx);
     const QPen& aspectPen(const A::Aspect& asp);
     const QPen& planetMarkerPen(const A::Planet& p, int fileIndex);
     QColor planetColor(const A::Planet& p, int fileIndex);

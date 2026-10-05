@@ -2,6 +2,20 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Angular Fixed Stars (mundane mode)**: optional overlay that tints and enlarges the stars rising, culminating, setting or anticulminating on the anchoring chart's angles, using the paran orb. Never-setting/never-rising stars are drawn on the MC/IC line and tagged (NS)/(NR).
+- **Heliacal Rising/Setting Stars (dawn method)**: optional overlay marking the star that most recently rose (set) together with the Sun before the chart's date, with "N days earlier" in the tooltip and a choice of candidate pool (curated list, curated + brighter than mag 2.5, whole catalogue). See `docs/heliacal-dawn-stars.md`.
+- **Curated Star List**: `bin/astroprocessor/curated_stars.csv` names stars that are always loaded whatever their magnitude (e.g. Scheat, Markab); editable.
+
+### Improved
+- **Heliacal Event Search**: an apparition now appears when any of its phases falls in the search range (not only its culmination), so a short window around a date shows the MF/EL inside it; out-of-range phases get no row of their own.
+- **Full Star Names**: event-table copy/report output and event chart names use full fixed-star names instead of ambiguous 3-letter abbreviations.
+
+### Acknowledgements
+- The heliacal rising/setting star method follows the approach described by Bernadette Brady in *Brady's Book of Fixed Stars* (Weiser, 1998). Zodiac Sidereal is an independent implementation and is not affiliated with or endorsed by the author.
+
 ## [0.9.9] - 2026-08-14
 
 ### Added

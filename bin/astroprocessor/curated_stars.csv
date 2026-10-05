@@ -1,0 +1,66 @@
+name;note
+# Curated named fixed stars. Always included in the star catalogue,
+# whatever their magnitude, and the default candidates for the heliacal
+# (dawn method) rising/setting star. Edit freely to your own selection.
+# Names must match bin/swe/sefstars.txt; a misspelt name
+# is logged at startup. Lines starting with # are ignored.
+Achernar
+Acrux
+Acubens
+Aculeus
+Acumen
+Agena
+Albireo
+Alcyone
+Aldebaran
+Alderamin
+Algol
+Alhena
+Alkes
+Alnilam
+Alphard
+Alphecca
+Alpheratz
+Al Rescha
+Altair
+Ankaa
+Antares
+Arcturus
+Asellus Borealis
+Asellus Australis
+Bellatrix
+Betelgeuse
+Canopus
+Capella
+Castor
+Deneb Adige
+Deneb Algedi
+Denebola
+Diadem
+Dubhe
+Facies
+Fomalhaut
+Hamal
+Markab
+Menkar
+Mirach
+Mirfak
+Murzims
+Pollux
+Procyon
+Ras Algethi
+Rasalhague
+Regulus
+Rigel
+Rigel Kentaurus
+Sadalmelik
+Sadalsuud
+Scheat
+Sirius
+Spica
+Thuban
+Vega
+Vindemiatrix
+Zosma
+Zuben Elgenubi
+Zuben Eschamali

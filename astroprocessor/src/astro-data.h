@@ -548,6 +548,7 @@ struct Star {
     QString                 name;
     QString                 constellation;  // 3-letter IAU abbrev (e.g. "CMa")
     QString                 bayer;          // raw SE nomenclature (e.g. "alTau")
+    bool                    curated = false;  // in curated_stars.csv (always-included named stars)
     int                     sweFlags;
     PlanetId                configuredWithPlanet;
     QMap<QString, QVariant> userData;
@@ -1303,8 +1304,11 @@ class PlanetSet : public std::set<ChartPlanetModeId> {
                                          [](auto& p) { return p.first > 0; });
 
         for (const ChartPlanetModeId& cpid : *this) {
-            auto name = cpid.isMidpt() ? cpid.name()
-                                       : cpid.name().left(3);
+            // Fixed stars keep their full name: many share a 3-letter
+            // prefix (Al Pherg/Alphard, Kaus *, Sadal*, Zuben*).
+            auto name = (cpid.isMidpt() || cpid.planetId() >= Stars_Start)
+                            ? cpid.name()
+                            : cpid.name().left(3);
             if (cpid.fileId() == 0 && hasOtherChart) res << name + "-r";
             else
                 res << name;
@@ -2479,6 +2483,7 @@ class HarmonicEvent : public HarmonicAspect {
     QStringList _occurrenceLabels; ///< optional per-occurrence phase labels (apparitions); empty for parans
     QVector<qreal> _occurrenceLons; ///< optional per-occurrence body longitude (apparitions); 1:1 with occurrences
     QVector<qreal> _occurrenceSpeeds; ///< optional per-occurrence body speed (apparitions); 1:1 with occurrences
+    QVector<bool>  _occurrenceInRange; ///< optional: occurrence falls inside the search range (apparitions); 1:1 with occurrences
 
   public:
     HarmonicEvent(const QDateTime&     dt,
@@ -2559,6 +2564,8 @@ class HarmonicEvent : public HarmonicAspect {
     // occurrences(). Lets a decomposed phase row show its own retrograde state.
     const QVector<qreal>& occurrenceSpeeds() const { return _occurrenceSpeeds; }
     void setOccurrenceSpeeds(QVector<qreal> s) { _occurrenceSpeeds = std::move(s); }
+    const QVector<bool>& occurrenceInRange() const { return _occurrenceInRange; }
+    void setOccurrenceInRange(QVector<bool> r) { _occurrenceInRange = std::move(r); }
 
     HarmonicAspects&       coincidences() { return _coincidences; }
     const HarmonicAspects& coincidences() const { return _coincidences; }

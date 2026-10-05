@@ -458,6 +458,21 @@ QColor ThemeManager::getChartAngularStarColor() const
     }
 }
 
+QColor ThemeManager::getChartHeliacalStarColor() const
+{
+    switch (m_currentTheme) {
+    case Theme::Light:
+        return QColor(190, 90, 0);    // Burnt orange (dawn)
+
+    case Theme::Printable:
+        return QColor(90, 90, 90);    // Mid-gray for printing
+
+    case Theme::Dark:
+    default:
+        return QColor(255, 170, 70);  // Dawn amber
+    }
+}
+
 QString ThemeManager::getHtmlExportCssPath(Theme theme) const
 {
     QString filename;

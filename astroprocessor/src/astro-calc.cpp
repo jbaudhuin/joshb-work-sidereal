@@ -711,6 +711,97 @@ angularStarAngle(const Star&      star,
     return hit;
 }
 
+HeliacalDawnStars
+heliacalDawnStars(const Horoscope& scope, HeliacalStarPool pool)
+{
+    HeliacalDawnStars res;
+    const InputData& in = scope.inputData;
+    double geopos[3] = { in.location().x(), in.location().y(), in.location().z() };
+    char   serr[AS_MAXCH];
+    double tret[10];
+
+    // Local calendar date of the chart, and its local midnight in UT.
+    const QDateTime localDt = in.GMT().addSecs(qint64(in.tz() * 3600.0));
+    const QDateTime localMidnightAsUtc(localDt.date(), QTime(0, 0), QTimeZone::UTC);
+    const double jdMidnight = getJulianDate(localMidnightAsUtc) - in.tz() / 24.0;
+
+    // Sunrise on the local day `back` days before the chart's; < 0 if none
+    // (polar day/night).
+    auto sunriseOn = [&](int back) -> double {
+        const double mid = jdMidnight - back;
+        if (swe_rise_trans(mid, SE_SUN, nullptr, SEFLG_SWIEPH, SE_CALC_RISE,
+                           geopos, 1013.25, 10, tret, serr) < 0
+            || tret[0] - mid > 1.0)
+            return -1.0;
+        return tret[0];
+    };
+    // How long (days, in (0, 1]) before `sunrise` the star last rose (set);
+    // < 0 if it never does (circumpolar / never rises).
+    auto leadBefore = [&](const QString& name, int rsmi, double sunrise) -> double {
+        char nameBuf[AS_MAXCH];
+        qstrncpy(nameBuf, name.toLatin1().constData(), sizeof(nameBuf));
+        // A star rises (sets) once a sidereal day, so one search from
+        // sunrise-1d finds the only event in the day before sunrise.
+        if (swe_rise_trans(sunrise - 1.0, -1, nameBuf, SEFLG_SWIEPH, rsmi,
+                           geopos, 1013.25, 10, tret, serr) < 0)
+            return -1.0;
+        const double lead = sunrise - tret[0];
+        return (lead > 0.0 && lead <= 1.0) ? lead : -1.0;
+    };
+
+    const double sunrise = sunriseOn(0);
+    if (sunrise < 0) return res;
+
+    // The heliacal rising (setting) star is the one that most recently rose
+    // (set) together with the Sun, i.e. the last to rise (set) before sunrise
+    // on the birth morning. Deliberately no twilight-visibility test: checked
+    // against published reference charts (Winona MN 1963-06-16: Aldebaran /
+    // Arcturus; Otwock PL 1986-09-20: Alphard / Sadalmelik+Sualocin), the
+    // candidate ordering by plain "last before sunrise" matches, whereas a
+    // magnitude arcus visionis picks Alcyone/Antares for Winona.
+    double bestRise = 2.0, bestSet = 2.0; // smallest lead wins
+    for (const Star& s : scope.stars) {
+        if (pool == HeliacalPoolCurated && !s.curated) continue;
+        if (pool == HeliacalPoolCuratedBright && !s.curated) {
+            char nameBuf[AS_MAXCH];
+            double mag = 99.0;
+            qstrncpy(nameBuf, s.name.toLatin1().constData(), sizeof(nameBuf));
+            if (swe_fixstar_mag(nameBuf, &mag, serr) == ERR || mag >= 2.5) continue;
+        }
+        for (int rsmi : { SE_CALC_RISE, SE_CALC_SET }) {
+            const double lead = leadBefore(s.name, rsmi, sunrise);
+            if (lead < 0) continue;
+            if (rsmi == SE_CALC_RISE && lead < bestRise) {
+                bestRise = lead; res.risingStar = s.name; res.riseJd = sunrise - lead;
+            } else if (rsmi == SE_CALC_SET && lead < bestSet) {
+                bestSet = lead; res.settingStar = s.name; res.setJd = sunrise - lead;
+            }
+        }
+    }
+
+    // How many days earlier the winner rose (set) WITH the Sun: walk back a
+    // day at a time until the lead wraps (the star's event moves to the far
+    // side of sunrise), interpolating the crossing between the two days.
+    auto daysSince = [&](const QString& name, int rsmi, double lead0) -> double {
+        double prev = lead0;
+        for (int back = 1; back <= 120; ++back) {
+            const double sr = sunriseOn(back);
+            if (sr < 0) return -1.0;
+            const double lead = leadBefore(name, rsmi, sr);
+            if (lead < 0) return -1.0;
+            if (lead > prev) // wrapped: the crossing lies between back-1 and back
+                return (back - 1) + prev / (prev + (1.0 - lead));
+            prev = lead;
+        }
+        return -1.0;
+    };
+    if (!res.risingStar.isEmpty())
+        res.riseDaysEarlier = daysSince(res.risingStar, SE_CALC_RISE, bestRise);
+    if (!res.settingStar.isEmpty())
+        res.setDaysEarlier = daysSince(res.settingStar, SE_CALC_SET, bestSet);
+    return res;
+}
+
 // ------------------------------------------------------------
 // Legacy wrappers (kept for backward compatibility)
 // ------------------------------------------------------------
@@ -10754,9 +10845,11 @@ AspectFinder::findHeliacalEvents()
     char   serr[AS_MAXCH];
 
     // Search a padded window so an apparition straddling the range boundary
-    // still pairs. The pad need only cover an anchor-to-far-bracket span (~half
-    // an apparition), so ~200d is ample; keeping it small keeps short-range
-    // queries cheap (the phase search cost scales with the window).
+    // still pairs. This default (~half an apparition) serves the Mercury/Venus
+    // elongation scan. The MF/EL phase searches (collectPhases) take their own,
+    // wider pad: an apparition is emitted when ANY of its stops is in range,
+    // so an MF inside the range must still find an EL up to a whole apparition
+    // (~1 yr for stars/Jupiter/Saturn, ~2 yr for Mars) beyond it.
     const double pad      = 200.0;
     const double extStart = rangeStartJd - pad;
     const double extEnd   = rangeEndJd + pad;
@@ -10764,7 +10857,10 @@ AspectFinder::findHeliacalEvents()
     // ---- swe phase search: collect all phase moments for one object ----------
     struct PhaseHit { double markJd, beginJd, endJd; int te; };
     auto collectPhases = [&](const char* objName,
-                             std::initializer_list<int> teList) -> QVector<PhaseHit> {
+                             std::initializer_list<int> teList,
+                             double phasePad) -> QVector<PhaseHit> {
+        const double extStart = rangeStartJd - phasePad;
+        const double extEnd   = rangeEndJd + phasePad;
         QVector<PhaseHit> hits;
         char nameBuf[AS_MAXCH];
         for (int te : teList) {
@@ -10919,7 +11015,15 @@ AspectFinder::findHeliacalEvents()
             const std::function<PlanetLoc(double)>& makePayload) {
         double anchorJd = -1.0;
         for (const auto& s : stops) if (s.anchor) { anchorJd = s.jd; break; }
-        if (anchorJd < rangeStartJd || anchorJd > rangeEndJd) return;
+        // Emit when ANY stop falls in the search range, not just the anchor:
+        // a short window around a birth date must still show the MF/EL that
+        // fall inside it, though their apparition culminates months away.
+        auto inRange = [&](double jd) {
+            return jd >= rangeStartJd && jd <= rangeEndJd;
+        };
+        if (std::none_of(stops.begin(), stops.end(),
+                         [&](const Stop& s) { return inRange(s.jd); }))
+            return;
         std::sort(stops.begin(), stops.end(),
                   [](const Stop& a, const Stop& b) { return a.jd < b.jd; });
         PlanetLoc payload = makePayload(anchorJd);
@@ -10939,8 +11043,10 @@ AspectFinder::findHeliacalEvents()
         QStringList labels;
         QVector<qreal> lons;
         QVector<qreal> speeds;
+        QVector<bool> inR;
         for (const auto& s : stops) {
             occ.append({ dateTimeFromJulian(s.jd), qreal(s.anchor ? 0.0 : 1.0) });
+            inR.append(inRange(s.jd));
             labels.append(QString::fromLatin1(s.label));
             // The body's longitude and speed at this stop, so a decomposed phase
             // row can render its own position and retrograde state rather than
@@ -10954,6 +11060,7 @@ AspectFinder::findHeliacalEvents()
         ev.setOccurrenceLabels(std::move(labels));
         ev.setOccurrenceLons(std::move(lons));
         ev.setOccurrenceSpeeds(std::move(speeds));
+        ev.setOccurrenceInRange(std::move(inR));
     };
 
     // Pair each start-phase with the next end-phase (a single apparition) and
@@ -11134,12 +11241,13 @@ AspectFinder::findHeliacalEvents()
                     pe = ce; ce = ne;
                 }
             } else if (wantPlanets) {   // Mars/Jupiter/Saturn: 5-stop apparition
-                auto hits = collectPhases(nm, { SE_HELIACAL_RISING,
-                                                SE_HELIACAL_SETTING });
                 // Mars' apparition (~750d) needs a wider gap cap than Jupiter/
                 // Saturn (~350–370d); a real Mars mispair is ~1530d, so 1000d
                 // admits the true apparition and still rejects cross-cycle.
                 const double maxGap = (pid == Planet_Mars) ? 1000.0 : 500.0;
+                auto hits = collectPhases(nm, { SE_HELIACAL_RISING,
+                                                SE_HELIACAL_SETTING },
+                                          pid == Planet_Mars ? 800.0 : 400.0);
                 pairAndEmit(hits, SE_HELIACAL_RISING, SE_HELIACAL_SETTING,
                     [&](const PhaseHit& a, const PhaseHit& b) {
                         // Seed the opposition from the body's longitude at THIS
@@ -11189,7 +11297,8 @@ AspectFinder::findHeliacalEvents()
             }
 
             auto hits = collectPhases(snb.constData(),
-                                      { SE_HELIACAL_RISING, SE_HELIACAL_SETTING });
+                                      { SE_HELIACAL_RISING, SE_HELIACAL_SETTING },
+                                      400.0);
             pairAndEmit(hits, SE_HELIACAL_RISING, SE_HELIACAL_SETTING,
                 [&](const PhaseHit& a, const PhaseHit& b) {
                     build5(unsigned(etcHeliacalStars), -1, snb.constData(),

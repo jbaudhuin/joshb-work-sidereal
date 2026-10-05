@@ -179,6 +179,15 @@ QDialog#about {
 	border-image: url(style/about.jpg) 0 0 0 0 stretch stretch;
 }
 
+QDialog#about QScrollArea#aboutScroll,
+QDialog#about QScrollArea#aboutScroll > QWidget,
+QDialog#about QScrollArea#aboutScroll > QWidget > QWidget {
+	background: transparent;
+	border: 0;
+	padding: 0;
+	min-width: 0;
+}
+
 QDialog#about QPushButton {
 	background-color: qlineargradient(spread:pad,
 					x1:0, y1:0.551, x2:0, y2:0.107591,

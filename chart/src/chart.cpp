@@ -781,7 +781,28 @@ Chart::displayPvPos(const A::Star& b, int fileIndex)
 int
 Chart::angularStarAnchor()
 {
-    if (!showAngularStars) return -1;
+    return showAngularStars ? starOverlayAnchor() : -1;
+}
+
+const A::HeliacalDawnStars&
+Chart::heliacalDawn(int anchorIdx)
+{
+    const A::InputData& in = file(anchorIdx)->horoscope().inputData;
+    const QString key =
+        in.GMT().addSecs(qint64(in.tz() * 3600.0)).date().toString(Qt::ISODate)
+        + QString("|%1|%2|%3|%4").arg(in.tz()).arg(in.location().x(), 0, 'f', 4)
+                                 .arg(in.location().y(), 0, 'f', 4).arg(_heliacalPool);
+    if (key != _heliacalKey) {
+        _heliacalKey = key;
+        _heliacal    = A::heliacalDawnStars(file(anchorIdx)->horoscope(),
+                                          A::HeliacalStarPool(_heliacalPool));
+    }
+    return _heliacal;
+}
+
+int
+Chart::starOverlayAnchor()
+{
     if (A::aspectModeForChartDraw() != A::amcPrimeVertical) return -1;
     // 0 Aries has no anchoring chart, so there are no axes to be angular to.
     if (circleStart == Start_ZeroDegree) return -1;
@@ -943,6 +964,17 @@ Chart::updatePlanetsAndCusps(int fileIndex)
     // Asc/MC/Desc/IC, drawn on the anchor ring only -- the other ring's stars
     // differ just by precession and would duplicate them.
     const int anchorIdx = angularStarAnchor();
+    // Heliacal (dawn method) rising/setting stars: same anchor ring, own toggle.
+    const int helIdx = showHeliacalStars ? starOverlayAnchor() : -1;
+    QString helRisingName, helSettingName;
+    double  helRiseDays = -1, helSetDays = -1;
+    if (helIdx == fileIndex) {
+        const A::HeliacalDawnStars& bh = heliacalDawn(helIdx);
+        helRisingName   = bh.risingStar;
+        helSettingName  = bh.settingStar;
+        helRiseDays = bh.riseDaysEarlier;
+        helSetDays  = bh.setDaysEarlier;
+    }
     static const char* const angleVerb[A::Star::numAngles] = {
         QT_TR_NOOP("rising"), QT_TR_NOOP("setting"),
         QT_TR_NOOP("culminating"), QT_TR_NOOP("anticulminating")
@@ -977,7 +1009,12 @@ Chart::updatePlanetsAndCusps(int fileIndex)
             pvOverride = swe_degnorm(
                 (angle == A::Star::atMC ? 270.0 : 90.0) - hit.gap);
 
-        bool hide = !s.isConfiguredWithPlanet() && !focal && angle < 0;
+        const bool helRising  = !helRisingName.isEmpty() && s.name == helRisingName;
+        const bool helSetting = !helSettingName.isEmpty() && s.name == helSettingName;
+        const bool heliacal   = helRising || helSetting;
+
+        bool hide = !s.isConfiguredWithPlanet() && !focal && angle < 0
+                 && !heliacal;
         std::tie(body, marker) = repose(s, hide, pvOverride);
         if (hide || !body || !marker) continue;
 
@@ -985,16 +1022,22 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         // Only the fill changes: the dark outline pen from drawStars() is what
         // gives the glyph a crisp edge, and a same-colour pen smears it.
         if (auto* glyph = dynamic_cast<QAbstractGraphicsShapeItem*>(body)) {
-            glyph->setBrush(angle >= 0
-                ? ThemeManager::instance().getChartAngularStarColor()
-                : planetColor(A::Planet(), fileIndex));
+            // The heliacal tint wins over the angular one.
+            glyph->setBrush(
+                heliacal ? ThemeManager::instance().getChartHeliacalStarColor()
+                : angle >= 0
+                    ? ThemeManager::instance().getChartAngularStarColor()
+                    : planetColor(A::Planet(), fileIndex));
         }
 
         // Emphasize the focal star's "*" glyph: enlarge it and lift it above the
         // other markers so a clicked heliacal star stands out from the ambient
         // configured-with-planet stars. Reset for non-focal (items persist).
-        body->setScale(focal ? 1.7 : 1.0);
-        body->setZValue(focal ? 3 : 1);
+        // Overlay stars (angular / heliacal) get an in-between size so
+        // they read as emphasized without competing with a clicked focal star.
+        const bool overlay = angle >= 0 || heliacal;
+        body->setScale(focal ? 1.7 : overlay ? 1.35 : 1.0);
+        body->setZValue(focal ? 3 : overlay ? 2 : 1);
 
         QString toolTip = QString("%1 %2").arg(s.name).arg(
             A::zodiacPosition(s, file()->horoscope().zodiac, A::HighPrecision));
@@ -1006,6 +1049,18 @@ Chart::updatePlanetsAndCusps(int fileIndex)
             if (hit.circumpolar > 0)      toolTip += tr(" (NS)");
             else if (hit.circumpolar < 0) toolTip += tr(" (NR)");
         }
+        // As in published heliacal-star reports: how many days before the chart's date the
+        // star rose (set) together with the Sun.
+        auto daysText = [this](double d, bool rise) {
+            if (d < 0) return QString();
+            const int n = qRound(d);
+            return rise ? tr(" (rose with the Sun %n day(s) earlier)", nullptr, n)
+                        : tr(" (set with the Sun %n day(s) earlier)", nullptr, n);
+        };
+        if (helRising)
+            toolTip += tr(" — heliacal rising star") + daysText(helRiseDays, true);
+        if (helSetting)
+            toolTip += tr(" — heliacal setting star") + daysText(helSetDays, false);
         body->setToolTip(toolTip);
         marker->setToolTip(toolTip);
         circle->setHelpTag(body, s.name);
@@ -2671,6 +2726,8 @@ Chart::defaultSettings()
     s.setValue("Circle/includeCentaurs", true);
     s.setValue("Circle/displayDeclination", true);
     s.setValue("Circle/showAngularStars", false);
+    s.setValue("Circle/showHeliacalStars", false);
+    s.setValue("Circle/heliacalStarPool", int(A::HeliacalPoolCurated));
     s.setValue("Circle/animationDurationSec", 10);
     s.setValue("Circle/slideMs", 600);
     return s;
@@ -2691,6 +2748,8 @@ Chart::currentSettings()
     s.setValue("Circle/includeCentaurs", includeCentaurs);
     s.setValue("Circle/displayDeclination", displayDeclination);
     s.setValue("Circle/showAngularStars", showAngularStars);
+    s.setValue("Circle/showHeliacalStars", showHeliacalStars);
+    s.setValue("Circle/heliacalStarPool", _heliacalPool);
     s.setValue("Circle/animationDurationSec", _animDurationMs / 1000);
     s.setValue("Circle/slideMs", _slideMs);
     return s;
@@ -2711,6 +2770,11 @@ Chart::applySettings(const AppSettings& s)
     displayDeclination = s.value("Circle/displayDeclination").toBool();
     declView->setVisible(displayDeclination);
     showAngularStars = s.value("Circle/showAngularStars", false).toBool();
+    showHeliacalStars = s.value("Circle/showHeliacalStars", false).toBool();
+    _heliacalPool = qBound(int(A::HeliacalPoolCurated),
+                           s.value("Circle/heliacalStarPool",
+                                   int(A::HeliacalPoolCurated)).toInt(),
+                           int(A::HeliacalPoolAll));
     // Angular-star orb reuses the paran orb. Guarded like primDirSystem
     // below: a partial settings map must not reset it to the default.
     if (s.contains("Mundane/paranOrb"))
@@ -2765,6 +2829,14 @@ Chart::setupSettingsEditor(AppSettingsEditor* ed)
     ed->addControl("Circle/includeCentaurs", tr("Display Chiron:"));
     ed->addSpacing(10);
     ed->addControl("Circle/displayDeclination", tr("Display declination graph:"));
+    ed->addControl("Circle/showHeliacalStars",
+                   tr("Show heliacal rising/setting stars (mundane, dawn method):"));
+    QKeyValueList pools {
+        { tr("Curated stars"), A::HeliacalPoolCurated },
+        { tr("Curated + brighter than mag 2.5"), A::HeliacalPoolCuratedBright },
+        { tr("Whole catalogue"), A::HeliacalPoolAll }
+    };
+    ed->addComboBox("Circle/heliacalStarPool", tr("Heliacal star candidates:"), pools);
     ed->addControl("Circle/showAngularStars",
                    tr("Show angular fixed stars (mundane, paran orb):"));
     ed->addSpacing(10);

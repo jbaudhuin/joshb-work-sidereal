@@ -274,6 +274,28 @@ Data::load(QString language)
     QDateTime             now(QDateTime::currentDateTimeUtc());
     double                jd           = A::getJulianDate(now);
     bool                  loadEcliptic = getenv("foo");
+
+    // The curated star list (bin/astroprocessor/curated_stars.csv) is always kept,
+    // whatever the magnitude/zodiacal test below says. Matched by Bayer
+    // designation as well as name: the loop keeps only the FIRST catalogue
+    // alias of each Bayer star (`seen`), so a listed alias such as
+    // "Deneb Adige" would otherwise never be seen if "Deneb" came first.
+    QSet<QString> curatedNames, curatedBayer;
+    f.setFileName("astroprocessor/curated_stars.csv");
+    if (!f.openForRead()) qDebug() << "A: Missing file" << f.fileName();
+    while (f.readRow()) {
+        const QString nm = f.row(0).trimmed();
+        if (nm.isEmpty() || nm.startsWith('#')) continue;
+        qstrncpy(buf, nm.toLatin1().constData(), sizeof(buf));
+        if (swe_fixstar_ut(buf, jd, SEFLG_SWIEPH, xx, errStr) == ERR) {
+            qWarning() << "A: curated star not in sefstars.txt:" << nm;
+            continue;
+        }
+        curatedNames.insert(nm);
+        if (const char* c = strchr(buf, ',')) curatedBayer.insert(QString(c + 1).trimmed());
+    }
+    f.close();
+
     while (strcpy(buf, QString::number(i++).toStdString().c_str()),
            swe_fixstar_ut(buf, jd, SEFLG_SWIEPH, xx, errStr) != ERR)
     {
@@ -287,9 +309,12 @@ Data::load(QString language)
             std::string name(QString(buf).trimmed().toStdString());
             QString     constellar(p + 1);
 
+            const bool curated = curatedNames.contains(QString::fromStdString(name))
+                            || curatedBayer.contains(constellar.trimmed());
             double mag = 10;
             bool   get =
-                (swe_fixstar_mag(buf, &mag, errStr) != ERR && mag <= 2.2);
+                curated
+                || (swe_fixstar_mag(buf, &mag, errStr) != ERR && mag <= 2.2);
             if (!get) {
                 static const QString ecl(
                     "AriTauGemCncLeoVirLibScoSgrCapAqrPsc");
@@ -311,6 +336,7 @@ Data::load(QString language)
                 // Full raw nomenclature (e.g. "alTau"), kept so display code
                 // can recover the Bayer Greek-letter designation when present.
                 stars[name].bayer = constellar;
+                stars[name].curated = curated;
             }
         }
     }

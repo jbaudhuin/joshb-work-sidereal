@@ -303,6 +303,30 @@ AngularStarHit angularStarAngle(const Star&      star,
                                 const Horoscope& refScope,
                                 double           orbDeg);
 
+struct HeliacalDawnStars {
+    QString risingStar, settingStar; ///< empty when none qualifies
+    double  riseJd = 0, setJd = 0;   ///< UT of that rising / setting
+    /// Days before the chart's date that the star rose (set) WITH the Sun;
+    /// -1 if not found.
+    double  riseDaysEarlier = -1, setDaysEarlier = -1;
+};
+
+enum HeliacalStarPool {
+    HeliacalPoolCurated = 0,      ///< Star::curated only (curated_stars.csv)
+    HeliacalPoolCuratedBright,    ///< curated stars + any star brighter than mag 2.5
+    HeliacalPoolAll             ///< the whole loaded catalogue
+};
+
+/// Heliacal rising and setting stars ("dawn method") for the chart's birth
+/// day, after the approach described by Bernadette Brady (Brady's Book of
+/// Fixed Stars, 1998); see docs/heliacal-dawn-stars.md:
+/// on the morning of the chart's LOCAL date, at its location, the candidate
+/// star that rose (set) most recently together with the Sun -- i.e. the last
+/// to rise in the east (set in the west) before sunrise. No twilight-
+/// visibility test (see the note in the implementation).
+HeliacalDawnStars heliacalDawnStars(const Horoscope& scope,
+                                 HeliacalStarPool pool = HeliacalPoolCurated);
+
 /// Where a point lying ON the ecliptic at `zodiacLon` should be drawn on the
 /// chart wheel in the given frame. `zodiacLon` is in the chart's OWN zodiac
 /// frame -- the same frame ZodiacSign::startAngle/endAngle are stored in --

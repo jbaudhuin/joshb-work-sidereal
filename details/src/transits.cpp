@@ -1773,19 +1773,31 @@ class EventsTableModel : public QAbstractItemModel {
         const bool inner = labels.contains(QLatin1String("GEe"))
                         || labels.contains(QLatin1String("GWe"));
         const auto& occ = ev.occurrences();
-        int  anchorIdx = -1;
+        // Phases outside the search range stay on the event (the apparition
+        // chart still steps through all of them) but get no row of their own.
+        // Events without the flags (older finders) treat every phase as in.
+        const auto& inR = ev.occurrenceInRange();
+        auto inRange = [&](int i) { return i >= inR.size() || inR[i]; };
+        int  anchorIdx = -1, firstInRange = -1;
         bool any       = false;
         for (int i = 0; i < labels.size(); ++i) {
             // The anchor stop carries magnitude 0 (Cul, or GEe/GWe for inner).
             if (i < occ.size() && occ[i].second == 0.0) anchorIdx = i;
+            if (!inRange(i)) continue;
+            if (firstInRange < 0) firstInRange = i;
             const unsigned bit = heliacalPhaseBit(labels[i], inner);
             if (bit && (_heliacalPhaseMask & bit)) {
                 _evs.emplace_back(&ev, i);
                 any = true;
             }
         }
-        if (!any)
-            _evs.emplace_back(&ev, anchorIdx >= 0 ? anchorIdx : 0);
+        if (!any) {
+            const int fallback = (anchorIdx >= 0 && inRange(anchorIdx))
+                                     ? anchorIdx
+                                     : firstInRange;
+            _evs.emplace_back(&ev, fallback >= 0 ? fallback
+                                                 : (anchorIdx >= 0 ? anchorIdx : 0));
+        }
     }
 
     // Internal helper: rebuild _evs from _evls (applying filters) and sort.
@@ -5959,8 +5971,11 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
 QString
 EventsTableModel::planetToText(const A::ChartPlanetModeId& cpid) const
 {
-    // Use 3-letter abbreviation
-    QString name = cpid.name().remove(' ').left(3);
+    // 3-letter abbreviation for planets; fixed stars keep their full name,
+    // since many share a prefix (Al Pherg/Alphard, Kaus *, Sadal*, Zuben*).
+    QString name = cpid.planetId() >= A::Stars_Start
+                       ? cpid.name()
+                       : cpid.name().remove(' ').left(3);
     
     // Add mode suffix if applicable
     QString suffix = modeToSuffix(cpid.mode());
@@ -5976,8 +5991,11 @@ EventsTableModel::planetToText(const A::PlanetLoc& ploc,
                                const QString& descOverride,
                                unsigned       eventType) const
 {
-    // Use 3-letter abbreviation
-    QString name = ploc.planet.name().remove(' ').left(3);
+    // 3-letter abbreviation for planets; fixed stars keep their full name
+    // (see the ChartPlanetModeId overload above).
+    QString name = ploc.planet.planetId() >= A::Stars_Start
+                       ? ploc.planet.name()
+                       : ploc.planet.name().remove(' ').left(3);
 
     // Add mode suffix
     QString suffix = modeToSuffix(ploc.mode());
