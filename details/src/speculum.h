@@ -22,6 +22,8 @@ public:
     
     void paint(QPainter* painter, const QStyleOptionViewItem& option,
                const QModelIndex& index) const override;
+    QSize sizeHint(const QStyleOptionViewItem& option,
+                   const QModelIndex& index) const override;
 };
 
 class Speculum : public AstroFileHandler {
@@ -30,7 +32,10 @@ class Speculum : public AstroFileHandler {
   public:
     // Custom data roles for cell highlighting
     static const int CellHighlightRole = Qt::UserRole + 2;
-    
+    // Almagest sign-glyph codepoint drawn after a star's name (zodiacal
+    // constellations only), as the HTML Speculum/Directions tables show it
+    static const int StarSignGlyphRole = Qt::UserRole + 3;
+
     enum CellHighlight {
         NoHighlight = 0,
         ClickedHighlight = 1,

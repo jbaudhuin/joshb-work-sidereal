@@ -35,6 +35,18 @@ Q_DECLARE_FLAGS(Articles, Article)
 
 QString
 romanNum(int num);
+/// "<Constellation>-<Greek letter>" (e.g. "Orion-η") for a fixed star, or ""
+/// when its SE nomenclature isn't a plain Bayer designation.
+QString
+bayerDesignation(const Star& s);
+/// Full name of an IAU 3-letter constellation abbreviation ("CMa" -> "Canis
+/// Major"), or the abbreviation itself if not recognized.
+QString
+constellationFullName(const QString& abbrev);
+/// Almagest sign-glyph codepoint for one of the 12 zodiacal constellations,
+/// or 0 for any other constellation.
+int
+constellationSignGlyph(const QString& abbrev);
 QString
 houseTag(int num);
 QString

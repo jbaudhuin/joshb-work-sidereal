@@ -5643,8 +5643,7 @@ EventOptions::EventOptions()
         etcTransitToNatal,
         etcTransitToNatalAngles,
         etcReturn,
-        etcSolarReturn,
-        etcLunarReturn,
+        etcSolarReturn,                  // LR off by default (frequent/noisy)
         etcProgressedToNatal,
         etcTransitNatalAspectPattern
     };
@@ -6516,7 +6515,7 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
                         auto tp = dynamic_cast<TransitPosition*>(_alist[i]);
                         auto np = dynamic_cast<NatalPosition*>(_alist[j]);
                         if (tp->planet.planetId() != np->planet.planetId()
-                            || (!showReturns()
+                            || (!showReturnFor(tp->planet.planetId())
                                 && showTransitsToNatalPlanets()))
                         {
                             auto hs = allAsp;
@@ -6564,13 +6563,9 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
                     hsetId hs = conjOpp;
                     auto   tp = dynamic_cast<TransitPosition*>(_alist[i]);
                     auto   pl = tp->planet.planetId();
-                    EventType etype = etcReturn;
-                    if (pl == Planet_Sun) {
-                        etype = etcSolarReturn;
-                    } else if (pl == Planet_Moon) {
-                        etype = etcLunarReturn;
-                    }
-                    if (pl == Planet_NorthNode || pl == Planet_SouthNode) {
+                    EventType etype = returnTypeFor(pl);
+                    if (!isEnabled(etype)) continue;   // SR/LR/R individually
+                    if (pl ==Planet_NorthNode || pl == Planet_SouthNode) {
                         hs = conj;
                     } else if (pl >= Planet_Jupiter && pl <= Planet_Chiron) {
                         hs = allAsp;
@@ -7228,9 +7223,8 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
                 unsigned ti = getTransitPlanet(pid);
                 unsigned ni = getNatalPlanet(pid);
 
-                EventType etype = etcReturn;
-                if (pid == Planet_Sun)       { etype = etcSolarReturn; enable(etcSolarReturn); }
-                else if (pid == Planet_Moon)  { etype = etcLunarReturn; enable(etcLunarReturn); }
+                EventType etype = returnTypeFor(pid);
+                enable(etype);
 
                 _staff.emplace_back(ti, ni, useHset, etype);
             }
@@ -13857,7 +13851,7 @@ EventTypeManager::EventTypeManager()
             { etcTransitToNatal, 2, "T=N", "Transits to Natal" },
             { etcTransitToNatalAngles, 2, "T=NA", "Transits to Natal Angles" },
             { etcOuterTransitToNatal, 2, "OT=N", "Outer Transits to Natal" },
-            { etcReturn, 2, "R", "Returns" },
+            { etcReturn, 2, "R", "Planetary Returns" },
             { etcSolarReturn, 2, "SR", "Solar Returns" },
             { etcLunarReturn, 2, "LR", "Lunar Returns" },
             //{ etcAspectToReturn,        "R=T",  "Aspects to Return" },

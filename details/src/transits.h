@@ -325,10 +325,9 @@ class Transits : public AstroFileHandler {
 
     // Toolbar actions for event filters
     QAction* _actStations = nullptr;
-    QAction* _actReturns = nullptr;
     QAction* _actPrimaryDirections = nullptr;
 
-    // ---- Grouped dropdown event buttons ([T▼] [P▼] [AP▼] [Par▼]) ----------
+    // ---- Grouped dropdown event buttons ([R▼] [T▼] [P▼] [AP▼] [Par▼]) -----
     // One split-button consolidates several related event types. The dropdown
     // menu holds the group's members (some in mutually-exclusive radio
     // subgroups); the button body is a master on/off. The menu checkmarks are

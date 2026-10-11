@@ -1039,8 +1039,23 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         body->setScale(focal ? 1.7 : overlay ? 1.35 : 1.0);
         body->setZValue(focal ? 3 : overlay ? 2 : 1);
 
-        QString toolTip = QString("%1 %2").arg(s.name).arg(
-            A::zodiacPosition(s, file()->horoscope().zodiac, A::HighPrecision));
+        // In mundane mode a star's projected ecliptic degree says nothing
+        // useful about where it sits (a "Leo" star on a "Cancer" MC, in
+        // neither constellation), so identify it by its own sky position
+        // instead -- Bayer designation (e.g. "Taurus-α") or constellation --
+        // as the Directions table's star tooltip does.
+        QString where;
+        if (A::aspectModeForChartDraw() == A::amcPrimeVertical) {
+            where = A::bayerDesignation(s);
+            if (where.isEmpty() && !s.constellation.isEmpty())
+                where = A::constellationFullName(s.constellation);
+        } else {
+            where = A::zodiacPosition(s, file()->horoscope().zodiac,
+                                      A::HighPrecision);
+        }
+        // Built as plain text first; at the end the name keeps the theme's
+        // bold QToolTip weight and the gloss after it is set in normal weight.
+        QString toolTip = where;
         if (angle >= 0) {
             toolTip += QString(" — %1 (%2°)")
                            .arg(tr(angleVerb[angle]))
@@ -1051,7 +1066,7 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         }
         // As in published heliacal-star reports: how many days before the chart's date the
         // star rose (set) together with the Sun.
-        auto daysText = [this](double d, bool rise) {
+        auto daysText = [](double d, bool rise) {
             if (d < 0) return QString();
             const int n = qRound(d);
             return rise ? tr(" (rose with the Sun %n day(s) earlier)", nullptr, n)
@@ -1061,6 +1076,9 @@ Chart::updatePlanetsAndCusps(int fileIndex)
             toolTip += tr(" — heliacal rising star") + daysText(helRiseDays, true);
         if (helSetting)
             toolTip += tr(" — heliacal setting star") + daysText(helSetDays, false);
+        toolTip = QString("<p style='white-space:pre'>%1"
+                          "<span style='font-weight:normal'> %2</span></p>")
+                      .arg(s.name.toHtmlEscaped(), toolTip.trimmed().toHtmlEscaped());
         body->setToolTip(toolTip);
         marker->setToolTip(toolTip);
         circle->setHelpTag(body, s.name);

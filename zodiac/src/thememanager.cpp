@@ -8,6 +8,7 @@
 #include <QStyle>
 #include <QEvent>
 #include <QSettings>
+#include <QStyleHints>
 
 ThemeManager* ThemeManager::s_instance = nullptr;
 
@@ -90,6 +91,15 @@ void ThemeManager::applyToApplication(QApplication* app)
     if (!app) {
         return;
     }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    // Tell Qt which scheme the stylesheet paints, so natively drawn parts the
+    // .qss doesn't cover (e.g. the Windows 11 overlay scrollbar thumb) pick
+    // contrasting colors instead of following the OS light/dark setting.
+    app->styleHints()->setColorScheme(m_currentTheme == Theme::Dark
+                                          ? Qt::ColorScheme::Dark
+                                          : Qt::ColorScheme::Light);
+#endif
 
     // Load and apply stylesheet
     QString stylesheet = loadStyleSheet();

@@ -19,6 +19,7 @@
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QStyle>
 #include <QHeaderView>
 #include <QItemSelectionModel>
 #include <QJsonDocument>
@@ -3015,24 +3016,12 @@ Transits::Transits(QWidget* parent) :
         saveEventOptionsAndRecalc(checked);
     });
     
-    // Returns button (controls all return types)
-    _actReturns = toolbar->addAction("R");
-    _actReturns->setCheckable(true);
-    _actReturns->setToolTip("Returns (Solar, Lunar, Planetary)");
-    if (auto* btn = qobject_cast<QToolButton*>(toolbar->widgetForAction(_actReturns))) {
-        btn->setStyleSheet("QToolButton { min-width: 20px !important; }");
-    }
-    connect(_actReturns, &QAction::triggered, this, [this, saveEventOptionsAndRecalc](bool checked) {
-        if (checked) {
-            _tabEventOptions.insert(A::etcReturn);
-            _tabEventOptions.insert(A::etcSolarReturn);
-            _tabEventOptions.insert(A::etcLunarReturn);
-        } else {
-            _tabEventOptions.erase(A::etcReturn);
-            _tabEventOptions.erase(A::etcSolarReturn);
-            _tabEventOptions.erase(A::etcLunarReturn);
-        }
-        saveEventOptionsAndRecalc(checked);
+    // [R▼] Returns: Solar / Lunar / Planetary, independently selectable.
+    // Default SR + R; LR (monthly, noisy) is opt-in.
+    buildEventGroupButton(toolbar, "R", "Returns", {
+        { A::etcSolarReturn },
+        { A::etcLunarReturn, -1, {}, false },
+        { A::etcReturn, -1, "R (Planetary)" },
     });
 
     toolbar->addSeparator();
@@ -3150,7 +3139,14 @@ Transits::Transits(QWidget* parent) :
     int i1 = l3->count();
     l3->addItem(l2);
     l3->setStretch(i1, 0);
-    l3->addWidget(_tview, 5);
+    // Right-hand gutter so the native (Windows 11) overlay scrollbar isn't
+    // jammed against the dock edge; matches the Database dock, which gets
+    // this margin from its layout's default contents margins.
+    auto tviewRow = new QHBoxLayout;
+    tviewRow->setContentsMargins(
+        0, 0, style()->pixelMetric(QStyle::PM_LayoutRightMargin), 0);
+    tviewRow->addWidget(_tview);
+    l3->addLayout(tviewRow, 5);
 
     _location = new GeoSearchWidget(false /*hbox*/);
 #if 1
@@ -7106,14 +7102,10 @@ Transits::updateToolbarFromEventOptions()
     if (!_actStations) return;  // Toolbar not initialized yet (S is built first)
 
     // Block signals during bulk updates for the standalone QActions.
-    ASignalBlocker block({_actStations, _actReturns, _actPrimaryDirections});
+    ASignalBlocker block({_actStations, _actPrimaryDirections});
 
     if (_actStations)
         _actStations->setChecked(_tabEventOptions.count(A::etcStation) > 0);
-    if (_actReturns)
-        _actReturns->setChecked(_tabEventOptions.count(A::etcReturn) > 0 ||
-                                _tabEventOptions.count(A::etcSolarReturn) > 0 ||
-                                _tabEventOptions.count(A::etcLunarReturn) > 0);
     if (_actPrimaryDirections)
         _actPrimaryDirections->setChecked(
             _tabEventOptions.count(A::etcPrimaryDirections) > 0);

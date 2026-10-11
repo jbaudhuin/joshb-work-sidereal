@@ -970,7 +970,19 @@ struct EventOptions {
                           etcHouseIngress);
     }
 
-    bool showReturns() const { return isEnabled(etcReturn); }
+    bool showReturns() const
+    {
+        return anyEnabled(etcReturn, etcSolarReturn, etcLunarReturn);
+    }
+    /// Return event type a body's return is tagged with: Sun → SR,
+    /// Moon → LR, everything else → planetary R.
+    static EventType returnTypeFor(PlanetId p)
+    {
+        return p == Planet_Sun  ? etcSolarReturn
+             : p == Planet_Moon ? etcLunarReturn
+                                : etcReturn;
+    }
+    bool showReturnFor(PlanetId p) const { return isEnabled(returnTypeFor(p)); }
     void setShowReturns(bool b)
     {
         setEnabled(etcReturn, b);

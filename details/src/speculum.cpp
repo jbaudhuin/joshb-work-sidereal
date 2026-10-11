@@ -24,6 +24,55 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+namespace {
+// Draws a star row's Almagest sign glyph just after its name, in the cell's
+// text colour -- the QTableWidget equivalent of formatStarNameHtml's span.
+void
+drawStarSignGlyph(QPainter* painter, const QStyleOptionViewItem& option,
+                  const QModelIndex& index, const QColor& color)
+{
+    const int glyph = index.data(Speculum::StarSignGlyphRole).toInt();
+    if (glyph == 0) return;
+    QStyleOptionViewItem opt = option;
+    opt.text = index.data(Qt::DisplayRole).toString();
+    opt.font = option.font;
+    opt.features |= QStyleOptionViewItem::HasDisplay;
+    QStyle* style = option.widget ? option.widget->style() : QApplication::style();
+    const QRect textRect =
+        style->subElementRect(QStyle::SE_ItemViewItemText, &opt, option.widget);
+    const QFontMetrics fm(opt.font);
+    const int x = textRect.left() + fm.horizontalAdvance(opt.text)
+                  + fm.horizontalAdvance(' ') * 3 / 2;
+    if (x >= option.rect.right()) return;
+    painter->save();
+    QFont glyphFont("Almagest");
+    glyphFont.setPointSizeF(opt.font.pointSizeF() > 0 ? opt.font.pointSizeF() : 10);
+    painter->setFont(glyphFont);
+    painter->setPen(color);
+    painter->setClipRect(option.rect);
+    painter->drawText(QRect(x, option.rect.top(), option.rect.right() - x,
+                            option.rect.height()),
+                      Qt::AlignLeft | Qt::AlignVCenter, QString(QChar(glyph)));
+    painter->restore();
+}
+} // namespace
+
+QSize
+SpeculumDelegate::sizeHint(const QStyleOptionViewItem& option,
+                           const QModelIndex& index) const
+{
+    QSize sz = QStyledItemDelegate::sizeHint(option, index);
+    const int glyph = index.data(Speculum::StarSignGlyphRole).toInt();
+    if (glyph != 0) {
+        QFont glyphFont("Almagest");
+        glyphFont.setPointSizeF(option.font.pointSizeF() > 0
+                                    ? option.font.pointSizeF() : 10);
+        sz.rwidth() += QFontMetrics(option.font).horizontalAdvance(' ') * 3 / 2
+                       + QFontMetrics(glyphFont).horizontalAdvance(QChar(glyph));
+    }
+    return sz;
+}
+
 // Custom delegate implementation
 void SpeculumDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
                               const QModelIndex& index) const
@@ -69,6 +118,8 @@ void SpeculumDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         // Paint the text/content on top
         QStyledItemDelegate::paint(painter, opt, index);
 
+        drawStarSignGlyph(painter, option, index, textColor);
+
         if (selected || hovered) {
             QColor marker = textColor;
             marker.setAlpha(selected ? 200 : 110);
@@ -83,6 +134,16 @@ void SpeculumDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     } else {
         // Normal cell - use default painting
         QStyledItemDelegate::paint(painter, option, index);
+        const QVariant fg = index.data(Qt::ForegroundRole);
+        QColor glyphColor = fg.canConvert<QBrush>()
+                                ? fg.value<QBrush>().color()
+                                : option.palette.color(
+                                      (option.state & QStyle::State_Selected)
+                                          ? QPalette::HighlightedText
+                                          : QPalette::Text);
+        if (!glyphColor.isValid())
+            glyphColor = option.palette.color(QPalette::Text);
+        drawStarSignGlyph(painter, option, index, glyphColor);
     }
 }
 
@@ -840,6 +901,15 @@ Speculum::addStarRow(const A::Star& star, int row)
     QTableWidgetItem* nameItem = new QTableWidgetItem(star.name);
     nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
     nameItem->setData(Qt::UserRole, -1); // Use -1 for stars
+    // As in the HTML Speculum/Directions tables: zodiacal-constellation sign
+    // glyph after the name, Bayer designation (or constellation) on hover.
+    if (!star.constellation.isEmpty()) {
+        QString where = A::bayerDesignation(star);
+        if (where.isEmpty()) where = A::constellationFullName(star.constellation);
+        nameItem->setToolTip(where);
+        nameItem->setData(StarSignGlyphRole,
+                          A::constellationSignGlyph(star.constellation));
+    }
     _table->setItem(row, 0, nameItem);
 
     // Resolve the quotidian direction context for this chart (SQ/NeoSQ/PSSR/NeoPSSR).
