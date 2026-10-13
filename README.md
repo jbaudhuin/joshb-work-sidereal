@@ -1,8 +1,8 @@
 **Zodiac** is an Astrological software for personal use.
 
-**Current Version**: 0.9.9 (August 14, 2026)
+**Current Version**: 0.9.10 (October 13, 2026)
 
-**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.9/Zodiac-0.9.9-installer.exe)
+**Download the latest version**: [**Windows**](https://github.com/jbaudhuin/joshb-work-sidereal/releases/download/v0.9.10/Zodiac-0.9.10-installer.exe)
 
 This sidereal branch was to experiment with certain feature ideas in sidereal and harmonic practice.
 
@@ -42,6 +42,8 @@ to-transits, transits-to-natal, returns-to-natal, and stations. For all harmonic
 * **Declination strip view (v0.9.8)**: A declination strip visualization alongside the chart wheel, showing planetary declinations side-by-side for parallel/contraparallel inspection.
 * **Bi-wheel prime vertical display (v0.9.8)**: Corrected bi-wheel prime vertical display so that charts are properly coordinated. This mode is better for visualizing the angular coincidences of the paranatellontas.
 * **Heliacal apparition events**: Fixed stars and the outer planets (Mars/Jupiter/Saturn) are reported as a single *apparition* — the body's arc of visibility from its morning-first rising (MF) to its evening-last setting (EL) — instead of as scattered phase points. Each apparition is anchored at the body's **culmination** (its midnight meridian transit near opposition), and the Aspect Range Navigator steps through five labeled stops: **MF · acronychal rising (Acr) · culmination (Cul) · cosmical setting (Cs) · EL**. Important nuance: Acr and Cs are *visibility* phases in the sense of Ptolemy's *Phaseis* (the dates the body rises exactly at sunset / sets exactly at sunrise), **not** the rise and set of the culmination night — so they fall on their own dates and can appear weeks from, and in counter-intuitive order around, the culmination. Inner planets (Mercury/Venus) instead give two greatest-elongation apparitions per synodic cycle; the Moon keeps its discrete crescent events. See `docs/chart-animation-and-paran-cycling.md` §6 for the full model and the dusk/dawn (acronychal/cosmical) terminology.
+* **Primary directions (v0.9.10)**: Placidian, Campanus and Regiomontanus primary directions in the Events tab (direct/converse, rays, optional rapt parallels), a focal Directions preview for a clicked direction, and a directed chart that holds the natal bodies while rotating the mundane frame.
+* **Angular & heliacal stars in mundane mode (v0.9.10)**: optional overlays tinting the fixed stars on the anchoring chart's angles, and the heliacal rising/setting stars by the dawn method (method after Bernadette Brady; see `docs/heliacal-dawn-stars.md`).
 
 * **Font Installation Fix (v0.9.4.2)**: Fixed installer font installation that was failing to install required fonts
 * **Speculum Display Synchronization (v0.9.4.1)**: Display mode changes in Text view now propagate to Speculum dock widget

@@ -6616,11 +6616,20 @@ MainWindow::showAbout()
         "SymSolon project contributors<br>"
         "<a style='color:yellow' href='http://sf.net/projects/symsolon'>sf.net/projects/symsolon</a></p>"
         "<p><b>" + tr("Methods &amp; References") + "</b><br>"
+        + tr("The PSSR, SQ, NeoPSSR and NeoSQ quotidian direction techniques "
+             "draw on the work of Cyril Fagan and Kenneth Bowser.")
+        + "<br><br>"
+        + tr("The primary direction calculations (Placidus, Campanus and "
+             "Regiomontanus mundane positions) follow Bob Makransky's "
+             "<i>Primary Directions: A Primer of Calculation</i>.")
+        + "<br><br>"
         + tr("The heliacal rising/setting star overlay (dawn method) follows the "
              "approach described by Bernadette Brady in <i>Brady's Book of Fixed "
-             "Stars</i> (Weiser, 1998). Zodiac Sidereal is an independent "
-             "implementation and is not affiliated with or endorsed by the author; "
-             "its curated star list is the app's own and can be edited.")
+             "Stars</i> (Weiser, 1998); its curated star list is the app's own "
+             "and can be edited.")
+        + "<br><br>"
+        + tr("Zodiac Sidereal is an independent implementation and is not "
+             "affiliated with or endorsed by these authors.")
         + "</p>");
 
     connect(l, SIGNAL(linkActivated(QString)), this, SLOT(gotoUrl(QString)));

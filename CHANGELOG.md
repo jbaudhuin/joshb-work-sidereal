@@ -2,19 +2,48 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
-## [Unreleased]
+## [0.9.10] - 2026-10-13
 
 ### Added
-- **Angular Fixed Stars (mundane mode)**: optional overlay that tints and enlarges the stars rising, culminating, setting or anticulminating on the anchoring chart's angles, using the paran orb. Never-setting/never-rising stars are drawn on the MC/IC line and tagged (NS)/(NR).
-- **Heliacal Rising/Setting Stars (dawn method)**: optional overlay marking the star that most recently rose (set) together with the Sun before the chart's date, with "N days earlier" in the tooltip and a choice of candidate pool (curated list, curated + brighter than mag 2.5, whole catalogue). See `docs/heliacal-dawn-stars.md`.
-- **Curated Star List**: `bin/astroprocessor/curated_stars.csv` names stars that are always loaded whatever their magnitude (e.g. Scheat, Markab); editable.
+- **Primary Directions**: Placidian primary directions as an Events-table pass (rays, direct/converse, orb, optional RA display), with Campanus and Regiomontanus systems selectable alongside Placidus
+- **Rapt Parallels**: optional rapt-parallel / rapt-conjunction events, with a chord-and-stem figure on the directed chart
+- **Primary Direction Focal Preview**: clicking a PD event shows a focused Directions view around its directed date, with a bold anchor row and a marker figure in mundane mode
+- **Directed Chart Overhaul**: the primary-directed chart now holds the natal bodies and rotates the mundane frame, so ecliptic/equatorial views show real directed positions; derivation state is saved with charts and sessions
+- **Angular Fixed Stars (mundane mode)**: optional overlay that tints and enlarges the stars rising, culminating, setting or anticulminating on the anchoring chart's angles, using the paran orb. Never-setting/never-rising stars are drawn on the MC/IC line and tagged (NS)/(NR)
+- **Heliacal Rising/Setting Stars (dawn method)**: optional overlay marking the star that most recently rose (set) together with the Sun before the chart's date, with "N days earlier" in the tooltip and a choice of candidate pool (curated list, curated + brighter than mag 2.5, whole catalogue). See `docs/heliacal-dawn-stars.md`
+- **Curated Star List**: `bin/astroprocessor/curated_stars.csv` names stars that are always loaded whatever their magnitude (e.g. Scheat, Markab); editable
+- **Plain Report Search**: debounced search box that filters and highlights rows, supports "quoted phrases", and matches phrases spanning adjacent table cells
+- **Separate Return Filters**: Solar, Lunar and Planetary returns are independently selectable via a grouped [R▼] control
+- **Save Second Chart**: Ctrl+Click on Save Chart saves the bi-wheel's second chart
 
 ### Improved
-- **Heliacal Event Search**: an apparition now appears when any of its phases falls in the search range (not only its culmination), so a short window around a date shows the MF/EL inside it; out-of-range phases get no row of their own.
-- **Full Star Names**: event-table copy/report output and event chart names use full fixed-star names instead of ambiguous 3-letter abbreviations.
+- **Fixed-Star Labels**: Bayer designation / constellation tooltips and zodiacal sign glyphs in the Directions, Speculum and Parans tables and the Speculum dock; in mundane mode the chart tooltip shows the constellation instead of a projected ecliptic degree
+- **Heliacal Event Search**: an apparition now appears when any of its phases falls in the search range (not only its culmination), so a short window around a date shows the MF/EL inside it; out-of-range phases get no row of their own
+- **Full Star Names**: event-table copy/report output and event chart names use full fixed-star names instead of ambiguous 3-letter abbreviations
+- **Mundane Projection**: mundane/PV display follows the active primary-direction system consistently across charts, relocalization and rendering; the "PV" toggle is renamed "Mundane"
+- **Aspect Sets**: Harmonic vs named-set model with per-aspect toggles in the status bar and named aspect icons in the Events table
+- **Plain Display Options**: moved to right-click menus on the Directions, Speculum and Parans section toggles
+- **Responsiveness**: less per-frame work while scrubbing/animating; session metadata cached instead of re-parsed
+- **Toolbar & Theming**: uniform toolbar icon sizes, flatter GC/Mundane toggles, compact inline rename editors, native scrollbars matching the theme, scrollable About credits
+- **Events Settings Dialog**: reorganized into groups with tooltips
+
+### Fixed
+- **BC Dates**: negative-year chart dates (including base-chart GMT) now save and load correctly
+- **Duplicate Events on Restore**: a belated finder-completion signal no longer orphans a running finder that duplicated events
+- **Transit Ranges**: exact hits in the same timestep are attached before the in-orb range closes, preventing duplicate or early return events
+- **Duration Filter**: skip-by-duration no longer drops non-skippable events (ingresses, stations, returns)
+- **Near-Miss Transits to the Moon**: closest-approach events (e.g. a planet stationing just short of an exact aspect) are no longer dropped when the target is the natal or progressed Moon; only the transiting Moon is excluded
+- **Circumpolar Stars**: stars that never rise at the observer's latitude no longer produce NaN times or garbage dates
+- **PD House Rulership**: PD rows use natal houses instead of misreading RA as longitude
+- **Event Charts**: charts generated from an event are no longer marked unsaved
+
+### Changed
+- Version bumped to 0.9.10
 
 ### Acknowledgements
-- The heliacal rising/setting star method follows the approach described by Bernadette Brady in *Brady's Book of Fixed Stars* (Weiser, 1998). Zodiac Sidereal is an independent implementation and is not affiliated with or endorsed by the author.
+- The PSSR, SQ, NeoPSSR and NeoSQ quotidian direction techniques draw on the work of Cyril Fagan and Kenneth Bowser.
+- The primary direction calculations (Placidus, Campanus and Regiomontanus mundane positions) follow Bob Makransky's *Primary Directions: A Primer of Calculation*.
+- The heliacal rising/setting star method follows the approach described by Bernadette Brady in *Brady's Book of Fixed Stars* (Weiser, 1998). Zodiac Sidereal is an independent implementation and is not affiliated with or endorsed by any of these authors.
 
 ## [0.9.9] - 2026-08-14
 

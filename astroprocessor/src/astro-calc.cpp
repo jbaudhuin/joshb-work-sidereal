@@ -12422,9 +12422,20 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
                     continue;
                 }
             }
-            if (ps.begin()->samePlanet({ Planet_Moon })
-                || ps.rbegin()->samePlanet({ Planet_Moon }))
-            {
+            // Find the corresponding InputData for each planet
+            auto     profile = _alist.profile(ps);
+
+            // Only the *transiting* Moon throws off too many near-miss
+            // stragglers to be worth a closest-approach search.  A natal
+            // (fixed) or progressed Moon is a legitimate target: e.g. a
+            // slow outer planet stationing a few arcminutes shy of natal
+            // Moon never perfects, and its closest approach is the event.
+            bool transitingMoon = std::any_of(
+                profile->begin(), profile->end(), [](Loc* loc) {
+                    auto tp = dynamic_cast<TransitPosition*>(loc);
+                    return tp && tp->planet.planetId() == Planet_Moon;
+                });
+            if (transitingMoon) {
 #if 0
                     qDebug() << "Skipping lunar straggler "
                              << QString("H%1 %2: %3")
@@ -12434,11 +12445,9 @@ AspectFinder::findRemainingAspects(AspectSearchState& state)
                                     .toStdString()
                                     .c_str();
 #endif
+                delete profile;
                 continue;
             }
-
-            // Find the corresponding InputData for each planet
-            auto     profile = _alist.profile(ps);
             unsigned iters   = 0;
 
             // Define the function to minimize: aspect separation at jd
