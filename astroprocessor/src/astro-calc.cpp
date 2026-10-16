@@ -8871,6 +8871,36 @@ AspectFinder::findPrimaryDirections()
     const double      eps     = houses.eps;
     const double      jdNatal = getJulianDate(natalIda.GMT(), false, natalIda.calendarType());
 
+    // The arc formulas below return the shortest rotation, folded into
+    // (-180, 180], but the same configuration recurs every full turn of the
+    // sphere: a +100 direct arc is also a -260 converse one, and a chart
+    // whose search window lies more than 180 years out (mundane/historical
+    // charts) needs the +246 direct arc, not its folded -114 converse twin.
+    // The Plain Directions table keeps the folded half-turn; here every
+    // turn whose date can reach the search window is emitted, using the
+    // same date-window -> arc-window mapping as findRaptParallels().
+    const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
+    double       arcMax     = 180.0;
+    if (daysPerDeg > 0.0) {
+        const qint64 daysToStart = natalIda.GMT().date().daysTo(_range.first);
+        const qint64 daysToEnd   = natalIda.GMT().date().daysTo(_range.second);
+        arcMax = std::max(arcMax,
+                          std::max(std::fabs(double(daysToStart)),
+                                   std::fabs(double(daysToEnd)))
+                                  / daysPerDeg
+                              + std::max(pdOrbDegrees, 0.0) + 1.0);
+    }
+    auto arcTurns = [arcMax](double folded) {
+        QVector<double> arcs;
+        const int kLo = int(std::ceil((-arcMax - folded) / 360.0));
+        const int kHi = int(std::floor((arcMax - folded) / 360.0));
+        for (int k = kLo; k <= kHi; ++k) {
+            const double a = folded + 360.0 * k;
+            if (a != 0.0) arcs.append(a);
+        }
+        return arcs;
+    };
+
     // One entry per candidate natal body (planets + the four angles). Mirrors
     // findParans' natal-sidecar pattern (astro-calc.cpp ~8054-8058) — a plain
     // NatalPosition only carries ecliptic loc, so build a NatalExprecessedPosition
@@ -9209,85 +9239,87 @@ AspectFinder::findPrimaryDirections()
                 }
                 if (!std::isfinite(arc) || arc == 0.0) continue;
 
-                const bool converse = arc < 0.0;
-                if (pdDirectionScope == PDDirectOnly && converse) continue;
-                if (pdDirectionScope == PDConverseOnly && !converse) continue;
+                for (const double dirArc : arcTurns(arc)) {
+                    const bool converse = dirArc < 0.0;
+                    if (pdDirectionScope == PDDirectOnly && converse) continue;
+                    if (pdDirectionScope == PDConverseOnly && !converse) continue;
 
-                QDateTime dt = primaryDirectionDate(natalIda.GMT(), arc,
-                                                    A::pdTimingKey);
+                    QDateTime dt = primaryDirectionDate(natalIda.GMT(), dirArc,
+                                                        A::pdTimingKey);
 
-                // Include this direction whenever its orb of effect overlaps
-                // the search window at all, not just when the exact date
-                // falls inside it — the same principle a slow transit uses
-                // (perfecting outside the window still shows if its in-orb
-                // span reaches into it). Unlike a transit, this costs nothing
-                // extra: findPrimaryDirections() is a fixed-size closed-form
-                // enumeration over every (promissor, significator, ray)
-                // combination regardless of window size, not an iterative
-                // time-walk whose cost scales with how much time it covers.
-                const qint64 orbSecs = pdOrbDegrees > 0.0
-                    ? qint64(pdOrbDegrees * pdDaysPerDegree(A::pdTimingKey) * 86400.0)
-                    : 0;
-                const QDateTime rangeStart = dt.addSecs(-orbSecs);
-                const QDateTime rangeEnd   = dt.addSecs(orbSecs);
-                if (rangeEnd.date() < _range.first || rangeStart.date() > _range.second)
-                    continue;
+                    // Include this direction whenever its orb of effect overlaps
+                    // the search window at all, not just when the exact date
+                    // falls inside it — the same principle a slow transit uses
+                    // (perfecting outside the window still shows if its in-orb
+                    // span reaches into it). Unlike a transit, this costs nothing
+                    // extra: findPrimaryDirections() is a fixed-size closed-form
+                    // enumeration over every (promissor, significator, ray)
+                    // combination regardless of window size, not an iterative
+                    // time-walk whose cost scales with how much time it covers.
+                    const qint64 orbSecs = pdOrbDegrees > 0.0
+                        ? qint64(pdOrbDegrees * pdDaysPerDegree(A::pdTimingKey) * 86400.0)
+                        : 0;
+                    const QDateTime rangeStart = dt.addSecs(-orbSecs);
+                    const QDateTime rangeEnd   = dt.addSecs(orbSecs);
+                    if (rangeEnd.date() < _range.first || rangeStart.date() > _range.second)
+                        continue;
 
-                // Sort order within the pair, not real motion: both bodies
-                // are fixed at the radix. The COLUMN is tied to the
-                // classical ROLE, not to which body happens to carry a ray
-                // this row: the promissor is always nudged to sort first
-                // (PlanetRangeBySpeed orders by |speed| descending) so it
-                // always lands in transitBodyCol (T/P/S), bare, with no ray
-                // decoration — and the significator always lands in
-                // natalTransitBodyCol (T/P/N), carrying the ray. (An earlier
-                // version of this tied the column to whichever body carried
-                // the ray instead, which meant a row like "Uranus's own
-                // conjunction directs to the Ascendant" and its converse
-                // "the Ascendant directs to Uranus" could each show Uranus
-                // in a different column depending on which one happened to
-                // be bare that row — genuinely confusing. Fixed: promissor
-                // is column-stable in T/P/S regardless of ray content.)
-                //
-                // Nothing moves in ecliptic longitude during a direction —
-                // only the RAMC rotates through the fixed sphere — and RA
-                // (not ecliptic longitude) is what the arc is actually
-                // computed from, so store right ascension in rasiLoc()
-                // rather than the usual ecliptic position; EventsTableModel's
-                // glyph()/display()/planetToText() special-case
-                // etcPrimaryDirections to render it as RA instead of a
-                // zodiac position (optional, off by default — see
-                // EventOptions::showPDRightAscension). Significator desc
-                // carries the ray's Almagest aspect-glyph codepoint, plus a
-                // trailing "D"/"S" for dexter/sinister, on every ray except
-                // the conjunction — conjunction isn't a projected ray, so
-                // dexter/sinister doesn't apply to it. Promissor desc stays
-                // just "Dir"/"Con", surfaced via the Asp column instead of
-                // the T/P/S cell (see EventsTableModel::data()'s harmonicCol
-                // handling, which reads it from the higher-speed/T-P-S slot
-                // now that the promissor — not the significator — sits
-                // there). Conjunction carries no glyph at all — it isn't a
-                // projected ray, just the significator's own place, so
-                // there's nothing to mark.
-                QString sigDesc;
-                if (ray.offset != 0.0) {
-                    sigDesc = QString(ray.glyph);
-                    if (ray.dexsin != 0) sigDesc += QChar(ray.dexsin);
+                    // Sort order within the pair, not real motion: both bodies
+                    // are fixed at the radix. The COLUMN is tied to the
+                    // classical ROLE, not to which body happens to carry a ray
+                    // this row: the promissor is always nudged to sort first
+                    // (PlanetRangeBySpeed orders by |speed| descending) so it
+                    // always lands in transitBodyCol (T/P/S), bare, with no ray
+                    // decoration — and the significator always lands in
+                    // natalTransitBodyCol (T/P/N), carrying the ray. (An earlier
+                    // version of this tied the column to whichever body carried
+                    // the ray instead, which meant a row like "Uranus's own
+                    // conjunction directs to the Ascendant" and its converse
+                    // "the Ascendant directs to Uranus" could each show Uranus
+                    // in a different column depending on which one happened to
+                    // be bare that row — genuinely confusing. Fixed: promissor
+                    // is column-stable in T/P/S regardless of ray content.)
+                    //
+                    // Nothing moves in ecliptic longitude during a direction —
+                    // only the RAMC rotates through the fixed sphere — and RA
+                    // (not ecliptic longitude) is what the arc is actually
+                    // computed from, so store right ascension in rasiLoc()
+                    // rather than the usual ecliptic position; EventsTableModel's
+                    // glyph()/display()/planetToText() special-case
+                    // etcPrimaryDirections to render it as RA instead of a
+                    // zodiac position (optional, off by default — see
+                    // EventOptions::showPDRightAscension). Significator desc
+                    // carries the ray's Almagest aspect-glyph codepoint, plus a
+                    // trailing "D"/"S" for dexter/sinister, on every ray except
+                    // the conjunction — conjunction isn't a projected ray, so
+                    // dexter/sinister doesn't apply to it. Promissor desc stays
+                    // just "Dir"/"Con", surfaced via the Asp column instead of
+                    // the T/P/S cell (see EventsTableModel::data()'s harmonicCol
+                    // handling, which reads it from the higher-speed/T-P-S slot
+                    // now that the promissor — not the significator — sits
+                    // there). Conjunction carries no glyph at all — it isn't a
+                    // projected ray, just the significator's own place, so
+                    // there's nothing to mark.
+                    QString sigDesc;
+                    if (ray.offset != 0.0) {
+                        sigDesc = QString(ray.glyph);
+                        if (ray.dexsin != 0) sigDesc += QChar(ray.dexsin);
+                    }
+
+                    PlanetLoc promLoc(prom.cpid, converse ? "Con" : "Dir",
+                                      promEntryBare.ra);
+                    promLoc.speed = 2e-9;
+                    PlanetLoc sigLoc(sig.cpid, sigDesc, sigDisplayRA);
+                    sigLoc.speed = 1e-9;
+
+                    PlanetRangeBySpeed locs;
+                    locs.insert(promLoc);
+                    locs.insert(sigLoc);
+
+                    auto& ev = _evs.safe_emplace_back(dt, unsigned(etcPrimaryDirections),
+                                                      ray.harmonic, std::move(locs), 0.0);
+                    if (orbSecs > 0) ev.setRange({ rangeStart, rangeEnd });
                 }
-
-                PlanetLoc promLoc(prom.cpid, converse ? "Con" : "Dir",
-                                  promEntryBare.ra);
-                promLoc.speed = 2e-9;
-                PlanetLoc sigLoc(sig.cpid, sigDesc, sigDisplayRA);
-                sigLoc.speed = 1e-9;
-
-                PlanetRangeBySpeed locs;
-                locs.insert(promLoc);
-                locs.insert(sigLoc);
-
-                auto& ev = _evs.safe_emplace_back(dt, unsigned(etcPrimaryDirections),
-                                                  ray.harmonic, std::move(locs), 0.0);
-                if (orbSecs > 0) ev.setRange({ rangeStart, rangeEnd });
             }
         }
     }
