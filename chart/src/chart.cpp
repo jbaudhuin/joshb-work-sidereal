@@ -19,6 +19,87 @@
 #include <QtMath>
 #include <swephexp.h>
 #include "../../zodiac/src/slidewidget.h"
+#include <QGlyphRun>
+#include <QGraphicsSimpleTextItem>
+#include <QPainterPathStroker>
+#include <QRawFont>
+#include <QTextLayout>
+
+namespace {
+
+// A star's "*" glyph. QGraphicsSimpleTextItem hit-tests (hover tooltips,
+// clicks) against its whole text line box, but an asterisk occupies only the
+// upper part of that box, so the hot area reached far beyond the visible
+// glyph -- worst at the focal 1.7x scale, where it swallowed the tooltips of
+// neighbouring bodies. Hit-test the glyph's own outline instead (lightly
+// padded) -- not its ink rectangle, whose empty corners between the
+// asterisk's spokes are still large enough at 1.7x to cover a neighbour.
+// boundingRect() is untouched: layout and overlap logic use it.
+class StarGlyphItem : public QGraphicsSimpleTextItem
+{
+public:
+    using QGraphicsSimpleTextItem::QGraphicsSimpleTextItem;
+
+    QPainterPath shape() const override { return hitPath(); }
+    bool contains(const QPointF& pt) const override
+    {
+        return hitPath().contains(pt);
+    }
+
+private:
+    const QPainterPath& hitPath() const
+    {
+        const QString key = text() + QChar(0x1f) + font().key();
+        if (key == _key) return _path;
+        _key = key;
+
+        // Lay the text out exactly as QGraphicsSimpleTextItem does (lines
+        // stacked from y=0), then take the outlines of the glyphs actually
+        // shaped -- this follows any font fallback for "*", which font
+        // metrics of font() alone would not.
+        QTextLayout layout(text(), font());
+        layout.beginLayout();
+        while (layout.createLine().isValid()) {}
+        layout.endLayout();
+        qreal y = 0;
+        for (int i = 0; i < layout.lineCount(); ++i) {
+            QTextLine line = layout.lineAt(i);
+            line.setPosition(QPointF(0, y));
+            y += line.height();
+        }
+        QPainterPath glyphs;
+        glyphs.setFillRule(Qt::WindingFill);
+        for (const QGlyphRun& run : layout.glyphRuns()) {
+            const QRawFont rf  = run.rawFont();
+            const auto     ids = run.glyphIndexes();
+            const auto     pos = run.positions();
+            for (int g = 0; g < ids.size() && g < pos.size(); ++g) {
+                QPainterPath gp = rf.pathForGlyph(ids[g]);
+                gp.translate(pos[g]);
+                glyphs.addPath(gp);
+            }
+        }
+        if (glyphs.isEmpty()) {          // no outline: fall back to the box
+            _path = QPainterPath();
+            _path.addRect(QGraphicsSimpleTextItem::boundingRect());
+            return _path;
+        }
+        // A little slack around the strokes so the thin spokes stay easy
+        // to hover.
+        QPainterPathStroker stroker;
+        stroker.setWidth(4.0);
+        stroker.setJoinStyle(Qt::RoundJoin);
+        stroker.setCapStyle(Qt::RoundCap);
+        _path = glyphs.united(stroker.createStroke(glyphs)).simplified();
+        _path.setFillRule(Qt::WindingFill);
+        return _path;
+    }
+
+    mutable QString      _key;
+    mutable QPainterPath _path;
+};
+
+} // namespace
 
 
 RotatingCircleItem::RotatingCircleItem(QRect rect, const QPen& pen) :
@@ -199,6 +280,7 @@ Chart::Chart(QWidget* parent) : AstroFileHandler(parent)
                         chartRect().height() / sc2);
 
     view = new QGraphicsView(this);
+    view->setObjectName("chartView");
     view->setScene(new QGraphicsScene());
     view->setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
     view->scene()->installEventFilter(this);
@@ -207,6 +289,7 @@ Chart::Chart(QWidget* parent) : AstroFileHandler(parent)
     view->setAcceptDrops(false);
 
     declView = new QGraphicsView(this);
+    declView->setObjectName("declView");
     declView->setScene(new QGraphicsScene());
     declView->setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
     declView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -980,6 +1063,17 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         QT_TR_NOOP("culminating"), QT_TR_NOOP("anticulminating")
     };
 
+    // Stars that are the focal body of an event on ANOTHER ring (e.g. a
+    // clicked "Botein culminates" event on the transit ring). The overlays
+    // would draw that star a second time on this ring; the event's own
+    // (enlarged) glyph already marks it, so the overlays skip it here.
+    QSet<int> focalElsewhere;
+    for (int i = 0; i < filesCount(); ++i) {
+        if (i == fileIndex || !file(i)) continue;
+        for (const auto& cpid : file(i)->focalPlanets())
+            focalElsewhere.insert(cpid.planetId());
+    }
+
     for (const A::Star& s : file(fileIndex)->horoscope().stars) {
         // Show a star when it's configured with a natal planet OR it's the focal
         // body of the current event — e.g. a clicked heliacal-star event, whose
@@ -989,8 +1083,9 @@ Chart::updatePlanetsAndCusps(int fileIndex)
         bool focal = false;
         for (const auto& cpid : file(fileIndex)->focalPlanets())
             if (cpid.planetId() == s.id) { focal = true; break; }
+        const bool overlayOk = !focalElsewhere.contains(s.id);
         A::AngularStarHit hit;
-        if (fileIndex == anchorIdx)
+        if (fileIndex == anchorIdx && overlayOk)
             hit = A::angularStarAngle(s, file(fileIndex)->horoscope(),
                                       file(anchorIdx)->horoscope(),
                                       _angularStarOrb);
@@ -1009,8 +1104,10 @@ Chart::updatePlanetsAndCusps(int fileIndex)
             pvOverride = swe_degnorm(
                 (angle == A::Star::atMC ? 270.0 : 90.0) - hit.gap);
 
-        const bool helRising  = !helRisingName.isEmpty() && s.name == helRisingName;
-        const bool helSetting = !helSettingName.isEmpty() && s.name == helSettingName;
+        const bool helRising  = overlayOk && !helRisingName.isEmpty()
+                             && s.name == helRisingName;
+        const bool helSetting = overlayOk && !helSettingName.isEmpty()
+                             && s.name == helSettingName;
         const bool heliacal   = helRising || helSetting;
 
         bool hide = !s.isConfiguredWithPlanet() && !focal && angle < 0
@@ -2301,7 +2398,9 @@ Chart::drawStars(int fileIndex)
     for (const auto& star : file(fileIndex)->horoscope().stars) {
         int radius = 2;
 
-        auto text   = s->addSimpleText("*", planetFont);
+        auto text   = new StarGlyphItem("*");
+        text->setFont(planetFont);
+        s->addItem(text);
         auto marker = s->addEllipse(-innerRadius(fileIndex) - radius,
                                     -radius,
                                     radius * 2,

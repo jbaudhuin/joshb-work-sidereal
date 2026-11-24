@@ -1,0 +1,39 @@
+{
+    "buildType": {
+        "default": "release",
+        "description": "Build type",
+        "choices": {
+            "debug": {
+                "short": "Debug",
+                "long": "Unoptimized, with debug output and symbols",
+                "buildType": "Debug"
+            },
+            "release": {
+                "short": "Release",
+                "long": "Optimized, with PDB for crash dumps",
+                "buildType": "Release"
+            },
+            "relwithdebinfo": {
+                "short": "RelWithDebInfo",
+                "long": "Optimized, with debug info",
+                "buildType": "RelWithDebInfo"
+            }
+        }
+    },
+    "docCapture": {
+        "default": "off",
+        "description": "Doc capture screenshot mode (developer tool, see docs/doc-capture.md)",
+        "choices": {
+            "off": {
+                "short": "",
+                "long": "Normal build: doc capture not compiled in",
+                "settings": { "ZODIAC_DOC_CAPTURE": "OFF" }
+            },
+            "on": {
+                "short": "DocCapture",
+                "long": "Compile in doc capture (run with --doc-capture)",
+                "settings": { "ZODIAC_DOC_CAPTURE": "ON" }
+            }
+        }
+    }
+}

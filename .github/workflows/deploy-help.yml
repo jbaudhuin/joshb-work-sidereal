@@ -1,0 +1,28 @@
+# Build the Zodiac help site (help/) and publish it to the gh-pages branch.
+# One-time GitHub setting: Settings -> Pages -> Deploy from a branch -> gh-pages / root.
+name: Deploy Zodiac Help
+
+on:
+  push:
+    branches: [joshb-work-sidereal, main, master]
+    paths:
+      - 'help/**'
+      - '.github/workflows/deploy-help.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # gh-deploy pushes the built site to gh-pages
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r help/requirements.txt
+      - name: Build & publish to gh-pages
+        run: mkdocs gh-deploy --force --config-file help/mkdocs.yml

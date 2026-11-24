@@ -33,6 +33,13 @@
 // Convenient typedef for combo box key-value pairs that preserves insertion order
 using QKeyValueList = QList<QPair<QString, QVariant>>;
 
+// Folder holding user charts, sessions and the settings.ini template:
+// Documents/zodiac-charts, unless --data-dir / ZODIAC_DATA_DIR selected another
+// one (a clean folder for doc captures and testing). Created on first use.
+QString userDataDir();
+void    setUserDataDir(const QString& dir);
+bool    userDataDirOverridden();
+
 class QTabWidget;
 class Customizable;
 class QFormLayout;

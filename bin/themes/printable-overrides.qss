@@ -49,6 +49,15 @@ QDockWidget::title {
 	color: #000000;
 }
 
+QWidget#navDockTitleBar {
+	background: #FFFFFF;
+	border: 1px solid #CCCCCC;
+}
+
+QLabel#navDockTitle, QLabel#navReadout {
+	color: #000000;
+}
+
 QTabBar::tab {
 	background: #FFFFFF;
 	border: 1px solid #CCCCCC;

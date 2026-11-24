@@ -155,6 +155,7 @@ Speculum::Speculum(QWidget* parent) :
     _selectedPlanet(A::Planet_None),
     _fileIndex(0),
     _selectedChartIndex(0),
+    _chart2AutoSelected(false),
     _filterActive(false),
     _filterOrbMinutes(4.0), // Default 4 minutes
     _showFixedStars(true),
@@ -355,19 +356,26 @@ Speculum::filesUpdated(MembersList m)
     // If chart 2 button is hidden and was selected, switch to chart 1
     if (!_chart2Btn->isVisible() && _selectedChartIndex == 1) {
         _selectedChartIndex = 0;
+        _chart2AutoSelected = false;
         _chart1Btn->setChecked(true);
         _chart2Btn->setChecked(false);
     }
 
     // Auto-switch to chart 2 when it just became a paran chart, and back
-    // to chart 1 when the paran chart is replaced with a non-paran type.
+    // to chart 1 when the paran chart is replaced with a non-paran type --
+    // but only if that chart-2 view was the auto-switch's doing. A chart-2
+    // view the user picked stays put while browsing events (each event click
+    // can change file(1)'s type: transit -> return -> PD ...).
     if (filesCount() > 1 && m.size() > 1 && (m[1] & AstroFile::Type)) {
         if (file(1)->getType() == TypeParan && _selectedChartIndex == 0) {
             _selectedChartIndex = 1;
+            _chart2AutoSelected = true;
             _chart1Btn->setChecked(false);
             _chart2Btn->setChecked(true);
-        } else if (file(1)->getType() != TypeParan && _selectedChartIndex == 1) {
+        } else if (file(1)->getType() != TypeParan && _selectedChartIndex == 1
+                   && _chart2AutoSelected) {
             _selectedChartIndex = 0;
+            _chart2AutoSelected = false;
             _chart1Btn->setChecked(true);
             _chart2Btn->setChecked(false);
         }
@@ -420,8 +428,48 @@ Speculum::updateSpeculumDisplay()
     populateSpeculumTable();
 
     if (_filterActive) {
-        highlightFilteredRows();
+        if (_radixBtn->isChecked() && _radixTime.isValid()) {
+            // Radix filter follows the displayed chart's own birth time.
+            filterByTime(_radixTime, _filterOrbMinutes);
+        } else if (_clickedCol >= 1) {
+            restoreClickedSelection();
+        } else {
+            highlightFilteredRows();
+        }
     }
+}
+
+QString
+Speculum::rowKey(int row) const
+{
+    const QTableWidgetItem* it = _table->item(row, 0);
+    if (!it) return QString();
+    // Planets carry their PlanetId, stars -1, natal ex-precessed rows nothing.
+    const QVariant id = it->data(Qt::UserRole);
+    const QChar kind = !id.isValid() ? 'n' : (id.toInt() < 0 ? 's' : 'p');
+    return QString(kind) + it->text();
+}
+
+// After a rebuild (new chart, chart 1/2 switch), find the previously clicked
+// body + angle again and re-center the filter on that cell's NEW time. If the
+// body or crossing isn't present in the new chart, drop the filter rather than
+// keep filtering on a stale time from the previous chart.
+void
+Speculum::restoreClickedSelection()
+{
+    for (int row = 0; row < _table->rowCount(); ++row) {
+        if (rowKey(row) != _clickedRowKey) continue;
+        QTableWidgetItem* item = _table->item(row, _clickedCol);
+        const QDateTime t = item ? item->data(Qt::UserRole).toDateTime() : QDateTime();
+        if (!t.isValid()) break;
+
+        item->setData(CellHighlightRole, ClickedHighlight);
+        item->setData(Qt::UserRole + 1, true);
+        _clickedRow = row;
+        filterByTime(t, _filterOrbMinutes);
+        return;
+    }
+    onClearFilter();
 }
 
 void
@@ -1011,8 +1059,9 @@ Speculum::onCellClicked(int row, int column)
                                   true); // Mark as clicked cell
 
                     // Store which cell is clicked
-                    _clickedRow = row;
-                    _clickedCol = column;
+                    _clickedRow    = row;
+                    _clickedCol    = column;
+                    _clickedRowKey = rowKey(row);
 
                     filterByTime(timeData, _orbSpinBox->value());
                     emit timeSelected(timeData);
@@ -1155,8 +1204,9 @@ Speculum::onChartButtonClicked(int chartIndex)
     _chart1Btn->setChecked(chartIndex == 0);
     _chart2Btn->setChecked(chartIndex == 1);
 
-    // Store selected chart and refresh display
+    // Store selected chart and refresh display. A user pick is never "auto".
     _selectedChartIndex = chartIndex;
+    _chart2AutoSelected = false;
     updateSpeculumDisplay();
 }
 

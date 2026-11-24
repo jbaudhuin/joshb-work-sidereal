@@ -109,6 +109,12 @@ class Speculum : public AstroFileHandler {
     double    _filterOrbMinutes;
     int       _clickedRow;
     int       _clickedCol;
+    // Identity of the clicked cell's row, so the selection survives a table
+    // rebuild (new chart): kind ("p"lanet/"s"tar/"n"atal) + body name.
+    QString   _clickedRowKey;
+
+    QString rowKey(int row) const;
+    void    restoreClickedSelection();
 
     // Settings
     bool        _showFixedStars;
@@ -118,6 +124,10 @@ class Speculum : public AstroFileHandler {
     A::PlanetId _selectedPlanet;
     int         _fileIndex;
     int         _selectedChartIndex; // Which chart to display (0 or 1)
+    // True when chart 2 was selected automatically (because file(1) became a
+    // paran chart) rather than by the user; only then do we revert to chart 1
+    // when file(1) stops being a paran chart.
+    bool        _chart2AutoSelected;
     A::SpeculumDisplayMode
         _displayMode; // Display mode: Local Time, Sidereal Time, or RA
 };

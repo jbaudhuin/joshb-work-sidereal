@@ -123,7 +123,8 @@ class GeoSearchWidget : public QWidget
     QString selectedTimezoneId() const;
 
        void setLocation(const QVector3D& coord);
-       void setLocation(const QVector3D& coord, const QString& name);
+       void setLocation(const QVector3D& coord, const QString& name,
+                        const QString& tzId = QString());
        void setLocationName(const QString& name);
 };
 

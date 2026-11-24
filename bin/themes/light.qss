@@ -504,50 +504,92 @@ QToolBar#namedAspectControls QToolButton:checked {
 }
 
 /* ====================== Aspect Range Navigator ============================= */
-/* Compact transport (objectName aspectRangeNavigator) and the revert-to-saved
+/* Compact transport (objectName rangeNavigator) and the revert-to-saved
    corner button: strip the chunky default QToolButton chrome; themed glyphs. */
-QToolBar#aspectRangeNavigator {
+QToolBar#rangeNavigator {
 	spacing: 0px;
+	background: transparent;
+	border: none;
+	padding: 0px;
+	margin: 0px;
+	/* Pin the height: the title bar must not grow past the native dock
+	   titles it sits beside. */
+	min-height: 24px;
+	max-height: 24px;
 }
 
-QToolBar#aspectRangeNavigator QToolButton {
+/* The navigator rides in the Events dock's custom title bar (#navDockTitleBar),
+   which replaces the native one -- so this mirrors QDockWidget::title, and the
+   navigator colors below are chosen against the title gradient. */
+QWidget#navDockTitleBar {
+	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+								stop: 0 #E0E0E0, stop: 1.0 #C8C8C8);
+	border: 1px solid #A0A0A0;
+	border-top-left-radius: 4px;
+	border-top-right-radius: 4px;
+	border-bottom: 2px solid #B0B0B0;
+}
+
+QLabel#navDockTitle {
+	background: transparent;
+	font-weight: bold;
+	color: #2C2C2C;
+	padding: 4px 6px 4px 0px;
+}
+
+QLabel#navReadout {
+	background: transparent;
+	color: #000000;
+	padding: 0px 4px;
+}
+
+QToolButton#navDockFloat, QToolButton#navDockClose {
+	background: transparent;
+	border: none;
+	border-radius: 3px;
+	min-width: 0;
+	margin: 0px;
+	padding: 3px;
+}
+
+QToolButton#navDockFloat:hover, QToolButton#navDockClose:hover {
+	background: #B4B4B4;
+}
+
+QToolBar#rangeNavigator QToolButton {
 	background: transparent;
 	border: none;
 	border-radius: 4px;
 	min-width: 0;
 	margin: 0px;
-	padding: 1px 5px;
+	padding: 1px 0px;
+	max-width: 17px;
 	color: #000000;
 	font-size: 15px;
 	font-weight: bold;
 }
 
-QToolBar#aspectRangeNavigator QToolButton:hover {
-	background: #C8C8C8;
+QToolBar#rangeNavigator QToolButton:hover {
+	background: #B4B4B4;
 }
 
-QToolBar#aspectRangeNavigator QToolButton:disabled {
+QToolBar#rangeNavigator QToolButton:disabled {
 	background: transparent;
-	color: #909090;
+	color: #8A8A8A;
 }
 
 /* Play/Stop button: green for play (▶), red for stop (■) — distinct from the
    theme-colored next-step ▶ glyph. */
-QToolBar#aspectRangeNavigator QToolButton#navPlayButton {
+QToolBar#rangeNavigator QToolButton#navPlayButton {
 	color: #1e8449;
 }
 
-QToolBar#aspectRangeNavigator QToolButton#navPlayButton[playing="true"] {
+QToolBar#rangeNavigator QToolButton#navPlayButton[playing="true"] {
 	color: #c0392b;
 }
 
-QToolBar#aspectRangeNavigator QToolButton#navPlayButton:disabled {
-	color: #909090;
-}
-
-QToolBar#aspectRangeNavigator QLabel {
-	color: #000000;
-	padding-left: 8px;
+QToolBar#rangeNavigator QToolButton#navPlayButton:disabled {
+	color: #8A8A8A;
 }
 
 QToolButton#revertButton {
@@ -653,6 +695,13 @@ QTreeView::item:hover,
 QTreeView::item:selected {
 	color: #0066CC;
 	font-weight: bold;
+}
+
+/* Planets panel, list of matches: its selection is a filled bar, on which
+   the blue above would vanish. */
+QTreeWidget#planetSearchResults::item:selected {
+	background-color: rgba(46, 122, 184, 100);
+	color: #000000;
 }
 
 QListWidget {

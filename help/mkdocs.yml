@@ -1,0 +1,125 @@
+site_name: Zodiac Help
+site_description: User guide and feature reference for the Zodiac astrology application
+site_author: Josh Baudhuin
+site_url: https://jbaudhuin.github.io/joshb-work-sidereal/
+repo_url: https://github.com/jbaudhuin/joshb-work-sidereal
+repo_name: jbaudhuin/joshb-work-sidereal
+docs_dir: docs
+# Built HTML goes into bin/help, which mirrors the installed layout ($INSTDIR\help),
+# so F1 resolves applicationDirPath()/help/... in both dev builds and installs.
+# bin/help/ is generated output and should be gitignored.
+site_dir: ../bin/help
+# Flat URLs (page.html rather than page/) so the SAME build works both when
+# hosted on GitHub Pages and when opened directly from disk (offline F1 fallback).
+use_directory_urls: false
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.tracking
+    - navigation.top
+    - navigation.indexes
+    - navigation.sections
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.keys
+  - pymdownx.details
+  - pymdownx.smartsymbols
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - getting-started/index.md
+      - Installing Zodiac: getting-started/installing.md
+      - A tour of the main window: getting-started/main-window.md
+      - Creating & editing charts: getting-started/charts.md
+      - Locations, time & calendars: getting-started/location-time.md
+  - The Views:
+      - views/index.md
+      - The chart wheel: views/chart-wheel.md
+      - Planets view: views/planets.md
+      - Tables (text) view: views/tables.md
+      - Details: views/details.md
+  - The Chart Wheel in Depth:
+      - chart-wheel/index.md
+      - Zodiacs & ayanamshas: chart-wheel/zodiacs.md
+      - House systems & aspects: chart-wheel/houses-aspects.md
+      - Harmonics on the wheel: chart-wheel/harmonics.md
+      - Fixed stars: chart-wheel/fixed-stars.md
+      - Midpoints: chart-wheel/midpoints.md
+      - Prime vertical, equatorial & great-circle: chart-wheel/coordinate-frames.md
+      - The declination strip: chart-wheel/declination-strip.md
+      - Animation, scrubbing & paran cycling: chart-wheel/animation.md
+  - Harmonics:
+      - chart-wheel/harmonics-tab.md
+  - Events (Transits):
+      - events/index.md
+      - The event-filter toolbar: events/toolbar.md
+      - The pattern search language: events/patterns.md
+      - Stations, ingresses & returns: events/stations-ingresses.md
+      - Heliacal apparitions: events/heliacal.md
+      - Relocating an event: events/relocating.md
+      - Background finders & performance: events/performance.md
+  - Parans & Primary Directions:
+      - parans/index.md
+      - Paranatellonta: parans/paranatellonta.md
+      - The Speculum: parans/speculum.md
+      - Primary directions & quotidian modes: parans/primary-directions.md
+      - Paran latitude bands & city lookup: parans/latitude-bands.md
+  - Chart Types:
+      - chart-types/index.md
+      - Returns: chart-types/returns.md
+      - Progressions: chart-types/progressions.md
+      - Composite (midpoint) charts: chart-types/composite.md
+      - Bi-wheels & synastry: chart-types/biwheels.md
+  - Organizing Your Work:
+      - organizing/index.md
+      - The chart database: organizing/database.md
+      - Sessions & multi-window: organizing/sessions.md
+  - Reference:
+      - reference/index.md
+      - Settings reference: reference/settings.md
+      - Themes: reference/themes.md
+      - Command-line options: reference/command-line.md
+      - Troubleshooting & crash reports: reference/troubleshooting.md
+      - Credits & license: reference/credits.md

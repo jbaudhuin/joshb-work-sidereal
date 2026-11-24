@@ -506,50 +506,92 @@ QToolBar#namedAspectControls QToolButton:checked {
 }
 
 /* ====================== Aspect Range Navigator ============================= */
-/* Compact transport (objectName aspectRangeNavigator) and the revert-to-saved
+/* Compact transport (objectName rangeNavigator) and the revert-to-saved
    corner button: strip the chunky default QToolButton chrome; themed glyphs. */
-QToolBar#aspectRangeNavigator {
+QToolBar#rangeNavigator {
 	spacing: 0px;
+	background: transparent;
+	border: none;
+	padding: 0px;
+	margin: 0px;
+	/* Pin the height: the title bar must not grow past the native dock
+	   titles it sits beside. */
+	min-height: 24px;
+	max-height: 24px;
 }
 
-QToolBar#aspectRangeNavigator QToolButton {
+/* The navigator rides in the Events dock's custom title bar (#navDockTitleBar),
+   which replaces the native one -- so this mirrors QDockWidget::title, and the
+   navigator colors below are chosen against the title gradient. */
+QWidget#navDockTitleBar {
+	background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+								stop: 0 #9F9F9F, stop: 1.0 #7F7F7F);
+	border: 1px solid #525252;
+	border-top-left-radius: 4px;
+	border-top-right-radius: 4px;
+	border-bottom: 2px solid #6C6C6C;
+}
+
+QLabel#navDockTitle {
+	background: transparent;
+	font-weight: bold;
+	color: #d8e4f4;
+	padding: 4px 6px 4px 0px;
+}
+
+QLabel#navReadout {
+	background: transparent;
+	color: #F2F2F2;
+	padding: 0px 4px;
+}
+
+QToolButton#navDockFloat, QToolButton#navDockClose {
+	background: transparent;
+	border: none;
+	border-radius: 3px;
+	min-width: 0;
+	margin: 0px;
+	padding: 3px;
+}
+
+QToolButton#navDockFloat:hover, QToolButton#navDockClose:hover {
+	background: #6A6A6A;
+}
+
+QToolBar#rangeNavigator QToolButton {
 	background: transparent;
 	border: none;
 	border-radius: 4px;
 	min-width: 0;
 	margin: 0px;
-	padding: 1px 5px;
-	color: #E0E0E0;
+	padding: 1px 0px;
+	max-width: 17px;
+	color: #F2F2F2;
 	font-size: 15px;
 	font-weight: bold;
 }
 
-QToolBar#aspectRangeNavigator QToolButton:hover {
-	background: #4f4f4f;
+QToolBar#rangeNavigator QToolButton:hover {
+	background: #6A6A6A;
 }
 
-QToolBar#aspectRangeNavigator QToolButton:disabled {
+QToolBar#rangeNavigator QToolButton:disabled {
 	background: transparent;
-	color: #808080;
+	color: #666666;
 }
 
 /* Play/Stop button: green for play (▶), red for stop (■) — distinct from the
    theme-colored next-step ▶ glyph. */
-QToolBar#aspectRangeNavigator QToolButton#navPlayButton {
-	color: #3cb371;
+QToolBar#rangeNavigator QToolButton#navPlayButton {
+	color: #0b5d2a;
 }
 
-QToolBar#aspectRangeNavigator QToolButton#navPlayButton[playing="true"] {
-	color: #e0584e;
+QToolBar#rangeNavigator QToolButton#navPlayButton[playing="true"] {
+	color: #8c1c13;
 }
 
-QToolBar#aspectRangeNavigator QToolButton#navPlayButton:disabled {
-	color: #808080;
-}
-
-QToolBar#aspectRangeNavigator QLabel {
-	color: #E0E0E0;
-	padding-left: 8px;
+QToolBar#rangeNavigator QToolButton#navPlayButton:disabled {
+	color: #666666;
 }
 
 QToolButton#revertButton {

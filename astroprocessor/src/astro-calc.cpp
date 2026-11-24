@@ -267,7 +267,10 @@ isSolarReturn(const QString& chartName)
     // Sun-to-Sun harmonic triggered the return; and the descriptive name
     // from "Open with Solar Return" ("… Solar Return …", including
     // harmonics like "Solar H2 Return").
-    static const QRegularExpression rx(R"(\bSun-r\b[\s\S]*\bSun\b)");
+    // The compact title is matched in either order: the Events table now
+    // writes the transiting body first ("Sun H1 Sun-r").
+    static const QRegularExpression rx(
+        R"(\bSun-r\b[\s\S]*\bSun\b|\bSun\b[\s\S]*\bSun-r\b)");
     return rx.match(chartName).hasMatch()
         || (chartName.contains("Solar", Qt::CaseInsensitive)
             && chartName.contains("Return", Qt::CaseInsensitive));
@@ -280,7 +283,8 @@ isLunarReturn(const QString& chartName)
     // (Sun stays "Sun"). Matches "Moo-r" <connector> "Moo" in either
     // Harmonic ("H1") or named ("cnj") aspect mode; see isSolarReturn().
     // Also accept the descriptive "… Lunar Return …" name.
-    static const QRegularExpression rx(R"(\bMoo-r\b[\s\S]*\bMoo\b)");
+    static const QRegularExpression rx(
+        R"(\bMoo-r\b[\s\S]*\bMoo\b|\bMoo\b[\s\S]*\bMoo-r\b)");
     return rx.match(chartName).hasMatch()
         || (chartName.contains("Lunar", Qt::CaseInsensitive)
             && chartName.contains("Return", Qt::CaseInsensitive));
@@ -322,6 +326,17 @@ classifyDirChart(const AstroFile* file)
     // FilesBar::openFileCompositeDavison), and genuine progressed /
     // solar-arc / primary-direction charts (which already have their own
     // direction technique).
+    //
+    // Exception: an ingress chart the user has marked TypeEvent (so the
+    // events table treats it as a natal-role radix and produces PDs) is
+    // still a moment-in-time chart with no birth to anchor a natal rate,
+    // so it is directed at the quotidian SQ/NeoSQ rate like any other
+    // ingress. TypeEvent alone can't tell an ingress from a founding /
+    // mundane event chart (which keeps the natal rate), so key off the
+    // finder's ingress naming ("Ari=Sun", "Can=Moo", ...).
+    if (file->getType() == TypeEvent && isAnyIngress(file->getName()))
+        return DirChartOther;
+
     switch (file->getType()) {
     case TypeMale:
     case TypeFemale:
@@ -4640,6 +4655,108 @@ buildDirContext(const Horoscope& anchorChart, DirMethod method)
 }
 
 QDateTime
+quotidianDateForArc(const PSSRContext& ctx, double arc, double* daysOut)
+{
+    double days = 0.0;
+    if (ctx.method == DirSQ || ctx.method == DirNeoSQ) {
+        // Solve SV(T) == SV0 + arc for T. `arc` is taken as given -- an
+        // accumulated, possibly multi-turn value -- so the target may lie
+        // several revolutions of the sun away from the anchor.
+        const double svTarget = ctx.returnRAMS + arc;
+
+        // Linear seed: mean sun advances ~360 deg / 365.2422 days in RA.
+        days = arc / 360.0 * 365.2422;
+
+        // Newton refinement against the actual sun-RA function so the
+        // apparent sun's slight nonlinearity is handled.  ~1e-6 deg tolerance.
+        for (int iter = 0; iter < 12; ++iter) {
+            QDateTime t  = ctx.returnTime.addSecs(qint64(days * 86400.0));
+            double    sv = calculateRAMS(t, ctx.useApparentSun);
+            double    diff = sv - svTarget;      // want zero
+            // normalize to nearest revolution of the *accumulated* target
+            diff = std::fmod(diff, 360.0);
+            if (diff > 180.0)        diff -= 360.0;
+            else if (diff <= -180.0) diff += 360.0;
+            if (qAbs(diff) < 1e-6) break;
+            // d(SV)/d(days) ~ 360/365.2422 (mean rate) -- good enough for Newton.
+            days -= diff / (360.0 / 365.2422);
+        }
+    } else {
+        // PSSR / NeoPSSR: linear -- the anniversary second already captures
+        // the RAMC-advance / mean-sun-travel ratio, so simply invert it.
+        const double elapsedRAMS = arc / ctx.anniversarySecond; // degrees
+        days = (elapsedRAMS / 360.0) * 365.25;
+    }
+    if (daysOut) *daysOut = days;
+    return ctx.returnTime.addSecs(qint64(qAbs(days) * 86400.0));
+}
+
+double
+DirTiming::daysPerDegree() const
+{
+    if (!isQuotidian()) return pdDaysPerDegree(pdTimingKey);
+    if (dirMethodIsPSSR(method)) {
+        return ctx.anniversarySecond != 0.0
+                   ? 365.25 / (360.0 * qAbs(ctx.anniversarySecond))
+                   : 0.0;
+    }
+    return 365.2422 / 360.0;
+}
+
+QDateTime
+DirTiming::dateForArc(const QDateTime& radix, double arc) const
+{
+    if (!isQuotidian()) return primaryDirectionDate(radix, arc, pdTimingKey);
+    return quotidianDateForArc(ctx, arc);
+}
+
+double
+DirTiming::arcForDate(const QDateTime& radix, const QDateTime& dt, bool converse) const
+{
+    if (!isQuotidian()) {
+        const double dpd = pdDaysPerDegree(pdTimingKey);
+        if (dpd <= 0.0) return 0.0;
+        const double arcMag = (radix.msecsTo(dt) / 86400000.0) / dpd;
+        return converse ? -arcMag : arcMag;
+    }
+
+    // quotidianDateForArc() dates a converse arc by solving for the (earlier)
+    // moment the sun stood at SV0 + arc and then mirroring that interval
+    // forward, so invert the same way: look `elapsed` days to the matching
+    // side of the anchor.
+    const double elapsed = ctx.returnTime.msecsTo(dt) / 86400000.0;
+    const double days    = converse ? -elapsed : elapsed;
+
+    if (dirMethodIsPSSR(method))
+        return days / 365.25 * 360.0 * ctx.anniversarySecond;
+
+    const QDateTime t   = ctx.returnTime.addSecs(qint64(days * 86400.0));
+    const double    est = days * 360.0 / 365.2422;
+    double diff = calculateRAMS(t, ctx.useApparentSun) - ctx.returnRAMS;
+    // Unwrap onto the revolution nearest the mean-rate estimate.
+    diff += 360.0 * std::round((est - diff) / 360.0);
+    return diff;
+}
+
+const DirTiming&
+AspectFinder::dirTiming() const
+{
+    static const DirTiming classical;
+    return _dirTiming ? *_dirTiming : classical;
+}
+
+DirTiming
+DirTiming::forFile(const AstroFile* file)
+{
+    DirTiming t;
+    const DirMethod m = resolveDirMethod(file);
+    if (m == DirNone) return t;
+    t.ctx = buildDirContext(file->horoscope(), m);
+    if (t.ctx.isValid) t.method = m;
+    return t;
+}
+
+QDateTime
 calculateAngularDate(const QDateTime&   radixTime,
                      const QDateTime&   angleTime,
                      double             planetRA,
@@ -4667,26 +4784,11 @@ calculateAngularDate(const QDateTime&   radixTime,
 
         const double svTarget = pssrCtx->returnRAMS + elapsed; // may exceed 360, fine
 
-        // Linear seed: mean sun advances ~360°/365.2422 days in RA.
-        double days = elapsed / 360.0 * 365.2422;
-
-        // Newton refinement against the actual sun-RA function so the apparent
-        // sun's slight nonlinearity is handled.  ~1e-6° tolerance.
-        for (int iter = 0; iter < 12; ++iter) {
-            QDateTime t  = pssrCtx->returnTime.addSecs(qint64(days * 86400.0));
-            double    sv = calculateRAMS(t, pssrCtx->useApparentSun);
-            double    diff = sv - svTarget;      // want zero
-            // normalize to nearest revolution of the *accumulated* target
-            while (diff > 180.0)  diff -= 360.0;
-            while (diff <= -180.0) diff += 360.0;
-            if (qAbs(diff) < 1e-6) break;
-            // d(SV)/d(days) ≈ 360/365.2422 (mean rate) — good enough for Newton.
-            days -= diff / (360.0 / 365.2422);
-        }
-
         // Converse contacts solve to a negative elapsed time; like PSSR and the
-        // primary-direction path, apply the magnitude forward from the anchor.
-        QDateTime result = pssrCtx->returnTime.addSecs(qint64(qAbs(days) * 86400.0));
+        // primary-direction path, quotidianDateForArc() applies the magnitude
+        // forward from the anchor.
+        double    days   = 0.0;
+        QDateTime result = quotidianDateForArc(*pssrCtx, elapsed, &days);
 
         QString direction = (elapsed >= 0) ? "Direct" : "Converse";
         qDebug() << "=== calculateAngularDate (" << dirMethodLabel(pssrCtx->method)
@@ -4718,14 +4820,12 @@ calculateAngularDate(const QDateTime&   radixTime,
         if (ramcDiff > 180.0) ramcDiff -= 360.0;
         else if (ramcDiff <= -180.0) ramcDiff += 360.0;
 
-        // Invert the anniversary second to get elapsed RAMS, then convert to days.
-        double elapsedRAMS = ramcDiff / pssrCtx->anniversarySecond; // degrees
-        double elapsedDays = (elapsedRAMS / 360.0) * 365.25;
-
-        // Converse contacts have a negative elapsed time; take the absolute value
-        // so the result lands in the future from the return (standard convention).
-        qint64 offsetSeconds = static_cast<qint64>(qAbs(elapsedDays) * 86400.0);
-        QDateTime result = pssrCtx->returnTime.addSecs(offsetSeconds);
+        // Converse contacts have a negative elapsed time; quotidianDateForArc()
+        // applies the magnitude so the result lands in the future from the
+        // return (standard convention).
+        double    elapsedRAMS = ramcDiff / pssrCtx->anniversarySecond; // degrees
+        double    elapsedDays = 0.0;
+        QDateTime result = quotidianDateForArc(*pssrCtx, ramcDiff, &elapsedDays);
 
         QString direction = (ramcDiff >= 0) ? "Direct" : "Converse";
         qDebug() << "=== calculateAngularDate (PSSR)" << debugLabel << "===";
@@ -6181,6 +6281,13 @@ OmnibusFinder::initializeFromFiles(const AstroFileList& files)
     CompositeCtx comp;
     if (natal) comp = buildCompositeCtx(files.at(natus), _auxIds);
 
+    // Arc -> date mapping for the direction finders, resolved from the radix
+    // chart here on the calling (GUI) thread and held by value: a return
+    // chart is directed at its quotidian rate, anything else by the classical
+    // timing key. See DirTiming.
+    if (natal)
+        _dirTiming = std::make_shared<DirTiming>(DirTiming::forFile(files.at(natus)));
+
     // Cache natal-epoch values for ex-precession context (equatorial mode)
     if (natal && primaryFrame == amcEquatorial) {
         double xx[6];
@@ -6673,6 +6780,13 @@ OmnibusFinder::initializeFromPattern(const QString&       pattern,
     // Midpoint-composite natal reference (see initializeFromFiles)
     CompositeCtx comp;
     if (natal) comp = buildCompositeCtx(files.at(natus), _auxIds);
+
+    // Arc -> date mapping for the direction finders, resolved from the radix
+    // chart here on the calling (GUI) thread and held by value: a return
+    // chart is directed at its quotidian rate, anything else by the classical
+    // timing key. See DirTiming.
+    if (natal)
+        _dirTiming = std::make_shared<DirTiming>(DirTiming::forFile(files.at(natus)));
 
     // --- Shared deduplicating planet getters ---
     double njd = natal ? getJulianDate(_ids[natus].GMT()) : 0;
@@ -8879,8 +8993,11 @@ AspectFinder::findPrimaryDirections()
     // The Plain Directions table keeps the folded half-turn; here every
     // turn whose date can reach the search window is emitted, using the
     // same date-window -> arc-window mapping as findRaptParallels().
-    const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
-    double       arcMax     = 180.0;
+    const DirTiming& timing     = dirTiming();
+    const bool       quotidian  = timing.isQuotidian();
+    const QDate      anchorDate = natalIda.GMT().date();
+    const double     daysPerDeg = timing.daysPerDegree();
+    double           arcMax     = 180.0;
     if (daysPerDeg > 0.0) {
         const qint64 daysToStart = natalIda.GMT().date().daysTo(_range.first);
         const qint64 daysToEnd   = natalIda.GMT().date().daysTo(_range.second);
@@ -9244,8 +9361,21 @@ AspectFinder::findPrimaryDirections()
                     if (pdDirectionScope == PDDirectOnly && converse) continue;
                     if (pdDirectionScope == PDConverseOnly && !converse) continue;
 
-                    QDateTime dt = primaryDirectionDate(natalIda.GMT(), dirArc,
-                                                        A::pdTimingKey);
+                    // Quotidian timing solves each date iteratively against
+                    // the ephemeris, and at ~360 degrees a year most turns of
+                    // a multi-year span miss the window -- so discard those
+                    // on the mean rate first. The margin covers how far the
+                    // true sun can run from the mean one (a few degrees).
+                    if (quotidian) {
+                        const qint64 est = qint64(std::fabs(dirArc) * daysPerDeg);
+                        const qint64 pad = qint64(std::max(pdOrbDegrees, 0.0) * daysPerDeg) + 8;
+                        const QDate  estDate = anchorDate.addDays(est);
+                        if (estDate.addDays(pad) < _range.first
+                            || estDate.addDays(-pad) > _range.second)
+                            continue;
+                    }
+
+                    QDateTime dt = timing.dateForArc(natalIda.GMT(), dirArc);
 
                     // Include this direction whenever its orb of effect overlaps
                     // the search window at all, not just when the exact date
@@ -9257,7 +9387,7 @@ AspectFinder::findPrimaryDirections()
                     // combination regardless of window size, not an iterative
                     // time-walk whose cost scales with how much time it covers.
                     const qint64 orbSecs = pdOrbDegrees > 0.0
-                        ? qint64(pdOrbDegrees * pdDaysPerDegree(A::pdTimingKey) * 86400.0)
+                        ? qint64(pdOrbDegrees * daysPerDeg * 86400.0)
                         : 0;
                     const QDateTime rangeStart = dt.addSecs(-orbSecs);
                     const QDateTime rangeEnd   = dt.addSecs(orbSecs);
@@ -9406,7 +9536,7 @@ AspectFinder::findRaptParallels()
     // a symmetric arc window; one bracket-search call spanning
     // [-arcMax, arcMax] finds both direct and converse roots whose
     // resulting date falls in range.
-    const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
+    const double daysPerDeg = dirTiming().daysPerDegree();
     if (daysPerDeg <= 0.0) return;
     const qint64 daysToStart = natalIda.GMT().date().daysTo(_range.first);
     const qint64 daysToEnd   = natalIda.GMT().date().daysTo(_range.second);
@@ -9457,7 +9587,7 @@ AspectFinder::findRaptParallels()
                     if (pdDirectionScope == PDConverseOnly && !converse) continue;
 
                     const QDateTime dt =
-                        primaryDirectionDate(natalIda.GMT(), arc, A::pdTimingKey);
+                        dirTiming().dateForArc(natalIda.GMT(), arc);
                     const QDateTime rangeStart = dt.addSecs(-orbSecs);
                     const QDateTime rangeEnd   = dt.addSecs(orbSecs);
                     if (rangeEnd.date() < _range.first
@@ -9568,7 +9698,7 @@ AspectFinder::findRaptConjunctions()
 
     // Same symmetric arc window findRaptParallels() derives -- see its
     // comment for why one [-arcMax, arcMax] pass covers direct and converse.
-    const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
+    const double daysPerDeg = dirTiming().daysPerDegree();
     if (daysPerDeg <= 0.0) return;
     const qint64 daysToStart = natalIda.GMT().date().daysTo(_range.first);
     const qint64 daysToEnd   = natalIda.GMT().date().daysTo(_range.second);
@@ -9616,7 +9746,7 @@ AspectFinder::findRaptConjunctions()
                 if (pdDirectionScope == PDConverseOnly && !converse) continue;
 
                 const QDateTime dt =
-                    primaryDirectionDate(natalIda.GMT(), arc, A::pdTimingKey);
+                    dirTiming().dateForArc(natalIda.GMT(), arc);
                 const QDateTime rangeStart = dt.addSecs(-orbSecs);
                 const QDateTime rangeEnd   = dt.addSecs(orbSecs);
                 if (rangeEnd.date() < _range.first

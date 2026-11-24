@@ -163,8 +163,18 @@ Harvested in `findParans` (no extra ephemeris):
 - `emitParan` converts spread→deg and hands the list to the event:
   `HarmonicEvent::setOccurrences(...)` (parallel to `setRange`).
 - `clickedCell` stamps it onto the `TypeParan` `AstroFile`
-  (`setParanOccurrences`) next to `setParanGroupPlanets`. Not persisted —
+  (`setParanOccurrences`) next to `setParanGroupPlanets`, and it is
   regenerated on the next event click.
+
+  **Update (2026-09-12): now persisted** for `TypeParan`/`TypeApparition`
+  via `AstroFile::derivationState()`, which every serializer routes through
+  (the `.dat` plus all three session paths). The original "not persisted"
+  note was fine while a paran chart only ever existed as file(1) of a live
+  tab, but a chart reopened on its own never receives the click that would
+  regenerate the list, so it could never cycle. The group and the
+  occurrences define what the chart *is*; they are not recoverable from its
+  moment and place. Still transient on file(0), where the same fields hold
+  focal display state for the radix.
 
 ### 3.4 Transport toolbar (new draggable toolbar)
 
@@ -218,3 +228,76 @@ moment (it would move the subject and dirty the saved chart).
   is sufficient but does one redundant full recalc).
 - `scrubbing` is a plain global like `primDirMode`; both are GUI-thread state.
   Keep all writes on the GUI thread (finder threads do not touch `calculateAll`).
+
+## 6. Heliacal apparitions
+
+Status: implemented — extends the discrete occurrence transport of §3–4.
+
+### 6.1 Model
+
+The heliacal event search (`etcHeliacalEvents` for planets, `etcHeliacalStars`
+for fixed stars) no longer emits one row per phase point. Instead each body's
+**apparition** — its span of visibility from morning-first (**MF**) to
+evening-last (**EL**) — is a single row, navigated with the same discrete
+occurrence transport used for parans (§3.4). It reuses
+`HarmonicEvent::setOccurrences` plus a **parallel** `setOccurrenceLabels`
+(1:1 with the occurrences; empty for parans, which keep the plain `i/n · orb`
+label). By body class:
+
+- **Fixed stars + outer planets (Mars/Jupiter/Saturn).** `swe_heliacal_ut`
+  yields only rising/setting (types 1/2) for these, so one all-night apparition
+  with **five** labeled stops: MF · Acr · **Cul (anchor)** · Cs · EL.
+- **Inner planets (Mercury/Venus).** Two apparitions per synodic cycle, anchored
+  at greatest elongation (GWe morning / GEe evening), three stops each.
+- **Moon.** Discrete EF/ML crescent rows (no occurrences) — the non-apparition
+  path in `clickedCell` keys off `occurrences().isEmpty()`.
+
+### 6.2 Anchor vs phase — two different kinds of moment
+
+The five stops are **not** all computed the same way, and this is the source of a
+genuine (non-bug) counter-intuition worth recording:
+
+- **Culmination (Cul)** is an **angle-transit**: the date the body's upper
+  meridian transit best matches solar midnight (the Sun's lower transit) — the
+  body highest at midnight, ≈ opposition in equatorial longitude. This is the
+  apparition **anchor** (the row's headline date and where the ⊙ button snaps).
+- **Acronychal rising (Acr)** and **cosmical setting (Cs)** are
+  **visibility / phasis** events (in the sense of Ptolemy's *Phaseis*): the date
+  the body **rises exactly at sunset** (Acr) and the date it **sets exactly at
+  sunrise** (Cs). Each pins a *different body event* to a *different solar
+  event*, so each falls on its **own date**, generally weeks from the
+  culmination.
+
+Consequence: Acr, Cul and Cs do **not** collapse onto a single "best night."
+The intuitive picture — rises at dusk → culminates at midnight → sets at dawn,
+all within one ~18 h night — is a *different* construction (the culmination
+night's own rise/transit/set). Because the Sun's rise/set times drift
+asymmetrically near opposition (equation of time + changing solar declination),
+the phasis dates Acr and Cs can even land in counter-intuitive order — e.g.
+Cs *before* Cul *before* Acr, or Acr well after the culmination. The stops are
+sorted chronologically before storage and each carries its own label, so the
+navigator always steps in true time order with correct names; only the naïve
+dusk→midnight→dawn *expectation* is wrong.
+
+### 6.3 Terminology (the 2×2)
+
+Dusk vs dawn × rising vs setting:
+
+|             | rises                        | sets                        |
+|-------------|------------------------------|-----------------------------|
+| at sunset   | acronychal rising (**Acr**)  | acronychal setting ≈ **EL** |
+| at sunrise  | cosmical rising ≈ **MF**     | cosmical setting (**Cs**)   |
+
+"Heliacal" is the near-the-Sun *visibility* pair sitting on two of those corners:
+heliacal rising ≈ cosmical rising (**MF**), heliacal setting ≈ acronychal setting
+(**EL**). Note that Swiss Ephemeris aliases `SE_COSMICAL_SETTING` to
+`SE_ACRONYCHAL_SETTING` (both `6`, both flagged "not implemented"); we compute
+Acr/Cs/Cul ourselves in `findHeliacalEvents` (astro-calc.cpp) via the
+body-agnostic `acronychalJd` / `cosmicalSetJd` / `culminationJd` helpers
+(star by name, planet by `ipl`, via `swe_rise_trans`).
+
+### 6.4 Deferred idea
+
+Whether to offer an alternative **best-night** reading — Acr/Cs taken as the
+culmination night's own dusk-rise and dawn-set (the ~18–24 h triple many expect),
+instead of (or alongside) the strict phasis dates. Kept as strict phasis for now.

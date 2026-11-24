@@ -252,6 +252,11 @@ class AstroFile : public QObject, public A::EventStore {
     /// A::primDirSystem at calculate time.
     void setDirectedArc(double arc, int system);
     void setTimezoneLocked(bool locked);
+    /// The chart's place is part of what it is (e.g. solved from typed
+    /// angles), so nothing should relocate it to an observer location. Not
+    /// saved with the chart.
+    void setLocationPinned(bool pinned) { _locationPinned = pinned; }
+    bool isLocationPinned() const { return _locationPinned; }
 
     void setFocalPlanets(const A::PlanetSet& fp = {}) { _focalPlanets = fp; }
     void setFocalPlanets(const A::PlanetSet& fp, bool notify);
@@ -632,6 +637,7 @@ class AstroFile : public QObject, public A::EventStore {
 
     // Originating event type (e.g. etcSolarReturn) for chart preset lookup
     A::EventType _originEventType = A::etcUnknownEvent;
+    bool         _locationPinned  = false;
 
     // Paran group (populated when TypeParan chart is created from an event click)
     QVector<ParanGroupEntry> _paranGroupPlanets;
@@ -702,6 +708,8 @@ class AstroFileHandler : public QWidget, public Customizable {
     bool          delayUpdate;
     MembersList   delayMembers;     // accumulated data flags
     MembersList   delayViewMembers; // accumulated view-setting flags
+    quint64       _dispatchCounter   = 0; // monotonically increasing per dispatchUpdate()
+    quint64       _currentDispatchId = 0; // id of the dispatch in progress (0 = none)
 
     /// Synthetic Planet objects for midpoints in focal aspect calculation.
     /// Lifetime must span the aspect drawing cycle.
@@ -745,6 +753,14 @@ class AstroFileHandler : public QWidget, public Customizable {
 
   protected:
     virtual void filesUpdated(MembersList members) = 0;
+
+    /// Identifies the dispatchUpdate() currently delivering filesUpdated() /
+    /// viewSettingsUpdated(); 0 outside any dispatch.  A nested dispatch gets
+    /// its own id and restores the outer one on return, so a handler can tell
+    /// whether a viewSettingsUpdated() belongs to the same dispatch as an
+    /// earlier filesUpdated() (e.g. a setFiles() "All" diff) or is a later,
+    /// genuine display-settings change.
+    quint64 currentDispatchId() const { return _currentDispatchId; }
 
     /// Override to handle view-setting changes separately from file-data
     /// changes. Default implementation merges into filesUpdated() for

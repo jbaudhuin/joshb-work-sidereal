@@ -36,10 +36,12 @@
 #include "../details/src/details.h"
 #include "../details/src/harmonics.h"
 #include "../details/src/speculum.h"
+#include "../details/src/planettable.h"
 #include "../details/src/transits.h"
 #include "../fileeditor/src/fileeditor.h"
 #include "../fileeditor/src/geosearch.h"
 #include "../plain/src/plain.h"
+#include "helptopics.h"
 #include "../planets/src/planets.h"
 #include "mainwindow.h"
 #include "thememanager.h"
@@ -112,17 +114,9 @@ QHash<QString, QPair<QDateTime, SessionManager::SessionInfo>> SessionManager::s_
 QString 
 SessionManager::sessionDirectory()
 {
-    // Use the same directory as user charts (Documents/zodiac-charts)
-    constexpr auto loc = QStandardPaths::DocumentsLocation;
-    QString dir = QStandardPaths::writableLocation(loc) + "/zodiac-charts";
-    
-    // Ensure directory exists
-    QDir d(dir);
-    if (!d.exists()) {
-        QDir().mkpath(d.absolutePath());
-    }
-    
-    return dir;
+    // Same directory as user charts (Documents/zodiac-charts or --data-dir);
+    // userDataDir() creates it if needed.
+    return userDataDir();
 }
 
 QString 
@@ -352,10 +346,20 @@ SessionManager::hasExplicitCurrentSession()
     return !s_currentSessionFile.isEmpty();
 }
 
+namespace {
+// APIKey.ini sits in the working directory, except with --data-dir, where a
+// clean data folder must not show the developer's own key (Settings dialog).
+QString apiKeyFile()
+{
+    return userDataDirOverridden() ? userDataDir() + "/APIKey.ini"
+                                   : QStringLiteral("APIKey.ini");
+}
+}
+
 QString 
 SessionManager::readAPIKey()
 {
-    QSettings apiSettings("APIKey.ini", QSettings::IniFormat);
+    QSettings apiSettings(apiKeyFile(), QSettings::IniFormat);
     apiSettings.beginGroup(QStringLiteral("General"));
     QString key = apiSettings.value(QStringLiteral("Key"), QString()).toString();
     apiSettings.endGroup();
@@ -365,7 +369,7 @@ SessionManager::readAPIKey()
 void 
 SessionManager::writeAPIKey(const QString& apiKey)
 {
-    QSettings apiSettings("APIKey.ini", QSettings::IniFormat);
+    QSettings apiSettings(apiKeyFile(), QSettings::IniFormat);
     apiSettings.beginGroup(QStringLiteral("General"));
     apiSettings.setValue(QStringLiteral("Key"), apiKey);
     apiSettings.endGroup();
@@ -400,8 +404,8 @@ SessionManager::sessionFileFromName(const QString& name)
 QString 
 SessionManager::sessionNameFromFile(const QString& filepath)
 {
-    QString basename = QFileInfo(filepath).baseName();
-    
+    QString basename = QFileInfo(filepath).completeBaseName();
+
     // Check if it's a timestamped session (e.g., "session-1234567890")
     if (basename.startsWith("session-")) {
         // It's a timestamped session, no display name
@@ -426,8 +430,8 @@ bool
 SessionManager::isNamedSession(const QString& sessionFile)
 {
     // Extract basename without path and extension
-    QString baseName = QFileInfo(sessionFile).baseName();
-    
+    QString baseName = QFileInfo(sessionFile).completeBaseName();
+
     // Check if it matches the pattern "session-<digits>"
     // If it's all digits after "session-", it's a timestamped session
     if (baseName.startsWith("session-")) {
@@ -884,8 +888,11 @@ AstroWidget::AstroWidget(QWidget* parent) : QWidget(parent)
     addDockWidget(new Harmonics, tr("Harmonics"), false /*not scrollable*/);
     addDockWidget(new Transits, tr("Events"), false /*notScroll*/);
     addDockWidget(new Speculum, tr("Speculum"), false /*not scrollable*/);
+    addDockWidget(new PlanetTable, tr("Planets"), false /*not scrollable*/);
     addSlide(new Chart, normalizedToolIcon("style/natal.png"), tr("Chart"));
-    addSlide(new Planets, normalizedToolIcon("style/planets.png"), tr("Planets"));
+    // The QML card-view slide (class Planets) is parked: the Planets dock
+    // above replaces it. Saved "slide" indexes are remapped in applySettings.
+    // addSlide(new Planets, normalizedToolIcon("style/planets.png"), tr("Planets"));
     addSlide(new Plain, normalizedToolIcon("style/plain.png"), tr("Tables"));
     addHoroscopeControls();
 
@@ -1555,6 +1562,14 @@ AstroWidget::addHoroscopeControls()
             &AstroWidget::horoscopeControlChanged);
 }
 
+QString
+AstroWidget::slideName(int index) const
+{
+    // Class names are stable across retitling and translation.
+    QWidget* w = slides->slide(index);
+    return w ? QString::fromLatin1(w->metaObject()->className()) : QString();
+}
+
 void
 AstroWidget::toolBarActionClicked()
 {
@@ -1758,6 +1773,7 @@ AstroWidget::currentSettings()
 
     s.setValue("harmonic", harmonicSelector->currentText().toDouble());
     s.setValue("slide", slides->currentIndex());
+    s.setValue("slideName", slideName(slides->currentIndex()));
     return s;
 }
 
@@ -1855,7 +1871,21 @@ AstroWidget::applySettings(const AppSettings& s)
     // applySettings() returns (see MainWindow::applySettings) — it needs
     // statusBar(), which isn't reachable from here.
 
-    slides->setSlide(s.value("slide").toInt());
+    // Prefer the slide's name: indexes shift when a slide is added or
+    // retired. A session saved without one predates the removal of the
+    // Planets slide, when the order was Chart(0), Planets(1), Tables(2).
+    int slide = -1;
+    if (s.contains("slideName")) {
+        const QString wanted = s.value("slideName").toString();
+        for (int i = 0; i < slides->count(); ++i)
+            if (slideName(i) == wanted) slide = i;
+    }
+    if (slide < 0) {
+        const int legacy = s.value("slide").toInt();
+        slide            = legacy >= 2 ? legacy - 1 : 0;
+    }
+    slide = qBound(0, slide, slides->count() - 1);
+    slides->setSlide(slide);
     toolBar->actions()[slides->currentIndex()]->setChecked(true);
 
     fileView->applySettings(s);
@@ -2525,7 +2555,10 @@ AstroDatabase::updateList()
                                          QDir::Files,
                                          QDir::Name | QDir::IgnoreCase);
         for (QString& fn : list) {
-            fn.replace(AFileInfo::suff(), "");
+            // Chop only the trailing suffix: replace() would also eat a
+            // ".dat" in the middle of a name.
+            if (fn.endsWith(AFileInfo::suff(), Qt::CaseInsensitive))
+                fn.chop(AFileInfo::suff().length());
             fn = AFileInfo::decodeName(fn);
         }
         list.sort();
@@ -4765,6 +4798,31 @@ FilesBar::openTransitsAsSecond(AstroFile* af)
     }
 }
 
+void
+FilesBar::replaceFirst(AstroFile* af)
+{
+    const int i = currentIndex();
+    if (i < 0 || !af) return;
+    if (!files[i].isEmpty() && files[i][0] == af) return;
+
+    // As when a different file is opened into the slot (see openFile()).
+    if (auto transits = MainWindow::theAstroWidget()->findDockHdlr<Transits>())
+        transits->stopThreads();
+
+    af->setParent(this);
+    // The chart it displaces stays alive (parented here) but leaves the
+    // tab: handlers still hold it until currentChanged() re-points them.
+    if (files[i].isEmpty()) files[i] << af;
+    else                    files[i][0] = af;
+    updateTab(i);
+    connect(af,
+            SIGNAL(changed(AstroFile::Members)),
+            this,
+            SLOT(fileUpdated(AstroFile::Members)));
+    connect(af, SIGNAL(destroyRequested()), this, SLOT(fileDestroyed()));
+    emit currentChanged(i);
+}
+
 // Compute the Davison reference for two charts: midpoint of the two birth
 // moments, great-circle midpoint of the two locations, average timezone.
 static bool
@@ -5024,13 +5082,31 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, bool autoRestore
     for (QToolBar* tb : { toolBar, astroWidget->getToolBar(), toolBar2 })
         tb->setIconSize(QSize(kToolIconPx, kToolIconPx));
     buildParanToolBar();
-    addToolBar(Qt::TopToolBarArea, paranToolBar);
+    // Let docks be dropped beside one another within a dock area (not only
+    // stacked or tabbed). Must precede restoreState, which can then bring
+    // a nested arrangement back.
+    setDockNestingEnabled(true);
     addDockWidget(Qt::LeftDockWidgetArea, databaseDockWidget);
 
     for (QDockWidget* w : astroWidget->getDockPanels()) {
         addDockWidget(Qt::RightDockWidgetArea, w);
         w->hide();
         createActionForPanel(w);
+        // Right-click on a panel's title bar: place it beside another one.
+        w->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(w, &QWidget::customContextMenuRequested, this,
+                [this, w](const QPoint& p) { dockTitleMenu(w, p); });
+    }
+    // Harmonics, Events and Speculum share one tabbed area rather than
+    // stacking into slivers; Details keeps its own pane. A saved layout
+    // (restoreState in applySettings) still overrides this.
+    if (auto* events = astroWidget->findDock<Transits>()) {
+        for (QDockWidget* d : { astroWidget->findDock<Harmonics>(),
+                                astroWidget->findDock<Speculum>(),
+                                astroWidget->findDock<PlanetTable>() })
+            if (d) tabifyDockWidget(events, d);
+        // The Aspect Range Navigator rides in the Events title bar.
+        installNavigatorTitleBar(events);
     }
 
     for (QWidget* w : astroWidget->getHoroscopeControls()) {
@@ -5164,6 +5240,20 @@ MainWindow::MainWindow(bool skipRestore, bool isServerInstance, bool autoRestore
             SIGNAL(addChartWithTransits(const AFileInfo&, AstroFile*)),
             filesBar,
             SLOT(openFileInNewTabWithTransits(const AFileInfo&, AstroFile*)));
+    }
+    if (auto planetTable = astroWidget->findDockHdlr<PlanetTable>()) {
+        connect(planetTable,
+                SIGNAL(addChart(AstroFile*)),
+                filesBar,
+                SLOT(addFile(AstroFile*)));
+        connect(planetTable,
+                &PlanetTable::updateSecond,
+                filesBar,
+                &FilesBar::openTransitsAsSecond);
+        connect(planetTable,
+                SIGNAL(updateFirst(AstroFile*)),
+                filesBar,
+                SLOT(replaceFirst(AstroFile*)));
     }
 
     // Load settings from current session file.
@@ -5348,6 +5438,43 @@ MainWindow::contextMenu(QPoint p)
 }
 
 void
+MainWindow::dockTitleMenu(QDockWidget* dock, const QPoint& p)
+{
+    // Only the title bar: a right-click that bubbled up from the panel's
+    // own contents is not a request to rearrange it.
+    if (dock->widget() && dock->widget()->geometry().contains(p)) return;
+
+    QMenu menu;
+    for (QDockWidget* other : astroWidget->getDockPanels()) {
+        if (other == dock || other->isHidden() || other->isFloating()) continue;
+        menu.addAction(tr("Place beside %1").arg(other->windowTitle()), this,
+                       [this, dock, other] { placeDockBeside(dock, other); });
+    }
+    if (!menu.isEmpty()) menu.addSeparator();
+    menu.addActions(panelsMenu->actions());
+    menu.exec(dock->mapToGlobal(p));
+}
+
+void
+MainWindow::placeDockBeside(QDockWidget* dock, QDockWidget* anchor)
+{
+    const Qt::DockWidgetArea area = dockWidgetArea(anchor);
+    if (area == Qt::NoDockWidgetArea) return;
+
+    // Qt cannot split sideways off a dock that is part of a tab group: the
+    // newcomer just becomes another tab. That holds even when the other
+    // tabs are HIDDEN panels (as Harmonics/Speculum usually are, tabbed
+    // with Events at startup), and tabifiedDockWidgets() does not report
+    // hidden ones, so there is no asking first. Re-adding the anchor takes
+    // it out of whatever group it is in; then the split is a real one.
+    addDockWidget(area, anchor);
+    splitDockWidget(anchor, dock, Qt::Horizontal);
+    dock->setFloating(false);
+    dock->show();
+    anchor->show();
+}
+
+void
 MainWindow::updateWindowTitle()
 {
     QString currentSession = SessionManager::currentSessionFile();
@@ -5445,7 +5572,15 @@ MainWindow::addToolBarActions()
                         tr("About"),
                         this,
                         SLOT(showAbout()));
-    // toolBar2 -> addAction(QIcon("style/coffee.png"), tr("Справка"));
+    // The toolbar button opens the help home page; F1 (HelpTopics'
+    // app-wide filter) opens the page for whatever has focus.
+    QAction* helpAct = toolBar2->addAction(
+        normalizedToolIcon(style()->standardIcon(QStyle::SP_DialogHelpButton)),
+        tr("Help"),
+        this,
+        [] { HelpTopics::open({ QString(), "index.html", QString() }); });
+    helpAct->setObjectName("helpAction");
+    helpAct->setToolTip(tr("Help (F1)"));
 
     QAction* dbToggle = createActionForPanel(
         databaseDockWidget /*, QIcon("style/database.png")*/);
@@ -5533,13 +5668,22 @@ void
 MainWindow::buildParanToolBar()
 {
     paranToolBar = new QToolBar(tr("Aspect Range Navigator"), this);
-    paranToolBar->setObjectName("aspectRangeNavigator");
+    // NOT "aspectRangeNavigator", the name it had as a main-window toolbar:
+    // QMainWindow::restoreState() matches saved toolbars by objectName among
+    // ALL descendants, so a session saved with the old toolbar (floating,
+    // say) would pull this one back out of the Events title bar.
+    paranToolBar->setObjectName("rangeNavigator");
     // Text glyphs rather than QStyle icons: the standard pixmaps don't follow
     // the ThemeManager dark theme (they render dark on the dark UI), whereas
     // text picks up the theme foreground. A scoped stylesheet (see
     // styleParanToolBar() below) sizes the glyphs and trims the window-wide
     // 48px text-under-icon padding.
     paranToolBar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    // Hosted in the Events dock title bar, not a main-window toolbar area:
+    // no drag handle, and never shrink into the "»" overflow popup.
+    paranToolBar->setMovable(false);
+    paranToolBar->setFloatable(false);
+    paranToolBar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
 
     // Play/Stop (continuous animation) — leftmost, set off by a separator.
     _paranPlay = paranToolBar->addAction(QStringLiteral("▶"));
@@ -5563,9 +5707,15 @@ MainWindow::buildParanToolBar()
     _paranLast  = paranToolBar->addAction(QStringLiteral("▶|"));
     _paranLast->setToolTip(tr("End of range"));
 
-    _paranLabel = new QLabel(tr("(no event)"));
-    _paranLabel->setContentsMargins(6, 0, 6, 0);
-    paranToolBar->addWidget(_paranLabel);
+    // Readout (date, index/percent, orb). Sits to the LEFT of the buttons in
+    // the title bar and is the part that gives way when the dock is narrow:
+    // right-aligned so the tail (index / orb) survives clipping, with the
+    // full text mirrored into the tooltip. minimumWidth(1) lets the layout
+    // shrink it below its size hint.
+    _paranLabel = new QLabel;
+    _paranLabel->setObjectName("navReadout");
+    _paranLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    _paranLabel->setMinimumWidth(1);
 
     connect(_paranFirst, &QAction::triggered, this, [this] { paranStep(-2); });
     connect(_paranPrev,  &QAction::triggered, this, [this] { paranStep(-1); });
@@ -5578,9 +5728,73 @@ MainWindow::buildParanToolBar()
     connect(_animTimer, &QTimer::timeout, this, [this] { animTick(); });
 
     // Visual styling (compact glyphs, theme color) lives in the ThemeManager
-    // .qss files, scoped via the objectName "aspectRangeNavigator".
+    // .qss files, scoped via the objectName "rangeNavigator".
 
     updateParanTransport(); // start in the disabled (no-event) state
+}
+
+void
+MainWindow::installNavigatorTitleBar(QDockWidget* dock)
+{
+    // A custom title bar replaces the native one wholesale, so the caption
+    // and the float/close buttons are rebuilt here. The bar and its labels
+    // leave mouse events unhandled, which is what lets QDockWidget keep
+    // doing drag-to-undock and double-click-to-float. Styling (matching
+    // QDockWidget::title) is in the theme .qss under #navDockTitleBar.
+    auto* bar = new QWidget(dock);
+    bar->setObjectName("navDockTitleBar");
+    bar->setAttribute(Qt::WA_StyledBackground, true);
+
+    auto* lay = new QHBoxLayout(bar);
+    lay->setContentsMargins(10, 2, 4, 2);
+    lay->setSpacing(2);
+
+    auto* title = new QLabel(dock->windowTitle(), bar);
+    title->setObjectName("navDockTitle");
+    connect(dock, &QWidget::windowTitleChanged, title, &QLabel::setText);
+    lay->addWidget(title);
+
+    lay->addWidget(_paranLabel, 1);
+    lay->addWidget(paranToolBar);
+
+    // Same standard pixmaps the native dock title bar uses. The style hands
+    // out a light or dark variant per theme, so re-fetch on theme change
+    // (deferred: the new stylesheet must be in place first).
+    auto addBtn = [&](const char* name, QStyle::StandardPixmap pm,
+                      const QString& tip) {
+        auto* b = new QToolButton(bar);
+        b->setObjectName(name);
+        b->setAutoRaise(true);
+        b->setFocusPolicy(Qt::NoFocus);
+        b->setIconSize(QSize(12, 12));
+        b->setToolTip(tip);
+        auto refresh = [b, dock, pm] {
+            b->setIcon(dock->style()->standardIcon(pm, nullptr, dock));
+        };
+        refresh();
+        connect(&ThemeManager::instance(), &ThemeManager::themeChanged, b,
+                [b, refresh] { QTimer::singleShot(0, b, refresh); });
+        lay->addWidget(b);
+        return b;
+    };
+    connect(addBtn("navDockFloat", QStyle::SP_TitleBarNormalButton, tr("Float")),
+            &QToolButton::clicked, dock,
+            [dock] { dock->setFloating(!dock->isFloating()); });
+    connect(addBtn("navDockClose", QStyle::SP_TitleBarCloseButton, tr("Close")),
+            &QToolButton::clicked, dock, &QDockWidget::close);
+
+    dock->setTitleBarWidget(bar);
+    setRangeNavigatorVisible(_showRangeNav);
+}
+
+void
+MainWindow::setRangeNavigatorVisible(bool on)
+{
+    _showRangeNav = on;
+    if (!paranToolBar) return;
+    if (!on && _animPlaying) stopAnimation();
+    paranToolBar->setVisible(on);
+    _paranLabel->setVisible(on);
 }
 
 AstroFile*
@@ -5701,7 +5915,9 @@ MainWindow::updateParanTransport()
         for (QAction* a : { _paranPlay, _paranFirst, _paranPrev, _paranPeak,
                             _paranNext, _paranLast })
             a->setEnabled(false);
-        _paranLabel->setText(tr("(no event)"));
+        // Nothing navigable: leave the title bar clean (greyed buttons only).
+        _paranLabel->clear();
+        _paranLabel->setToolTip(QString());
         return;
     }
 
@@ -5727,6 +5943,7 @@ MainWindow::updateParanTransport()
                                  .arg(gmt.toLocalTime().toString(
                                      QStringLiteral("yyyy-MM-dd HH:mm")))
                                  .arg(pct));
+        _paranLabel->setToolTip(_paranLabel->text());
         return;
     }
 
@@ -5769,6 +5986,7 @@ MainWindow::updateParanTransport()
                                  .arg(n)
                                  .arg(occ[best].second, 0, 'f', 2));
     }
+    _paranLabel->setToolTip(_paranLabel->text());
 }
 
 void
@@ -5984,6 +6202,9 @@ MainWindow::defaultSettings()
     s << astroWidget->defaultSettings();
     s.setValue("Window/Geometry", 0);
     s.setValue("Window/State", 0);
+    // Checkbox is on the Events settings tab (Transits::setupSettingsEditor),
+    // but the navigator itself is MainWindow's, so the key is owned here.
+    s.setValue("Events/showRangeNavigator", true);
     s.setValue("askToSave", false);
     s.setValue("Key", "");
     s.setValue("theme", "dark");
@@ -5997,6 +6218,7 @@ MainWindow::currentSettings()
     s << astroWidget->currentSettings();
     s.setValue("Window/Geometry", this->saveGeometry());
     s.setValue("Window/State", this->saveState());
+    s.setValue("Events/showRangeNavigator", _showRangeNav);
     s.setValue("askToSave", askToSave);
     // Populate API key from APIKey.ini for display in settings dialog only
     // This value is never saved to settings.ini
@@ -6025,10 +6247,15 @@ MainWindow::applySettings(const AppSettings& s)
         // toolbar stay tucked away until asked for.
         if (auto* d = astroWidget->findDock<Transits>()) d->setVisible(true);
         if (auto* d = astroWidget->findDock<Speculum>()) d->setVisible(true);
+        // Events and Speculum are tabbed together; put Events in front.
+        if (auto* d = astroWidget->findDock<Transits>()) d->raise();
         helpToolBar->setVisible(false);
     }
     askToSave = s.value("askToSave").toBool();
-    
+    // Default on, including for session files that predate the key.
+    setRangeNavigatorVisible(
+        s.value("Events/showRangeNavigator", true).toBool());
+
     // Apply theme
     if (s.contains("theme")) {
         QString themeName = s.value("theme").toString();
@@ -6303,6 +6530,7 @@ MainWindow::pickSessionFile()
     }
 
     QDialog dialog(this);
+    dialog.setObjectName("restoreSessionDialog"); // F1 help topic
     dialog.setWindowTitle(tr("Restore Session"));
     dialog.setMinimumWidth(500);
 
@@ -6673,7 +6901,7 @@ MainWindow::saveSession()
                       inaugurated.isValid() ? inaugurated : QDateTime::currentDateTime());
 
     // Save the session name for named sessions (non-"session-<digits>" file).
-    QString baseName = QFileInfo(currentSession).baseName();
+    QString baseName = QFileInfo(currentSession).completeBaseName();
     bool named = true;
     if (baseName.startsWith("session-")) {
         bool isTimestamp;

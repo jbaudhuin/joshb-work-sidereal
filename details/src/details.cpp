@@ -1,5 +1,6 @@
 #include "details.h"
 #include "expandwidget.h"
+#include "../../zodiac/src/thememanager.h"
 #include <Astroprocessor/Calc>
 #include <Astroprocessor/Output>
 #include <QComboBox>
@@ -68,9 +69,19 @@ Details::Details(QWidget* parent) :
             this,
             SLOT(onPlanetSelected(int)));
 
-    QFile cssfile("details/style.css");
-    cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
-    setStyleSheet(cssfile.readAll());
+    // Component-specific CSS loading disabled - now using global theme system
+    // (its hard-coded dark colours overrode the Light theme)
+    // QFile cssfile("details/style.css");
+    // cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
+    // setStyleSheet(cssfile.readAll());
+
+    // The value colour is chosen per theme in describePlanet().
+    connect(&ThemeManager::instance(),
+            &ThemeManager::themeChanged,
+            this,
+            [this]() {
+                if (filesCount() > 0) describePlanet();
+            });
 }
 
 void
@@ -83,7 +94,10 @@ Details::describePlanet()
     aspectsList->setVisible(exists);
     powerLabel->setVisible(exists);
 
-    const A::Planet& p = file(fileIndex)->horoscope().planets[planet];
+    // value(), not operator[]: with no planet selected (Planet_None) the
+    // non-const operator[] would insert a blank body into the chart's map,
+    // which Plain and the Speculum then list as a nameless row.
+    const A::Planet p = file(fileIndex)->horoscope().planets.value(planet);
 
     QString powerText = A::describePowerInHtml(p, file(fileIndex)->horoscope());
     if (!powerText.isEmpty())
@@ -94,7 +108,9 @@ Details::describePlanet()
                           .arg(p.power.deficient)
                     + "</i></b></p>" + powerText;
 
-    positionLabel->setText(A::describePlanetCoordInHtml(p));
+    // Values stand out from their labels: near-white on dark, black on light.
+    const bool dark = ThemeManager::instance().currentTheme() == ThemeManager::Theme::Dark;
+    positionLabel->setText(A::describePlanetCoordInHtml(p, dark ? "#e9e9e4" : "#000000"));
     powerLabel->setText(powerText);
 
     aspectsList->clear();
@@ -179,7 +195,7 @@ Details::expandAspects()
     expandedAspects = true;
     aspectsList->item(aspectsList->count() - 1)->setText("^^^");
 
-    const A::Planet&     pl  = file(fileIndex)->horoscope().planets[planet];
+    const A::Planet      pl  = file(fileIndex)->horoscope().planets.value(planet);
     const A::AspectsSet& set = file(fileIndex)->getAspectSet();
 
     foreach (const A::Planet& p, file(fileIndex)->horoscope().planets) {

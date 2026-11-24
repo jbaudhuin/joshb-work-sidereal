@@ -1,4 +1,4 @@
-# Zodiac Sidereal - Installer Build Script
+﻿# Zodiac Sidereal - Installer Build Script
 # This script automates the process of deploying Qt dependencies and building the installer
 
 param(
@@ -6,6 +6,7 @@ param(
     [string]$NSISPath = "C:\Program Files (x86)\NSIS\makensis.exe",
     [switch]$SkipDeploy,
     [switch]$SkipBuild,
+    [switch]$SkipHelp,     # Reuse the existing bin\help instead of rebuilding it
     [switch]$TestMode
 )
 
@@ -68,7 +69,7 @@ if (-not $SkipDeploy) {
     if (-not $WinDeployQt -or -not (Test-Path $WinDeployQt)) {
         Write-Host "ERROR: windeployqt not found" -ForegroundColor Red
         Write-Host "  Try: Ensure Qt's bin directory is in your PATH, or specify -QtPath parameter" -ForegroundColor Yellow
-        $allGood = false
+        $allGood = $false
     } else {
         Write-Host "✓ Found windeployqt: $WinDeployQt" -ForegroundColor Green
     }
@@ -283,9 +284,52 @@ if (-not $SkipDeploy) {
     Write-Host ""
 }
 
-# Step 2: Verify required files
+# Step 2: Build the help site (help/mkdocs.yml writes it to bin\help)
+if (-not $SkipHelp) {
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "Step 2: Building Help Site" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    $Python = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $Python) {
+        Write-Host "ERROR: Python 3 not found (needed to build the help)." -ForegroundColor Red
+        Write-Host "  Install Python, then: python -m pip install -r help\requirements.txt" -ForegroundColor Yellow
+        exit 1
+    }
+    # MkDocs logs to stderr; under Windows PowerShell 5.1 "Stop" would turn
+    # that into a terminating error, so rely on exit codes here instead.
+    $prevPref = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    # "python -m mkdocs" works even when pip's Scripts folder isn't on PATH.
+    & $Python.Source -c "import mkdocs, material" 2>$null
+    $haveMkDocs = ($LASTEXITCODE -eq 0)
+    if ($haveMkDocs) {
+        & $Python.Source -m mkdocs build -f (Join-Path $ProjectRoot "help\mkdocs.yml") --strict 2>&1 |
+            ForEach-Object { "$_" }
+    }
+    $helpExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevPref
+
+    if (-not $haveMkDocs) {
+        Write-Host "ERROR: MkDocs / Material for MkDocs not installed." -ForegroundColor Red
+        Write-Host "  Run: python -m pip install -r help\requirements.txt" -ForegroundColor Yellow
+        exit 1
+    }
+    if ($helpExit -ne 0) {
+        Write-Host "ERROR: Help build failed (see MkDocs output above)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "✓ Help built into bin\help" -ForegroundColor Green
+    Write-Host ""
+} else {
+    Write-Host "Skipping help build (-SkipHelp specified)" -ForegroundColor Yellow
+    Write-Host ""
+}
+
+# Step 3: Verify required files
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 2: Verifying Required Files" -ForegroundColor Cyan
+Write-Host "Step 3: Verifying Required Files" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -317,6 +361,14 @@ foreach ($dir in $RequiredDirs) {
     }
 }
 
+# The help is generated output, so check for its entry page, not just the folder.
+if (Test-Path (Join-Path $BinDir "help\index.html")) {
+    Write-Host "✓ help\index.html" -ForegroundColor Green
+} else {
+    Write-Host "✗ help\index.html (MISSING! run without -SkipHelp)" -ForegroundColor Red
+    $missingDirs += "help\index.html"
+}
+
 if ($missingDirs.Count -gt 0) {
     Write-Host ""
     Write-Host "ERROR: Some required directories are missing from bin/" -ForegroundColor Red
@@ -329,9 +381,9 @@ Write-Host ""
 Write-Host "All required directories present!" -ForegroundColor Green
 Write-Host ""
 
-# Step 3: Check for files that should NOT be in installer
+# Step 4: Check for files that should NOT be in installer
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 3: Checking for Personal Data" -ForegroundColor Cyan
+Write-Host "Step 4: Checking for Personal Data" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -346,10 +398,10 @@ if (Test-Path $SettingsIni) {
 
 Write-Host ""
 
-# Step 4: Build installer
+# Step 5: Build installer
 if (-not $SkipBuild) {
     Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "Step 4: Building Installer" -ForegroundColor Cyan
+    Write-Host "Step 5: Building Installer" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
     

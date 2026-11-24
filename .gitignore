@@ -36,6 +36,7 @@ Makefile.*
 /bin/i18n/*.cmd
 /bin/style/style.unused.css
 /bin/tls/
+/bin/help/
 /bin/platforms/
 /bin/qcertonly/
 /bin/styles/

@@ -412,9 +412,13 @@ GeoSearchWidget::GeoSearchWidget(bool vbox /*=true*/,
     foreach (QAction* act, acts->actions())
         act->setCheckable(true);
 
-    turnGoogleSearch();
+    // Google needs an API key; without one the bundled city list is the only
+    // lookup that works. Read the key file: the cached key isn't loaded yet
+    // when the Events panel builds this widget.
+    if (SessionManager::readAPIKey().isEmpty()) turnLocalSearch();
+    else turnGoogleSearch();
 
-    connect(googleAct,    SIGNAL(triggered()),          this, SLOT(turnGoogleSearch()));
+    connect(googleAct,   SIGNAL(triggered()),          this, SLOT(turnGoogleSearch()));
     connect(localAct,     SIGNAL(triggered()),          this, SLOT(turnLocalSearch()));
     connect(editAct,      SIGNAL(triggered()),          this, SLOT(turnGeoInput()));
     connect(geoSearchBox, SIGNAL(returnPressed()),      this, SLOT(proofCoordinates()));
@@ -524,10 +528,11 @@ void GeoSearchWidget::setLocation(const QVector3D& coord)
         turnGeoInput();
 }
 
-void GeoSearchWidget::setLocation(const QVector3D& coord, const QString& name)
+void GeoSearchWidget::setLocation(const QVector3D& coord, const QString& name,
+                                  const QString& tzId /*=QString()*/)
 {
     setLocation(coord);
-    geoSearchBox->setCoordinate(coord, name);
+    geoSearchBox->setCoordinate(coord, name, tzId);
     //setLocationName(name);
 
     if (!name.isEmpty())

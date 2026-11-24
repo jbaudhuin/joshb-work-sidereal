@@ -5,6 +5,7 @@ SOURCES += \
     src/astro-data.cpp \
     src/astro-calc.cpp \
     src/citydb.cpp \
+    src/chartsearch.cpp \
     src/csvreader.cpp
 
 HEADERS +=\
@@ -15,6 +16,7 @@ HEADERS +=\
     src/astro-data.h \
     src/astro-calc.h \
     src/citydb.h \
+    src/chartsearch.h \
     include/Astroprocessor/Output \
     include/Astroprocessor/Gui \
     include/Astroprocessor/Data \

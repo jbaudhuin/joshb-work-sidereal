@@ -146,6 +146,10 @@ Section "Essential files" SecMain
 
   SetOutPath "$INSTDIR\data"
   File ..\bin\data\*
+
+  ; User help (MkDocs site built into bin\help by build-installer.ps1)
+  SetOutPath "$INSTDIR\help"
+  File /r ..\bin\help\*
   
   ; Note: settings.ini deliberately excluded - will be created by application on first run
   ; This avoids including personal user preferences in the installer
@@ -274,8 +278,7 @@ Section "Uninstall"
   
   ; Preserve user data by backing it up before removal
   ; Check if settings.ini exists and preserve it
-  IfFileExists "$INSTDIR\settings.ini" 0 +3
-    CopyFiles "$INSTDIR\settings.ini" "$TEMP\zodiac_settings_backup.ini"
+  IfFileExists "$INSTDIR\settings.ini" 0 +2
     MessageBox MB_YESNO "Preserve your settings and user data?$\n$\nThis includes:$\n- settings.ini (API keys, preferences)$\n- sampleCharts\ directory (sample chart files)$\n$\nClick Yes to keep them, No to delete everything." IDYES preserve_data
   
   ; User chose to delete everything or no settings exist
@@ -287,12 +290,17 @@ Section "Uninstall"
     Delete "$INSTDIR\zodiac.exe"
     Delete "$INSTDIR\uninstall.exe"
     Delete "$INSTDIR\*.dll"
+    Delete "$INSTDIR\launch-session.bat"
+    Delete "$INSTDIR\README_FOR_USERS.txt"
+    Delete "$INSTDIR\license.txt"
     RMDir /r "$INSTDIR\astroprocessor"
     RMDir /r "$INSTDIR\chart"
+    RMDir /r "$INSTDIR\data"
     RMDir /r "$INSTDIR\details"
     RMDir /r "$INSTDIR\fileeditor"
     RMDir /r "$INSTDIR\fonts"
     RMDir /r "$INSTDIR\generic"
+    RMDir /r "$INSTDIR\help"
     RMDir /r "$INSTDIR\i18n"
     RMDir /r "$INSTDIR\iconengines"
     RMDir /r "$INSTDIR\imageformats"
@@ -304,6 +312,8 @@ Section "Uninstall"
     RMDir /r "$INSTDIR\styles"
     RMDir /r "$INSTDIR\swe"
     RMDir /r "$INSTDIR\text"
+    RMDir /r "$INSTDIR\themes"
+    RMDir /r "$INSTDIR\tls"
     ; Note: sampleCharts\ directory is preserved if user chose to keep data
     ; Note: settings.ini is preserved
     MessageBox MB_OK "Application removed. Your settings and chart files have been preserved in:$\n$INSTDIR"

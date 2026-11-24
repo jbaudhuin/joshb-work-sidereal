@@ -59,6 +59,7 @@ set(ASTROPROCESSOR_SOURCES
     astroprocessor/src/astro-data.cpp
     astroprocessor/src/astro-calc.cpp
     astroprocessor/src/citydb.cpp
+    astroprocessor/src/chartsearch.cpp
     astroprocessor/src/csvreader.cpp
     astroprocessor/src/astrodatetimeedit.cpp
 )
@@ -71,6 +72,7 @@ set(ASTROPROCESSOR_HEADERS
     astroprocessor/src/astro-data.h
     astroprocessor/src/astro-calc.h
     astroprocessor/src/citydb.h
+    astroprocessor/src/chartsearch.h
     astroprocessor/include/Astroprocessor/Output
     astroprocessor/include/Astroprocessor/Gui
     astroprocessor/include/Astroprocessor/Data
@@ -119,6 +121,7 @@ set(DETAILS_SOURCES
     details/src/harmonics.cpp
     details/src/transits.cpp
     details/src/speculum.cpp
+    details/src/planettable.cpp
 )
 
 set(DETAILS_HEADERS
@@ -127,6 +130,7 @@ set(DETAILS_HEADERS
     details/src/harmonics.h
     details/src/transits.h
     details/src/speculum.h
+    details/src/planettable.h
 )
 
 set(ZODIAC_SOURCES
@@ -137,6 +141,7 @@ set(ZODIAC_SOURCES
     zodiac/src/slidewidget.cpp
     zodiac/src/thememanager.cpp
     zodiac/src/crashhandler.cpp
+    zodiac/src/helptopics.cpp
 )
 
 set(ZODIAC_HEADERS
@@ -146,6 +151,7 @@ set(ZODIAC_HEADERS
     zodiac/src/slidewidget.h
     zodiac/src/thememanager.h
     zodiac/src/crashhandler.h
+    zodiac/src/helptopics.h
 )
 
 # Create the executable with all sources
@@ -159,6 +165,22 @@ qt_add_executable(zodiac WIN32 MACOSX_BUNDLE
     ${DETAILS_SOURCES} ${DETAILS_HEADERS}
     ${ZODIAC_SOURCES} ${ZODIAC_HEADERS}
 )
+
+# Developer-only screenshot mode for the help site (docs/doc-capture.md).
+# Even when compiled in it stays dormant unless zodiac is run with --doc-capture.
+option(ZODIAC_DOC_CAPTURE "Build the doc-capture screenshot mode (developer tool)" OFF)
+if(ZODIAC_DOC_CAPTURE)
+    message(STATUS "Doc capture mode: compiled in (run zodiac with --doc-capture)")
+    target_sources(zodiac PRIVATE
+        zodiac/src/doccapture.cpp
+        zodiac/src/doccapture.h
+        zodiac/src/doccapturescript.cpp
+        zodiac/src/doccapturescript.h
+        zodiac/src/widgetpicker.cpp
+        zodiac/src/widgetpicker.h
+    )
+    target_compile_definitions(zodiac PRIVATE ZODIAC_DOC_CAPTURE)
+endif()
 
 # Set up include directories
 target_include_directories(zodiac PRIVATE
@@ -347,3 +369,17 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/themes/
     DESTINATION ${CMAKE_INSTALL_BINDIR}/themes
     FILES_MATCHING PATTERN "*.qss" PATTERN "*.css"
 )
+# Optional: `cmake --build build --target help-site` builds the user help (help/, MkDocs)
+# into bin/help. Not part of the default build. Needs: pip install -r help/requirements.txt
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_custom_target(help-site
+        COMMAND ${Python3_EXECUTABLE} -m mkdocs build -f ${CMAKE_SOURCE_DIR}/help/mkdocs.yml --strict
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Building help site into bin/help"
+        VERBATIM)
+else()
+    add_custom_target(help-site
+        COMMAND ${CMAKE_COMMAND} -E echo "Python 3 not found: install it, then pip install -r help/requirements.txt"
+        VERBATIM)
+endif()

@@ -288,13 +288,7 @@ AstroFile::_fixedChartDirMap()
 {
     static QMap<QString, QString> s_map;
     if (s_map.empty()) {
-        constexpr auto loc = QStandardPaths::DocumentsLocation;
-        QString dir = QStandardPaths::writableLocation(loc) + "/zodiac-charts";
-
-        QDir d(dir);
-        if (!d.exists()) QDir().mkpath(d.absolutePath());
-
-        s_map["User Charts"]   = dir;
+        s_map["User Charts"]   = userDataDir();
         s_map["Sample Charts"] = "sampleCharts/";
         _fixedChartDirMapKeys() << "User Charts" << "Sample Charts";
     }
@@ -2007,6 +2001,14 @@ AstroFileHandler::dispatchUpdate(const MembersList& dataFlags,
             h0.clearExprecession();
         }
     }
+
+    // Scope a dispatch id over both deliveries; restore the outer id on exit
+    // so nested (re-entrant) dispatches don't leak theirs.
+    struct DispatchScope {
+        quint64& cur; quint64 saved;
+        DispatchScope(quint64& c, quint64 id) : cur(c), saved(c) { cur = id; }
+        ~DispatchScope() { cur = saved; }
+    } dispatchScope(_currentDispatchId, ++_dispatchCounter);
 
     // Always deliver data flags (includes ChangedState, Name, GMT, etc.)
     bool hasData = false;

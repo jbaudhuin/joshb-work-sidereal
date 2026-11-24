@@ -124,9 +124,11 @@ Harmonics::Harmonics(QWidget* parent) :
     l2->setContentsMargins(QMargins(0, 0, 0, 0));
     l2->addWidget(_hview, 5);
 
-    QFile cssfile("Details/style.css");
-    cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
-    setStyleSheet(cssfile.readAll());
+    // Component-specific CSS loading disabled - now using global theme system
+    // (its hard-coded dark colours overrode the Light theme)
+    // QFile cssfile("Details/style.css");
+    // cssfile.open(QIODevice::ReadOnly | QIODevice::Text);
+    // setStyleSheet(cssfile.readAll());
 
     QTimer::singleShot(0, [this]() {
         connect(this,
@@ -431,6 +433,14 @@ Harmonics::updateHarmonics()
             break;
         }
     }
+
+    // Columns fit their contents (re-measured as rows expand); the last one
+    // takes the rest of the row. Set per rebuild: the column count depends
+    // on the sort order.
+    QHeaderView* hdr = _hview->header();
+    hdr->setStretchLastSection(true);
+    for (int c = 0, n = sim->columnCount(); c < n - 1; ++c)
+        hdr->setSectionResizeMode(c, QHeaderView::ResizeToContents);
 }
 
 void

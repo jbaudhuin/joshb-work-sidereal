@@ -40,6 +40,7 @@
 #include <QTextCodec>
 #include <QTimer>
 #include <QDebug>
+#include <QDir>
 #include <QMessageBox>
 
 #include "appsettings.h"
@@ -47,6 +48,32 @@
 
 namespace {
 int lastTab = -1;
+
+QString& userDataDirOverride()
+{
+    static QString s_dir;
+    return s_dir;
+}
+}
+
+QString userDataDir()
+{
+    QString dir = userDataDirOverride();
+    if (dir.isEmpty())
+        dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+              + "/zodiac-charts";
+    QDir().mkpath(dir);
+    return dir;
+}
+
+void setUserDataDir(const QString& dir)
+{
+    userDataDirOverride() = dir.isEmpty() ? QString() : QDir(dir).absolutePath();
+}
+
+bool userDataDirOverridden()
+{
+    return !userDataDirOverride().isEmpty();
 }
 
 /* =========================== APP SETTINGS ========================================= */
@@ -114,7 +141,9 @@ AppSettingsEditor::AppSettingsEditor() : QDialog()
     pageLayout = nullptr;
     currentForm = nullptr;
 
+    setObjectName("appSettingsEditor");
     tabs = new QTabWidget(this);
+    tabs->setObjectName("settingsTabs");
     ok = new QPushButton(tr("OK"), this);
     cancel = new QPushButton(tr("Cancel"), this);
     bApply = new QPushButton(tr("Apply"), this);
@@ -509,8 +538,7 @@ void AppSettingsEditor::saveSettingsAsDefaults()
     settings.values().remove("Key");
     
     // Save to settings.ini template file in user's chart directory
-    QString settingsPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) 
-                           + "/zodiac-charts/settings.ini";
+    QString settingsPath = userDataDir() + "/settings.ini";
     settings.save(settingsPath);
     
     qDebug() << "Settings saved as defaults to" << settingsPath;

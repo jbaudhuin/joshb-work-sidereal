@@ -93,6 +93,12 @@ class Transits : public AstroFileHandler {
     void       setInhibitUpdate(bool v) { _inhibitUpdate = v; }
     void       refreshLocationUI();
 
+    /// True while any finder (current tab or background) is still running.
+    bool findersBusy() const { return !_finders.isEmpty(); }
+    /// Set the view's range to [from, to] as if typed, keeping "til" mode
+    /// semantics; recomputes when Auto is on. Used by doc-capture scripts.
+    void setDateRange(const QDate& from, const QDate& to);
+
   protected: // AstroFileHandler implementation
     void filesUpdated(MembersList) override;
     void viewSettingsUpdated(MembersList) override;
@@ -208,7 +214,12 @@ class Transits : public AstroFileHandler {
     // etcPrimaryDirections branch.
     QPersistentModelIndex _pdFocalCell;
     bool        _pendingLocationChange = false;
-    bool        _fileJustSwitched = false;  // Set in filesUpdated when file(0) changes, cleared in viewSettingsUpdated
+    // currentDispatchId() of the dispatch whose filesUpdated() saw file(0)
+    // change (0 = none).  viewSettingsUpdated() treats its flags as a
+    // tab-switch echo only within that SAME dispatch.  (Was a bool cleared
+    // only by viewSettingsUpdated(); a tab switch's diff carries no view
+    // flags, so it went stale and swallowed the next real aspect-set change.)
+    quint64     _fileSwitchDispatchId = 0;
     AstroFile*  _previousFile = nullptr;    // Tracks file(0) across tab switches
 
     QPointer<AstroFile> _trans;

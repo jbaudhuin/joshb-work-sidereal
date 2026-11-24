@@ -2,6 +2,21 @@
 
 All notable changes to the sidereal branch of this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Planets Panel**: dockable table of every body's position (Asc and MC included), with chart 1 and chart 2 side by side
+- **Find a Chart by Positions**: the Planets panel's Search mode takes typed positions (e.g. `15 Leo`, `15°23' Leo`) with an orb and finds the dates and times that match, in a zodiac chosen independently of the tab's. Asc and MC give the local mean time, latitude and (as far as the Moon allows) longitude, or pin the time of day when the place is known; matches open as charts. Typed positions are rewritten in the table's own format, Tab and Enter step through the ticked rows, and a double-click or middle-click opens a match in a tab of its own. A position may be given as a sign alone (`Leo`) for charts recorded only by sign; with a known place, a rising sign then gives the time of day as a span
+
+- **Directions of Return Charts in the Events Table**: with a return chart as the base chart, the PD search (angle directions, planet-to-planet directions, rays, rapt parallels and conjunctions, all under the existing PD options) is dated by the chart's quotidian method — PSSR, NeoPSSR, SQ or NeoSQ, as chosen in the Mundane settings — and the Type column names that method. Dates agree with the Directions table and Speculum
+
+### Changed
+- The Planets card-view slide is retired in favour of the Planets panel
+
+### Fixed
+- A return chart used as the base chart had its direction events dated by the natal timing key (about a year per degree), placing them decades away
+- Solar and lunar return charts opened from the Events table were no longer recognized as such by name (`Sun H1 Sun-r`), so solar returns got SQ/NeoSQ direction timing instead of PSSR/NeoPSSR in the Directions table and Speculum
+
 ## [0.9.10] - 2026-10-13
 
 ### Added

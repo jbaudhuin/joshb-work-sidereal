@@ -1,0 +1,5 @@
+# Pinned so the help builds the same everywhere (local, installer script, CI).
+# MkDocs 2.x is a breaking rewrite that Material doesn't support — stay on 1.x.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+pymdown-extensions==11.0.2

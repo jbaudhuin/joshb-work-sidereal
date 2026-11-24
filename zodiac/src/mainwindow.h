@@ -107,6 +107,9 @@ class AstroWidget : public QWidget {
 
     void attachHandler(AstroFileHandler* w);
     void addSlide(AstroFileHandler* w, const QIcon& icon, QString title);
+    /// Stable identifier of a slide (its widget's class name), used to
+    /// persist the current slide independently of slide order.
+    QString slideName(int index) const;
     void addDockWidget(AstroFileHandler* w,
                        QString           title,
                        bool              scrollable,
@@ -376,6 +379,9 @@ class FilesBar : public QTabBar {
     void openTransits(int);
     void openFileAsSecond(const AFileInfo& name = AFileInfo());
     void openTransitsAsSecond(AstroFile* af);
+    /// Put `af` in the current tab's first slot in place of the chart there
+    /// (which is dropped from the tab, not saved), and refresh the views.
+    void replaceFirst(AstroFile* af);
     void openFileCompositeMidpoint(const AFileInfoList& names);
     void openFileCompositeDavison(const AFileInfoList& names);
     void openFileReturn(const AFileInfo& name, const QString& body);
@@ -517,10 +523,15 @@ class MainWindow : public QMainWindow, public Customizable {
     // it for Ctrl+Click (see saveSecondFile()).
     QWidget*       _saveChartButton = nullptr;
 
-    // Paran cycling transport — a draggable/floatable toolbar that steps the
-    // current paran chart's moving file through its in-orb occurrences. Always
-    // present; disabled when the current tab is not a paran chart.
+    // Aspect Range Navigator — transport that steps/plays the current chart's
+    // moving file through its in-orb occurrences or range. It lives in the
+    // Events dock's custom title bar (installNavigatorTitleBar), so it shows
+    // and hides with that dock; "Events/showRangeNavigator" hides it outright.
+    // Disabled when the current tab has no navigable chart.
     QToolBar* paranToolBar   = nullptr;
+    bool      _showRangeNav  = true;
+    void      installNavigatorTitleBar(QDockWidget* dock);
+    void      setRangeNavigatorVisible(bool on);
     QAction*  _paranPlay     = nullptr;  // continuous animation (ranged events)
     QAction*  _paranFirst    = nullptr;
     QAction*  _paranPrev     = nullptr;
@@ -567,6 +578,9 @@ class MainWindow : public QMainWindow, public Customizable {
 
     void     addToolBarActions();
     QAction* createActionForPanel(QWidget* w /*, const QIcon &icon*/);
+    void     dockTitleMenu(QDockWidget* dock, const QPoint& p);
+    /// Docks `dock` to the right of `anchor`, in the same dock area.
+    void     placeDockBeside(QDockWidget* dock, QDockWidget* anchor);
     // Show the aspect-toggle toolbar matching the currently-selected aspect
     // set (dynAspectControls for Harmonic, namedAspectControls otherwise)
     // and hide the other. Called both from the aspectsSelector

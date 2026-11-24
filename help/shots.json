@@ -1,0 +1,806 @@
+{
+    "defaults": {
+        "chart": "Sample Charts/Olof Palme",
+        "scale": 2,
+        "theme": "dark",
+        "windowSize": [
+            1440,
+            900
+        ],
+        "setup": [
+            {
+                "setCombo": {
+                    "widget": "aspectsSelector",
+                    "text": "Modern + minor"
+                }
+            }
+        ]
+    },
+    "shots": [
+        {
+            "caption": "the main window — database tree on the left, chart wheel in the centre, the Events panel on the right",
+            "file": "index-1.png",
+            "mode": "auto",
+            "notes": "Shows the chart database/session list — use the clean demo data folder.",
+            "page": "index.md",
+            "setup": [
+                {
+                    "showDock": "dbDockWidget"
+                },
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "showDock": "Transits"
+                },
+                {
+                    "setEventRange": {
+                        "from": "1985-01-01",
+                        "to": "1986-03-31"
+                    }
+                },
+                {
+                    "click": {
+                        "checked": true,
+                        "text": "T",
+                        "widget": "eventsToolbar"
+                    }
+                },
+                {
+                    "click": {
+                        "checked": true,
+                        "text": "S",
+                        "widget": "eventsToolbar"
+                    }
+                },
+                {
+                    "waitForFinders": true
+                }
+            ],
+            "target": "window"
+        },
+        {
+            "caption": "the chart file editor, showing the name field and chart type, the local date, time and time-zone controls, the location field, and the comment box",
+            "file": "getting-started-charts-1.png",
+            "mode": "auto",
+            "page": "getting-started/charts.md",
+            "setup": [
+                {
+                    "triggerAction": "Edit"
+                },
+                {
+                    "waitForWidget": "AstroFileEditor"
+                }
+            ],
+            "target": "AstroFileEditor",
+            "teardown": [
+                {
+                    "closeWindow": "AstroFileEditor"
+                }
+            ]
+        },
+        {
+            "caption": "the Zodiac NSIS installer, showing the install-location page and, if reached, the optional Google Maps API key prompt",
+            "file": "getting-started-installing-1.png",
+            "mode": "manual",
+            "notes": "Outside the app (NSIS installer) — capture by hand.",
+            "page": "getting-started/installing.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the location and time controls in the file editor — the place-lookup field with a result selected, and the calendar-type and time-mode selectors",
+            "file": "getting-started-location-time-1.png",
+            "mode": "auto",
+            "page": "getting-started/location-time.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the whole main window — the database tree on the left, the toolbar of icon buttons across the top, the tabbed chart area in the center, the Events panel docked on the right, and the status bar along the bottom",
+            "file": "getting-started-main-window-1.png",
+            "mode": "auto",
+            "notes": "Shows the chart database/session list — use the clean demo data folder.",
+            "page": "getting-started/main-window.md",
+            "setup": [
+                {
+                    "showDock": "dbDockWidget"
+                },
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "showDock": "Transits"
+                },
+                {
+                    "setEventRange": {
+                        "from": "1985-01-01",
+                        "to": "1986-03-31"
+                    }
+                },
+                {
+                    "click": {
+                        "checked": true,
+                        "text": "T",
+                        "widget": "eventsToolbar"
+                    }
+                },
+                {
+                    "click": {
+                        "checked": true,
+                        "text": "S",
+                        "widget": "eventsToolbar"
+                    }
+                },
+                {
+                    "waitForFinders": true
+                }
+            ],
+            "target": "window"
+        },
+        {
+            "caption": "a close-up of the toolbar across the top of the window, with the New, Edit, Save Chart, Save Session, Restore Session, Chart, Planets, Tables, Panels and Settings buttons",
+            "file": "getting-started-main-window-2.png",
+            "mode": "auto",
+            "page": "getting-started/main-window.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the status bar along the bottom of the window with the Harmonic aspect set selected, showing the row of H1–H32 harmonic toggle buttons with several of them active",
+            "file": "getting-started-main-window-3.png",
+            "mode": "auto",
+            "page": "getting-started/main-window.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "setCombo": {
+                        "widget": "aspectsSelector",
+                        "text": "Harmonic"
+                    }
+                }
+            ],
+            "target": "MainWindow/QStatusBar",
+            "teardown": [
+                {
+                    "setCombo": {
+                        "widget": "aspectsSelector",
+                        "text": "Modern + minor"
+                    }
+                }
+            ]
+        },
+        {
+            "caption": "the chart wheel as the central view for a neutral demo chart — zodiac ring, house divisions, planet glyphs, and aspect lines of varying thickness across the center",
+            "file": "views-chart-wheel-1.png",
+            "mode": "auto",
+            "page": "views/chart-wheel.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                }
+            ],
+            "target": "chartView"
+        },
+        {
+            "caption": "the Details view for a neutral demo chart, showing the detailed properties and interpretation text for one selected planet",
+            "file": "views-details-1.png",
+            "mode": "auto",
+            "page": "views/details.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "showDock": "Details"
+                },
+                {
+                    "setCombo": {
+                        "text": "Sun",
+                        "widget": "Details"
+                    }
+                }
+            ],
+            "target": "Details"
+        },
+        {
+            "caption": "the Planets view for a neutral demo chart, showing the planets and their positions and properties",
+            "file": "views-planets-1.png",
+            "mode": "manual",
+            "page": "views/planets.md",
+            "setup": [
+                {
+                    "triggerAction": "Planets"
+                },
+                {
+                    "wait": 1000
+                }
+            ],
+            "target": "",
+            "notes": "Skipped for now: the Planets view has a white background even in the dark theme (left over from the Qt 5 to Qt 6 port). Capture once that is fixed."
+        },
+        {
+            "caption": "the Tables (text) view for a neutral demo chart, showing the text tables — Positions and one of the directions or paran sections — with the display-mode control and the per-section toggles visible in the toolbar",
+            "file": "views-tables-1.png",
+            "mode": "auto",
+            "page": "views/tables.md",
+            "setup": [
+                {
+                    "triggerAction": "Tables"
+                }
+            ],
+            "target": "Plain"
+        },
+        {
+            "caption": "the Aspect Range Navigator transport — play/stop and first/prev/peak/next/last controls — in the title bar of the Events panel",
+            "file": "chart-wheel-animation-1.png",
+            "mode": "auto",
+            "page": "chart-wheel/animation.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the aspect-mode selector in the status bar (Ecliptic / Equatorial); the GC (great-circle) and Mundane toggles sit beside it",
+            "file": "chart-wheel-coordinate-frames-1.png",
+            "mode": "auto",
+            "page": "chart-wheel/coordinate-frames.md",
+            "popups": true,
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "openPopup": "aspectModeSelector"
+                }
+            ],
+            "target": "aspectModeSelector"
+        },
+        {
+            "caption": "the declination strip beside the chart wheel for a neutral demo chart, with planetary declination labels placed down the strip",
+            "file": "chart-wheel-declination-strip-1.png",
+            "mode": "auto",
+            "page": "chart-wheel/declination-strip.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                }
+            ],
+            "target": "declView"
+        },
+        {
+            "caption": "a chart wheel where a fixed star is drawn beside a planet it conjoins within great-circle orb",
+            "file": "chart-wheel-fixed-stars-1.png",
+            "mode": "auto",
+            "page": "chart-wheel/fixed-stars.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the Harmonics tab showing the tree of harmonic aspects and midpoints, with an overtone child expanded under a harmonic group",
+            "file": "chart-wheel-harmonics-tab-1.png",
+            "mode": "auto",
+            "page": "chart-wheel/harmonics-tab.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "showDock": "Harmonics"
+                },
+                {
+                    "selectRow": {
+                        "expand": true,
+                        "text": "H5",
+                        "widget": "Harmonics"
+                    }
+                }
+            ],
+            "target": "Harmonics"
+        },
+        {
+            "caption": "the chart wheel redrawn in the 5th harmonic, with the harmonic selector at the right of the status bar set to 5",
+            "file": "chart-wheel-harmonics-1.png",
+            "mode": "auto",
+            "page": "chart-wheel/harmonics.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 5
+                },
+                {
+                    "showDock": "Transits"
+                }
+            ],
+            "target": "window",
+            "teardown": [
+                {
+                    "setHarmonic": 1
+                }
+            ]
+        },
+        {
+            "caption": "the control listing the nine available house systems, with one selected",
+            "file": "chart-wheel-houses-aspects-1.png",
+            "mode": "auto",
+            "notes": "May need the house-system list open — verify the actual control first.",
+            "page": "chart-wheel/houses-aspects.md",
+            "popups": true,
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "openPopup": "hsystemSelector"
+                }
+            ],
+            "target": "hsystemSelector"
+        },
+        {
+            "caption": "the chart wheel filling the center of the window for a neutral demo chart, with the aspect-set and harmonic controls in the status bar",
+            "file": "chart-wheel-index-1.png",
+            "mode": "auto",
+            "page": "chart-wheel/index.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "showDock": "Transits"
+                }
+            ],
+            "target": "window"
+        },
+        {
+            "caption": "a chart wheel showing a midpoint structure — a dashed chord between two planets with a solid line running to the focal planet on the midpoint",
+            "file": "chart-wheel-midpoints-1.png",
+            "mode": "auto",
+            "page": "chart-wheel/midpoints.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the zodiac selector in the status bar, open to show Tropical, Sidereal, Fagan-Bradley and Lahiri",
+            "file": "chart-wheel-zodiacs-1.png",
+            "mode": "auto",
+            "page": "chart-wheel/zodiacs.md",
+            "popups": true,
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "openPopup": "zodiacSelector"
+                }
+            ],
+            "target": "zodiacSelector"
+        },
+        {
+            "caption": "a heliacal apparition event selected in the Events list, with the Aspect Range Navigator showing its five labeled stops (MF, Acr, Cul, Cs, EL) for a neutral demo chart",
+            "file": "events-heliacal-1.png",
+            "mode": "auto",
+            "page": "events/heliacal.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the Events panel down the right side of the window, with the filter toolbar at the top, a date range, and the scrolling list of dated events",
+            "file": "events-index-1.png",
+            "mode": "auto",
+            "page": "events/index.md",
+            "setup": [
+                {
+                    "showDock": "Transits"
+                },
+                {
+                    "setEventRange": {
+                        "from": "1985-01-01",
+                        "to": "1986-03-31"
+                    }
+                },
+                {
+                    "click": {
+                        "checked": true,
+                        "text": "T",
+                        "widget": "eventsToolbar"
+                    }
+                },
+                {
+                    "click": {
+                        "checked": true,
+                        "text": "S",
+                        "widget": "eventsToolbar"
+                    }
+                },
+                {
+                    "waitForFinders": true
+                }
+            ],
+            "target": "Transits"
+        },
+        {
+            "caption": "the Events search field with a pattern typed in and a green (valid) border, the most-recently-used dropdown open beneath it, and matching dated events in the list below",
+            "file": "events-patterns-1.png",
+            "mode": "auto",
+            "notes": "Needs the pattern MRU dropdown open (separate popup window).",
+            "page": "events/patterns.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "an event's detail editor open, with the time-zone field locked and a new location entered, ready to produce a relocated event chart",
+            "file": "events-relocating-1.png",
+            "mode": "auto",
+            "page": "events/relocating.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the Events list showing a station row with its shadow-period entry and exit dates, an ingress row, and a return row, for a neutral demo chart",
+            "file": "events-stations-ingresses-1.png",
+            "mode": "auto",
+            "page": "events/stations-ingresses.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the event-filter toolbar at the top of the Events panel: the S (stations) and R (returns) buttons, then the T, P, AP, PD, Par and Hel groups, whose dropdowns hold the individual event types (T=T, T=N, P=P and so on), with the skip-by-duration and refresh buttons at the left",
+            "file": "events-toolbar-1.png",
+            "mode": "auto",
+            "page": "events/toolbar.md",
+            "setup": [
+                {
+                    "showDock": "Transits"
+                },
+                {
+                    "setEventRange": {
+                        "from": "1985-01-01",
+                        "to": "1986-03-31"
+                    }
+                },
+                {
+                    "click": {
+                        "checked": true,
+                        "text": "T",
+                        "widget": "eventsToolbar"
+                    }
+                },
+                {
+                    "click": {
+                        "checked": true,
+                        "text": "S",
+                        "widget": "eventsToolbar"
+                    }
+                },
+                {
+                    "waitForFinders": true
+                }
+            ],
+            "target": "eventsToolbar"
+        },
+        {
+            "caption": "the dedicated paran chart with the Speculum dock beside it, one paran highlighted, for a neutral demo chart",
+            "file": "parans-index-1.png",
+            "mode": "auto",
+            "page": "parans/index.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the paran latitude-band table listing cities and their in-orb paran output for a chosen paran, for a neutral demo chart",
+            "file": "parans-latitude-bands-1.png",
+            "mode": "auto",
+            "page": "parans/latitude-bands.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the Events panel with paranatellonta events enabled in the filter toolbar and a list of dated paran events for a neutral demo chart",
+            "file": "parans-paranatellonta-1.png",
+            "mode": "auto",
+            "page": "parans/paranatellonta.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the dedicated paran chart for a single paran event, showing the two bodies sitting on their respective angles",
+            "file": "parans-paranatellonta-2.png",
+            "mode": "auto",
+            "page": "parans/paranatellonta.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "a bi-wheel in prime-vertical mode with two bodies in paran aligned against the horizon/meridian frame",
+            "file": "parans-paranatellonta-3.png",
+            "mode": "auto",
+            "page": "parans/paranatellonta.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the mundane primary-directions table in the Tables view for a neutral demo chart, with effective dates shown",
+            "file": "parans-primary-directions-1.png",
+            "mode": "auto",
+            "page": "parans/primary-directions.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the PSSR directions table for the second chart of a bi-wheel, with the option to include the natal planets enabled",
+            "file": "parans-primary-directions-2.png",
+            "mode": "auto",
+            "page": "parans/primary-directions.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the Speculum dock listing each body's rising, MC, setting and IC times for a neutral demo chart",
+            "file": "parans-speculum-1.png",
+            "mode": "auto",
+            "page": "parans/speculum.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "showDock": "Speculum"
+                }
+            ],
+            "target": "Speculum"
+        },
+        {
+            "caption": "a bi-wheel with a neutral natal demo chart as the inner wheel and a transit or return chart as the outer wheel, with the inter-chart aspect lines highlighted",
+            "file": "chart-types-biwheels-1.png",
+            "mode": "auto",
+            "page": "chart-types/biwheels.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "a composite chart wheel synthesized from two neutral demo charts, with the midpointed planetary positions and composite-derived house cusps",
+            "file": "chart-types-composite-1.png",
+            "mode": "auto",
+            "page": "chart-types/composite.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the Events panel with a return row selected on the left, and the resulting return chart drawn as a bi-wheel against the natal chart on the right",
+            "file": "chart-types-index-1.png",
+            "mode": "auto",
+            "page": "chart-types/index.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the Events panel with the P=P filter enabled, showing a list of progressed-to-natal and progressed-to-progression events for a neutral demo chart",
+            "file": "chart-types-progressions-1.png",
+            "mode": "auto",
+            "page": "chart-types/progressions.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the Events panel showing a solar return row selected, with the aspects-in-orb summary for that return, using a neutral demo chart",
+            "file": "chart-types-returns-1.png",
+            "mode": "auto",
+            "page": "chart-types/returns.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the chart database panel down the left side of the window, showing a folder tree with a couple of subfolders expanded and several demo charts inside them",
+            "file": "organizing-database-1.png",
+            "mode": "auto",
+            "notes": "Shows the chart database/session list — use the clean demo data folder.",
+            "page": "organizing/database.md",
+            "setup": [
+                {
+                    "showDock": "dbDockWidget"
+                },
+                {
+                    "selectRow": {
+                        "expand": true,
+                        "text": "Sample Charts",
+                        "widget": "dbDockWidget"
+                    }
+                }
+            ],
+            "target": "dbDockWidget"
+        },
+        {
+            "caption": "the session list in the database panel, showing one named session and a couple of timestamped auto sessions, with the right-click context menu open",
+            "file": "organizing-sessions-1.png",
+            "mode": "auto",
+            "notes": "Needs the session right-click context menu open (QMenu::exec blocks — schedule the grab first). Shows the chart database/session list — use the clean demo data folder.",
+            "page": "organizing/sessions.md",
+            "setup": [],
+            "target": ""
+        },
+        {
+            "caption": "the Settings dialog open on the General tab, showing the theme selector, the unsaved-files and show-age checkboxes, the Timezone and Geography API key field, the default location, and the Save as Defaults / By default / OK / Cancel / Apply buttons",
+            "file": "reference-settings-1.png",
+            "mode": "auto",
+            "page": "reference/settings.md",
+            "setup": [
+                {
+                    "triggerAction": "Settings"
+                },
+                {
+                    "waitForWidget": "appSettingsEditor"
+                },
+                {
+                    "setTab": {
+                        "tab": "General",
+                        "widget": "settingsTabs"
+                    }
+                }
+            ],
+            "target": "appSettingsEditor"
+        },
+        {
+            "caption": "the Settings dialog open on the Chart tab",
+            "file": "reference-settings-2.png",
+            "mode": "auto",
+            "page": "reference/settings.md",
+            "setup": [
+                {
+                    "triggerAction": "Settings"
+                },
+                {
+                    "waitForWidget": "appSettingsEditor"
+                },
+                {
+                    "setTab": {
+                        "tab": "Chart",
+                        "widget": "settingsTabs"
+                    }
+                }
+            ],
+            "target": "appSettingsEditor"
+        },
+        {
+            "caption": "the Settings dialog open on the Tables tab",
+            "file": "reference-settings-3.png",
+            "mode": "auto",
+            "page": "reference/settings.md",
+            "setup": [
+                {
+                    "triggerAction": "Settings"
+                },
+                {
+                    "waitForWidget": "appSettingsEditor"
+                },
+                {
+                    "setTab": {
+                        "tab": "Tables",
+                        "widget": "settingsTabs"
+                    }
+                }
+            ],
+            "target": "appSettingsEditor"
+        },
+        {
+            "caption": "the Settings dialog open on the Events tab",
+            "file": "reference-settings-4.png",
+            "mode": "auto",
+            "page": "reference/settings.md",
+            "setup": [
+                {
+                    "triggerAction": "Settings"
+                },
+                {
+                    "waitForWidget": "appSettingsEditor"
+                },
+                {
+                    "setTab": {
+                        "tab": "Events",
+                        "widget": "settingsTabs"
+                    }
+                }
+            ],
+            "target": "appSettingsEditor"
+        },
+        {
+            "caption": "the Settings dialog open on the Harmonics tab",
+            "file": "reference-settings-5.png",
+            "mode": "auto",
+            "page": "reference/settings.md",
+            "setup": [
+                {
+                    "triggerAction": "Settings"
+                },
+                {
+                    "waitForWidget": "appSettingsEditor"
+                },
+                {
+                    "setTab": {
+                        "tab": "Harmonics",
+                        "widget": "settingsTabs"
+                    }
+                }
+            ],
+            "target": "appSettingsEditor"
+        },
+        {
+            "caption": "the same demo chart shown in the Dark theme",
+            "file": "reference-themes-1.png",
+            "mode": "auto",
+            "notes": "Dark theme.",
+            "page": "reference/themes.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "showDock": "Transits"
+                }
+            ],
+            "target": "window",
+            "theme": "dark"
+        },
+        {
+            "caption": "the same demo chart shown in the Light theme, for side-by-side comparison with the Dark version above",
+            "file": "reference-themes-2.png",
+            "mode": "auto",
+            "notes": "Light theme — same chart as reference-themes-1.",
+            "page": "reference/themes.md",
+            "setup": [
+                {
+                    "triggerAction": "Chart"
+                },
+                {
+                    "setHarmonic": 1
+                },
+                {
+                    "showDock": "Transits"
+                }
+            ],
+            "target": "window",
+            "theme": "light"
+        }
+    ]
+}

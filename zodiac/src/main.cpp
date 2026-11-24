@@ -1,6 +1,10 @@
 #include "mainwindow.h"
 #include "thememanager.h"
 #include "crashhandler.h"
+#include "helptopics.h"
+#ifdef ZODIAC_DOC_CAPTURE
+#include "doccapture.h"
+#endif
 #include <QApplication>
 #include <QMessageBox>
 #include <QDebug>
@@ -219,6 +223,22 @@ main(int argc, char* argv[])
     a.setApplicationName("Zodiac");
     a.setApplicationVersion("v0.9.10 (build 2026-10-13)");
 
+    // --data-dir=<folder> (or ZODIAC_DATA_DIR) swaps Documents/zodiac-charts for
+    // another folder -- charts, sessions, settings.ini, APIKey.ini and the theme
+    // INI all move there. Used for clean doc captures and testing.
+    QString dataDir = qEnvironmentVariable("ZODIAC_DATA_DIR");
+    for (int i = 1; i < originalArgs.size(); ++i) {
+        const QString& arg = originalArgs[i];
+        if (arg.startsWith("--data-dir=", Qt::CaseInsensitive))
+            dataDir = arg.mid(int(strlen("--data-dir=")));
+        else if (arg.compare("--data-dir", Qt::CaseInsensitive) == 0 && i + 1 < originalArgs.size())
+            dataDir = originalArgs[++i];
+    }
+    if (!dataDir.isEmpty()) {
+        setUserDataDir(dataDir);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, userDataDir());
+    }
+
     // Install post-mortem crash capture before any real work. On Windows this
     // writes a minidump + symbolized stack trace to %LOCALAPPDATA%\Zodiac\crashes
     // when the process dies unexpectedly; on next launch the user is offered the
@@ -312,6 +332,10 @@ main(int argc, char* argv[])
         }
     }
     
+    // A separate data folder is a separate user; it must not hand off to (or
+    // be raised by) an instance running on the real one.
+    if (!dataDir.isEmpty()) allowMultipleInstances = true;
+
     qDebug() << "skipRestore:" << skipRestore;
     qDebug() << "autoRestore:" << autoRestore;
     qDebug() << "allowMultipleInstances:" << allowMultipleInstances;
@@ -335,6 +359,15 @@ main(int argc, char* argv[])
         qDebug() << "Multiple instances allowed - skipping single instance check";
     }
     
+    // F1 context help; installed before MainWindow so startup dialogs get it.
+    HelpTopics::installF1Handler(&a);
+
+#ifdef ZODIAC_DOC_CAPTURE
+    // Developer screenshot mode; does nothing unless --doc-capture is passed.
+    // Installed before MainWindow so startup dialogs can be captured too.
+    DocCapture::installIfRequested(originalArgs);
+#endif
+
     // Initialize and apply the theme to the application BEFORE constructing the
     // window, so startup dialogs shown during construction (the session prompt
     // and the "Choose…" picker) are themed.

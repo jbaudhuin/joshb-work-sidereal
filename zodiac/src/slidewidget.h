@@ -27,6 +27,7 @@ class SlideWidget : public QWidget
         QWidget* currentSlide();
         int currentIndex()                            { return index; }
         int count()                                   { return slides.count(); }
+        QWidget* slide(int i) const                   { return slides.value(i); }
 
     signals:
         void currentSlideChanged();

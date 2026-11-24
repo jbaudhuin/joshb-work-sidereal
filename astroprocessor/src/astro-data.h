@@ -2771,7 +2771,12 @@ struct Horoscope {
 
     const Planet* getPlanet(PlanetId pid) const
     {
-        return &const_cast<Horoscope*>(this)->planets[pid];
+        // Never insert on a miss: a blank entry would show up as a nameless
+        // body everywhere the map is iterated. Callers expect a valid
+        // pointer, so a missing id yields a shared empty Planet.
+        static const Planet none;
+        auto it = planets.constFind(pid);
+        return it != planets.constEnd() ? &it.value() : &none;
     }
 
     /// Replace equatorial coordinates with ex-precessed values at targetJD.

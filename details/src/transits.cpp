@@ -39,6 +39,7 @@
 #include <QScrollBar>
 #include <QSettings>
 #include <QSortFilterProxyModel>
+#include <tuple>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QStringListModel>
@@ -342,6 +343,18 @@ class EventsTableModel : public QAbstractItemModel {
     }
     
     void setNatalFile(AstroFile* file) { _natalFile = file; }
+
+    /// Type-column text for an event type. Direction rows keep the one
+    /// etcPrimaryDirections tag whatever the radix, but are *timed* by the
+    /// radix chart's own method -- classical for a natal chart, quotidian
+    /// for a return (see A::DirTiming) -- so they are labelled by that
+    /// method: "PD", "SQ", "NeoSQ", "PSSR" or "NeoPSSR".
+    QString eventTypeLabel(A::EventType type) const
+    {
+        if (type == A::etcPrimaryDirections)
+            return A::dirMethodLabel(A::resolveDirMethod(_natalFile));
+        return A::EventTypeManager::eventTypeToBrief(type);
+    }
 
     QModelIndex index(int                row,
                       int                column,
@@ -1187,10 +1200,16 @@ class EventsTableModel : public QAbstractItemModel {
             if (prow == -1) {
                 auto type = _evs[row]->eventType();
                 if (role == Qt::ToolTipRole) {
+                    if (type == A::etcPrimaryDirections) {
+                        const A::DirMethod m = A::resolveDirMethod(_natalFile);
+                        if (m != A::DirNone)
+                            return tr("Directions of the return chart, "
+                                      "%1 timing").arg(A::dirMethodLabel(m));
+                    }
                     return A::EventTypeManager::eventTypeToString(type);
                 }
                 if (role == Qt::DisplayRole) {
-                    return A::EventTypeManager::eventTypeToBrief(type);
+                    return eventTypeLabel(type);
                 }
             }
             break;
@@ -1668,6 +1687,21 @@ class EventsTableModel : public QAbstractItemModel {
         return key;
     }
 
+    /// Chart- and mode-agnostic projection of a columnSortKey(): same
+    /// within-chart ordering as ChartPlanetId (solo before midpoint, then
+    /// planet ids) but without the leading file-id / trailing mode compare.
+    typedef std::tuple<bool, bool, int, int> BodyKeyElem;
+    static std::vector<BodyKeyElem>
+    bodySortKey(const std::vector<A::ChartPlanetModeId>& ids)
+    {
+        std::vector<BodyKeyElem> key;
+        key.reserve(ids.size());
+        for (const auto& c : ids)
+            key.emplace_back(c.isMidpt(), c.isOppMidpt(),
+                             int(c.planetId()), int(c.planetId2()));
+        return key;
+    }
+
     struct hevLess {
         int  _col;
         bool _isMore;
@@ -1741,8 +1775,14 @@ class EventsTableModel : public QAbstractItemModel {
             case transitBodyCol:
             case natalTransitBodyCol:
             {
-                auto ka = columnSortKey(*a, _col);
-                auto kb = columnSortKey(*b, _col);
+                // Sort by the displayed BODY only — not which chart/mode it
+                // came from.  ChartPlanetModeId orders by file id first, and
+                // primary directions tag both bodies with the radix chart's
+                // file id while transits/progressions use another, so a plain
+                // key compare grouped every PD row into its own block instead
+                // of interleaving it with the other rows for the same body.
+                auto ka = bodySortKey(columnSortKey(*a, _col));
+                auto kb = bodySortKey(columnSortKey(*b, _col));
                 if (ka < kb) return true;
                 if (kb < ka) return false;
                 if (a->dateTime() < b->dateTime()) return true; // date-time
@@ -1926,7 +1966,16 @@ class EventsTableModel : public QAbstractItemModel {
         endResetModel();
     }
 
-    void setAspectSet(A::AspectSetId asps) { _aspects = asps; }
+    void setAspectSet(A::AspectSetId asps)
+    {
+        if (_aspects == asps) return;
+        _aspects = asps;
+        // Asp-column glyphs/names resolve live against the aspect set, so
+        // repaint them now — with Auto off no recompute follows to do it.
+        if (rowCount() > 0)
+            emit dataChanged(index(0, harmonicCol),
+                             index(rowCount() - 1, harmonicCol));
+    }
 
     int eventListCount() const { return static_cast<int>(_evls.size()); }
 
@@ -2878,6 +2927,7 @@ Transits::Transits(QWidget* parent) :
     
     // Create toolbar at the very top
     QToolBar* toolbar = new QToolBar(this);
+    toolbar->setObjectName("eventsToolbar"); // F1 help topic
     toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
     toolbar->setMovable(false);
     toolbar->setFloatable(false);
@@ -2962,6 +3012,7 @@ Transits::Transits(QWidget* parent) :
     // pauses/resumes automatic reconciliation.
     _btnRefresh = new LeftToolButton(toolbar);
     _btnRefresh->setText("⟳");
+    _btnRefresh->setObjectName("eventsRefresh");
     _btnRefresh->setPopupMode(QToolButton::MenuButtonPopup);
     _btnRefresh->setToolTip("Refresh now — recompute pending changes.\nYellow = recompute pending, green = up to date.\nDropdown: toggle auto-refresh.");
 
@@ -3594,7 +3645,9 @@ bool
 Transits::transitFileIsDirected()
 {
     AstroFile* taf = transitsAF();
-    return taf && taf->getType() == TypeDerivedPD;
+    // Likewise a chart whose place is pinned (a position-search match shown
+    // as chart 2): its angles depend on the place it was solved for.
+    return taf && (taf->getType() == TypeDerivedPD || taf->isLocationPinned());
 }
 
 void
@@ -4938,15 +4991,17 @@ static QString buildParanChartName(const A::HarmonicEvent& ev, bool biwheel) {
 // `connector` ("Dir"/"Con"), mirroring event::makeFocusAnchor()'s existing
 // inversion (astro-output.cpp). Used to freeze the arc when opening a PD row
 // as a real derived chart (TypeDerivedPD) -- see doubleClickedCell().
+//
+// `radix` is the chart the directions were computed from; its DirTiming is
+// the same mapping the finder used (classical timing key for a natal chart,
+// quotidian for a return), so the inversion matches whichever applied.
 static double
-recoverPrimaryDirectionArc(const QDateTime& radixGMT, const QDateTime& eventDate,
+recoverPrimaryDirectionArc(const AstroFile* radix, const QDateTime& eventDate,
                           const QString& connector)
 {
-    const double daysPerDeg = A::pdDaysPerDegree(A::pdTimingKey);
-    if (daysPerDeg <= 0.0) return 0.0;
-    const double elapsedDays = radixGMT.msecsTo(eventDate) / 86400000.0;
-    const double arcMag      = elapsedDays / daysPerDeg;
-    return (connector == "Con") ? -arcMag : arcMag;
+    if (!radix) return 0.0;
+    return A::DirTiming::forFile(radix).arcForDate(radix->getGMT(), eventDate,
+                                                   connector == "Con");
 }
 
 void
@@ -5081,10 +5136,15 @@ Transits::clickedCell(QModelIndex inx)
         // moment the user changes Events/pdOrbDegrees without triggering a
         // recompute. Mirrors the exact formula findPrimaryDirections() uses
         // (astro-calc.cpp, AspectFinder::findPrimaryDirections()) so the
-        // preview's window always matches "the same as the table".
+        // range always matches "the same as the table".
+        // NOTE: describeParans() no longer filters the focused Directions
+        // preview by this range -- it uses the paran orb in arc space,
+        // unwrapped onto the anchor's turn of the sky (see the
+        // isDirectionFocus branch there). This range is now only its
+        // fallback when no direction timing is available.
         const double pdOrb = A::EventOptions::current().pdOrbDegrees;
         const qint64 orbSecs = pdOrb > 0.0
-            ? qint64(pdOrb * A::pdDaysPerDegree(A::pdTimingKey) * 86400.0)
+            ? qint64(pdOrb * A::DirTiming::forFile(file()).daysPerDegree() * 86400.0)
             : qint64(3 * 86400); // orb disabled: fall back to a small window
         A::ADateTimeRange focusRange = { dt.addSecs(-orbSecs), dt.addSecs(orbSecs) };
         // Label for the clicked PD event itself, e.g. "(Con) Neptune -> Uranus"
@@ -5200,7 +5260,7 @@ Transits::clickedCell(QModelIndex inx)
         if (!transitsOnly()) {
             if (auto* taf = transitsAF()) {
                 const double arc =
-                    recoverPrimaryDirectionArc(file()->getGMT(), dt, connector);
+                    recoverPrimaryDirectionArc(file(), dt, connector);
                 taf->suspendUpdate();
                 taf->setTimezoneLocked(false);
                 // Always empty -- calculateSynastryAspects() reads file(1)'s
@@ -5650,9 +5710,9 @@ Transits::doubleClickedCell(QModelIndex inx)
         // whose RAMC has been rotated by a fixed, frozen arc -- see
         // calculateAll()'s isPrimaryDirected() branch (astro-calc.cpp).
         af->setType(TypeDerivedPD);
-        QDateTime natalGMT;
+        const AstroFile* pdRadix = nullptr;
         if (!transitsOnly() && file()) {
-            natalGMT = file()->getGMT();
+            pdRadix = file();
             // Must carry the NATAL location, not the tab's transit location
             // set above -- calculateAll() rebuilds "natal" from this file's
             // own location, so a relocated one would corrupt the direction.
@@ -5663,7 +5723,7 @@ Transits::doubleClickedCell(QModelIndex inx)
         } else {
             af->clearBaseChart();
         }
-        af->setDirectedArc(recoverPrimaryDirectionArc(natalGMT, dt, pdConnector),
+        af->setDirectedArc(recoverPrimaryDirectionArc(pdRadix, dt, pdConnector),
                            int(A::primDirSystem));
         // Rapt parallel: carry the X/Y promissor midpoint and the natal Z it
         // parallels, so the new tab's wheel draws the same chord/stem figure
@@ -5842,8 +5902,8 @@ EventsTableModel::exportToHtml(AstroFile* natalFile, AstroFile* transitFile) con
         
         // Event type (bold)
         auto et = _evs[row]->eventType();
-        html += QString("<td><strong>%1</strong></td>\n").arg(A::EventTypeManager::eventTypeToBrief(et));
-        
+        html += QString("<td><strong>%1</strong></td>\n").arg(eventTypeLabel(et));
+
         // A decomposed apparition row reports its own phase occurrence (date +
         // label), not the shared culmination anchor.
         const int occ = _evs[row].occ;
@@ -6128,6 +6188,26 @@ Transits::onDateRangeChanged()
 }
 
 void
+Transits::setDateRange(const QDate& from, const QDate& to)
+{
+    if (!from.isValid() || !to.isValid() || to < from) return;
+    /*block*/ {
+        ASignalBlocker sb(_start);
+        _start->setDate(from);
+    }
+    /*block*/ {
+        ASignalBlocker sb(_end);
+        _end->setDate(to);
+    }
+    _ddelta = ADateDelta(from, to);
+    /*block*/ {
+        ASignalBlocker sb(_duration);
+        _duration->setText(_ddelta.toString());
+    }
+    onDateRangeChanged();
+}
+
+void
 Transits::updateDelta(const QDate& ed)
 {
     ADateDelta delta(_start->date(), ed);
@@ -6224,10 +6304,10 @@ Transits::filesUpdated(MembersList m)
 
     // Save current event options to previous file(0) if it exists
     bool fileChanged = (_previousFile != file(0));
-    // Use |= so that a re-entrant filesUpdated() (triggered by
-    // setTransitEventOptions → changed() → fileUpdatedSlot) cannot
-    // clobber the flag before viewSettingsUpdated() reads it.
-    _fileJustSwitched |= fileChanged;
+    // Record which dispatch carried the switch.  Only set (never cleared)
+    // here, so a re-entrant filesUpdated() (fileChanged false by then) can't
+    // clobber it before this dispatch's viewSettingsUpdated() reads it.
+    if (fileChanged) _fileSwitchDispatchId = currentDispatchId();
     
     // Pause/disconnect the previous tab's finder on tab switch
     if (fileChanged && _previousFile) {
@@ -6473,6 +6553,15 @@ Transits::viewSettingsUpdated(MembersList m)
     }
     qDebug() << "========================================";
 
+    // Tab-switch echo: these view flags arrived in the SAME dispatch as a
+    // filesUpdated() that switched file(0) (a setFiles() "All" diff), so they
+    // don't reflect a real settings change.  Consume the marker either way so
+    // it can never apply to a later dispatch.
+    const bool fileJustSwitched =
+        _fileSwitchDispatchId != 0
+        && _fileSwitchDispatchId == currentDispatchId();
+    _fileSwitchDispatchId = 0;
+
     if (!isVisible()) return;
     if (_inhibitUpdate) return;
     if (!filesCount()) return;
@@ -6504,7 +6593,7 @@ Transits::viewSettingsUpdated(MembersList m)
 
         // Detect dynAspState-only change: the aspect set ID didn't change,
         // only individual harmonics were toggled.  Try filter-only update.
-        if (aspectSetOnly && !_fileJustSwitched && _filterProxy) {
+        if (aspectSetOnly && !fileJustSwitched && _filterProxy) {
             auto newHs = A::activeHarmonicSet(evm->aspects());
             auto oldHs = _filterProxy->enabledHarmonics();
             bool sameSetId = (evm->aspects().id
@@ -6535,21 +6624,20 @@ Transits::viewSettingsUpdated(MembersList m)
         // a new file(1) include ViewSettings bits that look like Zodiac/
         // AspectSet/etc. changed.  They didn't — ViewSettings are global.
         // Skip the false-positive recalc in that case.
-        if (filesCount() > 0 && needsRecalc && !_fileJustSwitched) {
+        if (filesCount() > 0 && needsRecalc && !fileJustSwitched) {
             qDebug() << "[VIEW SETTINGS] Marking for recalc due to settings change";
             file(0)->markEventsForRecalc();
             // Note: Don't call updateTransits() here — describePlanet() below
             // will call it, avoiding a double-call that would block the main
             // thread waiting for the first finder to finish.
-        } else if (_fileJustSwitched) {
+        } else if (fileJustSwitched) {
             qDebug() << "[VIEW SETTINGS] Skipping recalc mark — tab switch, not a real settings change";
             // filesUpdated() already called describePlanet() which started
-            // the finder thread.  Don't call it again — that would cancel
-            // the running thread and schedule a redundant restart.
-            _fileJustSwitched = false;
+            // the finder thread (and set the model's aspect set).  Don't call
+            // it again — that would cancel the running thread and schedule a
+            // redundant restart.
             return;
         }
-        _fileJustSwitched = false;  // Clear after use
 
         if (!_chs) _chs = new AChangeSignalFrame(evm);
         evm->setAspectSet(file()->getAspectSetId());
@@ -6671,6 +6759,32 @@ Transits::applySettings(const AppSettings& s)
         A::primDirSystem     = newPrimDirSystem;
     }
 
+    // Same story for the quotidian direction methods: they decide how a
+    // return chart's directions are dated (A::DirTiming, resolved when the
+    // finder is initialized below) and what the Type column calls them, so
+    // they too must be live before the recompute rather than one dialog-OK
+    // behind. Plain::applySettings() re-reads them afterwards and finds
+    // nothing changed, which is harmless: every consumer of the cached
+    // direction context rebuilds it when its method no longer matches, and
+    // Plain refreshes unconditionally.
+    bool dirMethodChangedHere = false;
+    if (s.contains("Mundane/dirMethodSolarReturn")) {
+        const A::DirMethod m =
+            A::DirMethod(s.value("Mundane/dirMethodSolarReturn").toUInt());
+        dirMethodChangedHere |= (A::dirMethodSolarReturn != m);
+        A::dirMethodSolarReturn = m;
+    }
+    if (s.contains("Mundane/dirMethodOther")) {
+        const A::DirMethod m =
+            A::DirMethod(s.value("Mundane/dirMethodOther").toUInt());
+        dirMethodChangedHere |= (A::dirMethodOther != m);
+        A::dirMethodOther = m;
+    }
+    // Only a recompute when this tab's radix is actually dated by one of
+    // them; a natal chart's directions don't move.
+    dirMethodChangedHere = dirMethodChangedHere && filesCount() > 0
+                           && A::classifyDirChart(file(0)) != A::DirChartNotEligible;
+
     bool primDirModeChangedHere = false;
     if (s.contains("Mundane/primDirMode")) {
         A::PrimDirMode newPrimDirMode =
@@ -6714,7 +6828,8 @@ Transits::applySettings(const AppSettings& s)
                 != curr.raptParallelsAnyZ
          || s.value("Events/pdIncludeRaptConjunctions", false).toBool()
                 != curr.pdIncludeRaptConjunctions
-         || primDirSystemChanged || primDirModeChangedHere);
+         || primDirSystemChanged || primDirModeChangedHere
+         || dirMethodChangedHere);
 
     bool changedExpanded =
         (s.value("Events/secondaryOrb").toDouble() != curr.expandShowOrb
@@ -6766,6 +6881,10 @@ Transits::setupSettingsEditor(AppSettingsEditor* ed)
 
     ed->addLineEdit("Events/defaultTimespan", tr("Default timespan"));
     ed->addCheckBox("Events/limitLunarTransits", tr("Limit Lunar Transits"));
+    // Key is owned by MainWindow (it hosts the navigator in this panel's
+    // title bar); only the checkbox lives here.
+    ed->addCheckBox("Events/showRangeNavigator",
+                    tr("Show Aspect Range Navigator\nin the panel title bar"));
 
     QKeyValueList vals {
         { tr("Show all"), A::EventOptions::SkipNone },
@@ -7106,9 +7225,20 @@ Transits::updateToolbarFromEventOptions()
 
     if (_actStations)
         _actStations->setChecked(_tabEventOptions.count(A::etcStation) > 0);
-    if (_actPrimaryDirections)
+    if (_actPrimaryDirections) {
         _actPrimaryDirections->setChecked(
             _tabEventOptions.count(A::etcPrimaryDirections) > 0);
+        // A return chart's directions are dated by its quotidian method
+        // rather than the natal timing key; say which.
+        const A::DirMethod m = (filesCount() > 0 && !transitsOnly())
+                                   ? A::resolveDirMethod(file(0))
+                                   : A::DirNone;
+        _actPrimaryDirections->setToolTip(
+            m == A::DirNone
+                ? tr("Primary Directions")
+                : tr("Directions of the return chart (%1 timing)")
+                      .arg(A::dirMethodLabel(m)));
+    }
 
     // Reconcile each grouped dropdown button from the option set.
     for (auto& grp : _eventGroups) syncGroupFromOptions(grp);

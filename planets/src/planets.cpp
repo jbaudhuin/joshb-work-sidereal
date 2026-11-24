@@ -14,6 +14,7 @@
 #include <QMimeData>
 #include <QCoreApplication>
 #include "planets.h"
+#include "../../astroprocessor/src/csvreader.h"
 #include "../../zodiac/src/slidewidget.h"
 
 /* =========================== ASTRO QML VIEW ======================================= */
@@ -79,6 +80,7 @@ Planets :: Planets(QWidget *parent) : AstroFileHandler(parent)
     l3->setContentsMargins(0,5,0,0);
     l3->addLayout(l1);
     QWidget* viewContainer = QWidget::createWindowContainer(view);
+    viewContainer->setObjectName("planetsView");
     viewContainer->setAcceptDrops(false); // Disable drops on the container so parent Planets widget handles them
     l3->addWidget(viewContainer);
 
@@ -102,7 +104,9 @@ Planets::drawPlanets()
     qDebug() << "Planets::drawPlanets";
     if (view->source().isEmpty())
     {
-        QString abs(QDir::current().absoluteFilePath("planets/Planets.qml"));
+        // Resolved from the exe folder, not the cwd: launched from anywhere
+        // else the QML (and the images it loads beside it) went missing.
+        QString abs(CsvFile::resolvePath("planets/Planets.qml"));
         QUrl url(QUrl::fromLocalFile(abs));
         bool urlIsRel = url.isRelative();
         auto ulf = QQmlFile::urlToLocalFileOrQrc(url);
@@ -153,7 +157,7 @@ Planets::drawPlanets()
         }
 
         // TODO: check through all data and verify a result
-        QString imgSrc = "file:///" + QDir::currentPath() + '/' + planet.userData["iconHuge"].toString();
+        QString imgSrc = planet.userData["iconHuge"].toString();
 
         if (planet.id == A::Planet_Moon)
         {
@@ -171,6 +175,8 @@ Planets::drawPlanets()
             }
         }
 
+        // Resolve after the Moon's %1 phase is filled in; a URL would encode the %.
+        imgSrc = QUrl::fromLocalFile(CsvFile::resolvePath(imgSrc)).toString();
         item->setProperty("imageSrc", imgSrc);
 
 

@@ -193,6 +193,111 @@ zodiacPosition(const Star& star, const Zodiac& zodiac, AnglePrecision precision)
     return zodiacPosition(deg, zodiac, precision, star.isRetro());
 }
 
+bool
+parseZodiacPosition(const QString& text,
+                    const Zodiac&  zodiac,
+                    double*        deg,
+                    double*        unit)
+{
+    // Split into runs of digits (with a decimal point) and runs of letters;
+    // degree/minute/second marks and other punctuation just separate them.
+    QStringList numbers;
+    QString     word;
+    int         glyphSign = -1;
+    {
+        static const QRegularExpression re(
+            QStringLiteral("(\\d+(?:[.,]\\d+)?)|(\\p{L}+)|([\\x{2648}-\\x{2653}])"),
+            QRegularExpression::UseUnicodePropertiesOption);
+        auto it = re.globalMatch(text);
+        while (it.hasNext()) {
+            const auto m = it.next();
+            if (!m.captured(1).isEmpty()) {
+                numbers << m.captured(1).replace(',', '.');
+            } else if (!m.captured(3).isEmpty()) {
+                if (glyphSign >= 0) return false;
+                glyphSign = m.captured(3).at(0).unicode() - 0x2648;
+            } else {
+                const QString w = m.captured(2);
+                // retrograde marks
+                if (!w.compare("r", Qt::CaseInsensitive)
+                    || !w.compare("rx", Qt::CaseInsensitive))
+                    continue;
+                if (!word.isEmpty()) return false; // two sign names
+                word = w;
+            }
+        }
+    }
+    if (numbers.size() > 3) return false;
+    // No figures at all: a sign by itself (resolved below).
+    const bool signOnly = numbers.isEmpty();
+    if (signOnly && word.isEmpty() && glyphSign < 0) return false;
+
+    double value = 0, last = 1;
+    for (int i = 0; i < numbers.size(); ++i) {
+        bool         ok = false;
+        const double v  = numbers[i].toDouble(&ok);
+        if (!ok) return false;
+        if (i > 0 && v >= 60) return false;
+        last = (i == 0) ? 1.0 : (i == 1) ? 1.0 / 60 : 1.0 / 3600;
+        value += v * last;
+        const int dot = numbers[i].indexOf('.');
+        if (dot >= 0) {
+            if (i != numbers.size() - 1) return false; // fraction mid-way
+            last *= std::pow(10.0, -(numbers[i].size() - dot - 1));
+        }
+    }
+
+    const ZodiacSign* sign = nullptr;
+    if (glyphSign >= 0) {
+        if (!word.isEmpty() || glyphSign >= zodiac.signs.size()) return false;
+        sign = &zodiac.signs[glyphSign];
+    } else if (!word.isEmpty()) {
+        // exact tag or name first
+        for (const ZodiacSign& s : zodiac.signs)
+            if (!s.tag.compare(word, Qt::CaseInsensitive)
+                || !s.name.compare(word, Qt::CaseInsensitive))
+                sign = &s;
+        // the customary two-letter codes
+        if (!sign && zodiac.signs.size() == 12) {
+            static const char* two[] = { "ar", "ta", "ge", "cn", "le", "vi",
+                                         "li", "sc", "sg", "cp", "aq", "pi" };
+            for (int i = 0; i < 12; ++i)
+                if (!word.compare(QLatin1String(two[i]), Qt::CaseInsensitive))
+                    sign = &zodiac.signs[i];
+        }
+        // otherwise an unambiguous beginning of the tag or name
+        if (!sign && word.size() >= 2) {
+            int matches = 0;
+            for (const ZodiacSign& s : zodiac.signs)
+                if (s.tag.startsWith(word, Qt::CaseInsensitive)
+                    || s.name.startsWith(word, Qt::CaseInsensitive))
+                {
+                    sign = &s;
+                    ++matches;
+                }
+            if (matches != 1) sign = nullptr;
+        }
+        if (!sign) return false;
+    }
+
+    if (signOnly) {
+        // The whole sign: its middle, known to the width of the sign.
+        if (!sign) return false;
+        last  = sign->endAngle - sign->startAngle;
+        if (last <= 0) last += 360.0;
+        value = sign->startAngle + last / 2;
+    } else if (sign) {
+        if (value >= sign->endAngle - sign->startAngle) return false;
+        value += sign->startAngle;
+    } else if (value >= 360.0) {
+        return false;
+    }
+
+    if (deg) *deg = value;
+    if (unit) *unit = last;
+    return true;
+}
+
 void
 sortPlanets(PlanetList& planets, PlanetsOrder order)
 {
@@ -646,11 +751,11 @@ describePlanetCoord(const Planet& planet)
 }
 
 QString
-describePlanetCoordInHtml(const Planet& planet)
+describePlanetCoordInHtml(const Planet& planet, const QString& valueColor)
 {
     QString ret = describePlanetCoord(planet);
     ret.replace(QRegularExpression(QString::fromLocal8Bit("(: [!-° ]+)")),
-                "<font color='#e9e9e4'>\\1</font>"); // replaces values
+                "<font color='" + valueColor + "'>\\1</font>"); // replaces values
     ret.replace("\n", "<br>");
     return ret;
 }
@@ -1206,11 +1311,17 @@ struct event {
         e._isFocusAnchor = true;
         e._anchorLabel   = label;
         if (_radix.isValid() && directedDate.isValid()) {
-            double elapsedDays = _radix.msecsTo(directedDate) / 86400000.0;
-            double yearDays    = pdDaysPerDegree(pdTimingKey);
-            if (yearDays > 0.0) {
-                double arcMag = elapsedDays / yearDays;
-                double ra     = _radixRA + (converse ? -arcMag : arcMag);
+            // Same arc <-> date mapping the Events table dated this row
+            // with: the classical timing key, or this chart's quotidian
+            // method when it is a return (see DirTiming).
+            DirTiming timing;
+            if (_pssrCtx && _pssrCtx->isValid && _dirMethod != DirNone) {
+                timing.method = _dirMethod;
+                timing.ctx    = *_pssrCtx;
+            }
+            if (timing.daysPerDegree() > 0.0) {
+                double ra = _radixRA
+                            + timing.arcForDate(_radix, directedDate, converse);
                 ra            = std::fmod(ra, 360.0);
                 if (ra < 0.0) ra += 360.0;
                 e._anchorImpliedRA = ra;
@@ -1717,18 +1828,69 @@ describeParans(const AstroFileList& scopes,
         // "(Con) …" (see Transits::clickedCell()) -- pull the connector
         // back out rather than threading yet another parameter through.
         const bool anchorConverse = directionFocusLabel.startsWith("(Con");
-        auto sameSide = [anchorConverse](const event& e) {
-            if (!e._star) return false;
-            double arc = e._star->angleTransitRA[e._pivot] - event::_radixRA;
-            while (arc > 180.0)   arc -= 360.0;
-            while (arc <= -180.0) arc += 360.0;
-            return (arc < 0.0) == anchorConverse;
-        };
+
+        // Same arc <-> date mapping the Events table dated the clicked event
+        // with (see makeFocusAnchor()).
+        DirTiming timing;
+        if (event::_pssrCtx && event::_pssrCtx->isValid
+            && event::_dirMethod != DirNone) {
+            timing.method = event::_dirMethod;
+            timing.ctx    = *event::_pssrCtx;
+        }
+
         QVector<event> focused;
-        for (const event& e : std::as_const(events))
-            if (e._directed.isValid() && directionFocusRange.contains(e._directed)
-                && sameSide(e))
+        if (!event::_isProgressed && directionFocusDate.isValid()
+            && event::_radix.isValid() && timing.daysPerDegree() > 0.0) {
+            // Work in ARC space, not date space, and unwrap each row onto
+            // the turn of the sky nearest the clicked event's own arc.
+            //
+            // Each body contributes only one angle-transit per angle -- the
+            // one within +/-12h of the radix -- so its folded arc is confined
+            // to (-180, 180]. computeDirected() dates that folded arc, which
+            // is right for the full listing (one pass round the sky) but
+            // wrong here: the Events-table finder is not folded, so it
+            // happily reports directions beyond half a turn (under PSSR/SQ,
+            // anything more than ~6 months after the return; under PD,
+            // multi-century nation charts). A body perfecting at +207 deg
+            // would otherwise be folded to -153 deg -- a CONVERSE ~5 months
+            // out -- and miss both the window and the side test, leaving the
+            // anchor row alone in the preview.
+            //
+            // The window is the paran orb (the Directions table's own notion
+            // of "near"), not the PD orb of effect: that one sizes each
+            // event's active range in the Events table, whereas this preview
+            // asks what ELSE is angular in the vicinity.
+            const double anchorArc =
+                timing.arcForDate(event::_radix, directionFocusDate, anchorConverse);
+            for (event e : std::as_const(events)) {
+                if (!e._star) continue; // radix marker row
+                double arc = e._star->angleTransitRA[e._pivot] - event::_radixRA;
+                arc = std::fmod(arc, 360.0);
+                if (arc > 180.0)        arc -= 360.0;
+                else if (arc <= -180.0) arc += 360.0;
+                arc += 360.0 * std::round((anchorArc - arc) / 360.0);
+                if (qAbs(arc - anchorArc) > paranOrb) continue;
+                // Direct and converse arcs of equal magnitude date alike;
+                // don't blend the anchor's side with its mirror image.
+                if (arc != 0.0 && (arc < 0.0) != anchorConverse) continue;
+                e._directed = timing.dateForArc(event::_radix, arc);
                 focused.append(e);
+            }
+        } else {
+            // No usable timing (shouldn't happen for a PD click): fall back
+            // to the caller's date window over the folded directed dates.
+            auto sameSide = [anchorConverse](const event& e) {
+                if (!e._star) return false;
+                double arc = e._star->angleTransitRA[e._pivot] - event::_radixRA;
+                while (arc > 180.0)   arc -= 360.0;
+                while (arc <= -180.0) arc += 360.0;
+                return (arc < 0.0) == anchorConverse;
+            };
+            for (const event& e : std::as_const(events))
+                if (e._directed.isValid() && directionFocusRange.contains(e._directed)
+                    && sameSide(e))
+                    focused.append(e);
+        }
         // Represent the clicked PD event itself as a bolded anchor row —
         // otherwise the focused view shows only the rows clustered *around*
         // it with no indication of what they're clustered around.

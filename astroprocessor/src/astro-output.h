@@ -73,6 +73,18 @@ QString
 zodiacPosition(const Star&    planet,
                const Zodiac&  zodiac,
                AnglePrecision precision = NormalPrecision);
+/// Read a typed position back into a longitude (0..360) in `zodiac`:
+/// "15 Leo", "15°23' Leo", "15Le23", "Leo 15 23 10", a sign glyph in place
+/// of the name, or a bare absolute longitude such as "135.4". A trailing
+/// retrograde mark ("R") is ignored. `unit`, if given, receives the size in
+/// degrees of the last component typed (1, 1/60, 1/3600, or a decimal
+/// place), i.e. how precisely the position was stated. A sign by itself
+/// ("Leo") reads as the middle of the sign, with the sign's width as `unit`.
+bool
+parseZodiacPosition(const QString& text,
+                    const Zodiac&  zodiac,
+                    double*        deg,
+                    double*        unit = nullptr);
 void
 sortPlanets(PlanetList& planets, PlanetsOrder order);
 
@@ -102,8 +114,11 @@ QString
 describePlanet(const Planet& planet, const Zodiac& zodiac);
 QString
 describePlanetCoord(const Planet& planet);
+/// valueColor: the colour the values are drawn in; callers pass one that
+/// reads on the current theme.
 QString
-describePlanetCoordInHtml(const Planet& planet);
+describePlanetCoordInHtml(const Planet& planet,
+                          const QString& valueColor = QStringLiteral("#e9e9e4"));
 QString
 describePower(const Planet& planet, const Horoscope& scope);
 QString

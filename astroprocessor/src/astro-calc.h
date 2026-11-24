@@ -5,6 +5,7 @@
 #include <QEventLoop>
 #include <QRunnable>
 #include <QThreadPool>
+#include <memory>
 
 // Forward
 class AstroFile;
@@ -1104,6 +1105,8 @@ class EventFinderBase : public QRunnable {
     void         run(); // sets ephemeris path and then runs
 };
 
+struct DirTiming;
+
 class AspectFinder : public QObject, public EventOptions {
     Q_OBJECT
 
@@ -1302,6 +1305,13 @@ class AspectFinder : public QObject, public EventOptions {
     ADateRange      _range;
 
     QList<InputData> _ids;
+    /// Arc -> date mapping for the direction finders (primary directions and
+    /// the rapt family), resolved from the radix chart in
+    /// initializeFromFiles(). Null means the classical timing key; read it
+    /// through dirTiming(). Held by pointer only because DirTiming is
+    /// declared further down this header.
+    std::shared_ptr<DirTiming> _dirTiming;
+    const DirTiming& dirTiming() const;
     /// Composite component inputs. Address-stable (std::list): InputPosition
     /// inners hold const InputData& into these entries — never store them in
     /// the QList _ids, which may reallocate.
@@ -1622,6 +1632,49 @@ inline double pdDaysPerDegree(PDTimingKey k)
 {
     return k == PDNaibod ? (365.2422 / 0.98565) : 365.25;
 }
+
+/// Quotidian arc -> date, shared by calculateAngularDate() (the Directions /
+/// Speculum tables, which pass an arc folded into (-180, 180]) and DirTiming
+/// below (the Events-table direction search, which passes accumulated
+/// multi-turn arcs). The magnitude is applied forward from the anchor, so a
+/// converse (negative) arc dates the same as its direct twin. `ctx` must be
+/// valid. `daysOut`, if given, receives the signed elapsed days.
+QDateTime
+quotidianDateForArc(const PSSRContext& ctx, double arc, double* daysOut = nullptr);
+
+/// How an arc of direction maps to a calendar date for a given radix chart.
+/// A natal-like radix uses the classical timing key (method == DirNone); a
+/// return chart uses the quotidian method resolveDirMethod() picks for it, at
+/// roughly 360 degrees per year. The geometry of a direction -- its arc -- is
+/// the same in every case; only this mapping differs, which is why the
+/// Events table keeps one event type (etcPrimaryDirections) and labels the
+/// rows by label() instead.
+struct DirTiming {
+    DirMethod   method = DirNone; // DirNone => classical PD timing key
+    PSSRContext ctx;              // valid when method != DirNone
+
+    bool isQuotidian() const { return method != DirNone && ctx.isValid; }
+
+    /// Mean rate, for sizing arc windows and converting an orb in degrees
+    /// to a span of time. Exact for PD and PSSR; the mean for SQ/NeoSQ.
+    double daysPerDegree() const;
+
+    /// Date at which a direction of `arc` degrees perfects. Sign is ignored
+    /// (converse directions date forward too), matching primaryDirectionDate().
+    QDateTime dateForArc(const QDateTime& radix, double arc) const;
+
+    /// Inverse of dateForArc(): the signed arc whose direction perfects at
+    /// `dt`. Accumulated, i.e. not folded -- it may exceed 360.
+    double arcForDate(const QDateTime& radix, const QDateTime& dt, bool converse) const;
+
+    /// "PD", "SQ", "NeoSQ", "PSSR" or "NeoPSSR".
+    QString label() const
+    { return dirMethodLabel(isQuotidian() ? method : DirNone); }
+
+    /// GUI thread only: reads the file's horoscope. Capture the result by
+    /// value before handing it to a finder thread.
+    static DirTiming forFile(const AstroFile* file);
+};
 
 /// One body's speculum entry at the radix: right ascension, declination, and
 /// the derived Placidian quantities. Oblique ascension is computed inline
